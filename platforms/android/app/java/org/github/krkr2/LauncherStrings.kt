@@ -1,0 +1,86 @@
+package org.github.krkr2
+
+import android.content.Context
+
+object LauncherStrings {
+    data class Texts(
+        val title: String,
+        val grantStorage: String,
+        val settings: String,
+        val scan: String,
+        val gameRootPath: String,
+        val saveAndScan: String,
+        val reloadSaved: String,
+        val start: String,
+        val noGamesFound: String,
+        val emptyHint: String,
+        val launchOriginal: String,
+        val language: String,
+        val english: String,
+        val chinese: String,
+        val save: String,
+        val forceLandscape: String,
+        val stats: String,
+        val launches: String,
+        val playTime: String,
+        val alias: String,
+        val exportBackup: String,
+        val exported: String,
+        val customImagePath: String,
+        val close: String,
+    )
+
+    fun current(context: Context): Texts = if (LauncherPrefs.getLanguage(context) == LauncherPrefs.LANG_ZH) zh else en
+
+    val en = Texts(
+        title = "KrKr2 Launcher",
+        grantStorage = "Grant Storage",
+        settings = "Settings",
+        scan = "Scan",
+        gameRootPath = "Game root path",
+        saveAndScan = "Save & Scan",
+        reloadSaved = "Reload Saved",
+        start = "Start",
+        noGamesFound = "No games found",
+        emptyHint = "Type the correct game folder path above, then scan.",
+        launchOriginal = "Launch original KRKR",
+        language = "Language",
+        english = "English",
+        chinese = "中文",
+        save = "Save",
+        forceLandscape = "Force landscape",
+        stats = "Stats",
+        launches = "Launches",
+        playTime = "Play time",
+        alias = "Alias",
+        exportBackup = "Export backup",
+        exported = "Exported",
+        customImagePath = "Custom image path",
+    )
+
+    val zh = Texts(
+        title = "KrKr2 启动器",
+        grantStorage = "授权存储",
+        settings = "设置",
+        scan = "扫描",
+        gameRootPath = "游戏根目录路径",
+        saveAndScan = "保存并扫描",
+        reloadSaved = "重新加载保存路径",
+        start = "启动",
+        noGamesFound = "没有找到游戏",
+        emptyHint = "请在上方输入正确的游戏目录，然后扫描。",
+        launchOriginal = "启动 KRKR 原版",
+        language = "语言",
+        english = "English",
+        chinese = "中文",
+        save = "保存",
+        forceLandscape = "强制横屏",
+        stats = "统计",
+        launches = "启动次数",
+        playTime = "游玩时长",
+        alias = "别名",
+        exportBackup = "导出备份",
+        exported = "已导出",
+        customImagePath = "自定义图片路径",
+    )
+}

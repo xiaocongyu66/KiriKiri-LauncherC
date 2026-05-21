@@ -1,0 +1,12 @@
+#ifndef LIBGDIPLUS_CONFIG_H
+#define LIBGDIPLUS_CONFIG_H
+#cmakedefine HAVE_LIBJPEG 1
+#cmakedefine HAVE_LIBTIFF 1
+#cmakedefine HAVE_LIBGIF 1
+#cmakedefine HAVE_LIBPNG 1
+#cmakedefine HAVE_FCFINI 1
+#cmakedefine HAVE_LIBEXIF 1
+#cmakedefine USE_PANGO_RENDERING 1
+#cmakedefine HAVE_X11 1
+
+#endif  // LIBGDIPLUS_CONFIG_H

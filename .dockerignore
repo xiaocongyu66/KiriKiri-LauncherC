@@ -1,0 +1,20 @@
+dockers/
+ui/cocos-studio/out_ui/
+doc/
+tests/
+tools/
+
+out/
+
+# for ide
+.idea/
+.vscode/
+.vs/
+.gradle/
+.act/
+
+README_*.md
+.actrc
+.gitignore
+
+/**/local.properties

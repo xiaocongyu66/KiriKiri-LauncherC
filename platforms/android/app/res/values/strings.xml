@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">KrKr2 Launcher</string>
+
+    <string name="ok">OK</string>
+    <string name="cancel">Cancel</string>
+    <string name="request_storage_permission">App needs all files access to scan and launch KRKR games.</string>
+    <string name="request_storage_permission_title">Storage permission</string>
+</resources>

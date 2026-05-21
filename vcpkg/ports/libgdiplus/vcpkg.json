@@ -1,0 +1,37 @@
+{
+  "name": "libgdiplus",
+  "version-string": "5.6.1",
+  "port-version": 4,
+  "description": "Libgdiplus is the Mono library that provides a GDI+-compatible API on non-Windows operating systems. Our implementation uses Cairo to do most of the heavy lifting.",
+  "homepage": "https://www.mono-project.com/docs/gui/libgdiplus/",
+  "license": null,
+  "supports": "android | linux | windows | osx | ios",
+  "dependencies": [
+    {
+      "name": "vcpkg-pkgconfig-get-modules",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    "zlib",
+    "liblzma",
+    "libjpeg-turbo",
+    "libpng",
+    "glib",
+    "tiff",
+    "libexif",
+    "cairo",
+    "fontconfig",
+    "freetype",
+    {
+      "name": "pango",
+      "platform": "!android"
+    }
+  ]
+}
