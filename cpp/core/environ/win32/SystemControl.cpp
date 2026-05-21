@@ -192,3 +192,16 @@ void tTVPSystemControl::SystemWatchTimerTimer() {
         LastShowModalWindowSentTick = tick;
     }
 }
+
+// ---------------------------------------------------------------------------
+// PSB image-cache info callback (imported from KrKr2-Next).
+//
+// The psbfile plugin uses TVPRegisterPSBCacheInfoCallback at NCB init to
+// publish its image-cache stats; consumers (e.g. debug overlays) read them
+// via g_GetPSBCacheInfo. Plugin clears the callback on unregister.
+// ---------------------------------------------------------------------------
+static bool (*g_GetPSBCacheInfo)(size_t &usedBytes, size_t &limitBytes) = nullptr;
+
+void TVPRegisterPSBCacheInfoCallback(bool (*cb)(size_t &, size_t &)) {
+    g_GetPSBCacheInfo = cb;
+}

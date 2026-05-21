@@ -56,4 +56,9 @@ public:
 extern tTVPSystemControl *TVPSystemControl;
 extern bool TVPSystemControlAlive;
 
+// Registers a callback that the system uses to query the PSB image-cache
+// usage of the psbfile plugin. The plugin calls this with its own callback
+// at module load; passing nullptr clears it. Imported from KrKr2-Next.
+void TVPRegisterPSBCacheInfoCallback(bool (*cb)(size_t &usedBytes, size_t &limitBytes));
+
 #endif
