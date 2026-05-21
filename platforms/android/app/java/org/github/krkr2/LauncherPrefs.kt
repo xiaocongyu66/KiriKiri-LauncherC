@@ -240,7 +240,12 @@ object LauncherPrefs {
 
         val logcatNote = runCatching {
             val logcatFile = File(outDir, "logcat.txt")
-            val process = Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "2000"))
+            // -b all: include crash+events+system buffers (native FATAL signals live here)
+            // -v threadtime: include date/time + pid/tid (matches what users used to paste)
+            // -t 5000: enough to cover startup → engine init → first asset load
+            val process = Runtime.getRuntime().exec(
+                arrayOf("logcat", "-d", "-b", "all", "-v", "threadtime", "-t", "5000")
+            )
             val stdout = process.inputStream.bufferedReader().readText()
             val stderr = process.errorStream.bufferedReader().readText()
             val exit = process.waitFor()
@@ -249,6 +254,20 @@ object LauncherPrefs {
                     (if (stderr.isNotBlank()) "stderr:\n$stderr\n\n" else "") +
                     "stdout:\n$stdout"
             )
+            // Also write a filtered tail for quick triage
+            val filtered = stdout.lineSequence().filter { line ->
+                line.contains("krkr2", ignoreCase = true) ||
+                    line.contains("kirikiri", ignoreCase = true) ||
+                    line.contains("cocos2d", ignoreCase = true) ||
+                    line.contains("SDL", ignoreCase = true) ||
+                    line.contains("TVP") ||
+                    line.contains("KR2-Launch") ||
+                    line.contains("FATAL") ||
+                    line.contains("Fatal signal") ||
+                    line.contains("AndroidRuntime") ||
+                    line.contains("Abort message")
+            }.joinToString("\n")
+            File(outDir, "logcat_filtered.txt").writeText(filtered)
             "logcat=${logcatFile.absolutePath}\n"
         }.getOrElse { error ->
             File(outDir, "logcat_error.txt").writeText(error.stackTraceToString())

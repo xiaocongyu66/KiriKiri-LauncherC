@@ -398,17 +398,37 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
 
     static public String getLaunchGamePath() {
+        String resolved = resolveLaunchGamePath();
+        android.util.Log.i("KR2-Launch", "getLaunchGamePath -> " + resolved);
+        try {
+            if (sInstance != null) {
+                org.github.krkr2.LauncherPrefs.INSTANCE.writeLauncherLog(
+                    sInstance, "native getLaunchGamePath -> " + resolved, null);
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("KR2-Launch", "writeLauncherLog failed", t);
+        }
+        return resolved;
+    }
+
+    static private String resolveLaunchGamePath() {
         if(sInstance == null || sInstance.getIntent() == null) return "";
         String launchFile = sInstance.getIntent().getStringExtra("extra_launch_file");
+        android.util.Log.i("KR2-Launch", "intent extra_launch_file=" + launchFile);
         if(launchFile != null && !launchFile.isEmpty()) {
             File file = new File(launchFile);
             if(file.exists() && file.isFile()) return file.getAbsolutePath();
+            android.util.Log.w("KR2-Launch", "launchFile not a regular file: exists=" + file.exists() + " isFile=" + file.isFile());
         }
 
         String path = sInstance.getIntent().getStringExtra("extra_game_dir");
+        android.util.Log.i("KR2-Launch", "intent extra_game_dir=" + path);
         if(path == null || path.isEmpty()) return "";
         File dir = new File(path);
-        if(!dir.exists()) return "";
+        if(!dir.exists()) {
+            android.util.Log.w("KR2-Launch", "game_dir does not exist: " + path);
+            return "";
+        }
         if(dir.isFile()) return dir.getAbsolutePath();
         if(!dir.isDirectory()) return "";
 
@@ -427,6 +447,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
                 }
             }
         }
+        android.util.Log.w("KR2-Launch", "no bootable entry under: " + path);
         return "";
     }
 

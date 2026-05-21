@@ -9,6 +9,13 @@
 #include "ui/extension/UIExtension.h"
 #include "ConfigManager/LocaleConfigManager.h"
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#define KR2_LAUNCH_LOG(...) __android_log_print(ANDROID_LOG_INFO, "KR2-Launch", __VA_ARGS__)
+#else
+#define KR2_LAUNCH_LOG(...) ((void)0)
+#endif
+
 static cocos2d::Size designSize(960, 640);
 extern std::thread::id TVPMainThreadID;
 
@@ -99,12 +106,26 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
         [](float dt) {
             TVPMainScene::GetInstance()->unschedule("launch");
             TVPGlobalPreferenceForm::Initialize();
+            // IMPORTANT: TVPCheckStartupArg() registers the per-frame event
+            // dispatcher (Android_PushEvents → director scheduler). Without
+            // it, every async TJS storage/event call after startupFrom()
+            // silently drops, leaving native paths as nil and crashing
+            // inside TVPGetPlacedPath(). The original flow always ran this
+            // before opening the file selector, so we must run it here too
+            // when we shortcut directly into startupFrom().
+            bool startupArgHandled = TVPCheckStartupArg();
             std::string gamePath = Android_GetLaunchGamePath();
-            if(!gamePath.empty() &&
-               TVPMainScene::GetInstance()->startupFrom(gamePath)) {
-                return;
+            KR2_LAUNCH_LOG("Android_GetLaunchGamePath -> '%s' (len=%zu)",
+                           gamePath.c_str(), gamePath.size());
+            if(!gamePath.empty()) {
+                bool ok = TVPMainScene::GetInstance()->startupFrom(gamePath);
+                KR2_LAUNCH_LOG("startupFrom('%s') returned %d",
+                               gamePath.c_str(), (int)ok);
+                if(ok) return;
             }
-            if(!TVPCheckStartupArg()) {
+            KR2_LAUNCH_LOG("falling back to file selector (startupArgHandled=%d)",
+                           (int)startupArgHandled);
+            if(!startupArgHandled) {
                 TVPMainScene::GetInstance()->pushUIForm(
                     TVPMainFileSelectorForm::create());
             }
