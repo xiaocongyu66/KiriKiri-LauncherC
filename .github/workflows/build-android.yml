@@ -159,7 +159,7 @@ jobs:
 
       - name: Build Android
         run: |
-          ./platforms/android/gradlew -p ./platforms/android --console=plain --no-daemon assemble
+          sh ./platforms/android/gradlew -p ./platforms/android --console=plain --no-daemon assemble
 
       - name: Upload artifacts
         if: ${{ !env.ACT && success() }}
