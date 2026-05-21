@@ -1,42 +1,52 @@
 # Add project specific ProGuard rules here.
 # By default, the flags in this file are appended to flags specified
-# in E:\developSoftware\Android\SDK/tools/proguard/proguard-android.txt
+# in <SDK>/tools/proguard/proguard-android.txt
 # You can edit the include path and order by changing the proguardFiles
 # directive in build.gradle.
+
+############################################################
+# KRKR2 / cocos2d-x / SDL2 — native FindClass / JNI bindings
 #
-# For more details, see
-#   http://developer.android.com/guide/developing/tools/proguard.html
+# These classes are looked up from native code via
+# JNIEnv::FindClass / GetMethodID / RegisterNatives, so R8 cannot
+# see the references and would strip / rename them, causing
+#   "ClassNotFoundException: org.libsdl.app.SDLActivity"
+#   "UnsatisfiedLinkError: No implementation found for ..."
+# in release builds.
+############################################################
 
-# Add any project specific keep options here:
+# SDL2 — referenced from libSDL2.so JNI_OnLoad (FindClass "org/libsdl/app/SDLActivity")
+-keep class org.libsdl.app.** { *; }
+-keepnames class org.libsdl.app.**
+-keep interface org.libsdl.app.** { *; }
 
-# If your project uses WebView with JS, uncomment the following
-# and specify the fully qualified class name to the JavaScript interface
-# class:
-#-keepclassmembers class fqcn.of.javascript.interface.for.webview {
-#   public *;
-#}
+# cocos2d-x — referenced from libkrkr2.so (Cocos2dxActivity, Cocos2dxHelper, Cocos2dxRenderer, etc.)
+-keep class org.cocos2dx.lib.** { *; }
+-keepnames class org.cocos2dx.lib.**
+-keep interface org.cocos2dx.lib.** { *; }
 
--keep public class org.tvp.kirikiri2.** { *; }
+# KR2Activity (kirikiri2 native bridge) — native methods + JNI callbacks
+-keep class org.tvp.kirikiri2.** { *; }
+-keepnames class org.tvp.kirikiri2.**
+
+# Application package — keep activities/services referenced from manifest + JNI helpers
+-keep class org.github.krkr2.** { *; }
+-keepnames class org.github.krkr2.**
+
+# Generic: keep every native method and the class that declares it
+-keepclasseswithmembernames,includedescriptorclasses class * {
+    native <methods>;
+}
+
+# Keep any class with @Keep annotation
+-keep @androidx.annotation.Keep class * { *; }
+-keepclassmembers class * {
+    @androidx.annotation.Keep <fields>;
+    @androidx.annotation.Keep <methods>;
+}
+
+# Compose / Kotlin reflection metadata sanity
+-keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
+-dontwarn org.libsdl.app.**
+-dontwarn org.cocos2dx.lib.**
 -dontwarn org.tvp.kirikiri2.**
-
-# Proguard Cocos2d-x for release
--keep public class org.cocos2dx.** { *; }
--dontwarn org.cocos2dx.**
--keep public class com.chukong.** { *; }
--dontwarn com.chukong.**
--keep public class com.huawei.android.** { *; }
--dontwarn com.huawei.android.**
--keep public class com.oppo.oiface.engine.** { *; }
--dontwarn com.oppo.oiface.engine.**
-
-# Proguard Apache HTTP for release
--keep class org.apache.http.** { *; }
--dontwarn org.apache.http.**
-
-# Proguard Android Webivew for release. uncomment if you are using a webview in cocos2d-x
-#-keep public class android.net.http.SslError
-#-keep public class android.webkit.WebViewClient
-
-#-dontwarn android.webkit.WebView
-#-dontwarn android.net.http.SslError
-#-dontwarn android.webkit.WebViewClient
