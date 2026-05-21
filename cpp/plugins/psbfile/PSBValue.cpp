@@ -3,6 +3,7 @@
 //
 #include "PSBValue.h"
 
+#include <cstring>
 #include <spdlog/spdlog.h>
 
 #include "PSBExtension.h"
@@ -90,7 +91,24 @@ namespace PSB {
 
 
     std::int64_t PSBNumber::getLongValue() const {
-        return BitConverter::fromByteArray<std::int64_t>(data);
+        if(data.size() >= sizeof(std::int64_t)) {
+            return BitConverter::fromByteArray<std::int64_t>(data);
+        }
+        if(data.size() >= sizeof(std::int32_t)) {
+            std::int32_t val;
+            std::memcpy(&val, data.data(), sizeof(std::int32_t));
+            return static_cast<std::int64_t>(val);
+        }
+        std::int64_t val = 0;
+        if(!data.empty()) {
+            std::memcpy(&val, data.data(), data.size());
+            if(data.back() & 0x80) {
+                for(size_t i = data.size(); i < 8; i++) {
+                    val |= static_cast<std::int64_t>(0xFF) << (i * 8);
+                }
+            }
+        }
+        return val;
     }
 
     float PSBNumber::getFloatValue() const {

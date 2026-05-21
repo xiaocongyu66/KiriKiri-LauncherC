@@ -28,6 +28,7 @@ namespace PSB {
         std::vector<std::shared_ptr<PSBResource>> extraResources;
 
         explicit PSBFile() = default;
+        void resetState();
 
         void loadKeys(TJS::tTJSBinaryStream *stream);
         void loadNames();
@@ -62,6 +63,10 @@ namespace PSB {
 
         [[nodiscard]] std::shared_ptr<const PSBDictionary> getObjects() const {
             return std::dynamic_pointer_cast<const PSBDictionary>(_root);
+        }
+
+        [[nodiscard]] const std::shared_ptr<IPSBValue> &getRootValue() const {
+            return _root;
         }
 
         [[nodiscard]] PSBSpec getPlatform() const {

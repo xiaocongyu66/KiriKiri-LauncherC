@@ -4,9 +4,18 @@
 #include <string>
 #include <vector>
 
-#include <boost/locale.hpp>
+#include <algorithm>
+#include <cctype>
 
 namespace PSB {
+
+    static std::string asciiUpper(std::string value) {
+        std::transform(value.begin(), value.end(), value.begin(),
+                       [](unsigned char ch) {
+                           return static_cast<char>(std::toupper(ch));
+                       });
+        return value;
+    }
 
     static void split(const std::string &s, std::vector<std::string> &tokens,
                       const std::string &delimiters = ",") {
@@ -28,12 +37,16 @@ namespace PSB {
         if(G_##EnumName##Vector.empty()) {                                     \
             split(G_##EnumName##Strings, G_##EnumName##Vector);                \
         }                                                                      \
+        std::string expected(enumString);                                      \
+        if(ignoreCase) {                                                       \
+            expected = asciiUpper(expected);                                   \
+        }                                                                      \
         for(size_t i = 0; i < G_##EnumName##Vector.size(); i++) {              \
             std::string tmp = G_##EnumName##Vector[i];                         \
             if(ignoreCase) {                                                   \
-                tmp = boost::locale::to_upper(tmp);                            \
+                tmp = asciiUpper(tmp);                                         \
             }                                                                  \
-            if(tmp == enumString) {                                            \
+            if(tmp == expected) {                                              \
                 return static_cast<EnumName>(i);                               \
             }                                                                  \
         }                                                                      \

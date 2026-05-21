@@ -6,12 +6,14 @@
 #include <algorithm>
 #include <cstdint>
 #include <vector>
-#include <boost/locale.hpp>
+#include <cctype>
 #include "tjs.h"
 
 #include "PSBEnums.h"
 
 namespace PSB::Extension {
+
+
 
     static int getSize(std::uint32_t i) {
         int n = 0;
@@ -207,7 +209,7 @@ namespace PSB::Extension {
 
         bool isUseTile = useTile(spec);
 
-        const auto &tmp = boost::locale::to_upper(typeStr);
+        const auto tmp = PSB::asciiUpper(typeStr);
         if(tmp == "CI4") {
             return spec == PSBSpec::Revo ? PSBPixelFormat::TileCI4
                                          : PSBPixelFormat::CI4_SW_PSP;

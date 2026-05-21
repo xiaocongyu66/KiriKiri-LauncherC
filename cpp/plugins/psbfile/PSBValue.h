@@ -372,6 +372,7 @@ namespace PSB {
         [[nodiscard]] auto begin() const { return _map.begin(); }
         [[nodiscard]] auto end() const { return _map.end(); }
         [[nodiscard]] auto find(const K &key) const { return _map.find(key); }
+        [[nodiscard]] size_t size() const { return _map.size(); }
 
         [[nodiscard]] V operator[](int index) override { return get(index); }
         [[nodiscard]] V operator[](const K &key) override { return get(key); }

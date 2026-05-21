@@ -50,9 +50,25 @@ namespace PSB {
         [[nodiscard]] std::string getType() const noexcept {
             return this->_typeString.value;
         }
+        void setType(const std::string &type) { this->_typeString.value = type; }
 
         [[nodiscard]] std::string getPalType() const noexcept {
             return this->_paletteTypeString.value;
+        }
+        void setPalType(const std::string &type) {
+            this->_paletteTypeString.value = type;
+        }
+
+        [[nodiscard]] const PSBResource &getPalette() const noexcept {
+            return this->_palette;
+        }
+        void setPalette(const PSBResource &palette) { this->_palette = palette; }
+        void setPalette(const std::shared_ptr<PSBResource> &palette) {
+            if(palette) {
+                this->_palette = *palette;
+            } else {
+                this->_palette = PSBResource{};
+            }
         }
 
         [[nodiscard]] PSBPixelFormat getPalettePixelFormat() const {
@@ -151,24 +167,24 @@ namespace PSB {
         // Name 2
         std::string _name;
 
-        PSBCompressType _compress;
+        PSBCompressType _compress{ PSBCompressType::ByName };
 
         bool _is2D = true;
-        int _width;
-        int _height;
+        int _width{ 0 };
+        int _height{ 0 };
 
         // [Type2]
-        int _top;
+        int _top{ 0 };
 
         // [Type2]
-        int _left;
+        int _left{ 0 };
 
-        float _originX;
-        float _originY;
+        float _originX{ 0.0f };
+        float _originY{ 0.0f };
 
         std::string _label;
 
-        int _opacity{ 10 };
+        int _opacity{ 255 };
         bool _visible{ true };
 
         /// Pixel Format Type
@@ -178,7 +194,7 @@ namespace PSB {
         std::shared_ptr<PSBResource> _resource;
 
         // PIMG layer_type
-        int _layerType;
+        int _layerType{ 0 };
 
         // Pal
         PSBResource _palette;
