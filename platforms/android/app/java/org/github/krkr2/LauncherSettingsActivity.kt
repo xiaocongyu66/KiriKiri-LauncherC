@@ -126,6 +126,18 @@ class LauncherSettingsActivity : AppCompatActivity() {
                             Text(text.save)
                         }
 
+                        FilledTonalButton(onClick = {
+                            LauncherPrefs.writeLauncherLog(context, "Launch original KRKR2 (from settings)")
+                            runCatching {
+                                val intent = Intent(context, MainActivity::class.java)
+                                intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+                                startActivity(intent)
+                            }.onFailure { error ->
+                                LauncherPrefs.writeLauncherLog(context, "Failed to launch original KRKR2", error)
+                                status = error.message.orEmpty()
+                            }
+                        }) { Text(text.launchOriginal) }
+
                         if (status.isNotBlank()) {
                             Text(status, style = MaterialTheme.typography.bodyMedium)
                         }

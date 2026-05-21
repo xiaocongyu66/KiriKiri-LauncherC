@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CardDefaults
@@ -75,7 +76,6 @@ class LauncherActivity : AppCompatActivity() {
                     resumeToken = resumeToken,
                     onOpenSettings = { startActivity(Intent(this, LauncherSettingsActivity::class.java)) },
                     onLaunchGame = { game -> startGame(game) },
-                    onLaunchOriginal = { startOriginal() },
                 )
             }
         }
@@ -101,18 +101,6 @@ class LauncherActivity : AppCompatActivity() {
         }
     }
 
-    private fun startOriginal() {
-        LauncherPrefs.writeLauncherLog(this, "Launch original KRKR2")
-        runCatching {
-            val intent = Intent(this, MainActivity::class.java)
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            startActivity(intent)
-        }.onFailure { error ->
-            LauncherPrefs.writeLauncherLog(this, "Failed to launch original KRKR2", error)
-            Log.e(TAG, "Failed to launch original KRKR2", error)
-        }
-    }
-
     companion object {
         private const val TAG = "KR2Launcher"
     }
@@ -124,7 +112,6 @@ private fun LauncherScreen(
     resumeToken: Int,
     onOpenSettings: () -> Unit,
     onLaunchGame: (GameEntry) -> Unit,
-    onLaunchOriginal: () -> Unit,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -162,10 +149,12 @@ private fun LauncherScreen(
         topBar = {
             TopAppBar(
                 title = { Text(text.title) },
-                actions = {
-                    IconButton(onClick = onLaunchOriginal) {
-                        Icon(Icons.Default.PlayArrow, contentDescription = text.launchOriginal)
+                navigationIcon = {
+                    IconButton(onClick = { /* page indicator only */ }) {
+                        Icon(Icons.Default.Home, contentDescription = text.title)
                     }
+                },
+                actions = {
                     IconButton(onClick = onOpenSettings) {
                         Icon(Icons.Default.Settings, contentDescription = text.settings)
                     }
@@ -176,7 +165,7 @@ private fun LauncherScreen(
     ) { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = Color(0xFF0C0C10)) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                LibrarySideBar(text, games, rootPath, onOpenSettings, onLaunchOriginal)
+                LibrarySideBar(text, games, rootPath, onOpenSettings)
                 GameGrid(
                     modifier = Modifier.weight(1f),
                     loading = loading,
@@ -206,7 +195,6 @@ private fun LibrarySideBar(
     games: List<GameEntry>,
     rootPath: String,
     onSettings: () -> Unit,
-    onOriginal: () -> Unit,
 ) {
     val context = LocalContext.current
     val totalLaunches = games.sumOf { LauncherPrefs.getStats(context, it.gameDir).launchCount }
@@ -215,8 +203,6 @@ private fun LibrarySideBar(
         verticalArrangement = Arrangement.spacedBy(10.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        IconButton(onClick = onOriginal) { Icon(Icons.Default.PlayArrow, null, tint = Color.White) }
-        Text(text.launchOriginal, color = Color(0xFFCCCCCC), style = MaterialTheme.typography.bodySmall)
         IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, null, tint = Color.White) }
         Text(text.settings, color = Color(0xFFCCCCCC), style = MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(8.dp))
