@@ -104,9 +104,42 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cpp/external)
 add_subdirectory(${KRKR2CORE_PATH})
 add_subdirectory(${KRKR2PLUGIN_PATH})
 
-target_link_libraries(${PROJECT_NAME} PUBLIC
-    krkr2plugin krkr2core
-)
+# Plugin auto-registration relies on file-scope static constructors
+# (NCB_REGISTER_SUBCLASS_DELAY -> _internal_plugins map population).
+# With a normal static-library link, the linker discards those object
+# files because nothing references their symbols, which manifests as
+#     Loading Plugin: motionplayer.dll Failed
+# at runtime even though the sources were compiled into the .a.
+# The fix is to force the whole archive into the final image on ELF
+# linkers (Android/Linux). Apple/MSVC use different syntax; gate by
+# platform so cross-platform builds keep working.
+if(ANDROID OR LINUX)
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        -Wl,--whole-archive
+        krkr2plugin
+        krkr2core
+        -Wl,--no-whole-archive
+    )
+elseif(APPLE)
+    # Apple ld: -force_load takes an absolute path; let CMake resolve
+    # the static library target locations at generate time.
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        "-Wl,-force_load,$<TARGET_FILE:krkr2plugin>"
+        "-Wl,-force_load,$<TARGET_FILE:krkr2core>"
+    )
+elseif(MSVC)
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        krkr2plugin krkr2core
+    )
+    target_link_options(${PROJECT_NAME} PUBLIC
+        /WHOLEARCHIVE:krkr2plugin
+        /WHOLEARCHIVE:krkr2core
+    )
+else()
+    target_link_libraries(${PROJECT_NAME} PUBLIC
+        krkr2plugin krkr2core
+    )
+endif()
 
 ## resources
 if(NOT ANDROID)
