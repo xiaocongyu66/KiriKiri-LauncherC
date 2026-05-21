@@ -31,6 +31,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedAssistChip
 import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -103,6 +104,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun LauncherScreen(
     onOpenSettings: () -> Unit,
@@ -305,7 +307,7 @@ private fun GameDetailPanel(game: GameEntry, text: LauncherStrings.Texts, onClos
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath) }) { Text(text.save) }
                 FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath); onLaunch(game) }) { Icon(Icons.Default.PlayArrow, null); Text(text.start) }
-                FilledTonalButton(onClick = onClose) { Text("OK") }
+                FilledTonalButton(onClick = onClose) { Text(text.close) }
             }
         }
     }

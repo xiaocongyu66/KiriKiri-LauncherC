@@ -56,6 +56,7 @@ object LauncherStrings {
         exportBackup = "Export backup",
         exported = "Exported",
         customImagePath = "Custom image path",
+        close = "Close",
     )
 
     val zh = Texts(
@@ -82,5 +83,6 @@ object LauncherStrings {
         exportBackup = "导出备份",
         exported = "已导出",
         customImagePath = "自定义图片路径",
+        close = "关闭",
     )
 }
