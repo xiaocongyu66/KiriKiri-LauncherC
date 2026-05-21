@@ -3,7 +3,7 @@ project(krkr2plugin)
 
 add_library(${PROJECT_NAME} STATIC)
 
-target_sources(${PROJECT_NAME} PUBLIC
+target_sources(${PROJECT_NAME} PRIVATE
     scriptsEx.cpp
     win32dialog.cpp
     dirlist.cpp
