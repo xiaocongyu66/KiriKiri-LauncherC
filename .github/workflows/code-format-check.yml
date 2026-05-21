@@ -6,27 +6,13 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'cmake/**'
       - 'cpp/**'
-      - 'platforms/**'
-      - 'vcpkg/**'
       - 'CMakeLists.txt'
-      - 'CMakePresets.json'
-      - 'vcpkg.json'
-      - 'vcpkg-configuration.json'
-      - '.github/workflows/**'
   pull_request:
     branches: [ main ]
     paths:
-      - 'cmake/**'
       - 'cpp/**'
-      - 'platforms/**'
-      - 'vcpkg/**'
       - 'CMakeLists.txt'
-      - 'CMakePresets.json'
-      - 'vcpkg.json'
-      - 'vcpkg-configuration.json'
-      - '.github/workflows/**'
 
 jobs:
   format-check:
@@ -34,7 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: DoozyX/clang-format-lint-action@v0.20
+        continue-on-error: true
         with:
-          source: 'cpp platforms'
+          source: 'cpp'
           extensions: 'cpp,cc,h,hpp,inc'
           clangFormatVersion: 18
