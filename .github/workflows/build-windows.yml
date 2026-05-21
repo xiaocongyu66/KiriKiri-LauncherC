@@ -7,6 +7,10 @@ on:
     workflows: ["Code Format Check"]
     types: [ "completed" ]
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
   VCPKG_INSTALL_OPTIONS: "--debug"
@@ -60,9 +64,9 @@ jobs:
             -StorePasswordInClearText `
             -Name GitHubPackages `
             -UserName "${{ github.actor }}" `
-            -Password "${{ secrets.NUGET_API_KEY }}"
+            -Password "${{ secrets.GITHUB_TOKEN }}"
           .$(${{ env.VCPKG_ROOT }}/vcpkg fetch nuget) `
-            setapikey "${{ secrets.NUGET_API_KEY }}" `
+            setapikey "${{ secrets.GITHUB_TOKEN }}" `
             -Source "https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json"
 
       - name: ccache

@@ -7,6 +7,10 @@ on:
     workflows: ["Code Format Check"]
     types: [ "completed" ]
 
+permissions:
+  contents: read
+  packages: write
+
 env:
   ANDROID_NDK_VERSION: "28.0.13004108"
   VCPKG_BINARY_SOURCES: "clear;nuget,https://nuget.pkg.github.com/${{ github.repository_owner }}/index.json,readwrite"
