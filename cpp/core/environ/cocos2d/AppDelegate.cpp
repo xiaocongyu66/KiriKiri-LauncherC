@@ -100,9 +100,11 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
             TVPMainScene::GetInstance()->unschedule("launch");
             TVPGlobalPreferenceForm::Initialize();
             std::string gamePath = Android_GetLaunchGamePath();
-            if(!gamePath.empty()) {
-                TVPMainScene::GetInstance()->startupFrom(gamePath);
-            } else if(!TVPCheckStartupArg()) {
+            if(!gamePath.empty() &&
+               TVPMainScene::GetInstance()->startupFrom(gamePath)) {
+                return;
+            }
+            if(!TVPCheckStartupArg()) {
                 TVPMainScene::GetInstance()->pushUIForm(
                     TVPMainFileSelectorForm::create());
             }

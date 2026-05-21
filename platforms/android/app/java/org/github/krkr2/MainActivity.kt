@@ -20,6 +20,7 @@ class MainActivity : KR2Activity() {
     companion object {
         const val EXTRA_GAME_DIR = "extra_game_dir"
         const val EXTRA_GAME_TITLE = "extra_game_title"
+        const val EXTRA_LAUNCH_FILE = "extra_launch_file"
     }
 
     private var sessionStartedAt = 0L
@@ -47,6 +48,11 @@ class MainActivity : KR2Activity() {
             requestStoragePermission()
         }
 
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot"
+        )
+
         SDLAudioManager.nativeSetupJNI()
         SDLAudioManager.initialize()
         SDLAudioManager.setContext(getContext())
@@ -56,6 +62,7 @@ class MainActivity : KR2Activity() {
         super.onStart()
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR)
         if (!gameDir.isNullOrEmpty()) {
+            LauncherPrefs.writeLauncherLog(this, "MainActivity.onStart gameDir=$gameDir launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()}")
             LauncherPrefs.setLastGamePath(this, gameDir)
             if (!launchRecorded) {
                 LauncherPrefs.recordLaunch(this, gameDir)

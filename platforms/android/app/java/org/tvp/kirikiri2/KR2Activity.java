@@ -399,10 +399,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
     static public String getLaunchGamePath() {
         if(sInstance == null || sInstance.getIntent() == null) return "";
+        String launchFile = sInstance.getIntent().getStringExtra("extra_launch_file");
+        if(launchFile != null && !launchFile.isEmpty()) {
+            File file = new File(launchFile);
+            if(file.exists() && file.isFile()) return file.getAbsolutePath();
+        }
+
         String path = sInstance.getIntent().getStringExtra("extra_game_dir");
         if(path == null || path.isEmpty()) return "";
         File dir = new File(path);
-        if(!dir.exists() || !dir.isDirectory()) return "";
+        if(!dir.exists()) return "";
+        if(dir.isFile()) return dir.getAbsolutePath();
+        if(!dir.isDirectory()) return "";
+
         File startup = new File(dir, "startup.tjs");
         if(startup.exists() && startup.isFile()) return startup.getAbsolutePath();
         File start = new File(dir, "start.tjs");
@@ -413,12 +422,12 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         if(files != null) {
             for(File f : files) {
                 String name = f.getName().toLowerCase(Locale.ROOT);
-                if(f.isFile() && (name.endsWith(".xp3") || name.endsWith(".ks") || name.endsWith(".tjs"))) {
+                if(f.isFile() && (name.endsWith(".xp3") || name.endsWith(".ks"))) {
                     return f.getAbsolutePath();
                 }
             }
         }
-        return path;
+        return "";
     }
 
     /**
