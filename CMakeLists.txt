@@ -18,6 +18,18 @@ if(ANDROID)
     set(VCPKG_TARGET_ANDROID ON)
     set(ENV{ANDROID_NDK_HOME} "$ENV{ANDROID_NDK}")
     add_compile_options(-Wno-inconsistent-missing-override)
+    # Legacy TJS2 code (tTJSVariantString::GetLength / operator const char* /
+    # FixLength / ...) guards against being called with `this == nullptr`
+    # via `if(!this) return ...;`. Modern Clang treats that as UB and
+    # deletes the check under -O2, so calls on a null ttstr crash inside
+    # the engine (e.g. Storages.getPlacedPath(nil) → SIGSEGV at
+    # GetLength+0 reading offset 0x3c). Tell the compiler to keep those
+    # null checks.
+    add_compile_options(
+        -fno-delete-null-pointer-checks
+        -Wno-tautological-undefined-compare
+        -Wno-undefined-bool-conversion
+    )
     include(cmake/vcpkg_android.cmake)
 else()
     set(CMAKE_TOOLCHAIN_FILE $ENV{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake)

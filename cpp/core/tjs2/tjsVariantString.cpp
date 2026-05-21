@@ -455,11 +455,17 @@ namespace TJS {
 
     //---------------------------------------------------------------------------
     tTVInteger tTJSVariantString::ToInteger() const {
-        if(!this)
+        // NOTE: callers may invoke this on a nullptr `this` (legacy idiom).
+        // Use an inline-asm optimization barrier so modern Clang cannot
+        // delete the `if(!self)` guard via dereferenceable-nonnull UB
+        // assumptions (see GetLength() below for full rationale).
+        const tTJSVariantString *self = this;
+        asm volatile("" : "+r"(self));
+        if(!self)
             return 0;
 
         tTJSVariant val;
-        const tjs_char *ptr = this->operator const tjs_char *();
+        const tjs_char *ptr = self->operator const tjs_char *();
         if(TJSParseNumber(val, &ptr))
             return val.AsInteger();
         return 0;
@@ -467,11 +473,13 @@ namespace TJS {
 
     //---------------------------------------------------------------------------
     tTVReal tTJSVariantString::ToReal() const {
-        if(!this)
+        const tTJSVariantString *self = this;
+        asm volatile("" : "+r"(self));
+        if(!self)
             return 0;
 
         tTJSVariant val;
-        const tjs_char *ptr = this->operator const tjs_char *();
+        const tjs_char *ptr = self->operator const tjs_char *();
         if(TJSParseNumber(val, &ptr))
             return val.AsReal();
         return 0;
@@ -479,12 +487,14 @@ namespace TJS {
 
     //---------------------------------------------------------------------------
     void tTJSVariantString::ToNumber(tTJSVariant &dest) const {
-        if(!this) {
+        const tTJSVariantString *self = this;
+        asm volatile("" : "+r"(self));
+        if(!self) {
             dest = 0;
             return;
         }
 
-        const tjs_char *ptr = this->operator const tjs_char *();
+        const tjs_char *ptr = self->operator const tjs_char *();
         if(TJSParseNumber(dest, &ptr))
             return;
 
@@ -493,29 +503,50 @@ namespace TJS {
 
     //---------------------------------------------------------------------------
     tTJSVariantString::operator const tjs_char *() const {
-        return (!this) ? (nullptr) : (LongString ? LongString : ShortString);
+        const tTJSVariantString *self = this;
+        asm volatile("" : "+r"(self));
+        return (!self)
+            ? (nullptr)
+            : (self->LongString ? self->LongString : self->ShortString);
     }
 
     //---------------------------------------------------------------------------
     tjs_int tTJSVariantString::GetLength() const {
-        if(!this)
+        // CRITICAL: this legacy idiom `if(!this) return 0;` allows the rest
+        // of the engine to call str->GetLength() on a nullptr ttstr (which
+        // happens whenever a tjs script passes nil into TVPGetPlacedPath /
+        // Storages.* and similar). Modern Clang (NDK r28 / LLVM 19) treats
+        // calling a non-static member function on `this == nullptr` as UB
+        // and deletes the guard under -O2, leaving the function to read
+        // `[this + offsetof(Length)] = [nullptr + 0x3c]` and crash with
+        // SIGSEGV / SEGV_MAPERR at fault addr 0x3c. The inline-asm
+        // optimization barrier launders `this` through an inline asm
+        // operand so the compiler cannot prove it is dereferenceable, and
+        // thus must keep the null check. Pair with
+        // `-fno-delete-null-pointer-checks` in CMakeLists for defense in
+        // depth.
+        const tTJSVariantString *self = this;
+        asm volatile("" : "+r"(self));
+        if(!self)
             return 0;
-        return Length;
+        return self->Length;
     }
 
     //---------------------------------------------------------------------------
     tTJSVariantString *tTJSVariantString::FixLength() {
-        if(!this)
+        tTJSVariantString *self = this;
+        asm volatile("" : "+r"(self));
+        if(!self)
             return nullptr;
 
-        if(RefCount != 0)
+        if(self->RefCount != 0)
             TJSThrowStringDeallocError();
-        Length = (tjs_int)TJS_strlen(this->operator const tjs_char *());
-        if(!Length) {
-            TJSDeallocStringHeap(this);
+        self->Length = (tjs_int)TJS_strlen(self->operator const tjs_char *());
+        if(!self->Length) {
+            TJSDeallocStringHeap(self);
             return nullptr;
         }
-        return this;
+        return self;
     }
     //---------------------------------------------------------------------------
 
