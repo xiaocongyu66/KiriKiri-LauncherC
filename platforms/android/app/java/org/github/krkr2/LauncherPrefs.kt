@@ -131,6 +131,22 @@ object LauncherPrefs {
         writeLauncherLog(context, "Set alias for ${normalizePath(gameDir)} -> ${alias.trim()}")
     }
 
+    fun getDeveloper(context: Context, gameDir: String): String? {
+        val uuid = ensureGameUuid(context, gameDir)
+        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getString("developer_$uuid", null)
+            ?.takeIf { it.isNotBlank() }
+    }
+
+    fun setDeveloper(context: Context, gameDir: String, developer: String) {
+        val uuid = ensureGameUuid(context, gameDir)
+        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .edit()
+            .putString("developer_$uuid", developer.trim())
+            .apply()
+        writeLauncherLog(context, "Set developer for ${normalizePath(gameDir)} -> ${developer.trim()}")
+    }
+
     fun displayName(context: Context, game: GameEntry): String {
         return getAlias(context, game.gameDir)?.takeIf { it.isNotBlank() } ?: game.title
     }
