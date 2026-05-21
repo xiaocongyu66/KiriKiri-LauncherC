@@ -11,7 +11,8 @@
 
 #if defined(__ANDROID__)
 #include <android/log.h>
-#define KR2_LAUNCH_LOG(...) __android_log_print(ANDROID_LOG_INFO, "KR2-Launch", __VA_ARGS__)
+#define KR2_LAUNCH_LOG(...)                                                    \
+    __android_log_print(ANDROID_LOG_INFO, "KR2-Launch", __VA_ARGS__)
 #else
 #define KR2_LAUNCH_LOG(...) ((void)0)
 #endif
@@ -57,8 +58,8 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
 #endif
     }
 
-#if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID ||                              \
-     CC_TARGET_PLATFORM == CC_PLATFORM_IOS)
+#if(CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID ||                               \
+    CC_TARGET_PLATFORM == CC_PLATFORM_IOS)
     // Set the design resolution
     cocos2d::Size screenSize = glview->getFrameSize();
     if(screenSize.width < screenSize.height) {
@@ -121,10 +122,12 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
                 bool ok = TVPMainScene::GetInstance()->startupFrom(gamePath);
                 KR2_LAUNCH_LOG("startupFrom('%s') returned %d",
                                gamePath.c_str(), (int)ok);
-                if(ok) return;
+                if(ok)
+                    return;
             }
-            KR2_LAUNCH_LOG("falling back to file selector (startupArgHandled=%d)",
-                           (int)startupArgHandled);
+            KR2_LAUNCH_LOG(
+                "falling back to file selector (startupArgHandled=%d)",
+                (int)startupArgHandled);
             if(!startupArgHandled) {
                 TVPMainScene::GetInstance()->pushUIForm(
                     TVPMainFileSelectorForm::create());
