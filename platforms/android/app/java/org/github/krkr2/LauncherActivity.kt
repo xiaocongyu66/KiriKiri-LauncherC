@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -23,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
@@ -37,6 +39,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -46,6 +49,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -68,17 +72,17 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class LauncherActivity : AppCompatActivity() {
-    private var orientationListener: android.view.OrientationEventListener? = null
+    // The launcher itself does NOT force landscape. We let the system
+    // decide the activity orientation (the manifest declares
+    // screenOrientation="unspecified") so:
+    //   - phones in portrait get a phone-shaped UI
+    //   - tablets always get the wide UI
+    //   - phones turned sideways auto-switch to the wide UI too
+    // The "force landscape" preference only applies to MainActivity (the
+    // game), which is what the user actually wants to play in landscape.
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // The launcher itself also follows the user's "force landscape" pref.
-        // We don't pin the system rotation flag here (apply()'s WRITE_SETTINGS
-        // path only fires when the toggle says so AND the user has granted
-        // the permission), but we always assert requestedOrientation so the
-        // launcher rotates the moment the toggle changes — no need to relaunch.
-        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
-        orientationListener = ForceLandscapeHelper.stickyListener(this)
         setContent {
             LauncherTheme {
                 LauncherScreen(
@@ -90,29 +94,6 @@ class LauncherActivity : AppCompatActivity() {
                 )
             }
         }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        // Re-read the force-landscape pref so toggling it from the settings
-        // screen takes effect the moment we come back, even if the activity
-        // was not destroyed.
-        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
-        orientationListener?.let { if (it.canDetectOrientation()) it.enable() }
-    }
-
-    override fun onPause() {
-        orientationListener?.disable()
-        super.onPause()
-    }
-
-    override fun onDestroy() {
-        orientationListener?.disable()
-        orientationListener = null
-        // Don't release() here — we want the rotation lock to stay engaged
-        // while the user transitions to MainActivity. MainActivity owns the
-        // release on its own lifecycle.
-        super.onDestroy()
     }
 
     private fun startGame(gameDir: String, title: String) {
@@ -192,44 +173,219 @@ private fun LauncherScreen(
         }
     ) { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = Color(0xFF0C0C10)) {
-            Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SideBar(text, games, onOpenSettings, onOpenDiagnostics, onLaunchOriginal) { rescan(editPath) }
-                Column(Modifier.weight(1f)) {
-                    TopControls(
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                // Pick phone vs tablet UI by the actual layout space, not
+                // the activity rotation. Anything with at least 600dp
+                // smallest screen width OR currently wider than tall gets
+                // the wide layout.
+                val cfg = context.resources.configuration
+                val wide = cfg.smallestScreenWidthDp >= 600 || maxWidth > maxHeight
+                if (wide) {
+                    LandscapeLayout(
                         text = text,
+                        games = games,
+                        loading = loading,
                         editPath = editPath,
                         onEditPath = { editPath = it },
-                        onRequestPermission = onRequestPermission,
-                        onOpenSettings = onOpenSettings,
-                        onScan = { rescan(editPath) },
-                        onReloadSaved = { editPath = LauncherPrefs.getGameRoot(context); rescan(editPath) },
-                        onLaunchOriginal = onLaunchOriginal,
-                        onExport = {
-                            val file = LauncherPrefs.exportBackup(context)
-                            scope.launch { snackbarHostState.showSnackbar("${text.exported}: ${file.absolutePath}") }
-                        },
+                        rescan = ::rescan,
                         forceLandscape = forceLandscape,
-                        onForceLandscape = { forceLandscape = it; LauncherPrefs.setForceLandscape(context, it) },
-                        onLangEn = { LauncherPrefs.setLanguage(context, LauncherPrefs.LANG_EN); lang = LauncherPrefs.LANG_EN },
-                        onLangZh = { LauncherPrefs.setLanguage(context, LauncherPrefs.LANG_ZH); lang = LauncherPrefs.LANG_ZH },
-                    )
-                    Spacer(Modifier.height(16.dp))
-                    GameGrid(
-                        loading = loading,
-                        games = games,
-                        text = text,
+                        onForceLandscape = {
+                            forceLandscape = it
+                            LauncherPrefs.setForceLandscape(context, it)
+                        },
+                        lang = lang,
+                        onLang = {
+                            LauncherPrefs.setLanguage(context, it)
+                            lang = it
+                        },
                         onSelect = { selectedGame = it },
+                        selectedGame = selectedGame,
+                        onCloseDetail = { selectedGame = null },
+                        onLaunchGame = onLaunchGame,
+                        onOpenSettings = onOpenSettings,
+                        onOpenDiagnostics = onOpenDiagnostics,
+                        onLaunchOriginal = onLaunchOriginal,
+                        onRequestPermission = onRequestPermission,
+                        onExportSnack = { msg ->
+                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                        },
                     )
-                }
-                selectedGame?.let { game ->
-                    GameDetailPanel(
-                        game = game,
+                } else {
+                    PortraitLayout(
                         text = text,
-                        onClose = { selectedGame = null },
-                        onLaunch = { onLaunchGame(it) },
+                        games = games,
+                        loading = loading,
+                        editPath = editPath,
+                        onEditPath = { editPath = it },
+                        rescan = ::rescan,
+                        forceLandscape = forceLandscape,
+                        onForceLandscape = {
+                            forceLandscape = it
+                            LauncherPrefs.setForceLandscape(context, it)
+                        },
+                        lang = lang,
+                        onLang = {
+                            LauncherPrefs.setLanguage(context, it)
+                            lang = it
+                        },
+                        onSelect = { selectedGame = it },
+                        selectedGame = selectedGame,
+                        onCloseDetail = { selectedGame = null },
+                        onLaunchGame = onLaunchGame,
+                        onOpenSettings = onOpenSettings,
+                        onOpenDiagnostics = onOpenDiagnostics,
+                        onLaunchOriginal = onLaunchOriginal,
+                        onRequestPermission = onRequestPermission,
+                        onExportSnack = { msg ->
+                            scope.launch { snackbarHostState.showSnackbar(msg) }
+                        },
                     )
                 }
             }
+        }
+    }
+}
+
+// ----- Landscape (tablet / wide-window) layout: original Row-based design -----
+@Suppress("UNUSED_PARAMETER")
+@Composable
+private fun LandscapeLayout(
+    text: LauncherStrings.Texts,
+    games: List<GameEntry>,
+    loading: Boolean,
+    editPath: String,
+    onEditPath: (String) -> Unit,
+    rescan: (String) -> Unit,
+    forceLandscape: Boolean,
+    onForceLandscape: (Boolean) -> Unit,
+    lang: String,
+    onLang: (String) -> Unit,
+    onSelect: (GameEntry) -> Unit,
+    selectedGame: GameEntry?,
+    onCloseDetail: () -> Unit,
+    onLaunchGame: (GameEntry) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onLaunchOriginal: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onExportSnack: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        SideBar(text, games, onOpenSettings, onOpenDiagnostics, onLaunchOriginal) { rescan(editPath) }
+        Column(Modifier.weight(1f)) {
+            TopControls(
+                text = text,
+                editPath = editPath,
+                onEditPath = onEditPath,
+                onRequestPermission = onRequestPermission,
+                onOpenSettings = onOpenSettings,
+                onScan = { rescan(editPath) },
+                onReloadSaved = { val saved = LauncherPrefs.getGameRoot(context); onEditPath(saved); rescan(saved) },
+                onLaunchOriginal = onLaunchOriginal,
+                onExport = {
+                    val file = LauncherPrefs.exportBackup(context)
+                    onExportSnack("${text.exported}: ${file.absolutePath}")
+                },
+                forceLandscape = forceLandscape,
+                onForceLandscape = onForceLandscape,
+                onLangEn = { onLang(LauncherPrefs.LANG_EN) },
+                onLangZh = { onLang(LauncherPrefs.LANG_ZH) },
+            )
+            Spacer(Modifier.height(16.dp))
+            GameGrid(
+                loading = loading,
+                games = games,
+                text = text,
+                onSelect = onSelect,
+                minColumnDp = 180,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        selectedGame?.let { game ->
+            GameDetailPanel(
+                game = game,
+                text = text,
+                onClose = onCloseDetail,
+                onLaunch = onLaunchGame,
+            )
+        }
+    }
+}
+
+// ----- Portrait (phone) layout: stacked Column + bottom-sheet detail -----
+@Suppress("UNUSED_PARAMETER")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PortraitLayout(
+    text: LauncherStrings.Texts,
+    games: List<GameEntry>,
+    loading: Boolean,
+    editPath: String,
+    onEditPath: (String) -> Unit,
+    rescan: (String) -> Unit,
+    forceLandscape: Boolean,
+    onForceLandscape: (Boolean) -> Unit,
+    lang: String,
+    onLang: (String) -> Unit,
+    onSelect: (GameEntry) -> Unit,
+    selectedGame: GameEntry?,
+    onCloseDetail: () -> Unit,
+    onLaunchGame: (GameEntry) -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
+    onLaunchOriginal: () -> Unit,
+    onRequestPermission: () -> Unit,
+    onExportSnack: (String) -> Unit,
+) {
+    val context = LocalContext.current
+    Column(Modifier.fillMaxSize().padding(12.dp)) {
+        // Phone-friendly compact header: chips on a wrappable row.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            ElevatedAssistChip(onClick = onRequestPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
+            ElevatedAssistChip(onClick = onOpenSettings, label = { Text(text.settings) }, leadingIcon = { Icon(Icons.Default.Settings, null) })
+            ElevatedAssistChip(onClick = { rescan(editPath) }, label = { Text(text.scan) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
+        }
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(
+            value = editPath, onValueChange = onEditPath,
+            modifier = Modifier.fillMaxWidth(), label = { Text(text.gameRootPath) }, singleLine = true,
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+            FilledTonalButton(onClick = { rescan(editPath) }, modifier = Modifier.weight(1f)) { Text(text.saveAndScan) }
+            FilledTonalButton(onClick = { val saved = LauncherPrefs.getGameRoot(context); onEditPath(saved); rescan(saved) }, modifier = Modifier.weight(1f)) { Text(text.reloadSaved) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            FilledTonalButton(onClick = onLaunchOriginal, modifier = Modifier.weight(1f)) { Text(text.launchOriginal) }
+            FilledTonalButton(onClick = {
+                val file = LauncherPrefs.exportBackup(context)
+                onExportSnack("${text.exported}: ${file.absolutePath}")
+            }, modifier = Modifier.weight(1f)) { Text(text.exportBackup) }
+        }
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
+            FilledTonalButton(onClick = { onLang(LauncherPrefs.LANG_EN) }) { Text(text.english) }
+            FilledTonalButton(onClick = { onLang(LauncherPrefs.LANG_ZH) }) { Text(text.chinese) }
+            Spacer(Modifier.weight(1f))
+            Text(text.forceLandscape, color = Color.White, style = MaterialTheme.typography.bodySmall)
+            Switch(checked = forceLandscape, onCheckedChange = onForceLandscape)
+        }
+        Spacer(Modifier.height(12.dp))
+        GameGrid(
+            loading = loading,
+            games = games,
+            text = text,
+            onSelect = onSelect,
+            minColumnDp = 150,
+            modifier = Modifier.weight(1f),
+        )
+    }
+    if (selectedGame != null) {
+        val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+        ModalBottomSheet(onDismissRequest = onCloseDetail, sheetState = sheetState, containerColor = Color(0xFF17171D)) {
+            GameDetailContent(game = selectedGame, text = text, onLaunch = onLaunchGame, onClose = onCloseDetail)
         }
     }
 }
@@ -287,11 +443,18 @@ private fun TopControls(
 }
 
 @Composable
-private fun GameGrid(loading: Boolean, games: List<GameEntry>, text: LauncherStrings.Texts, onSelect: (GameEntry) -> Unit) {
+private fun GameGrid(
+    loading: Boolean,
+    games: List<GameEntry>,
+    text: LauncherStrings.Texts,
+    onSelect: (GameEntry) -> Unit,
+    minColumnDp: Int,
+    modifier: Modifier = Modifier,
+) {
     if (loading) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
     } else if (games.isEmpty()) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(text.noGamesFound, style = MaterialTheme.typography.headlineMedium, color = Color.White)
                 Spacer(Modifier.height(8.dp))
@@ -299,7 +462,13 @@ private fun GameGrid(loading: Boolean, games: List<GameEntry>, text: LauncherStr
             }
         }
     } else {
-        LazyVerticalGrid(columns = GridCells.Adaptive(180.dp), contentPadding = PaddingValues(bottom = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minColumnDp.dp),
+            contentPadding = PaddingValues(bottom = 16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = modifier,
+        ) {
             items(games, key = { it.gameDir }) { game -> GameCard(game = game, text = text, onSelect = onSelect) }
         }
     }
@@ -325,27 +494,31 @@ private fun GameCard(game: GameEntry, text: LauncherStrings.Texts, onSelect: (Ga
 
 @Composable
 private fun GameDetailPanel(game: GameEntry, text: LauncherStrings.Texts, onClose: () -> Unit, onLaunch: (GameEntry) -> Unit) {
+    ElevatedCard(modifier = Modifier.fillMaxHeight().width(420.dp), shape = RoundedCornerShape(28.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF17171D))) {
+        GameDetailContent(game = game, text = text, onLaunch = onLaunch, onClose = onClose)
+    }
+}
+
+@Composable
+private fun GameDetailContent(game: GameEntry, text: LauncherStrings.Texts, onLaunch: (GameEntry) -> Unit, onClose: () -> Unit) {
     val context = LocalContext.current
     val stats = LauncherPrefs.getStats(context, game.gameDir)
     var alias by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getAlias(context, game.gameDir).orEmpty()) }
     var imagePath by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getCustomImagePath(context, game.gameDir).orEmpty()) }
     val image = imagePath.takeIf { it.isNotBlank() } ?: game.coverPath ?: game.backgroundPath
-
-    ElevatedCard(modifier = Modifier.fillMaxHeight().width(420.dp), shape = RoundedCornerShape(28.dp), colors = CardDefaults.elevatedCardColors(containerColor = Color(0xFF17171D))) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(180.dp))
-            Text(LauncherPrefs.displayName(context, game), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(game.gameDir, color = Color(0xFFBBBBBB), style = MaterialTheme.typography.bodySmall)
-            Text("UUID: ${stats.uuid}", color = Color(0xFF999999), style = MaterialTheme.typography.bodySmall)
-            Text("${text.launches}: ${stats.launchCount}", color = Color.White)
-            Text("${text.playTime}: ${stats.formatPlayTime()}", color = Color.White)
-            OutlinedTextField(value = alias, onValueChange = { alias = it }, modifier = Modifier.fillMaxWidth(), label = { Text(text.alias) })
-            OutlinedTextField(value = imagePath, onValueChange = { imagePath = it }, modifier = Modifier.fillMaxWidth(), label = { Text(text.customImagePath) })
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath) }) { Text(text.save) }
-                FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath); onLaunch(game) }) { Icon(Icons.Default.PlayArrow, null); Text(text.start) }
-                FilledTonalButton(onClick = onClose) { Text("OK") }
-            }
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(180.dp))
+        Text(LauncherPrefs.displayName(context, game), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+        Text(game.gameDir, color = Color(0xFFBBBBBB), style = MaterialTheme.typography.bodySmall)
+        Text("UUID: ${stats.uuid}", color = Color(0xFF999999), style = MaterialTheme.typography.bodySmall)
+        Text("${text.launches}: ${stats.launchCount}", color = Color.White)
+        Text("${text.playTime}: ${stats.formatPlayTime()}", color = Color.White)
+        OutlinedTextField(value = alias, onValueChange = { alias = it }, modifier = Modifier.fillMaxWidth(), label = { Text(text.alias) })
+        OutlinedTextField(value = imagePath, onValueChange = { imagePath = it }, modifier = Modifier.fillMaxWidth(), label = { Text(text.customImagePath) })
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath) }) { Text(text.save) }
+            FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath); onLaunch(game) }) { Icon(Icons.Default.PlayArrow, null); Text(text.start) }
+            FilledTonalButton(onClick = onClose) { Icon(Icons.Default.Close, null); Text("OK") }
         }
     }
 }

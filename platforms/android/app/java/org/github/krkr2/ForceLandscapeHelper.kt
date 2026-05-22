@@ -78,10 +78,12 @@ object ForceLandscapeHelper {
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             return false
         }
-        // Always issue the strongest possible orientation request first; this
-        // is what tells the WindowManager which side is "up" regardless of
-        // sensor state.
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        // Use SENSOR_LANDSCAPE so the device can flip between left- and
+        // right-landscape based on the accelerometer (matches what most
+        // games do). SCREEN_ORIENTATION_LANDSCAPE pins to one specific
+        // landscape edge and feels broken on tablets that the user is
+        // holding rotated 180 degrees.
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
 
         // Keep the screen on while the engine is rendering — without this
         // the rotation-lock cycle below can interact poorly with screen-off.
@@ -111,6 +113,30 @@ object ForceLandscapeHelper {
             Log.i(TAG, "Force landscape is on but WRITE_SETTINGS is not granted; relying on activity-level lock only.")
         }
         return true
+    }
+
+    /**
+     * Heuristic for "is this a tablet-class device". We look at the smallest
+     * screen width in dp — this is the standard Android signal that
+     * material/responsive layouts use, and 600dp is the conventional
+     * "small tablet" boundary documented in the Android UI guide.
+     */
+    fun isTabletClass(activity: Activity): Boolean {
+        val sw = activity.resources.configuration.smallestScreenWidthDp
+        return sw >= 600
+    }
+
+    /**
+     * Whether the launcher should currently use the landscape (Row-based)
+     * layout. We say yes when:
+     *  - the device is tablet class (sw >= 600dp), OR
+     *  - the current configuration is already landscape (rotation),
+     *  - and (additionally) we're not on a phone in portrait mode.
+     */
+    fun shouldUseLandscapeLayout(activity: Activity): Boolean {
+        val cfg = activity.resources.configuration
+        val landscapeNow = cfg.screenWidthDp >= cfg.screenHeightDp
+        return isTabletClass(activity) || landscapeNow
     }
 
     /**
@@ -146,13 +172,18 @@ object ForceLandscapeHelper {
     fun stickyListener(activity: Activity): OrientationEventListener {
         return object : OrientationEventListener(activity) {
             override fun onOrientationChanged(orientation: Int) {
-                // Snap back if the activity ever leaves landscape while
-                // force-landscape is on.
-                if (LauncherPrefs.getForceLandscape(activity) &&
-                    activity.requestedOrientation != ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-                ) {
+                // Snap back if the activity ever leaves a landscape mode while
+                // force-landscape is on. Both LANDSCAPE and SENSOR_LANDSCAPE
+                // (left vs right landscape) count as acceptable.
+                if (!LauncherPrefs.getForceLandscape(activity)) return
+                val current = activity.requestedOrientation
+                val isLandscape = current == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
+                    current == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE ||
+                    current == ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE ||
+                    current == ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
+                if (!isLandscape) {
                     activity.requestedOrientation =
-                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
                 }
             }
         }
