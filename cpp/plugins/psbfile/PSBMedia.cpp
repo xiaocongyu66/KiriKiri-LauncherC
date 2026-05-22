@@ -857,6 +857,19 @@ namespace PSB {
         }
     } // namespace
 
+    // Defensive dtor: take the static Mutex() once so any in-flight caller
+    // on another thread finishes before _resources/_lru get destroyed. We
+    // also flip _shutdown so anyone observing the live PSBMedia* after this
+    // dtor returns (e.g. cocos compaction notifications fired on GLThread
+    // while the storage-media list is being torn down) can short-circuit.
+    PSBMedia::~PSBMedia() {
+        std::lock_guard<std::mutex> lock(Mutex());
+        _shutdown.store(true, std::memory_order_release);
+        _resources.clear();
+        _lru.clear();
+        _bytesInUse = 0;
+    }
+
     PSBMedia::PSBMedia() {
         _ref = 1;
 
@@ -1035,7 +1048,7 @@ namespace PSB {
     bool PSBMedia::CheckExistentStorage(const ttstr &name) {
         const auto key = canonicalizeKey(name.AsStdString());
         {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             if(_resources.find(key) != _resources.end()) {
                 _hitCount++;
                 return true;
@@ -1050,7 +1063,7 @@ namespace PSB {
         }
         if(!tryLazyLoadArchive(key))
             return false;
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         if(_resources.find(key) != _resources.end()) {
             _hitCount++;
             return true;
@@ -1073,7 +1086,7 @@ namespace PSB {
         bool hasImageInfo = false;
         std::string resolvedKey;
         {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             auto it = _resources.find(key);
             if(it == _resources.end()) {
                 it = findBySuffixLocked(key);
@@ -1094,7 +1107,7 @@ namespace PSB {
         }
 
         if(!res && tryLazyLoadArchive(key)) {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             auto it = _resources.find(key);
             if(it == _resources.end()) {
                 it = findBySuffixLocked(key);
@@ -1115,7 +1128,7 @@ namespace PSB {
         }
 
         if(!res) {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             _missCount++;
             LOGGER->warn("PSB media cache miss: {}", key);
             TVPThrowExceptionMessage(TJS_W("%1:cannot open psb resource"),
@@ -1153,7 +1166,7 @@ namespace PSB {
                     imageInfo.type);
             }
             if(convertedImage) {
-                std::lock_guard<std::mutex> lock(_mutex);
+                std::lock_guard<std::mutex> lock(Mutex());
                 auto it = _resources.find(resolvedKey);
                 if(it != _resources.end()) {
                     _bytesInUse -= it->second.sizeBytes;
@@ -1196,7 +1209,7 @@ namespace PSB {
         const std::string archiveKey = key.substr(0, slashPos);
         bool shouldAttemptLoad = false;
         {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             shouldAttemptLoad =
                 _loadedArchives.insert(archiveKey).second;
         }
@@ -1214,7 +1227,7 @@ namespace PSB {
             PSBFile psb;
             psb.setSeed(motion::ResourceManager::getEmotePSBDecryptSeed());
             if(!psb.loadPSBFile(archivePath)) {
-                std::lock_guard<std::mutex> lock(_mutex);
+                std::lock_guard<std::mutex> lock(Mutex());
                 _loadedArchives.erase(archiveKey);
                 LOGGER->debug("PSB lazy-load failed: {}", archiveKey);
                 return false;
@@ -1223,12 +1236,12 @@ namespace PSB {
             RegisterPSBResourcesIntoMedia(*this, psb, archiveKey);
             return true;
         } catch(const std::exception &e) {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             _loadedArchives.erase(archiveKey);
             LOGGER->warn("PSB lazy-load error: {} ({})", e.what(), archiveKey);
             return false;
         } catch(...) {
-            std::lock_guard<std::mutex> lock(_mutex);
+            std::lock_guard<std::mutex> lock(Mutex());
             _loadedArchives.erase(archiveKey);
             LOGGER->warn("PSB lazy-load unknown error: {}", archiveKey);
             return false;
@@ -1254,7 +1267,7 @@ namespace PSB {
         const auto key = canonicalizeKey(name);
         const size_t incomingSize = resource->data.size();
 
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         auto it = _resources.find(key);
         if(it != _resources.end()) {
             _bytesInUse -= it->second.sizeBytes;
@@ -1310,7 +1323,7 @@ namespace PSB {
     }
 
     void PSBMedia::setCacheBudget(size_t maxEntries, size_t maxBytes) {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         _configuredMaxEntryCount = ClampSizeT(maxEntries, 128, 8192);
         _configuredMaxByteSize = ClampSizeT(
             maxBytes, 16ULL * 1024ULL * 1024ULL, 512ULL * 1024ULL * 1024ULL);
@@ -1320,7 +1333,7 @@ namespace PSB {
     }
 
     PSBMediaCacheStats PSBMedia::getCacheStats() const {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         PSBMediaCacheStats stats;
         stats.entryCount = _resources.size();
         stats.entryLimit = _maxEntryCount;
@@ -1337,7 +1350,7 @@ namespace PSB {
             normalizedPrefix.push_back('/');
         }
 
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         for(auto it = _resources.begin(); it != _resources.end();) {
             if(it->first.rfind(normalizedPrefix, 0) == 0) {
                 _bytesInUse -= it->second.sizeBytes;
@@ -1350,7 +1363,7 @@ namespace PSB {
     }
 
     void PSBMedia::clear() {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         _resources.clear();
         _lru.clear();
         _bytesInUse = 0;
@@ -1364,7 +1377,7 @@ namespace PSB {
         if(!norm.empty() && norm.back() != '/')
             norm.push_back('/');
         std::vector<ImageInfoEntry> result;
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         for(const auto &[key, entry] : _resources) {
             if(key.rfind(norm, 0) != 0)
                 continue;
@@ -1378,7 +1391,7 @@ namespace PSB {
     bool PSBMedia::getImageInfo(const std::string &key,
                                 CachedImageInfo &outInfo) const {
         std::string norm = canonicalizeKey(key);
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         auto it = _resources.find(norm);
         if(it == _resources.end() || !it->second.hasImageInfo)
             return false;
@@ -1388,13 +1401,13 @@ namespace PSB {
 
     void PSBMedia::addLayerPositions(const std::string &archiveKey,
                                      std::vector<LayerPosition> positions) {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         _layerPositions[archiveKey] = std::move(positions);
     }
 
     std::vector<PSBMedia::LayerPosition>
     PSBMedia::getLayerPositions(const std::string &prefix) const {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         auto it = _layerPositions.find(prefix);
         if(it != _layerPositions.end())
             return it->second;
@@ -1403,13 +1416,13 @@ namespace PSB {
 
     void PSBMedia::addButtonBounds(const std::string &archiveKey,
                                    std::vector<ButtonBoundInfo> bounds) {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         _buttonBoundsMap[archiveKey] = std::move(bounds);
     }
 
     std::vector<PSBMedia::ButtonBoundInfo>
     PSBMedia::getButtonBounds(const std::string &prefix) const {
-        std::lock_guard<std::mutex> lock(_mutex);
+        std::lock_guard<std::mutex> lock(Mutex());
         auto it = _buttonBoundsMap.find(prefix);
         if(it != _buttonBoundsMap.end())
             return it->second;

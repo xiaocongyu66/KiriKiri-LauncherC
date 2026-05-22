@@ -2,7 +2,7 @@
 // Created by LiDon on 2025/9/11.
 //
 #pragma once
-
+#include <atomic>
 #include <list>
 #include <mutex>
 #include <unordered_set>
@@ -31,7 +31,7 @@ namespace PSB {
     public:
         PSBMedia();
 
-        ~PSBMedia() override = default;
+        ~PSBMedia() override;
 
         void AddRef() override { _ref++; }
 
@@ -135,7 +135,24 @@ namespace PSB {
         void evictIfNeededLocked();
 
         int _ref = 0;
-        mutable std::mutex _mutex;
+        // Static-storage mutex shared by the (single) PSBMedia instance.
+        // Reason: storage-media refcounting from cocos / motionplayer can
+        // deliver a Release() call that runs the dtor while another thread
+        // (GLThread compaction or async resource preload) is still holding
+        // a raw PSBMedia* and about to lock it. A member std::mutex would
+        // be destroyed mid-use and FORTIFY aborts the process on the next
+        // pthread_mutex_lock; a function-local static survives the whole
+        // process lifetime so the lock call is at worst a no-op race that
+        // we then catch via _shutdown below.
+        static std::mutex &Mutex() {
+            static std::mutex m;
+            return m;
+        }
+        // Set in clear()/dtor to fence off late callers after teardown.
+        // Any public method that grabs Mutex() must short-circuit when
+        // _shutdown is true, since _resources / _lru may be half-destroyed
+        // (or fully destroyed) by then.
+        std::atomic<bool> _shutdown{ false };
         ResourceMap _resources;
         std::list<std::string> _lru;
         size_t _bytesInUse = 0;
