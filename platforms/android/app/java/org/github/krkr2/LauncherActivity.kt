@@ -338,36 +338,13 @@ private fun PortraitLayout(
     onRequestPermission: () -> Unit,
     onExportSnack: (String) -> Unit,
 ) {
-    val context = LocalContext.current
     Column(Modifier.fillMaxSize().padding(12.dp)) {
-        // Phone-friendly compact header: chips on a wrappable row.
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+        // Phone-friendly compact header: only the actions a user is likely
+        // to need on the home screen. Path editing, language switch,
+        // export-backup, launch-original etc. live in the Settings page now.
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
             ElevatedAssistChip(onClick = onRequestPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
-            ElevatedAssistChip(onClick = onOpenSettings, label = { Text(text.settings) }, leadingIcon = { Icon(Icons.Default.Settings, null) })
             ElevatedAssistChip(onClick = { rescan(editPath) }, label = { Text(text.scan) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
-        }
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(
-            value = editPath, onValueChange = onEditPath,
-            modifier = Modifier.fillMaxWidth(), label = { Text(text.gameRootPath) }, singleLine = true,
-        )
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-            FilledTonalButton(onClick = { rescan(editPath) }, modifier = Modifier.weight(1f)) { Text(text.saveAndScan) }
-            FilledTonalButton(onClick = { val saved = LauncherPrefs.getGameRoot(context); onEditPath(saved); rescan(saved) }, modifier = Modifier.weight(1f)) { Text(text.reloadSaved) }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            FilledTonalButton(onClick = onLaunchOriginal, modifier = Modifier.weight(1f)) { Text(text.launchOriginal) }
-            FilledTonalButton(onClick = {
-                val file = LauncherPrefs.exportBackup(context)
-                onExportSnack("${text.exported}: ${file.absolutePath}")
-            }, modifier = Modifier.weight(1f)) { Text(text.exportBackup) }
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            FilledTonalButton(onClick = { onLang(LauncherPrefs.LANG_EN) }) { Text(text.english) }
-            FilledTonalButton(onClick = { onLang(LauncherPrefs.LANG_ZH) }) { Text(text.chinese) }
             Spacer(Modifier.weight(1f))
             Text(text.forceLandscape, color = Color.White, style = MaterialTheme.typography.bodySmall)
             Switch(checked = forceLandscape, onCheckedChange = onForceLandscape)
@@ -403,6 +380,7 @@ private fun SideBar(text: LauncherStrings.Texts, games: List<GameEntry>, onSetti
     }
 }
 
+@Suppress("UNUSED_PARAMETER")
 @Composable
 private fun TopControls(
     text: LauncherStrings.Texts,
@@ -419,24 +397,14 @@ private fun TopControls(
     onLangEn: () -> Unit,
     onLangZh: () -> Unit,
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+    // Slimmed-down landscape header: only Storage permission, Scan, and the
+    // landscape lock toggle stay on the home screen. Path editing, Save &
+    // Scan, Reload, Launch Original, Export Backup, and the language
+    // selector all moved to LauncherSettingsActivity.
+    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
         ElevatedAssistChip(onClick = onRequestPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
-        ElevatedAssistChip(onClick = onOpenSettings, label = { Text(text.settings) }, leadingIcon = { Icon(Icons.Default.Settings, null) })
         ElevatedAssistChip(onClick = onScan, label = { Text(text.scan) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
-    }
-    Spacer(Modifier.height(12.dp))
-    OutlinedTextField(value = editPath, onValueChange = onEditPath, modifier = Modifier.fillMaxWidth(), label = { Text(text.gameRootPath) }, singleLine = true)
-    Spacer(Modifier.height(8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        FilledTonalButton(onClick = onScan) { Text(text.saveAndScan) }
-        FilledTonalButton(onClick = onReloadSaved) { Text(text.reloadSaved) }
-        FilledTonalButton(onClick = onLaunchOriginal) { Text(text.launchOriginal) }
-        FilledTonalButton(onClick = onExport) { Text(text.exportBackup) }
-    }
-    Spacer(Modifier.height(8.dp))
-    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        FilledTonalButton(onClick = onLangEn) { Text(text.english) }
-        FilledTonalButton(onClick = onLangZh) { Text(text.chinese) }
+        Spacer(Modifier.weight(1f))
         Text(text.forceLandscape, color = Color.White)
         Switch(checked = forceLandscape, onCheckedChange = onForceLandscape)
     }
