@@ -618,12 +618,17 @@ namespace Csd {
 
     static Widget *createListView() {
         const auto root = Widget::create();
-
         // 设置 layer 尺寸
         root->setContentSize(cocos2d::Size(720, 960));
-
         // 创建 ListView
         const auto listView = ListView::create();
+        // The body name expected by every form that consumes
+        // Csd::createListView() (PreferenceForm, InGameMenuForm, etc.).
+        // bindBodyController() looks it up via getChildByName("list");
+        // without a name the lookup returns nullptr and the next call —
+        // _list->removeAllItems() — crashes inside ListView::removeAllItems()
+        // with this == 0x0 (observed on the in-game expand-menu button).
+        listView->setName("list");
         listView->setDirection(ListView::Direction::VERTICAL);
         listView->setBounceEnabled(true);
         listView->setTouchEnabled(true);
