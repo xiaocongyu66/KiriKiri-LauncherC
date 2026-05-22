@@ -162,7 +162,7 @@ namespace {
         } // Key is useless
         static tPreferenceScreen *GetSubPreferenceInfo() {
             std::string renderer =
-                PreferenceGetValueString("renderer", "software");
+                PreferenceGetValueString("renderer", "opengl");
             if(renderer == "opengl")
                 return &OpenglOptPreference;
             else if(renderer == "software")
@@ -308,7 +308,7 @@ namespace {
                                                { "30", "30" },
                                                { "15", "15" } }),
             new tTVPPreferenceInfoSelectList(
-                "preference_select_renderer", "renderer", "software",
+                "preference_select_renderer", "renderer", "opengl",
                 { { "preference_opengl", "opengl" },
                   { "preference_software", "software" } }),
             new tTVPPreferenceInfoRendererSubPref("preference_renderer_opt"),
