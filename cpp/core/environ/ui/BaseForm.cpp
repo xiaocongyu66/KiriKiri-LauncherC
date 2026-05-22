@@ -231,7 +231,42 @@ bool iTVPBaseForm::initFromFile(const Csd::NodeBuilderFn &naviBarCall,
     return ret;
 }
 
-void iTVPBaseForm::rearrangeLayout() {}
+void iTVPBaseForm::rearrangeLayout() {
+    // Default: stretch the form to fill the parent UINode and re-run the
+    // child layout pass so any embedded ListView/Button reflows to the
+    // new size. Forms that want a floating / centred look (iTVPFloatForm)
+    // override this. Without an explicit rearrange, forms built through
+    // the Node* overload of initFromFile() inherit the content size baked
+    // into Csd::create*() factories (720x960) and clip off-screen on any
+    // device whose UI scene isn't exactly that size.
+    auto *scene = TVPMainScene::GetInstance();
+    if(!scene) return;
+    cocos2d::Size sceneSize = scene->getUINodeSize();
+    setContentSize(sceneSize);
+    if(RootNode) {
+        const float scale = scene->getUIScale();
+        cocos2d::Size bodySize = sceneSize;
+        bodySize.width /= scale;
+        // Leave 10% top for the navigation bar (matches rearrangeHeaderSize
+        // / rearrangeBodySize 0.1f / 0.8f convention used by the function-
+        // builder path), so the body doesn't overlap the title.
+        bodySize.height = (bodySize.height * 0.9f) / scale;
+        RootNode->setContentSize(bodySize);
+        RootNode->setScale(scale);
+        cocos2d::ui::Helper::doLayout(RootNode);
+    }
+    if(NaviBar.Root) {
+        const float scale = scene->getUIScale();
+        cocos2d::Size headerSize{ sceneSize.width / scale,
+                                  (sceneSize.height * 0.1f) / scale };
+        NaviBar.Root->setContentSize(headerSize);
+        if(auto *parent = NaviBar.Root->getParent()) {
+            parent->setContentSize(headerSize);
+            parent->setScale(scale);
+        }
+        cocos2d::ui::Helper::doLayout(NaviBar.Root);
+    }
+}
 
 void iTVPBaseForm::onKeyPressed(cocos2d::EventKeyboard::KeyCode keyCode,
                                 cocos2d::Event *event) {

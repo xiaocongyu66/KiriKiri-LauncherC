@@ -1835,6 +1835,15 @@ void TVPMainScene::pushUIForm(cocos2d::Node *ui, eEnterAni ani) {
         CCLOGERROR("TVPMainScene::pushUIForm: ui is nullptr");
         return;
     }
+    // Forms built via the Node*-based initFromFile() overload (e.g.
+    // InGameMenuForm) keep the content size that the Csd factories baked
+    // in (720x960). Without an explicit rearrange, the form ends up
+    // bigger than the actual scene and clips off-screen. The function-
+    // builder overload calls this implicitly via rearrange{Header,Body}Size,
+    // but the Node* path can't, so we fix it up here right before display.
+    if(auto *form = dynamic_cast<iTVPBaseForm *>(ui)) {
+        form->rearrangeLayout();
+    }
     TVPControlAdDialog(0x10002, 1, 0);
     int n = UINode->getChildrenCount();
     if(ani == eEnterAniNone) {
