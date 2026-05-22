@@ -168,8 +168,14 @@ object LauncherPrefs {
         val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
         val all = pref.all
         val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        val outDir = File(DEFAULT_GAME_ROOT, "backups")
-        outDir.mkdirs()
+        // Write to the app-private external dir first. Android 10+ scoped
+        // storage refuses raw filesystem writes to /storage/emulated/0/...
+        // unless MANAGE_EXTERNAL_STORAGE is granted, which is opt-in. The
+        // app-private location is always writable, survives uninstall scoping
+        // rules, and is reachable from the system Files app under
+        // Android/data/<pkg>/files/backups/.
+        val outDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "backups")
+        if (!outDir.exists()) outDir.mkdirs()
         val file = File(outDir, "krkr2_launcher_backup_$timestamp.json")
         val json = buildString {
             append("{\n")
