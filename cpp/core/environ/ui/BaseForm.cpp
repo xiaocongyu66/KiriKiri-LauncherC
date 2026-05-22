@@ -80,6 +80,103 @@ iTVPBaseForm::~iTVPBaseForm() = default;
 
 void iTVPBaseForm::Show() {}
 
+namespace {
+// ----------------------------------------------------------------------------
+// Helpers for the Node*-based initFromFile() overload.
+//
+// Csd::createNaviBar() / Csd::createListView() etc. wrap their interesting
+// nodes inside an outer Widget (the "root" panel). The forms still expect
+// to find children by simple names ("list", "left", "right", "background")
+// via getChildByName(), but those names live one layer down.
+//
+// findDescendant() = recursive getChildByName, so we don't care how deep
+// the wrapper is. DeepSearchProxy = a throwaway Node we hand to
+// bindBodyController()/bindHeaderController() so that those callbacks see
+// a deep getChildByName() out of the box, without rewriting every existing
+// form.
+//
+// This matches the web-port implementation in
+// kirikiroid2-web/cpp/core/environ/ui/BaseForm.cpp:82-108. Without it, the
+// (Node*, Node*, ...) overload of initFromFile() previously did nothing
+// and every form (InGameMenuForm, GlobalPreferenceForm, etc.) crashed in
+// initMenu() / WalkConfig() because _list was nullptr.
+// ----------------------------------------------------------------------------
+Node *findDescendant(Node *root, const std::string &name) {
+    if(!root) return nullptr;
+    for(auto *child : root->getChildren()) {
+        if(child->getName() == name) return child;
+        if(auto *found = findDescendant(child, name)) return found;
+    }
+    return nullptr;
+}
+
+class DeepSearchProxy : public Node {
+    Node *_target = nullptr;
+public:
+    static DeepSearchProxy *create(Node *target) {
+        auto *p = new DeepSearchProxy;
+        p->_target = target;
+        p->autorelease();
+        return p;
+    }
+    Node *getChildByName(const std::string &name) const override {
+        return findDescendant(_target, name);
+    }
+};
+} // namespace
+
+bool iTVPBaseForm::initFromFile(Node *naviBarNode, Node *bodyNode,
+                                Node *bottomBarNode, Node *parent) {
+    const bool ret = Node::init();
+
+    RootNode = dynamic_cast<Widget *>(bodyNode);
+    if(!RootNode) return false;
+
+    if(!parent) parent = this;
+
+    LinearLayoutParameter *param = nullptr;
+
+    if(naviBarNode) {
+        auto *proxy = DeepSearchProxy::create(naviBarNode);
+        NaviBar.Root = findDescendant(naviBarNode, "background");
+        if(!NaviBar.Root && !naviBarNode->getChildren().empty())
+            NaviBar.Root = naviBarNode->getChildren().front();
+        NaviBar.Left =
+            dynamic_cast<Button *>(findDescendant(naviBarNode, "left"));
+        NaviBar.Right =
+            dynamic_cast<Button *>(findDescendant(naviBarNode, "right"));
+        bindHeaderController(proxy);
+
+        param = LinearLayoutParameter::create();
+        param->setGravity(LinearLayoutParameter::LinearGravity::TOP);
+        if(auto *w = dynamic_cast<Widget *>(naviBarNode))
+            w->setLayoutParameter(param);
+        parent->addChild(naviBarNode);
+    }
+
+    if(bottomBarNode) {
+        BottomBar.Root = bottomBarNode;
+        auto *proxy = DeepSearchProxy::create(bottomBarNode);
+        bindFooterController(proxy);
+
+        param = LinearLayoutParameter::create();
+        param->setGravity(LinearLayoutParameter::LinearGravity::BOTTOM);
+        if(auto *w = dynamic_cast<Widget *>(bottomBarNode))
+            w->setLayoutParameter(param);
+        parent->addChild(BottomBar.Root);
+    }
+
+    param = LinearLayoutParameter::create();
+    param->setGravity(LinearLayoutParameter::LinearGravity::CENTER_VERTICAL);
+    if(auto *w = dynamic_cast<Widget *>(bodyNode))
+        w->setLayoutParameter(param);
+    parent->addChild(RootNode);
+
+    auto *bodyProxy = DeepSearchProxy::create(bodyNode);
+    bindBodyController(bodyProxy);
+    return ret;
+}
+
 bool iTVPBaseForm::initFromFile(const Csd::NodeBuilderFn &naviBarCall,
                                 const Csd::NodeBuilderFn &bodyCall,
                                 const Csd::NodeBuilderFn &bottomBarCall,
