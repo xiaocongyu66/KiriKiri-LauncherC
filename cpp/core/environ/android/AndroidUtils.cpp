@@ -1,6 +1,8 @@
 #include "AndroidUtils.h"
 #include <unzip.h>
 #include "zlib.h"
+#include <cstdio>
+#include <ctime>
 #include <map>
 #include <string>
 #include <vector>
@@ -512,8 +514,50 @@ namespace kr2android {
 } // namespace kr2android
 using namespace kr2android;
 
+// krkr2-launcher: dump every messagebox text to a side file so OPPO logcat
+// throttling cannot eat the very first crash dialog. Timestamp included so we
+// can correlate with logcat windows.
+static void TVPDumpFatalToFile(const char *pszText, const char *pszTitle) {
+    // Try a few well-known external app-files directories. The launcher writes
+    // its own log at /storage/emulated/0/Android/data/<pkg>/files/, so put our
+    // fatal log next to it. Fall back to /sdcard and /data/local/tmp.
+    static const char *const kCandidates[] = {
+        "/storage/emulated/0/Android/data/org.github.krkr2/files",
+        "/sdcard/Android/data/org.github.krkr2/files",
+        "/sdcard",
+        "/data/local/tmp",
+        nullptr,
+    };
+    for(int i = 0; kCandidates[i]; ++i) {
+        std::string path = kCandidates[i];
+        path += "/krkr2_native_fatal.log";
+        FILE *fp = std::fopen(path.c_str(), "ab");
+        if(!fp) continue;
+        time_t now = time(nullptr);
+        struct tm tmv;
+        localtime_r(&now, &tmv);
+        char ts[40] = {0};
+        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tmv);
+        std::fprintf(fp, "[%s] ===== TVPShowSimpleMessageBox =====\n", ts);
+        std::fprintf(fp, "Title: %s\n", pszTitle ? pszTitle : "(null)");
+        std::fprintf(fp, "Text:\n%s\n", pszText ? pszText : "(null)");
+        std::fprintf(fp, "----- end -----\n\n");
+        std::fclose(fp);
+        // Mirror to Android log too so the same line is recoverable from
+        // logcat if quota allows.
+        __android_log_print(ANDROID_LOG_FATAL, "KrKr2NativeFatal",
+                            "MessageBox: %s\n%s", pszTitle ? pszTitle : "",
+                            pszText ? pszText : "");
+        return;
+    }
+}
+
 int TVPShowSimpleMessageBox(const char *pszText, const char *pszTitle,
                             unsigned int nButton, const char **btnText) {
+    // Always dump first so even if the JNI dialog deadlocks the main thread,
+    // the user can pull the message text from the file.
+    TVPDumpFatalToFile(pszText, pszTitle);
+
     JniMethodInfo methodInfo;
     if(JniHelper::getStaticMethodInfo(
            methodInfo, "org/tvp/kirikiri2/KR2Activity", "ShowMessageBox",
@@ -538,12 +582,28 @@ int TVPShowSimpleMessageBox(const char *pszText, const char *pszTitle,
         methodInfo.env->DeleteLocalRef(btns);
         methodInfo.env->DeleteLocalRef(methodInfo.classID);
 
+        // Cap the wait at 30s so the GLThread cannot stay blocked long enough
+        // to ANR the main thread (5s input dispatch timeout) while it is
+        // mid-layout. If the dialog is dismissed earlier we exit immediately;
+        // if not, we treat it as the default "OK"/first button and continue
+        // (or, in fatal contexts, the engine will keep cascading errors that
+        // the launcher log already captured).
+        constexpr int kWaitTimeoutMs = 30000;
+        constexpr int kStepMs = 200;
+        int elapsedMs = 0;
         std::unique_lock<std::mutex> lk(MessageBoxLock);
-        while(MsgBoxRet == -2) {
-            MessageBoxCond.wait_for(lk, std::chrono::milliseconds(200));
+        while(MsgBoxRet == -2 && elapsedMs < kWaitTimeoutMs) {
+            MessageBoxCond.wait_for(lk, std::chrono::milliseconds(kStepMs));
             if(MsgBoxRet == -2) {
                 TVPForceSwapBuffer(); // update opengl events
+                elapsedMs += kStepMs;
             }
+        }
+        if(MsgBoxRet == -2) {
+            __android_log_print(ANDROID_LOG_WARN, "KrKr2NativeFatal",
+                                "MessageBox timed out after %d ms; assuming OK",
+                                kWaitTimeoutMs);
+            return 0; // pretend user clicked the first button
         }
         return MsgBoxRet;
     }
