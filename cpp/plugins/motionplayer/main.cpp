@@ -217,8 +217,21 @@ NCB_REGISTER_SUBCLASS_DELAY(SeparateLayerAdaptor) {
 // 脚本意图: EmoteVariable.useD3D = (typeof Motion.Player.useD3D === "Object") ? Motion.Player.useD3D : Motion.enableD3D;
 // 但 then 分支实际赋的是比较结果 (int)1 而非对象，导致 (int)1 to Object。故让 useD3D 返回整数，
 // 使 typeof === "Integer" 走 else，赋 Motion.enableD3D（stub 对象），避免两处 int→Object 报错。
+//
+// 上述策略在 KrKr2-Next 跑得动的游戏上工作，但在 limelight lemonade jam 的 patch tjs 上失效：
+// 该游戏的 patch tjs 实际上把 `typeof Motion.Player.useD3D` 看成 "Object" 走了 then 分支
+// (register dump 显示 %3=(int)1 即比较为真)。我们让 getter 改返回一个空 Dictionary：
+//   - typeof === "Object"  ✓  走 then 分支
+//   - then 分支拿到的是一个真 Object（虽然空字典），后续访问任何成员都返回 void
+//   - 不再触发 "(int)X to Object" 类型转换异常
 static tjs_error Player_getUseD3D(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    *r = tTJSVariant(static_cast<tjs_int>(0));
+    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
+    if (obj) {
+        *r = tTJSVariant(obj, obj);
+        obj->Release();
+    } else {
+        *r = tTJSVariant();
+    }
     return TJS_S_OK;
 }
 static tjs_error Player_setUseD3D(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
