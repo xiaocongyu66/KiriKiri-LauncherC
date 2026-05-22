@@ -46,6 +46,18 @@ object LauncherStrings {
         val grantWriteSettings: String,
         val writeSettingsGranted: String,
         val writeSettingsHint: String,
+        // ---- Settings / RenderSettings groups (M3 reorg) ----
+        val settingsLibrary: String,
+        val settingsDisplay: String,
+        val settingsEngine: String,
+        val settingsTools: String,
+        val settingsAbout: String,
+        val renderSettings: String,
+        val renderSettingsHint: String,
+        val gameOverride: String,
+        val gameOverrideHint: String,
+        val resetDefaults: String,
+        val running: String,
     )
 
     fun current(context: Context): Texts = if (LauncherPrefs.getLanguage(context) == LauncherPrefs.LANG_ZH) zh else en
@@ -93,6 +105,17 @@ object LauncherStrings {
         grantWriteSettings = "Grant rotation control",
         writeSettingsGranted = "Granted",
         writeSettingsHint = "Required to truly lock landscape on OEMs that ignore the activity-level lock (vivo / OPPO / MIUI). Without it, the system rotation lock can still flip the screen.",
+        settingsLibrary = "Library",
+        settingsDisplay = "Display",
+        settingsEngine = "Engine (krkr)",
+        settingsTools = "Tools",
+        settingsAbout = "About",
+        renderSettings = "Renderer & engine",
+        renderSettingsHint = "OpenGL / software renderer toggles, FPS limit, texture compression. Mirrors the engine's in-game preferences.",
+        gameOverride = "Per-game settings",
+        gameOverrideHint = "Override engine settings for this game only. Stored separately from globals.",
+        resetDefaults = "Reset to defaults",
+        running = "running",
     )
 
     val zh = Texts(
@@ -138,5 +161,16 @@ object LauncherStrings {
         grantWriteSettings = "授权旋转控制",
         writeSettingsGranted = "已授权",
         writeSettingsHint = "在 vivo / OPPO / 小米等系统上，仅靠 Activity 级横屏锁定不够，必须临时关闭系统自动旋转才能真正锁住。授权后即可绕过系统旋转锁。",
+        settingsLibrary = "游戏库",
+        settingsDisplay = "显示",
+        settingsEngine = "引擎设置（krkr）",
+        settingsTools = "工具",
+        settingsAbout = "关于",
+        renderSettings = "渲染与引擎",
+        renderSettingsHint = "OpenGL / 软件渲染器、帧率上限、纹理压缩等。与游戏内置设置同步。",
+        gameOverride = "单游戏覆盖",
+        gameOverrideHint = "仅对此游戏生效，覆盖全局引擎设置。",
+        resetDefaults = "恢复默认值",
+        running = "运行中",
     )
 }
