@@ -1205,14 +1205,14 @@ namespace PSB {
 
         try {
             ttstr archivePath(archiveKey.c_str());
-            if(auto cached = motion::ResourceManager::getLoadedFile(archivePath)) {
-                LOGGER->info("PSB lazy-load archive(from cache): {}", archiveKey);
-                RegisterPSBResourcesIntoMedia(*this, *cached, archiveKey);
-                return true;
-            }
-
+            // The kirikiroid2-web ResourceManager no longer exposes a
+            // shared_ptr<PSBFile> cache (it caches tTJSVariant modules
+            // instead, which is its own internal lifecycle), so we always
+            // load a fresh PSBFile here. This is fine because the outer
+            // _loadedArchives.insert above already deduplicates: each
+            // archive is parsed at most once per process.
             PSBFile psb;
-            psb.setSeed(motion::ResourceManager::getDecryptSeed());
+            psb.setSeed(motion::ResourceManager::getEmotePSBDecryptSeed());
             if(!psb.loadPSBFile(archivePath)) {
                 std::lock_guard<std::mutex> lock(_mutex);
                 _loadedArchives.erase(archiveKey);
