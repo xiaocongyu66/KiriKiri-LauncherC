@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
@@ -73,6 +74,7 @@ class LauncherActivity : AppCompatActivity() {
             LauncherTheme {
                 LauncherScreen(
                     onOpenSettings = { startActivity(android.content.Intent(this, LauncherSettingsActivity::class.java)) },
+                    onOpenDiagnostics = { startActivity(android.content.Intent(this, DiagnosticsActivity::class.java)) },
                     onLaunchGame = { game -> startGame(game.gameDir, game.title) },
                     onLaunchOriginal = { startOriginal() },
                     onRequestPermission = { requestStoragePermission() },
@@ -108,6 +110,7 @@ class LauncherActivity : AppCompatActivity() {
 @Composable
 private fun LauncherScreen(
     onOpenSettings: () -> Unit,
+    onOpenDiagnostics: () -> Unit,
     onLaunchGame: (GameEntry) -> Unit,
     onLaunchOriginal: () -> Unit,
     onRequestPermission: () -> Unit,
@@ -149,6 +152,7 @@ private fun LauncherScreen(
                 title = { Text(text.title) },
                 actions = {
                     IconButton(onClick = { scope.launch { snackbarHostState.showSnackbar(text.scan) }; rescan(rootPath) }) { Icon(Icons.Default.Refresh, null) }
+                    IconButton(onClick = onOpenDiagnostics) { Icon(Icons.Default.Info, null) }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, null) }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF101014))
@@ -157,7 +161,7 @@ private fun LauncherScreen(
     ) { padding ->
         Surface(Modifier.fillMaxSize().padding(padding), color = Color(0xFF0C0C10)) {
             Row(Modifier.fillMaxSize().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                SideBar(text, games, onOpenSettings, onLaunchOriginal) { rescan(editPath) }
+                SideBar(text, games, onOpenSettings, onOpenDiagnostics, onLaunchOriginal) { rescan(editPath) }
                 Column(Modifier.weight(1f)) {
                     TopControls(
                         text = text,
@@ -199,10 +203,11 @@ private fun LauncherScreen(
 }
 
 @Composable
-private fun SideBar(text: LauncherStrings.Texts, games: List<GameEntry>, onSettings: () -> Unit, onOriginal: () -> Unit, onScan: () -> Unit) {
+private fun SideBar(text: LauncherStrings.Texts, games: List<GameEntry>, onSettings: () -> Unit, onDiagnostics: () -> Unit, onOriginal: () -> Unit, onScan: () -> Unit) {
     val context = LocalContext.current
     Column(modifier = Modifier.width(88.dp), verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, null, tint = Color.White) }
+        IconButton(onClick = onDiagnostics) { Icon(Icons.Default.Info, null, tint = Color.White) }
         IconButton(onClick = onOriginal) { Icon(Icons.Default.PlayArrow, null, tint = Color.White) }
         IconButton(onClick = onScan) { Icon(Icons.Default.Refresh, null, tint = Color.White) }
         Text(text.stats, color = Color.White, style = MaterialTheme.typography.bodySmall)

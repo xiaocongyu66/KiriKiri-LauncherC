@@ -16,6 +16,12 @@ object LauncherPrefs {
     private const val KEY_LANGUAGE = "language"
     private const val KEY_FORCE_LANDSCAPE = "force_landscape"
     private const val KEY_KNOWN_GAMES = "known_games"
+    // Snapshot of Settings.System.ACCELEROMETER_ROTATION captured by
+    // ForceLandscapeHelper before it disabled auto-rotate. -1 means "no
+    // saved value, do not restore". We persist this so a process kill
+    // mid-game still lets us revert auto-rotate the next time the launcher
+    // starts cleanly.
+    private const val KEY_SAVED_ACCEL_ROTATION = "saved_accelerometer_rotation"
 
     const val LANG_EN = "en"
     const val LANG_ZH = "zh"
@@ -54,6 +60,18 @@ object LauncherPrefs {
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_FORCE_LANDSCAPE, enabled)
+            .apply()
+    }
+
+    fun getSavedAccelerometerRotation(context: Context): Int {
+        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getInt(KEY_SAVED_ACCEL_ROTATION, -1)
+    }
+
+    fun setSavedAccelerometerRotation(context: Context, value: Int) {
+        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_SAVED_ACCEL_ROTATION, value)
             .apply()
     }
 

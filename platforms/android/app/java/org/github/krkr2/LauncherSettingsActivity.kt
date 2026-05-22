@@ -30,6 +30,11 @@ class LauncherSettingsActivity : AppCompatActivity() {
                 val context = this
                 var root by remember { mutableStateOf(LauncherPrefs.getGameRoot(context)) }
                 var forceLandscape by remember { mutableStateOf(LauncherPrefs.getForceLandscape(context)) }
+                // canWrite is read once per recomposition; the Settings page
+                // pops out of process so we need to refresh on resume.
+                var canWriteSettings by remember {
+                    mutableStateOf(ForceLandscapeHelper.canWriteSystemSettings(context))
+                }
                 val text = LauncherStrings.current(context)
                 Surface(Modifier.fillMaxSize()) {
                     Column(
@@ -59,9 +64,29 @@ class LauncherSettingsActivity : AppCompatActivity() {
                                 LauncherPrefs.setForceLandscape(context, it)
                             })
                         }
+                        // The actual rotation lock requires WRITE_SETTINGS to
+                        // also flip the system auto-rotate flag. Show the
+                        // current grant state and a button to open the
+                        // system page when it's missing.
+                        Row(
+                            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = {
+                                    ForceLandscapeHelper.requestPermission(context)
+                                },
+                                enabled = !canWriteSettings,
+                            ) {
+                                Text(if (canWriteSettings) text.writeSettingsGranted else text.grantWriteSettings)
+                            }
+                        }
+                        Text(text.writeSettingsHint)
                         Button(onClick = {
                             LauncherPrefs.setGameRoot(context, root)
                             LauncherPrefs.setForceLandscape(context, forceLandscape)
+                            // Re-check after possible system page round-trip.
+                            canWriteSettings = ForceLandscapeHelper.canWriteSystemSettings(context)
                             finish()
                         }) {
                             Text(text.save)
@@ -70,5 +95,13 @@ class LauncherSettingsActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // No-op recomposition trigger; if the user just returned from the
+        // system "Modify system settings" page the next recomposition will
+        // re-read canWriteSystemSettings(). Compose state survives onResume
+        // so this is enough to refresh the button label.
     }
 }

@@ -25,6 +25,7 @@ class MainActivity : KR2Activity() {
 
     private var sessionStartedAt = 0L
     private var launchRecorded = false
+    private var orientationListener: android.view.OrientationEventListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.setEnableVirtualButton(false)
@@ -38,11 +39,12 @@ class MainActivity : KR2Activity() {
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         window.attributes = lp
 
-        requestedOrientation = if (LauncherPrefs.getForceLandscape(this)) {
-            ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-        } else {
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
+        // Force-landscape goes through the helper instead of a one-shot
+        // requestedOrientation assignment. The helper additionally pins the
+        // system auto-rotate flag (when WRITE_SETTINGS is granted) so OEM
+        // rotation locks cannot override us.
+        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
+        orientationListener = ForceLandscapeHelper.stickyListener(this)
 
         if (!checkStoragePermission()) {
             requestStoragePermission()
@@ -74,15 +76,25 @@ class MainActivity : KR2Activity() {
     override fun onResume() {
         super.onResume()
         sessionStartedAt = System.currentTimeMillis()
+        // Re-assert landscape on every resume; some OEMs reset
+        // requestedOrientation when an activity is brought back from the
+        // background (e.g. after a notification consumes input focus).
+        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
+        orientationListener?.let { if (it.canDetectOrientation()) it.enable() }
     }
 
     override fun onPause() {
         recordSessionTime()
+        orientationListener?.disable()
         super.onPause()
     }
 
     override fun onDestroy() {
         recordSessionTime()
+        orientationListener?.disable()
+        orientationListener = null
+        // Restore the user's auto-rotate setting before the activity is gone.
+        ForceLandscapeHelper.release(this)
         super.onDestroy()
         SDLAudioManager.release(this)
     }
