@@ -47,7 +47,7 @@
             android:name=".LauncherActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="true"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="behind"
             android:theme="@style/Theme.KR2.Launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -59,12 +59,14 @@
             android:name=".LauncherSettingsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="false"
+            android:screenOrientation="behind"
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity
             android:name=".DiagnosticsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="false"
+            android:screenOrientation="behind"
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity

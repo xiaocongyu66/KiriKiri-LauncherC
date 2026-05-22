@@ -68,8 +68,17 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class LauncherActivity : AppCompatActivity() {
+    private var orientationListener: android.view.OrientationEventListener? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The launcher itself also follows the user's "force landscape" pref.
+        // We don't pin the system rotation flag here (apply()'s WRITE_SETTINGS
+        // path only fires when the toggle says so AND the user has granted
+        // the permission), but we always assert requestedOrientation so the
+        // launcher rotates the moment the toggle changes — no need to relaunch.
+        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
+        orientationListener = ForceLandscapeHelper.stickyListener(this)
         setContent {
             LauncherTheme {
                 LauncherScreen(
@@ -81,6 +90,29 @@ class LauncherActivity : AppCompatActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // Re-read the force-landscape pref so toggling it from the settings
+        // screen takes effect the moment we come back, even if the activity
+        // was not destroyed.
+        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
+        orientationListener?.let { if (it.canDetectOrientation()) it.enable() }
+    }
+
+    override fun onPause() {
+        orientationListener?.disable()
+        super.onPause()
+    }
+
+    override fun onDestroy() {
+        orientationListener?.disable()
+        orientationListener = null
+        // Don't release() here — we want the rotation lock to stay engaged
+        // while the user transitions to MainActivity. MainActivity owns the
+        // release on its own lifecycle.
+        super.onDestroy()
     }
 
     private fun startGame(gameDir: String, title: String) {

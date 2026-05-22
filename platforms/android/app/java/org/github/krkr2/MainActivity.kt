@@ -95,8 +95,16 @@ class MainActivity : KR2Activity() {
         orientationListener = null
         // Restore the user's auto-rotate setting before the activity is gone.
         ForceLandscapeHelper.release(this)
+        // Do NOT call SDLAudioManager.release(this) here. Cocos2dxActivity ->
+        // SDLActivity.onDestroy() already calls it once (libsdl/SDLActivity
+        // line 591). Calling release twice in a row triggers a double
+        // unregisterAudioDeviceCallback, which on Android 13+ destroys an
+        // internal SDL audio mutex while the GLThread is still draining a
+        // final frame and ends in:
+        //   FORTIFY: pthread_mutex_lock called on a destroyed mutex
+        //   Fatal signal 6 (SIGABRT) in tid X (GLThread Y)
+        // observed in 78.log PID 14643 / GLThread 105.
         super.onDestroy()
-        SDLAudioManager.release(this)
     }
 
     private fun recordSessionTime() {
