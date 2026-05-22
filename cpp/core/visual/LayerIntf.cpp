@@ -4825,7 +4825,8 @@ void tTJSNI_BaseLayer::OperateBezierPatch(const tTVPPointD * /*points*/,
                                           const tTVPRect & /*srcrect*/,
                                           tTVPBlendOperationMode /*mode*/,
                                           tjs_int /*opacity*/,
-                                          tTVPBBStretchType /*type*/) {
+                                          tTVPBBStretchType /*type*/,
+                                          bool /*clear*/) {
     static thread_local bool warned = false;
     if(!warned) {
         warned = true;
@@ -4841,7 +4842,8 @@ void tTJSNI_BaseLayer::OperateMesh(const tTVPPointD * /*points*/,
                                    const tTVPRect & /*srcrect*/,
                                    tTVPBlendOperationMode /*mode*/,
                                    tjs_int /*opacity*/,
-                                   tTVPBBStretchType /*type*/) {
+                                   tTVPBBStretchType /*type*/,
+                                   bool /*clear*/) {
     static thread_local bool warned = false;
     if(!warned) {
         warned = true;

@@ -829,13 +829,15 @@ public:
                             iTVPBaseBitmap *src, const tTVPRect &srcrect,
                             tTVPBlendOperationMode mode = omAuto,
                             tjs_int opacity = 255,
-                            tTVPBBStretchType type = stNearest);
+                            tTVPBBStretchType type = stNearest,
+                            bool clear = false);
 
     void OperateMesh(const tTVPPointD *points, tjs_int divx, tjs_int divy,
                      iTVPBaseBitmap *src, const tTVPRect &srcrect,
                      tTVPBlendOperationMode mode = omAuto,
                      tjs_int opacity = 255,
-                     tTVPBBStretchType type = stNearest);
+                     tTVPBBStretchType type = stNearest,
+                     bool clear = false);
 
     void PileRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
                   const tTVPRect &rect, tjs_int opacity = 255);
