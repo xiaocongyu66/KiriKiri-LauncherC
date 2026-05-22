@@ -479,6 +479,44 @@ tjs_error tTJSNI_BaseLayer::Construct(tjs_int numparams, tTJSVariant **param,
 }
 
 //---------------------------------------------------------------------------
+// ConstructResolvedTreeOwnerLike_0x800438 — ported from kirikiroid2-web.
+// Mirrors libkrkr2.so sub_0x800438: skips the TJS-side PropGet of
+// "layerTreeOwnerInterface" / parent layer NativeInstance lookup, accepting
+// the resolved iTVPLayerTreeOwner* and parent tTJSNI_BaseLayer* directly.
+// Used by motionplayer's PrivateMotionGLL Construct so the layer can attach
+// to the tree while its TJS object is still registered only as
+// __Private_Motion_GLLayer.
+//---------------------------------------------------------------------------
+tjs_error tTJSNI_BaseLayer::ConstructResolvedTreeOwnerLike_0x800438(
+    iTVPLayerTreeOwner *layerTreeOwner,
+    tTJSNI_BaseLayer *parentLayer,
+    iTJSDispatch2 *tjs_obj,
+    const tTJSVariantClosure &actionOwner) {
+    if(!layerTreeOwner)
+        TVPThrowExceptionMessage(
+            TJS_W("Cannot Retrive Layer Tree Owner Interface."));
+    Owner = tjs_obj; // no addref, matches Construct() and the native +24 slot
+    if(parentLayer) {
+        Manager = parentLayer->GetManager();
+        if(Manager)
+            Manager->AddRef();
+        Join(parentLayer);
+    }
+    if(!parentLayer) {
+        Manager = new tTVPLayerManager(layerTreeOwner);
+        Manager->AttachPrimary(this);
+        Manager->RegisterSelfToWindow();
+        Type = DisplayType = ltOpaque;
+        NeutralColor = TransparentColor = TVP_RGBA2COLOR(255, 255, 255, 255);
+        UpdateDrawFace();
+        HitThreshold = 0;
+    }
+    ActionOwner = actionOwner;
+    ActionOwner.AddRef();
+    return TJS_S_OK;
+}
+
+//---------------------------------------------------------------------------
 void tTJSNI_BaseLayer::Invalidate() {
     Shutdown = true;
 

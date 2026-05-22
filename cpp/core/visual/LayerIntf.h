@@ -180,6 +180,17 @@ public:
     ~tTJSNI_BaseLayer() override;
     tjs_error Construct(tjs_int numparams, tTJSVariant **param,
                         iTJSDispatch2 *tjs_obj) override;
+    // Ported from kirikiroid2-web LayerIntf.h: a side-door Construct that
+    // resolves the owner LayerTreeOwner and parent layer up-front instead of
+    // looking them up via TJS PropGet. Used by motionplayer's PrivateMotionGLL
+    // (mirrors libkrkr2.so sub_0x800438) so the new layer can attach to the
+    // tree while its TJS object is still registered as
+    // __Private_Motion_GLLayer.
+    tjs_error ConstructResolvedTreeOwnerLike_0x800438(
+        class iTVPLayerTreeOwner *layerTreeOwner,
+        tTJSNI_BaseLayer *parentLayer,
+        iTJSDispatch2 *tjs_obj,
+        const tTJSVariantClosure &actionOwner);
     void Invalidate() override;
 
     iTJSDispatch2 *GetOwnerNoAddRef() const { return Owner; }
