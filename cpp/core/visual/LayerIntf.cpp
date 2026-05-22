@@ -4776,6 +4776,81 @@ void tTJSNI_BaseLayer::AffineCopy(const tTVPPointD *points, iTVPBaseBitmap *src,
 }
 
 //---------------------------------------------------------------------------
+// Mesh / Bezier-patch deformation stubs.
+//
+// kirikiroid2-web's motionplayer (PlayerRenderExecute / PlayerRenderTargets)
+// uses these four entry points for facial mesh deformation. The full
+// implementations live in W.Dee's TVPDoBoxBlur-class native renderer
+// (see kirikiroid2-web/cpp/core/visual/LayerIntf.cpp) but Android's
+// cocos2d-x rendering path does not have a mesh-blit primitive yet.
+//
+// Rather than crash, we land here as no-ops. Each stub records a single
+// warning the first time it is hit (per layer) so the diagnostics panel
+// shows that mesh deformation was skipped, while the motion engine
+// continues with whichever non-mesh path the caller fell through to.
+// Most motionplayer assets only request mesh paths for high-end facial
+// deformation; the rest of the timeline plays correctly via AffineCopy.
+//---------------------------------------------------------------------------
+void tTJSNI_BaseLayer::BezierPatchCopy(const tTVPPointD * /*points*/,
+                                       tjs_int /*divx*/, tjs_int /*divy*/,
+                                       iTVPBaseBitmap * /*src*/,
+                                       const tTVPRect & /*srcrect*/,
+                                       tTVPBBStretchType /*mode*/,
+                                       bool /*clear*/) {
+    static thread_local bool warned = false;
+    if(!warned) {
+        warned = true;
+        TVPAddLog(TJS_W("[LayerIntf] BezierPatchCopy stub hit; mesh deformation "
+                        "skipped (Android render path lacks mesh blit)."));
+    }
+}
+
+void tTJSNI_BaseLayer::MeshCopy(const tTVPPointD * /*points*/,
+                                tjs_int /*divx*/, tjs_int /*divy*/,
+                                iTVPBaseBitmap * /*src*/,
+                                const tTVPRect & /*srcrect*/,
+                                tTVPBBStretchType /*mode*/,
+                                bool /*clear*/) {
+    static thread_local bool warned = false;
+    if(!warned) {
+        warned = true;
+        TVPAddLog(TJS_W("[LayerIntf] MeshCopy stub hit; mesh deformation "
+                        "skipped (Android render path lacks mesh blit)."));
+    }
+}
+
+void tTJSNI_BaseLayer::OperateBezierPatch(const tTVPPointD * /*points*/,
+                                          tjs_int /*divx*/, tjs_int /*divy*/,
+                                          iTVPBaseBitmap * /*src*/,
+                                          const tTVPRect & /*srcrect*/,
+                                          tTVPBlendOperationMode /*mode*/,
+                                          tjs_int /*opacity*/,
+                                          tTVPBBStretchType /*type*/) {
+    static thread_local bool warned = false;
+    if(!warned) {
+        warned = true;
+        TVPAddLog(TJS_W("[LayerIntf] OperateBezierPatch stub hit; mesh "
+                        "deformation skipped (Android render path lacks mesh "
+                        "blit)."));
+    }
+}
+
+void tTJSNI_BaseLayer::OperateMesh(const tTVPPointD * /*points*/,
+                                   tjs_int /*divx*/, tjs_int /*divy*/,
+                                   iTVPBaseBitmap * /*src*/,
+                                   const tTVPRect & /*srcrect*/,
+                                   tTVPBlendOperationMode /*mode*/,
+                                   tjs_int /*opacity*/,
+                                   tTVPBBStretchType /*type*/) {
+    static thread_local bool warned = false;
+    if(!warned) {
+        warned = true;
+        TVPAddLog(TJS_W("[LayerIntf] OperateMesh stub hit; mesh deformation "
+                        "skipped (Android render path lacks mesh blit)."));
+    }
+}
+
+//---------------------------------------------------------------------------
 void tTJSNI_BaseLayer::PileRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
                                 const tTVPRect &srcrect, tjs_int opacity) {
     // obsoleted (use OperateRect)

@@ -806,6 +806,37 @@ public:
                     const tTVPRect &srcrect, tTVPBBStretchType mode = stNearest,
                     bool clear = false);
 
+    // ------------------------------------------------------------------
+    // Mesh / Bezier-patch variants required by kirikiroid2-web
+    // motionplayer (PlayerRenderExecute / PlayerRenderTargets) for
+    // facial mesh deformation. These are NOT implemented yet on the
+    // Android cocos2d rendering path; the .cpp file emits an empty
+    // stub that records a one-shot TVPAddLog warning. The motion
+    // engine falls through to the AffineCopy branch for most layer
+    // sources, so the visual effect is "mesh deformation disabled"
+    // rather than a crash.
+    void BezierPatchCopy(const tTVPPointD *points, tjs_int divx, tjs_int divy,
+                         iTVPBaseBitmap *src, const tTVPRect &srcrect,
+                         tTVPBBStretchType mode = stNearest,
+                         bool clear = false);
+
+    void MeshCopy(const tTVPPointD *points, tjs_int divx, tjs_int divy,
+                  iTVPBaseBitmap *src, const tTVPRect &srcrect,
+                  tTVPBBStretchType mode = stNearest,
+                  bool clear = false);
+
+    void OperateBezierPatch(const tTVPPointD *points, tjs_int divx, tjs_int divy,
+                            iTVPBaseBitmap *src, const tTVPRect &srcrect,
+                            tTVPBlendOperationMode mode = omAuto,
+                            tjs_int opacity = 255,
+                            tTVPBBStretchType type = stNearest);
+
+    void OperateMesh(const tTVPPointD *points, tjs_int divx, tjs_int divy,
+                     iTVPBaseBitmap *src, const tTVPRect &srcrect,
+                     tTVPBlendOperationMode mode = omAuto,
+                     tjs_int opacity = 255,
+                     tTVPBBStretchType type = stNearest);
+
     void PileRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
                   const tTVPRect &rect, tjs_int opacity = 255);
 
