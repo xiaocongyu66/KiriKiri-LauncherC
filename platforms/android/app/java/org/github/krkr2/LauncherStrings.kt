@@ -58,6 +58,16 @@ object LauncherStrings {
         val gameOverrideHint: String,
         val resetDefaults: String,
         val running: String,
+        // ---- About ----
+        val aboutTitle: String,
+        val aboutOpenSource: String,
+        val aboutOpenSourceUrl: String,
+        val aboutCheckUpdate: String,
+        val aboutCheckingUpdate: String,
+        val aboutAlreadyLatest: String,
+        val aboutNewVersion: String,
+        val aboutUpdateFailed: String,
+        val aboutCopiedUrl: String,
     )
 
     fun current(context: Context): Texts = if (LauncherPrefs.getLanguage(context) == LauncherPrefs.LANG_ZH) zh else en
@@ -116,6 +126,15 @@ object LauncherStrings {
         gameOverrideHint = "Override engine settings for this game only. Stored separately from globals.",
         resetDefaults = "Reset to defaults",
         running = "running",
+        aboutTitle = "About",
+        aboutOpenSource = "Open source",
+        aboutOpenSourceUrl = "https://github.com/xiaocongyu66/krkr2",
+        aboutCheckUpdate = "Check for updates",
+        aboutCheckingUpdate = "Checking…",
+        aboutAlreadyLatest = "Already on the latest release",
+        aboutNewVersion = "New version available:",
+        aboutUpdateFailed = "Update check failed",
+        aboutCopiedUrl = "URL copied to clipboard",
     )
 
     val zh = Texts(
@@ -172,5 +191,14 @@ object LauncherStrings {
         gameOverrideHint = "仅对此游戏生效，覆盖全局引擎设置。",
         resetDefaults = "恢复默认值",
         running = "运行中",
+        aboutTitle = "关于",
+        aboutOpenSource = "开源地址",
+        aboutOpenSourceUrl = "https://github.com/xiaocongyu66/krkr2",
+        aboutCheckUpdate = "检查更新",
+        aboutCheckingUpdate = "检查中…",
+        aboutAlreadyLatest = "已是最新版本",
+        aboutNewVersion = "发现新版本：",
+        aboutUpdateFailed = "更新检查失败",
+        aboutCopiedUrl = "链接已复制",
     )
 }

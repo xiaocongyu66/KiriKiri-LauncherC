@@ -341,9 +341,9 @@ private fun PortraitLayout(
     Column(Modifier.fillMaxSize().padding(12.dp)) {
         // Phone-friendly compact header: only the actions a user is likely
         // to need on the home screen. Path editing, language switch,
-        // export-backup, launch-original etc. live in the Settings page now.
+        // export-backup, launch-original, and the storage-permission
+        // shortcut all live in the Settings page now.
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-            ElevatedAssistChip(onClick = onRequestPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
             ElevatedAssistChip(onClick = { rescan(editPath) }, label = { Text(text.scan) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
             Spacer(Modifier.weight(1f))
             Text(text.forceLandscape, color = Color.White, style = MaterialTheme.typography.bodySmall)
@@ -397,12 +397,11 @@ private fun TopControls(
     onLangEn: () -> Unit,
     onLangZh: () -> Unit,
 ) {
-    // Slimmed-down landscape header: only Storage permission, Scan, and the
-    // landscape lock toggle stay on the home screen. Path editing, Save &
-    // Scan, Reload, Launch Original, Export Backup, and the language
-    // selector all moved to LauncherSettingsActivity.
+    // Slimmed-down landscape header: only Scan and the landscape lock
+    // toggle stay on the home screen. Storage permission, path editing,
+    // Save & Scan, Reload, Launch Original, Export Backup, and the
+    // language selector all moved to LauncherSettingsActivity.
     Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically, modifier = Modifier.fillMaxWidth()) {
-        ElevatedAssistChip(onClick = onRequestPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
         ElevatedAssistChip(onClick = onScan, label = { Text(text.scan) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
         Spacer(Modifier.weight(1f))
         Text(text.forceLandscape, color = Color.White)

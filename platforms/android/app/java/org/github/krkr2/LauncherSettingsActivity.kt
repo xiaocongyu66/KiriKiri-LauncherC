@@ -1,6 +1,9 @@
 package org.github.krkr2
 
 import android.content.ActivityNotFoundException
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -26,11 +29,14 @@ import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Code
+import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.Upload
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
@@ -68,6 +74,9 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 
 /**
  * Launcher settings, organised by Material 3 grouped lists.
@@ -208,6 +217,31 @@ class LauncherSettingsActivity : AppCompatActivity() {
                                     )
                                 }
                             }
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                            // Storage permission belongs in Library: that's the
+                            // section users go to when "scan didn't find my
+                            // game". Putting it on the home screen made it the
+                            // most visible chip even after it was granted.
+                            NavRow(
+                                icon = Icons.Default.FolderOpen,
+                                title = text.grantStorage,
+                                onClick = {
+                                    val intent = Intent(
+                                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                                        Uri.fromParts("package", context.packageName, null),
+                                    )
+                                    try {
+                                        startActivity(intent)
+                                    } catch (e: ActivityNotFoundException) {
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(e.message ?: "")
+                                        }
+                                    }
+                                },
+                            )
                         }
 
                         // ---- Display ----
@@ -322,12 +356,69 @@ class LauncherSettingsActivity : AppCompatActivity() {
                                     packageManager.getPackageInfo(packageName, 0)
                                 }.getOrNull()
                             }
+                            val versionName = pInfo?.versionName ?: "—"
+                            val versionCode = pInfo?.let {
+                                @Suppress("DEPRECATION")
+                                if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode.toLong()
+                            } ?: 0L
+                            var checking by remember { mutableStateOf(false) }
+
                             NavRow(
                                 icon = Icons.Default.Info,
                                 title = text.appVersion,
-                                subtitle = pInfo?.versionName ?: "—",
+                                subtitle = "$versionName (#$versionCode)",
                                 onClick = {},
                                 showChevron = false,
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                            NavRow(
+                                icon = Icons.Default.Code,
+                                title = text.aboutOpenSource,
+                                subtitle = text.aboutOpenSourceUrl,
+                                onClick = {
+                                    // Single tap opens browser. The user can long-press if
+                                    // they want to copy, but the most common need is "open it".
+                                    val intent = Intent(
+                                        Intent.ACTION_VIEW,
+                                        Uri.parse(text.aboutOpenSourceUrl),
+                                    )
+                                    try {
+                                        startActivity(intent)
+                                    } catch (_: ActivityNotFoundException) {
+                                        // No browser configured — fall back to copying.
+                                        copyToClipboard(context, text.aboutOpenSourceUrl)
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(text.aboutCopiedUrl)
+                                        }
+                                    }
+                                },
+                            )
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                                thickness = 0.5.dp,
+                            )
+                            NavRow(
+                                icon = Icons.Default.Update,
+                                title = if (checking) text.aboutCheckingUpdate else text.aboutCheckUpdate,
+                                onClick = {
+                                    if (checking) return@NavRow
+                                    checking = true
+                                    scope.launch {
+                                        val result = checkUpdate(versionName)
+                                        checking = false
+                                        snackbarHostState.showSnackbar(
+                                            when (result) {
+                                                is UpdateResult.UpToDate -> text.aboutAlreadyLatest
+                                                is UpdateResult.NewVersion ->
+                                                    "${text.aboutNewVersion} ${result.tag}"
+                                                is UpdateResult.Failed -> text.aboutUpdateFailed
+                                            }
+                                        )
+                                    }
+                                },
                             )
                         }
 
@@ -452,4 +543,53 @@ private fun ToggleRow(
         )
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
+}
+
+/* ------------------------------------------------------------------------- */
+/*  About helpers                                                             */
+/* ------------------------------------------------------------------------- */
+
+private sealed class UpdateResult {
+    data object UpToDate : UpdateResult()
+    data class NewVersion(val tag: String) : UpdateResult()
+    data object Failed : UpdateResult()
+}
+
+/**
+ * Hit the GitHub Releases API for the latest release and compare against
+ * the running app's versionName. Suspend so the UI can show "Checking…"
+ * without freezing the main thread.
+ *
+ * The GitHub API allows 60 unauthenticated requests/hour per IP — fine for
+ * a manual "check now" button. We don't pin the certificate or rate-limit
+ * locally; if something goes wrong we just return [UpdateResult.Failed].
+ */
+private suspend fun checkUpdate(currentVersion: String): UpdateResult =
+    withContext(Dispatchers.IO) {
+        runCatching {
+            val url = URL("https://api.github.com/repos/xiaocongyu66/krkr2/releases/latest")
+            val conn = (url.openConnection() as HttpURLConnection).apply {
+                connectTimeout = 8000
+                readTimeout = 8000
+                requestMethod = "GET"
+                setRequestProperty("Accept", "application/vnd.github+json")
+                setRequestProperty("User-Agent", "krkr2-launcher/$currentVersion")
+            }
+            try {
+                if (conn.responseCode != 200) return@runCatching UpdateResult.Failed
+                val body = conn.inputStream.bufferedReader().use { it.readText() }
+                val tag = JSONObject(body).optString("tag_name").trim()
+                if (tag.isEmpty()) UpdateResult.Failed
+                else if (tag.equals(currentVersion, ignoreCase = true) ||
+                    tag.equals("v$currentVersion", ignoreCase = true)) UpdateResult.UpToDate
+                else UpdateResult.NewVersion(tag)
+            } finally {
+                conn.disconnect()
+            }
+        }.getOrElse { UpdateResult.Failed }
+    }
+
+private fun copyToClipboard(context: Context, text: String) {
+    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+    cm?.setPrimaryClip(ClipData.newPlainText("krkr2", text))
 }

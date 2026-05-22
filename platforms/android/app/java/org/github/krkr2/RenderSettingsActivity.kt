@@ -307,26 +307,21 @@ private fun KrkrPrefsSchema.PrefItem.defaultAsString(): String = when (this) {
 }
 
 /**
- * Map raw `preference_*` resource keys (from the C++ schema) to display
- * captions. We don't ship a full Locale table for the engine's keys yet —
- * for now we humanise the resource id when no explicit translation exists.
- *
- * This is intentionally lightweight: the engine has hundreds of these
- * captions and re-translating each would balloon LauncherStrings.kt. The
- * humanisation produces readable English ("preference_show_fps" -> "Show
- * fps") which is good enough until a full Locale table lands.
+ * Caption resolution for engine preference keys. Delegates to
+ * [KrkrPrefsCaptions] which mirrors the C++ LocaleConfigManager strings;
+ * unknown keys fall through to a humanised version of the raw key.
  */
 private object LocalizedPrefs {
-    fun section(@Suppress("UNUSED_PARAMETER") text: LauncherStrings.Texts, key: String): String =
-        humanise(key)
+    fun section(text: LauncherStrings.Texts, key: String): String =
+        resolve(text, key)
 
-    fun caption(@Suppress("UNUSED_PARAMETER") text: LauncherStrings.Texts, key: String): String =
-        humanise(key)
+    fun caption(text: LauncherStrings.Texts, key: String): String =
+        resolve(text, key)
 
-    private fun humanise(raw: String): String {
-        // Drop "preference_" prefix; replace _ with space; uppercase first letter.
-        val trimmed = raw.removePrefix("preference_").replace('_', ' ').trim()
-        if (trimmed.isEmpty()) return raw
-        return trimmed.replaceFirstChar { it.uppercase() }
+    private fun resolve(text: LauncherStrings.Texts, key: String): String {
+        // Detect active language by checking a known caption that differs
+        // between en/zh tables (avoid plumbing language through every call).
+        val lang = if (text.aboutTitle == "关于") LauncherPrefs.LANG_ZH else LauncherPrefs.LANG_EN
+        return KrkrPrefsCaptions.resolve(lang, key)
     }
 }
