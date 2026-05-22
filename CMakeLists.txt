@@ -113,11 +113,24 @@ add_subdirectory(${KRKR2PLUGIN_PATH})
 # The fix is to force the whole archive into the final image on ELF
 # linkers (Android/Linux). Apple/MSVC use different syntax; gate by
 # platform so cross-platform builds keep working.
+#
+# IMPORTANT: each plugin sub-target (motionplayer, psbfile, layerex_draw,
+# psdfile, fstat) is its own static archive that becomes a separate -l
+# argument on the link line. Wrapping only the krkr2plugin aggregate is
+# not enough: the individual sub-archives still get dead-code stripped
+# because they appear AFTER --no-whole-archive on the linker command.
+# We must list every plugin archive explicitly inside the whole-archive
+# section so their NCB static constructors are preserved.
 if(ANDROID OR LINUX)
     target_link_libraries(${PROJECT_NAME} PUBLIC
         -Wl,--whole-archive
         krkr2plugin
         krkr2core
+        motionplayer
+        psbfile
+        layerExDraw
+        psdfile
+        fstat
         -Wl,--no-whole-archive
     )
 elseif(APPLE)
@@ -126,6 +139,11 @@ elseif(APPLE)
     target_link_libraries(${PROJECT_NAME} PUBLIC
         "-Wl,-force_load,$<TARGET_FILE:krkr2plugin>"
         "-Wl,-force_load,$<TARGET_FILE:krkr2core>"
+        "-Wl,-force_load,$<TARGET_FILE:motionplayer>"
+        "-Wl,-force_load,$<TARGET_FILE:psbfile>"
+        "-Wl,-force_load,$<TARGET_FILE:layerExDraw>"
+        "-Wl,-force_load,$<TARGET_FILE:psdfile>"
+        "-Wl,-force_load,$<TARGET_FILE:fstat>"
     )
 elseif(MSVC)
     target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -134,6 +152,11 @@ elseif(MSVC)
     target_link_options(${PROJECT_NAME} PUBLIC
         /WHOLEARCHIVE:krkr2plugin
         /WHOLEARCHIVE:krkr2core
+        /WHOLEARCHIVE:motionplayer
+        /WHOLEARCHIVE:psbfile
+        /WHOLEARCHIVE:layerExDraw
+        /WHOLEARCHIVE:psdfile
+        /WHOLEARCHIVE:fstat
     )
 else()
     target_link_libraries(${PROJECT_NAME} PUBLIC
