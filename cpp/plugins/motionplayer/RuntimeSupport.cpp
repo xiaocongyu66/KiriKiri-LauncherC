@@ -14,7 +14,7 @@
 #include <sstream>
 #include <unordered_set>
 
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 
 #ifdef EMSCRIPTEN
 #include <emscripten.h>

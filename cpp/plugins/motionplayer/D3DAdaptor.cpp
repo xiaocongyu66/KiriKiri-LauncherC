@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <cstring>
 
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 
 #include "MsgIntf.h"
 #include "RenderManager.h"

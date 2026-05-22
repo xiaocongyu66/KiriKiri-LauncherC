@@ -8,7 +8,7 @@
 #include <algorithm>
 #include <cctype>
 
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 
 #include "RuntimeSupport.h"
 

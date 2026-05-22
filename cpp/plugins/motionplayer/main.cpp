@@ -2,7 +2,7 @@
 // Created by LiDon on 2025/9/13.
 // Reverse-engineered from libkrkr2.so emoteplayer.dll + motionplayer.dll
 //
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 #include "tjs.h"
 #include "ncbind.hpp"
 #include "psbfile/PSBFile.h"

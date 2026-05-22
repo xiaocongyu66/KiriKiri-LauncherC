@@ -14,7 +14,7 @@
 #include <utility>
 #include <vector>
 
-#include "spdlog_compat.h"
+#include <spdlog/fmt/fmt.h>
 
 #include "tjs.h"
 #include "psbfile/PSBFile.h"

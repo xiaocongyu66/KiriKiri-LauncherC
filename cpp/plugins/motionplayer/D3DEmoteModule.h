@@ -4,7 +4,7 @@
 //
 #pragma once
 
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 
 namespace motion {
 

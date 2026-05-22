@@ -8,7 +8,7 @@
 
 #include <memory>
 #include <string>
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 #include "tjs.h"
 #include "Player.h"
 

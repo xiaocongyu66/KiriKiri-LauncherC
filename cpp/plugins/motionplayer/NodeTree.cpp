@@ -11,7 +11,7 @@
 #include "tjsArray.h"
 #include "psbfile/PSBFile.h"
 
-#include "spdlog_compat.h"
+#include <spdlog/spdlog.h>
 #include <stdexcept>
 
 namespace motion::detail {
