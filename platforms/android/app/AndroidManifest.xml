@@ -63,6 +63,13 @@
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity
+            android:name=".RenderSettingsActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
+            android:exported="false"
+            android:screenOrientation="unspecified"
+            android:theme="@style/Theme.KR2.Launcher" />
+
+        <activity
             android:name=".DiagnosticsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="false"
