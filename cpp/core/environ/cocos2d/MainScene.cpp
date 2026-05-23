@@ -1771,12 +1771,13 @@ void TVPMainScene::initialize() {
     ScreenRatio = screenSize.height / designSize.height;
     designSize.width = designSize.height * screenSize.width / screenSize.height;
     initWithSize(designSize);
-    // DIAGNOSTIC: red background to distinguish "cocos2d director not
-    // drawing" from "DrawSprite content is black". If user still sees a
-    // pure black screen with this build, the cocos2d render pipeline
-    // itself is not running. If they see red around (or instead of) the
-    // game, the game's GLuint texture is what's coming through black.
-    addChild(LayerColor::create(Color4B::RED, designSize.width,
+    // The game's PrimaryLayerArea is letterboxed against the design area,
+    // so the gutters need a backdrop. Black is the standard choice (matches
+    // upstream Kirikiroid2-master). The earlier RED experiment confirmed
+    // that cocos2d Director draws every frame and the visible black square
+    // in the centre is the engine's own render output (game opens on a
+    // black scene), not a render-pipeline failure.
+    addChild(LayerColor::create(Color4B::BLACK, designSize.width,
                                 designSize.height));
     GameNode = cocos2d::Node::create();
     // horizontal
@@ -1923,22 +1924,44 @@ void TVPMainScene::popUIForm(cocos2d::Node *form, eLeaveAni ani) {
         ColorMask->setPosition(Vec2(-size.width, 0));
         ui->addChild(ColorMask);
         ColorMask->runAction(FadeOut::create(UI_CHANGE_DURATION));
-        ui->runAction(EaseQuadraticActionOut::create(
-            MoveTo::create(UI_CHANGE_DURATION, Vec2(size.width, 0))));
-        this->runAction(Sequence::createWithTwoActions(
-            DelayTime::create(UI_CHANGE_DURATION),
-            CallFunc::create([ui] { ui->removeFromParent(); })));
+        // CRITICAL: detach the form from UINode synchronously so
+        // UINode->getChildrenCount() goes back to 0 immediately. Otherwise
+        // onTouchBegan stays gated for the duration of the animation, and
+        // worse, if the cocos action scheduler hiccups, the deferred
+        // CallFunc never runs and the touch gate stays closed forever
+        // (this is the same class of race that f725e84 introduced via
+        // setTouchEnabled). Reparent to self while the slide-out plays so
+        // we keep a strong reference; the form is auto-released after the
+        // animation removes it from us too.
+        ui->retain();
+        ui->removeFromParentAndCleanup(false);
+        this->addChild(ui, UI_NODE_ORDER + 1);
+        ui->release();
+        ui->runAction(Sequence::create(
+            EaseQuadraticActionOut::create(
+                MoveTo::create(UI_CHANGE_DURATION, Vec2(size.width, 0))),
+            CallFuncN::create([](Node *n) { n->removeFromParent(); }),
+            nullptr));
     } else if(ani == eLeaveToBottom) {
         cocos2d::Node *ColorMask = children.back();
-        ColorMask->runAction(FadeOut::create(UI_CHANGE_DURATION));
         Node *ui = ColorMask->getChildren().at(0);
         if(form)
             CCAssert(form == ui, "must be the same form");
-        ui->runAction(EaseQuadraticActionIn::create(MoveTo::create(
-            UI_CHANGE_DURATION, Vec2(0, -ui->getContentSize().height))));
-        runAction(Sequence::createWithTwoActions(
-            DelayTime::create(UI_CHANGE_DURATION),
-            CallFunc::create([=]() { ColorMask->removeFromParent(); })));
+        // Same fix as above: detach the wrapper synchronously, reparent to
+        // self while the slide-out animation plays.
+        ColorMask->retain();
+        ColorMask->removeFromParentAndCleanup(false);
+        this->addChild(ColorMask, UI_NODE_ORDER + 1);
+        ColorMask->release();
+        ColorMask->runAction(FadeOut::create(UI_CHANGE_DURATION));
+        ui->runAction(Sequence::create(
+            EaseQuadraticActionIn::create(MoveTo::create(
+                UI_CHANGE_DURATION,
+                Vec2(0, -ui->getContentSize().height))),
+            CallFuncN::create([ColorMask](Node *) {
+                ColorMask->removeFromParent();
+            }),
+            nullptr));
     }
 }
 
@@ -2372,10 +2395,47 @@ bool TVPMainScene::isVirtualMouseMode() const {
 }
 
 bool TVPMainScene::onTouchBegan(cocos2d::Touch *touch, cocos2d::Event *event) {
+#if defined(__ANDROID__)
+    static int s_blockedByUINode = 0;
+    static int s_blockedByNullWindow = 0;
+    static int s_passed = 0;
+    static int s_total = 0;
+    ++s_total;
+    if(UINode->getChildrenCount()) {
+        ++s_blockedByUINode;
+        if(s_blockedByUINode <= 3 || (s_blockedByUINode & 0x3F) == 0) {
+            KR2RenderProbeWriteF(
+                "MainScene::onTouchBegan BLOCKED uiCount=%zu total=%d "
+                "blockedByUI=%d blockedByNullWin=%d passed=%d",
+                UINode->getChildrenCount(), s_total, s_blockedByUINode,
+                s_blockedByNullWindow, s_passed);
+        }
+        return false;
+    }
+    if(!_currentWindowLayer) {
+        ++s_blockedByNullWindow;
+        if(s_blockedByNullWindow <= 3 || (s_blockedByNullWindow & 0x3F) == 0) {
+            KR2RenderProbeWriteF(
+                "MainScene::onTouchBegan BLOCKED no _currentWindowLayer "
+                "total=%d blockedByUI=%d blockedByNullWin=%d passed=%d",
+                s_total, s_blockedByUINode, s_blockedByNullWindow, s_passed);
+        }
+        return false;
+    }
+    ++s_passed;
+    if(s_passed <= 3 || (s_passed & 0x3F) == 0) {
+        KR2RenderProbeWriteF(
+            "MainScene::onTouchBegan PASSED total=%d passed=%d "
+            "windowLayer=%p virtualMouse=%d overlay=%p",
+            s_total, s_passed, (void *)_currentWindowLayer,
+            _virutalMouseMode ? 1 : 0, (void *)_windowMgrOverlay);
+    }
+#else
     if(UINode->getChildrenCount())
         return false;
     if(!_currentWindowLayer)
         return false;
+#endif
     if(!_virutalMouseMode || _windowMgrOverlay)
         return _currentWindowLayer->onTouchBegan(touch, event);
     _mouseTouches.insert(touch);
