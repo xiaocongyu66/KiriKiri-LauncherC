@@ -132,14 +132,23 @@ NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
 //                          ? Motion.Player.useD3D : Motion.enableD3D;
 // If useD3D returns an Object, the then-branch assigns a comparison result
 // (int 1) instead of an object, causing "int→Object" conversion error.
-// Fix: useD3D returns Integer so typeof === "Integer" → else branch fires,
-// assigning Motion.enableD3D (a stub dictionary) which IS an Object.
+// Original KAGEX scripts disagree about whether Motion.Player.useD3D is
+// tested as a probe or assigned to an Object slot. Return a real dictionary
+// object here so affinesourcemotion.tjs does not fail with "(int)0 to Object".
 // ---------------------------------------------------------------------------
 static bool gMotionPlayerStaticUseD3D = false;
 static bool gMotionPlayerStaticEnableD3D = false;
-
 static tjs_error Player_getUseD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    if(r) *r = tTJSVariant(static_cast<tjs_int>(0));
+    // Return a real dictionary object. Some KAGEX scripts assign
+    // Motion.Player.useD3D to variables declared as Object; returning Integer
+    // makes affinesourcemotion.tjs fail with "(int)0 to Object".
+    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
+    if (obj) {
+        if(r) *r = tTJSVariant(obj);
+        obj->Release();
+    } else {
+        if(r) *r = tTJSVariant();
+    }
     return TJS_S_OK;
 }
 static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
@@ -150,7 +159,7 @@ static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVaria
 static tjs_error Player_getEnableD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
     iTJSDispatch2 *obj = TJSCreateDictionaryObject();
     if (obj) {
-        if(r) *r = tTJSVariant(obj, obj);
+        if(r) *r = tTJSVariant(obj);
         obj->Release();
     } else {
         if(r) *r = tTJSVariant();
