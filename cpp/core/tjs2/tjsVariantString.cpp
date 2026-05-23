@@ -37,12 +37,19 @@ namespace TJS {
     //---------------------------------------------------------------------------
     tjs_int TJSGetShorterStrLen(const tjs_char *str, ssize_t max) {
         // select shorter length over strlen(str) and max
+        // Returns min(strlen(str), max). Never reads past str[max-1] when
+        // str is not null-terminated within max characters (krkr2 fix:
+        // original implementation read str[max] before bailing, causing
+        // SIGSEGV when str was exactly max chars long and aligned to a
+        // page boundary, e.g. ReadString's `new tjs_char[len]` buffers
+        // produced by tTJSBinarySerializer::ReadDictionary).
         if(!str)
             return 0;
         const tjs_char *p = str;
-        max++;
-        while(*p && --max)
-            p++;
+        while(max > 0 && *p) {
+            ++p;
+            --max;
+        }
         return (tjs_int)(p - str);
     }
 //---------------------------------------------------------------------------

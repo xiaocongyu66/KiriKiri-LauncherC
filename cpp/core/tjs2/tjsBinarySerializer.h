@@ -434,13 +434,19 @@ namespace TJS {
         ReadString(const tjs_uint8 *buff, tjs_uint len, tjs_uint &index) {
             tTJSVariantString *ret = nullptr;
             if(len > 0) {
-                auto *str = new tjs_char[len];
+                // Allocate len+1 to keep the buffer null-terminated. Some
+                // downstream consumers (TJSGetShorterStrLen, TJS_strlen)
+                // may scan one element past the requested length when the
+                // string isn't terminated, which previously caused
+                // SIGSEGV when the buffer ended on a page boundary.
+                auto *str = new tjs_char[len + 1];
                 for(tjs_uint i = 0; i < len; i++) {
                     str[i] = buff[index];
                     index++;
                     str[i] |= buff[index] << 8;
                     index++;
                 }
+                str[len] = 0;
                 ret = TJSAllocVariantString(str, len);
                 delete[] str;
             }
