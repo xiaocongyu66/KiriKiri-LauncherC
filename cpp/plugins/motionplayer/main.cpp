@@ -4,6 +4,7 @@
 //
 #include <spdlog/spdlog.h>
 #include "tjs.h"
+#include "tjsDictionary.h"
 #include "ncbind.hpp"
 #include "psbfile/PSBFile.h"
 
@@ -123,6 +124,51 @@ NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
     NCB_PROPERTY(clearEnabled, getClearEnabled, setClearEnabled);
 }
 
+// ---------------------------------------------------------------------------
+// useD3D / enableD3D static raw callbacks (ported from KrKr2-Next)
+//
+// Game script does:
+//   EmoteVariable.useD3D = (typeof Motion.Player.useD3D === "Object")
+//                          ? Motion.Player.useD3D : Motion.enableD3D;
+// If useD3D returns an Object, the then-branch assigns a comparison result
+// (int 1) instead of an object, causing "int→Object" conversion error.
+// Fix: useD3D returns Integer so typeof === "Integer" → else branch fires,
+// assigning Motion.enableD3D (a stub dictionary) which IS an Object.
+// ---------------------------------------------------------------------------
+static bool gMotionPlayerStaticUseD3D = false;
+static bool gMotionPlayerStaticEnableD3D = false;
+
+static tjs_error Player_getUseD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+    if(r) *r = tTJSVariant(static_cast<tjs_int>(0));
+    return TJS_S_OK;
+}
+static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
+    if (count >= 1 && (*p)->Type() == tvtInteger)
+        gMotionPlayerStaticUseD3D = static_cast<bool>(**p);
+    return TJS_S_OK;
+}
+static tjs_error Player_getEnableD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
+    if (obj) {
+        if(r) *r = tTJSVariant(obj, obj);
+        obj->Release();
+    } else {
+        if(r) *r = tTJSVariant();
+    }
+    return TJS_S_OK;
+}
+static tjs_error Player_setEnableD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
+    if (count >= 1 && (*p)->Type() == tvtInteger)
+        gMotionPlayerStaticEnableD3D = static_cast<bool>(**p);
+    return TJS_S_OK;
+}
+static tjs_error Motion_getEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSVariant **p, iTJSDispatch2 *objthis) {
+    return Player_getEnableD3D_static(r, count, p, objthis);
+}
+static tjs_error Motion_setEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSVariant **p, iTJSDispatch2 *objthis) {
+    return Player_setEnableD3D_static(r, count, p, objthis);
+}
+
 NCB_REGISTER_CLASS(Player) {
     NCB_CONSTRUCTOR((ResourceManager));
 
@@ -183,7 +229,10 @@ NCB_REGISTER_CLASS(Player) {
     NCB_PROPERTY(stealthMotion, getStealthMotion, setStealthMotion);
     NCB_PROPERTY(tags, getTags, setTags);
     NCB_PROPERTY(project, getProject, setProject);
-    NCB_PROPERTY(useD3D, getUseD3D, setUseD3D);
+    // useD3D: must return Integer (not Object!) so game script typeof check
+    // falls through to else branch and assigns Motion.enableD3D (dictionary).
+    NCB_PROPERTY_RAW_CALLBACK(useD3D, Player_getUseD3D_static, Player_setUseD3D_static, TJS_STATICMEMBER);
+    NCB_PROPERTY_RAW_CALLBACK(enableD3D, Player_getEnableD3D_static, Player_setEnableD3D_static, TJS_STATICMEMBER);
     NCB_PROPERTY(meshline, getMeshline, setMeshline);
     NCB_PROPERTY_RO(busy, getBusy);
 
@@ -412,6 +461,7 @@ class Motion {
 };
 
 NCB_REGISTER_CLASS(Motion) {
+    NCB_PROPERTY_RAW_CALLBACK(enableD3D, Motion_getEnableD3D_static, Motion_setEnableD3D_static, TJS_STATICMEMBER);
     // Subclasses (Player registered as top-level class, aliased in PostRegistCallback)
     NCB_SUBCLASS(ResourceManager, ResourceManager);
     NCB_SUBCLASS(EmotePlayer, EmotePlayer);
@@ -468,29 +518,10 @@ static void PostRegistCallback() {
     iTJSDispatch2 *global = TVPGetScriptDispatch();
     if (!global) return;
 
-    auto ensurePlayerClassUseD3DProbe = [](iTJSDispatch2 *playerClass) {
-        if(!playerClass) {
-            return;
-        }
-        tTJSVariant marker;
-        try {
-            TVPExecuteExpression(TJS_W("%[]"), &marker);
-        } catch(...) {
-            return;
-        }
-        if(marker.Type() != tvtObject) {
-            return;
-        }
-
-        // Player_ncb_registerMembers @ 0x6D69C8 registers useD3D as a
-        // property object on the Player class; game scripts probe that with
-        // typeof Motion.Player.useD3D. This restores the class-level NCB shape
-        // without adding a mutable static useD3D state.
-        playerClass->PropSet(TJS_MEMBERENSURE | TJS_STATICMEMBER,
-                             TJS_W("useD3D"), nullptr, &marker, playerClass);
-    };
-
-    // Alias Player class into Motion namespace
+    // Alias top-level Player class into Motion namespace. Do NOT force
+    // Motion.Player.useD3D to a dictionary here: keybinder.tjs probes
+    // typeof Motion.Player.useD3D and must see Integer so it uses
+    // Motion.enableD3D (dictionary) instead.
     tTJSVariant motionVar;
     if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Motion"), nullptr, &motionVar, global))) {
         iTJSDispatch2 *motion = motionVar.AsObjectNoAddRef();
@@ -499,12 +530,10 @@ static void PostRegistCallback() {
             if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Player"), nullptr, &playerVar, global))) {
                 if (playerVar.Type() == tvtObject &&
                     playerVar.AsObjectNoAddRef() != nullptr) {
-                    ensurePlayerClassUseD3DProbe(playerVar.AsObjectNoAddRef());
                     motion->PropSet(TJS_MEMBERENSURE, TJS_W("Player"),
                                     nullptr, &playerVar, motion);
                 }
             }
-
         }
     }
 
