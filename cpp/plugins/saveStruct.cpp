@@ -380,7 +380,7 @@ public:
      * @param newline 改行コード 0:CRLF 1:LF
      * @return 実行結果
      */
-    static tjs_error TJS_INTF_METHOD toStructString(tTJSVariant *result,
+    static tjs_error toStructString(tTJSVariant *result,
                                                     tjs_int numparams,
                                                     tTJSVariant **param,
                                                     iTJSDispatch2 *objthis) {
