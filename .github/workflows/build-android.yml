@@ -18,7 +18,10 @@ env:
 
 jobs:
   build-android:
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    # Allow manual runs (workflow_dispatch) and chained runs from
+    # workflow_run. Manual runs have no workflow_run payload so we must not
+    # gate solely on its conclusion.
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     env:
       VCPKG_ROOT: ${{ github.workspace }}/.act/vcpkg
