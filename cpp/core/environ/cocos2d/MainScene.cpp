@@ -2015,6 +2015,9 @@ bool TVPMainScene::startupFrom(const std::string &path) {
 }
 
 void TVPMainScene::doStartup(float dt, std::string path) {
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("doStartup#enter dt=%.3f path=%s", dt, path.c_str());
+#endif
     unschedule("startup");
     IndividualConfigManager *pGlobalCfgMgr =
         IndividualConfigManager::GetInstance();
@@ -2026,9 +2029,19 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     _consoleWin->setScale(1 / scale);
     _consoleWin->setContentSize(getContentSize() * scale);
     GameNode->addChild(_consoleWin, GAME_CONSOLE_ORDER);
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("doStartup#before-StartApplication frame=%.0fx%.0f scale=%.3f",
+                         screenSize.width, screenSize.height, scale);
+#endif
     ::Application->StartApplication(path);
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("doStartup#after-StartApplication");
+#endif
     // update one frame
     update(0);
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("doStartup#after-update0");
+#endif
     //_ResotreGLStatues(); // already in update()
     GLubyte handlerOpacity =
         pGlobalCfgMgr->GetValue<float>("menu_handler_opa", 0.15f) * 255;
@@ -2044,6 +2057,9 @@ void TVPMainScene::doStartup(float dt, std::string path) {
         TVPControlAdDialog(0x10002, 0,
                            0); // ensure to close banner ad
     }
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("doStartup#before-window-loop");
+#endif
 
     TVPWindowLayer *pWin = _lastWindowLayer;
     while(pWin) {

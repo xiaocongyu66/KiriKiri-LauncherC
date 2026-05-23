@@ -1058,6 +1058,10 @@ void tTVPLayerManager::UpdateToDrawDevice() {
     static int s_noprimary = 0;
     ++s_count;
     if(!Primary) ++s_noprimary;
+    if(s_count == 1) {
+        KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#FIRST primary=%p",
+                             (void *)Primary);
+    }
     if((s_count & 0x3F) == 0) {
         KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#%d noPrimary=%d",
                              s_count, s_noprimary);

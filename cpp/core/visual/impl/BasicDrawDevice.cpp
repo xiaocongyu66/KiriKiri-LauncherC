@@ -613,6 +613,12 @@ void tTVPBasicDrawDevice::Show() {
     static int s_nullTex = 0;
     static int s_okFrames = 0;
     ++s_callCount;
+    if(s_callCount == 1) {
+        // First-call beacon — confirms the cocos2d render thread actually
+        // reaches the krkr draw device at least once.
+        KR2_RLOG("Show#FIRST_CALL window=%p managers=%zu", (void *)Window,
+                 Managers.size());
+    }
     if(Window) {
         iWindowLayer *form = Window->GetForm();
         if(form && !Managers.empty()) {
