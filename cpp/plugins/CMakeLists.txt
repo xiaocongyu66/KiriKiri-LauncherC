@@ -30,7 +30,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     layerExLongExposure.cpp
     wfBasicEffectCompat.cpp
     wfTypicalDSPCompat.cpp
-    drawDeviceD2DCompat.cpp
+    # drawDeviceD2DCompat.cpp  # disabled: D2D is Win32-only, KrKr2-Next never built it on Android
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC

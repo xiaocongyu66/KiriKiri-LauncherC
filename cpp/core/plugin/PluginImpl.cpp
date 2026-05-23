@@ -94,6 +94,13 @@ static void TVPSearchPluginsAt(std::vector<tTVPFoundPlugin> &list,
 void TVPLoadInternalPlugins() {
     ncbAutoRegister::AllRegist();
     ncbAutoRegister::LoadModule(TJS_W("xp3filter.dll"));
+    // motionplayer.dll: E-mote / Motion model player (reverse-engineered
+    // from libkrkr2.so by kirikiroid2-web). Required by commercial KAG VNs
+    // that use Live2D-like animated models (e.g. limelight).
+    ncbAutoRegister::LoadModule(TJS_W("motionplayer.dll"));
+    // emoteplayer.dll: must be pre-loaded so CanLoadPlugin("emoteplayer.dll")
+    // returns true. Its PreRegist callback chains LoadModule("motionplayer.dll").
+    ncbAutoRegister::LoadModule(TJS_W("emoteplayer.dll"));
 }
 
 bool TVPLoadInternalPlugin(const ttstr &_name) {
