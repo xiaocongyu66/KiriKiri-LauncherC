@@ -754,24 +754,17 @@ public:
     void SetPaintBoxSize(tjs_int w, tjs_int h) override {
         LayerWidth = w;
         LayerHeight = h;
-        // The window layer's own contentSize is what RecalcPaintBox feeds
-        // into the inner ScrollView for fitting. addLayer() seeds it to the
-        // physical screen size, but for the picture to actually render
-        // correctly contentSize must match the engine's logical layer
-        // dimensions — RecalcPaintBox then computes the screen-fit scale
-        // based on getViewSize() / contentSize. With contentSize equal to
-        // the screen, the ratio is always 1, ResetDrawSprite paints at
-        // 1:1 pixels, and the sprite either overflows or sits in a corner
-        // depending on layer/screen aspect — exactly what users see as
-        // "black screen until something else triggers a relayout".
-#if defined(__ANDROID__)
-        cocos2d::Size oldCS = getContentSize();
-        KR2RenderProbeWriteF(
-            "SetPaintBoxSize w=%d h=%d oldCS=%.0fx%.0f viewSize=%.0fx%.0f",
-            w, h, oldCS.width, oldCS.height, getViewSize().width,
-            getViewSize().height);
-#endif
-        setContentSize(cocos2d::Size(w, h));
+        // Important: WindowLayer's own contentSize must reflect the engine
+        // layer dimensions before RecalcPaintBox runs. ResetDrawSprite uses
+        // getContentSize() to compute DrawSprite's position (anchor=top-left,
+        // y = size.height). On a fresh window contentSize is still (0,0),
+        // so DrawSprite ends up at y=0 with anchor top-left → the entire
+        // sprite sits below the visible area and the screen appears black
+        // until something else (like opening the in-game menu via the
+        // 3-finger gesture) calls setContentSize and triggers a relayout.
+        if(getContentSize().width == 0 || getContentSize().height == 0) {
+            setContentSize(cocos2d::Size(w, h));
+        }
         RecalcPaintBox();
     }
 
@@ -906,6 +899,21 @@ public:
         if(DrawSprite) {
             cocos2d::Size size = getContentSize();
             float scale = (float)ActualZoomNumer / ActualZoomDenom;
+            // #ifdef _DEBUG
+            //             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE),
+            //                                     FOREGROUND_GREEN |
+            //                                     FOREGROUND_RED |
+            //                                         FOREGROUND_INTENSITY);
+            //             printf("reset sprite: size=(%f,%f), Numer=%d,
+            //             Denom=%d "
+            //                    "Layer=(%d,%d)\n",
+            //                    size.width, size.height, ActualZoomNumer,
+            //                    ActualZoomDenom, LayerWidth, LayerHeight);
+            //             SetConsoleTextAttribute(GetStdHandle(STD_OUTPUT_HANDLE),
+            //                                     FOREGROUND_GREEN |
+            //                                     FOREGROUND_RED |
+            //                                         FOREGROUND_BLUE);
+            // #endif
             size = size / scale;
             // DrawSprite->setTextureRect(cocos2d::Rect(0, 0, size.width,
             // size.height));
@@ -915,21 +923,6 @@ public:
             DrawSprite->setPosition(Vec2(0, size.height));
             PrimaryLayerArea->setContentSize(size);
             PrimaryLayerArea->setScale(scale);
-#if defined(__ANDROID__)
-            static int s_resetCount = 0;
-            ++s_resetCount;
-            if(s_resetCount <= 6 || (s_resetCount & 0x3F) == 0) {
-                cocos2d::Vec2 worldPos = DrawSprite->convertToWorldSpace(cocos2d::Vec2::ZERO);
-                KR2RenderProbeWriteF(
-                    "ResetDrawSprite#%d cs=%.0fx%.0f scale=%.3f layer=%dx%d "
-                    "spritePos=(0,%.0f) primary=%.0fx%.0f world=(%.0f,%.0f) "
-                    "spriteScaleX=%.3f spriteScaleY=%.3f",
-                    s_resetCount, getContentSize().width,
-                    getContentSize().height, scale, LayerWidth, LayerHeight,
-                    size.height, size.width, size.height, worldPos.x, worldPos.y,
-                    _drawTextureScaleX, _drawTextureScaleY);
-            }
-#endif
         }
     }
 
