@@ -673,7 +673,6 @@ void tTVPBasicDrawDevice::Show() {
 		TVPAddImportantLog( TVPFormatMessage(TVPBasicDrawDeviceInfDirect3DDevicePresentFailed,TJSInt32ToHex(hr, 8)) );
 	}
 #endif
-}
 //---------------------------------------------------------------------------
 #if 0
 bool tTVPBasicDrawDevice::WaitForVBlank( tjs_int* in_vblank, tjs_int* delayed )
