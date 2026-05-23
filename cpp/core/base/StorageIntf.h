@@ -159,6 +159,11 @@ public:
 extern tTVPArchive *TVPOpenArchive(const ttstr &name, bool normalizeFileName);
 // open archive and return tTVPArchive instance.
 
+// Auto-mount sibling .xp3 archives next to TVPProjectDir
+void TVPAutoMountSiblingXP3Archives();
+// Re-order auto-mounted paths to end of auto path list (call after startup)
+void TVPBoostAutoMountPaths();
+
 TJS_EXP_FUNC_DEF(ttstr, TVPGetTemporaryName, ());
 // retrieve file name to store temporary data ( must be unique, local
 // name )

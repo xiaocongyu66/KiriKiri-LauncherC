@@ -30,16 +30,18 @@
 #include <thread>
 #include "ConfigManager/LocaleConfigManager.h"
 #include "StorageIntf.h"
+#include <spdlog/spdlog.h>
 extern "C" {
 #include <libavutil/avstring.h>
 }
 #include "TVPColor.h"
 #include "FontImpl.h"
-
 tTVPApplication *Application = new tTVPApplication;
 std::thread::id TVPMainThreadID;
 static tTJSCriticalSection _NoMemCallBackCS;
 static void *_reservedMem = malloc(1024 * 1024 * 4); // 4M reserved mem
+
+
 static bool _project_startup = false;
 
 static void _do_compact() { TVPDeliverCompactEvent(TVP_COMPACT_LEVEL_MAX); }
@@ -349,7 +351,14 @@ bool tTVPApplication::StartApplication(ttstr path) {
         // start image load thread
         image_load_thread_->Resume();
 
+        // Auto-mount sibling xp3 archives so KAG can resolve
+        // resources distributed across multiple archives.
+        TVPAutoMountSiblingXP3Archives();
+
         TVPInitializeStartupScript();
+
+        // Re-order auto-mounted paths after startup script has run
+        TVPBoostAutoMountPaths();
         _project_startup = true;
     } catch(const EAbort &) {
         // nothing to do
