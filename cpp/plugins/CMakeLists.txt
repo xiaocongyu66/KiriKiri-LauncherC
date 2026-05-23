@@ -20,6 +20,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     fftgraph.cpp
     LayerExBase.cpp
     xp3filter.cpp
+    textrender.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -33,6 +34,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${KRKR2CORE_PATH}/msg
     ${KRKR2CORE_PATH}/msg/win32
     ${KRKR2CORE_PATH}/extension
+    ${KRKR2CORE_PATH}/plugin
     ${KRKR2CORE_PATH}/sound
     ${KRKR2CORE_PATH}/sound/win32
     ${KRKR2CORE_PATH}/tjs2
