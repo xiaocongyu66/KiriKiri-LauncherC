@@ -130,25 +130,15 @@ NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
 // Game script does:
 //   EmoteVariable.useD3D = (typeof Motion.Player.useD3D === "Object")
 //                          ? Motion.Player.useD3D : Motion.enableD3D;
-// If useD3D returns an Object, the then-branch assigns a comparison result
-// (int 1) instead of an object, causing "int→Object" conversion error.
-// Original KAGEX scripts disagree about whether Motion.Player.useD3D is
-// tested as a probe or assigned to an Object slot. Return a real dictionary
-// object here so affinesourcemotion.tjs does not fail with "(int)0 to Object".
+// If useD3D is exposed as Object, the then-branch may assign a comparison
+// result (int 0/1) into an Object slot and affinesourcemotion.tjs crashes with
+// "(int)0 to Object". Therefore Motion.Player.useD3D must be Integer, while
+// Motion.enableD3D must be Object.
 // ---------------------------------------------------------------------------
 static bool gMotionPlayerStaticUseD3D = false;
 static bool gMotionPlayerStaticEnableD3D = false;
 static tjs_error Player_getUseD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    // Return a real dictionary object. Some KAGEX scripts assign
-    // Motion.Player.useD3D to variables declared as Object; returning Integer
-    // makes affinesourcemotion.tjs fail with "(int)0 to Object".
-    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
-    if (obj) {
-        if(r) *r = tTJSVariant(obj);
-        obj->Release();
-    } else {
-        if(r) *r = tTJSVariant();
-    }
+    if(r) *r = tTJSVariant(static_cast<tjs_int>(0));
     return TJS_S_OK;
 }
 static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
@@ -176,24 +166,6 @@ static tjs_error Motion_getEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSV
 }
 static tjs_error Motion_setEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSVariant **p, iTJSDispatch2 *objthis) {
     return Player_setEnableD3D_static(r, count, p, objthis);
-}
-
-
-static tjs_error EmotePlayer_getUseD3D_object(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    // Instance-level useD3D is assigned to Object slots by AffineSourceMotion.tjs.
-    // Returning bool/int here triggers "(int)0 to Object" during startup.
-    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
-    if (obj) {
-        if(r) *r = tTJSVariant(obj);
-        obj->Release();
-    } else {
-        if(r) *r = tTJSVariant();
-    }
-    return TJS_S_OK;
-}
-static tjs_error EmotePlayer_setUseD3D_object(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
-    // Accept original scripts writing 0/1 or object, but do not expose bool on read.
-    return TJS_S_OK;
 }
 
 NCB_REGISTER_CLASS(Player) {
@@ -395,7 +367,7 @@ NCB_REGISTER_SUBCLASS_DELAY(EmotePlayer) {
     NCB_PROPERTY(partsScale, getPartsScale, setPartsScale);
     NCB_PROPERTY(bustScale, getBustScale, setBustScale);
     NCB_PROPERTY(bodyScale, getBodyScale, setBodyScale);
-    NCB_PROPERTY_RAW_CALLBACK(useD3D, EmotePlayer_getUseD3D_object, EmotePlayer_setUseD3D_object, 0);
+    NCB_PROPERTY(useD3D, getUseD3D, setUseD3D);
     NCB_PROPERTY(progress, getProgress, setProgress);
     NCB_PROPERTY(modified, getModified, setModified);
     NCB_PROPERTY(drawvisible, getDrawVisible, setDrawVisible);
@@ -561,6 +533,16 @@ static void PostRegistCallback() {
                                     nullptr, &playerVar, motion);
                 }
             }
+            // AffineSourceMotion.tjs expects Motion.enableD3D to be Object.
+            // Force a concrete dictionary member, bypassing property callbacks
+            // and any prior integer assignment from compatibility scripts.
+            iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+            if(dict) {
+                tTJSVariant enableD3D(dict);
+                motion->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
+                                TJS_W("enableD3D"), nullptr, &enableD3D, motion);
+                dict->Release();
+            }
         }
     }
 
@@ -657,7 +639,7 @@ NCB_REGISTER_CLASS(D3DEmotePlayer) {
     NCB_PROPERTY(partsScale, getPartsScale, setPartsScale);
     NCB_PROPERTY(bustScale, getBustScale, setBustScale);
     NCB_PROPERTY(bodyScale, getBodyScale, setBodyScale);
-    NCB_PROPERTY_RAW_CALLBACK(useD3D, EmotePlayer_getUseD3D_object, EmotePlayer_setUseD3D_object, 0);
+    NCB_PROPERTY(useD3D, getUseD3D, setUseD3D);
     NCB_PROPERTY(progress, getProgress, setProgress);
     NCB_PROPERTY(modified, getModified, setModified);
     NCB_PROPERTY(drawvisible, getDrawVisible, setDrawVisible);
