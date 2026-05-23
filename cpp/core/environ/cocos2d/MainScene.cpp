@@ -754,17 +754,6 @@ public:
     void SetPaintBoxSize(tjs_int w, tjs_int h) override {
         LayerWidth = w;
         LayerHeight = h;
-        // Important: WindowLayer's own contentSize must reflect the engine
-        // layer dimensions before RecalcPaintBox runs. ResetDrawSprite uses
-        // getContentSize() to compute DrawSprite's position (anchor=top-left,
-        // y = size.height). On a fresh window contentSize is still (0,0),
-        // so DrawSprite ends up at y=0 with anchor top-left → the entire
-        // sprite sits below the visible area and the screen appears black
-        // until something else (like opening the in-game menu via the
-        // 3-finger gesture) calls setContentSize and triggers a relayout.
-        if(getContentSize().width == 0 || getContentSize().height == 0) {
-            setContentSize(cocos2d::Size(w, h));
-        }
         RecalcPaintBox();
     }
 
@@ -2098,24 +2087,7 @@ void TVPOnError();
 tjs_uint TVPGetGraphicCacheTotalBytes();
 
 void TVPMainScene::update(float delta) {
-#if defined(__ANDROID__)
-    static int s_updateCount = 0;
-    static int s_appRunReturned = 0;
-    ++s_updateCount;
-    if(s_updateCount == 1) {
-        KR2RenderProbeWriteF("MainScene::update#FIRST delta=%.4f", delta);
-    } else if((s_updateCount & 0x3F) == 0) {
-        KR2RenderProbeWriteF("MainScene::update#%d delta=%.4f appRunReturned=%d",
-                             s_updateCount, delta, s_appRunReturned);
-    }
-#endif
     ::Application->Run();
-#if defined(__ANDROID__)
-    ++s_appRunReturned;
-    if(s_appRunReturned == 1) {
-        KR2RenderProbeWriteF("MainScene::update#FIRST-Application::Run-returned");
-    }
-#endif
     //	if (_currentWindowLayer) _currentWindowLayer->UpdateOverlay();
     iTVPTexture2D::RecycleProcess();
     //_ResotreGLStatues();
