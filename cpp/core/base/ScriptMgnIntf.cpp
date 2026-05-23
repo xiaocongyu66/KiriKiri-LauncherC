@@ -42,6 +42,8 @@
 #include "SysInitImpl.h"
 #include "Application.h"
 
+#include <spdlog/spdlog.h>
+
 #include "RectItf.h"
 #include "ImageFunction.h"
 #include "BitmapIntf.h"
@@ -901,8 +903,13 @@ void TVPExecuteStartupScript() {
     ttstr strPatchError;
     try {
         ttstr patch = TVPGetAppPath() + "patch.tjs";
-        if(TVPIsExistentStorageNoSearch(patch))
+        if(TVPIsExistentStorageNoSearch(patch)) {
+            spdlog::info("[krkr] executing patch.tjs: {}", patch.AsStdString());
             TVPExecuteStorage(patch);
+            spdlog::info("[krkr] patch.tjs executed OK");
+        } else {
+            spdlog::info("[krkr] no patch.tjs at: {}", patch.AsStdString());
+        }
     } catch(const TJS::eTJSScriptError &e) {
         ttstr &msg = strPatchError;
         msg += e.GetMessage();
@@ -928,6 +935,8 @@ void TVPExecuteStartupScript() {
     }
 
     if(!strPatchError.IsEmpty()) {
+        spdlog::error("[krkr] patch.tjs failed: {}",
+                      strPatchError.AsStdString());
         ttstr msg =
             LocaleConfigManager::GetInstance()->GetText("startup_patch_fail");
         msg += "\n";

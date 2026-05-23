@@ -1402,13 +1402,20 @@ return true;
 // Ported from KrKr2-Next (StorageImpl.cpp) + kirikiroid2-web-web (Platform.cpp).
 // ---------------------------------------------------------------------------
 static std::vector<ttstr> TVPAutoMountedPaths;
-
 void TVPAutoMountSiblingXP3Archives() {
-    if(TVPProjectDir.GetLastChar() != TJS_W('/'))
+    // TVPProjectDir is either:
+    //  - "<...>/somedir/"  when launched from a directory
+    //  - "<...>/data.xp3>" when launched from an xp3 archive (delimiter is '>')
+    // Either way, we need the parent directory containing the startup target.
+    tjs_char last = TVPProjectDir.GetLastChar();
+    if(last != TJS_W('/') && last != TVPArchiveDelimiter)
         return;
 
+    // Strip the trailing '/' or archive delimiter ('>') to get a plain path.
     tjs_int len = TVPProjectDir.GetLen();
-    while(len > 0 && TVPProjectDir[len - 1] == TJS_W('/'))
+    while(len > 0 &&
+          (TVPProjectDir[len - 1] == TJS_W('/') ||
+           TVPProjectDir[len - 1] == TVPArchiveDelimiter))
         len--;
     if(len == 0)
         return;
@@ -1439,6 +1446,13 @@ void TVPAutoMountSiblingXP3Archives() {
 
     std::string projBaseStr = projBaseName.AsNarrowStdString();
     for(auto &c : projBaseStr) c = (char)tolower((unsigned char)c);
+    // Strip trailing ".xp3" so xp3-startup vs dir-startup compares equal
+    // ("data.xp3" → "data") — this prevents data.xp3 itself from being
+    // re-mounted as a sibling.
+    if(projBaseStr.size() > 4 &&
+       projBaseStr.compare(projBaseStr.size() - 4, 4, ".xp3") == 0) {
+        projBaseStr.resize(projBaseStr.size() - 4);
+    }
 
     std::vector<std::string> xp3Names;
 
@@ -1447,6 +1461,7 @@ void TVPAutoMountSiblingXP3Archives() {
         spdlog::error("AutoMountXP3: opendir failed for: {}, errno={}", parentPath, errno);
         return;
     }
+
 
     struct dirent *dp;
     while((dp = readdir(dirp))) {

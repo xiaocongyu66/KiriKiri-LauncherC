@@ -26,6 +26,8 @@
 #include "Application.h"
 #include "SystemControl.h"
 
+#include <spdlog/spdlog.h>
+
 //---------------------------------------------------------------------------
 // global variables
 //---------------------------------------------------------------------------
@@ -395,6 +397,20 @@ void TVPAddLog(const ttstr &line, bool appendtoimportant) {
 
     if(TVPLoggingToFile)
         TVPLogStreamHolder.Log(buf);
+
+    // Mirror engine log output into spdlog/logcat. KAG/KiriKiri's
+    // top-left "loading" lines (plugin link, font load, archive mount,
+    // script load) flow through TVPAddLog/TVPAddImportantLog. Without
+    // this mirror they are invisible on Android, making startup
+    // failures impossible to diagnose.
+    try {
+        if(appendtoimportant)
+            spdlog::info("[krkr] {}", line.AsStdString());
+        else
+            spdlog::debug("[krkr] {}", line.AsStdString());
+    } catch(...) {
+        // never let logging itself bring down the app
+    }
 }
 
 //---------------------------------------------------------------------------

@@ -362,7 +362,10 @@ bool tTVPApplication::StartApplication(ttstr path) {
         _project_startup = true;
     } catch(const EAbort &) {
         // nothing to do
+        spdlog::warn("[krkr] StartApplication aborted by EAbort");
     } catch(const Exception &exception) {
+        spdlog::error("[krkr] StartApplication caught Exception: {}",
+                      exception.what());
         TVPOnError();
         if(!TVPSystemUninitCalled)
             ShowException(exception.what());
@@ -385,19 +388,28 @@ bool tTVPApplication::StartApplication(ttstr path) {
             }
             msg += TJS_W("\n");
             msg += e.GetTrace();
+            spdlog::error("[krkr] StartApplication caught TJS script error:\n{}",
+                          msg.AsStdString());
             ShowException(msg);
         }
     } catch(const TJS::eTJS &e) {
+        spdlog::error("[krkr] StartApplication caught TJS error: {}",
+                      e.GetMessage().AsStdString());
         TVPOnError();
         if(!TVPSystemUninitCalled)
             ShowException(e.GetMessage());
     } catch(const std::exception &e) {
+        spdlog::error("[krkr] StartApplication caught std::exception: {}",
+                      e.what());
         ShowException(e.what());
     } catch(const char *e) {
+        spdlog::error("[krkr] StartApplication caught (const char*): {}", e);
         ShowException(e);
     } catch(const tjs_char *e) {
+        spdlog::error("[krkr] StartApplication caught (const tjs_char*) exception");
         ShowException(e);
     } catch(...) {
+        spdlog::error("[krkr] StartApplication caught unknown exception");
         ShowException((const tjs_char *)TVPUnknownError);
     }
 
