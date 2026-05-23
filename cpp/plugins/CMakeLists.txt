@@ -21,6 +21,16 @@ target_sources(${PROJECT_NAME} PRIVATE
     LayerExBase.cpp
     xp3filter.cpp
     textrender.cpp
+    extrans.cpp
+    alphamovie.cpp
+    layerExImage.cpp
+    layerExBTOA.cpp
+    layerExRaster.cpp
+    layerExAreaAverage.cpp
+    layerExLongExposure.cpp
+    wfBasicEffectCompat.cpp
+    wfTypicalDSPCompat.cpp
+    drawDeviceD2DCompat.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
@@ -41,6 +51,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
     ${KRKR2CORE_PATH}/utils
     ${KRKR2CORE_PATH}/utils/win32
     ${KRKR2CORE_PATH}/visual
+    ${KRKR2CORE_PATH}/visual/impl
     ${KRKR2CORE_PATH}/visual/ARM
     ${KRKR2CORE_PATH}/visual/win32
     ${KRKR2CORE_PATH}/visual/RenderScript/rs
@@ -55,7 +66,7 @@ add_subdirectory(psdfile)
 add_subdirectory(psbfile)
 add_subdirectory(layerex_draw)
 add_subdirectory(motionplayer)
-
+add_subdirectory(kagparserex)
 #add_subdirectory(json)
 add_subdirectory(fstat)
 #add_subdirectory(steam)
@@ -65,6 +76,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
         psbfile
         layerExDraw
         motionplayer
+        kagparserex
         fstat
 #        json steam DrawDeviceForSteam
 )
