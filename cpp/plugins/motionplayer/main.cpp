@@ -149,7 +149,7 @@ static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVaria
 static tjs_error Player_getEnableD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
     iTJSDispatch2 *obj = TJSCreateDictionaryObject();
     if (obj) {
-        if(r) *r = tTJSVariant(obj);
+        if(r) *r = tTJSVariant(obj, obj);
         obj->Release();
     } else {
         if(r) *r = tTJSVariant();
@@ -533,16 +533,6 @@ static void PostRegistCallback() {
                                     nullptr, &playerVar, motion);
                 }
             }
-            // AffineSourceMotion.tjs expects Motion.enableD3D to be Object.
-            // Force a concrete dictionary member, bypassing property callbacks
-            // and any prior integer assignment from compatibility scripts.
-            iTJSDispatch2 *dict = TJSCreateDictionaryObject();
-            if(dict) {
-                tTJSVariant enableD3D(dict);
-                motion->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
-                                TJS_W("enableD3D"), nullptr, &enableD3D, motion);
-                dict->Release();
-            }
         }
     }
 
@@ -572,6 +562,7 @@ static void PostUnregistCallback() {}
 NCB_PRE_REGIST_CALLBACK(PreRegistCallback);
 NCB_POST_UNREGIST_CALLBACK(PostUnregistCallback);
 
+NCB_POST_REGIST_CALLBACK(PostRegistCallback);
 // ============================================================
 // emoteplayer.dll module — separate from motionplayer.dll
 // In libkrkr2.so, emoteplayer.dll is an independent module whose
@@ -702,4 +693,3 @@ NCB_REGISTER_CLASS(D3DEmotePlayer) {
     NCB_METHOD_RAW_CALLBACK(contains, &EmotePlayer::containsCompat, 0);
 }
 
-NCB_POST_REGIST_CALLBACK(PostRegistCallback);
