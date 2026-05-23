@@ -11,6 +11,11 @@
 
 #include "tjsCommHead.h"
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#endif
+
 #include "tjsArray.h"
 #include "LayerManager.h"
 #include "MsgIntf.h"
@@ -1048,6 +1053,16 @@ void tTVPLayerManager::AddUpdateRegion(const tTVPRect &rect) {
 }
 //---------------------------------------------------------------------------
 void tTVPLayerManager::UpdateToDrawDevice() {
+#if defined(__ANDROID__)
+    static int s_count = 0;
+    static int s_noprimary = 0;
+    ++s_count;
+    if(!Primary) ++s_noprimary;
+    if((s_count & 0x3F) == 0) {
+        KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#%d noPrimary=%d",
+                             s_count, s_noprimary);
+    }
+#endif
     // drawdevice -> layer
     if(!Primary)
         return;

@@ -34,6 +34,11 @@
 #include "ui/UIButton.h"
 #include "ui/csd/CsdUIFactory.h"
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#endif
+
 USING_NS_CC;
 
 enum SCENE_ORDER {
@@ -1965,8 +1970,14 @@ void TVPMainScene::popUIForm(cocos2d::Node *form, eLeaveAni ani) {
 }
 
 bool TVPMainScene::startupFrom(const std::string &path) {
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("TVPMainScene::startupFrom path=%s", path.c_str());
+#endif
     // startup from dir
     if(!TVPCheckStartupPath(path)) {
+#if defined(__ANDROID__)
+        KR2RenderProbeWriteF("TVPCheckStartupPath FAILED for %s", path.c_str());
+#endif
         return false;
     }
 

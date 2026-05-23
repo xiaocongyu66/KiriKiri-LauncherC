@@ -1,4 +1,3 @@
-
 #define NOMINMAX
 #include "tjsCommHead.h"
 #include "DrawDevice.h"
@@ -12,6 +11,77 @@
 #include "ComplexRect.h"
 #include "EventImpl.h"
 #include "WindowImpl.h"
+
+// Direct logcat probes for the render path. spdlog is the official channel
+// but it requires registered loggers; if registration is missed (or the
+// android_sink isn't picked up by vcpkg's spdlog port) every spdlog::get()
+// returns nullptr and the messages vanish. __android_log_print never fails
+// silently — but the logcat ring buffer is small (256K-ish per device) and
+// can be flooded by other apps (we've seen AIService dump entire JSON
+// transcripts that flush all our entries off the end). So we ALSO mirror
+// to a small file in the app's external-files dir, which survives logcat
+// rollover and is reachable by users from the system Files app:
+//   /sdcard/Android/data/org.github.krkr2/files/render_probe.log
+#if defined(__ANDROID__)
+#include <android/log.h>
+#include <cstdarg>
+#include <cstdio>
+#include <mutex>
+
+// Exported so MainScene.cpp / LayerManager.cpp can write to the same
+// file-backed probe stream. Declared with C linkage to avoid name-mangling
+// drift between TUs.
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+
+static void kr2_render_probe_writef(const char *fmt, ...) {
+    static std::mutex s_mu;
+    static FILE *s_fp = nullptr;
+    static bool s_tried = false;
+    {
+        std::lock_guard<std::mutex> lk(s_mu);
+        if(!s_fp && !s_tried) {
+            s_tried = true;
+            // /sdcard/Android/data/org.github.krkr2/files/ — package
+            // owned, no permission needed, visible from system Files app
+            // for the user to ship back to us.
+            s_fp = std::fopen(
+                "/sdcard/Android/data/org.github.krkr2/files/render_probe.log",
+                "a");
+            if(s_fp) {
+                std::fprintf(s_fp, "\n=== render probe opened ===\n");
+                std::fflush(s_fp);
+            }
+        }
+        if(!s_fp) return;
+        va_list ap;
+        va_start(ap, fmt);
+        std::vfprintf(s_fp, fmt, ap);
+        va_end(ap);
+        std::fputc('\n', s_fp);
+        std::fflush(s_fp);
+    }
+}
+
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...) {
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    __android_log_print(ANDROID_LOG_INFO, "KR2-Render", "%s", buf);
+    kr2_render_probe_writef("%s", buf);
+}
+
+#define KR2_RLOG(fmt_, ...)                                                    \
+    do {                                                                       \
+        __android_log_print(ANDROID_LOG_INFO, "KR2-Render", fmt_,              \
+                            ##__VA_ARGS__);                                    \
+        kr2_render_probe_writef(fmt_, ##__VA_ARGS__);                          \
+    } while(0)
+#else
+#define KR2_RLOG(...) ((void)0)
+#endif
+
 
 #define ZeroMemory(p, n) memset(p, 0, n);
 // #include <d3d9.h>
@@ -536,15 +606,42 @@ void tTVPBasicDrawDevice::NotifyLayerResize(iTVPLayerManager *manager) {
 }
 //---------------------------------------------------------------------------
 void tTVPBasicDrawDevice::Show() {
+    static int s_callCount = 0;
+    static int s_nullWindow = 0;
+    static int s_nullForm = 0;
+    static int s_nullBuf = 0;
+    static int s_nullTex = 0;
+    static int s_okFrames = 0;
+    ++s_callCount;
     if(Window) {
         iWindowLayer *form = Window->GetForm();
         if(form && !Managers.empty()) {
             iTVPBaseBitmap *buf = Managers.back()->GetDrawBuffer();
-            if(buf)
-
-                form->UpdateDrawBuffer(buf->GetTexture());
+            if(buf) {
+                iTVPTexture2D *tex = buf->GetTexture();
+                if(tex) {
+                    ++s_okFrames;
+                    form->UpdateDrawBuffer(tex);
+                } else {
+                    ++s_nullTex;
+                }
+            } else {
+                ++s_nullBuf;
+            }
+        } else if(!form) {
+            ++s_nullForm;
         }
+    } else {
+        ++s_nullWindow;
     }
+    // Print once per second-ish, not every frame, to avoid spamming logcat.
+    if((s_callCount & 0x3F) == 0) {
+        KR2_RLOG("Show#%d ok=%d nullWin=%d nullForm=%d nullBuf=%d nullTex=%d "
+                 "managers=%zu",
+                 s_callCount, s_okFrames, s_nullWindow, s_nullForm,
+                 s_nullBuf, s_nullTex, Managers.size());
+    }
+}
 #if 0
 	if(!TargetWindow) return;
 	if(!Texture) return;
