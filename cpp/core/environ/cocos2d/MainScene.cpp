@@ -1854,38 +1854,6 @@ void TVPMainScene::pushUIForm(cocos2d::Node *ui, eEnterAni ani) {
     if(auto *form = dynamic_cast<iTVPBaseForm *>(ui)) {
         form->rearrangeLayout();
     }
-    // Suppress touch on the new form during the enter animation. Without
-    // this, a single user tap on the trigger button (e.g. the in-game
-    // expand-menu corner) propagates through the touch-up phase straight
-    // into the freshly-pushed form. The first menu item then handles the
-    // touch and immediately popAllUIForm()s the menu — visible to the
-    // user as "menu briefly appears, then flies off-screen". Cocos2d only
-    // routes touches to nodes with isTouchEnabled(), so flipping it off
-    // for the duration of the enter animation cleanly drops the stale
-    // touch-up. We restore via a CallFunc when the animation completes.
-    auto enableTouchAfterEnter = [ui]() {
-        if(auto *widget = dynamic_cast<cocos2d::ui::Widget *>(ui)) {
-            widget->setTouchEnabled(true);
-        }
-        // Also restore on direct child widgets (NaviBar, body list, etc.)
-        // that the form embeds — these are the ones the user will tap on.
-        for(auto *child : ui->getChildren()) {
-            if(auto *w = dynamic_cast<cocos2d::ui::Widget *>(child)) {
-                w->setTouchEnabled(true);
-            }
-        }
-    };
-    if(auto *widget = dynamic_cast<cocos2d::ui::Widget *>(ui)) {
-        widget->setTouchEnabled(false);
-    }
-    for(auto *child : ui->getChildren()) {
-        if(auto *w = dynamic_cast<cocos2d::ui::Widget *>(child)) {
-            w->setTouchEnabled(false);
-        }
-    }
-    ui->runAction(Sequence::createWithTwoActions(
-        DelayTime::create(UI_CHANGE_DURATION),
-        CallFunc::create(enableTouchAfterEnter)));
     TVPControlAdDialog(0x10002, 1, 0);
     int n = UINode->getChildrenCount();
     if(ani == eEnterAniNone) {
