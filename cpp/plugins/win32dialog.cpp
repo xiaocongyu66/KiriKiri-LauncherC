@@ -1,12 +1,204 @@
-
+// win32dialog stub for Android (krkr2)
+//
+// Limelight 等商業 KAG VN 透過 win32dialog plugin + win32dialog.tjs
+// 建立 WIN32DialogEX / WIN32GenericDialogEX 來顯示設定對話框。
+// 由於 Win32 API 在 Android 上無法直接執行，這裡提供一個最小 stub：
+//   - WIN32Dialog                base class (constructor / messageBox / dummy methods)
+//   - WIN32DialogEX              extends WIN32Dialog
+//   - WIN32GenericDialogEX       extends WIN32DialogEX
+//
+// 目的：讓 KAG 腳本能執行 `new WIN32GenericDialogEX(...)` 而不報
+// "Member ... does not exist"，open() 直接回傳 IDCANCEL (=2)
+// 讓遊戲認為使用者取消對話框並繼續執行。
 #include "ncbind.hpp"
 
 #define NCB_MODULE_NAME TJS_W("win32dialog.dll")
 
 static void InitPlugin_WIN32Dialog() {
-    TVPExecuteScript(TJS_W("class WIN32Dialog {") TJS_W(
-        "	function messageBox(message, caption, type) {return "
-        "!System.inform(message, caption, 2);}") TJS_W("}"));
+    // 1) WIN32Dialog 基底 stub
+    TVPExecuteScript(
+        TJS_W("class WIN32Dialog {\n")
+        TJS_W("    var owner;\n")
+        TJS_W("    function WIN32Dialog(owner=null) { this.owner = owner; }\n")
+        TJS_W("    function finalize() {}\n")
+        TJS_W("    function messageBox(message, caption=\"\", type=0) { return !System.inform(message, caption, 2); }\n")
+        // 對話框生命週期
+        TJS_W("    function open(parent=null) { return 2; /* IDCANCEL */ }\n")
+        TJS_W("    function close(result=2) { return result; }\n")
+        // template / item 系列 noop
+        TJS_W("    function setHeader(elm) {}\n")
+        TJS_W("    function setItems(items) {}\n")
+        TJS_W("    function getItem(id) { return null; }\n")
+        TJS_W("    function setItemInt(id, value) {}\n")
+        TJS_W("    function getItemInt(id) { return 0; }\n")
+        TJS_W("    function setItemText(id, value) {}\n")
+        TJS_W("    function getItemText(id) { return \"\"; }\n")
+        TJS_W("    function setItemEnabled(id, value) {}\n")
+        TJS_W("    function getItemEnabled(id) { return false; }\n")
+        TJS_W("    function setItemFocus(id) {}\n")
+        TJS_W("    function setItemPos(id, x, y) {}\n")
+        TJS_W("    function setItemSize(id, w, h) {}\n")
+        TJS_W("    function setItemBitmap(id, layer) {}\n")
+        TJS_W("    function sendItemMessage(id, msg, wp=0, lp=0) { return 0; }\n")
+        // Header / Items / Bitmap subclass placeholder
+        TJS_W("    class Header { function Header() {} }\n")
+        TJS_W("    class Items  { function Items() {}  }\n")
+        TJS_W("    class Bitmap { function Bitmap() {} }\n")
+        // 事件回呼預設空實作，子類別可 override
+        TJS_W("    function onInit() {}\n")
+        TJS_W("    function onCommand() {}\n")
+        TJS_W("    function onSize() {}\n")
+        TJS_W("    function onHScroll() {}\n")
+        TJS_W("    function onVScroll() {}\n")
+        TJS_W("    function onNotify() {}\n")
+        TJS_W("}\n")
+    );
+
+    // 2) WIN32DialogEX extends WIN32Dialog
+    TVPExecuteScript(
+        TJS_W("class WIN32DialogEX extends WIN32Dialog {\n")
+        TJS_W("    var itemMap = %[];\n")
+        TJS_W("    var itemNames = [];\n")
+        TJS_W("    var itemAlias = %[];\n")
+        TJS_W("    var itemResults = %[];\n")
+        TJS_W("    property results { getter { return itemResults; } }\n")
+        TJS_W("    function WIN32DialogEX(owner=null) {\n")
+        TJS_W("        super.WIN32Dialog(null);\n")
+        TJS_W("        this.owner = owner if (typeof owner == \"Object\");\n")
+        TJS_W("    }\n")
+        TJS_W("    function finalize() { super.finalize(...); }\n")
+        TJS_W("    function store(elm) {}\n")
+        TJS_W("    function makeAlias(dict, orig, alias) {}\n")
+        TJS_W("    function getNumberdId(id) { return (typeof id == \"Integer\") ? id : 0; }\n")
+        TJS_W("    function getNamedId(id)   { return id; }\n")
+        TJS_W("    function setCenterPosition(win=null) {}\n")
+        TJS_W("    function loadResource(dll, res) {}\n")
+        TJS_W("    function makeResults() { return %[]; }\n")
+        TJS_W("    function setInitParams(elm, forced=false) {}\n")
+        TJS_W("    function setParams(id, elm) {}\n")
+        TJS_W("    function getResult(id) { return void; }\n")
+        TJS_W("    function getItemClass(itemOrId) { return void; }\n")
+        // Win32 control 建構輔助 - 全部回傳 dummy struct
+        TJS_W("    function Control(text, id, wndcls, style, x, y, w, h, ex=0) { return %[ text:text, id:id ]; }\n")
+        TJS_W("    function DefPushButton(text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function PushButton   (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function AutoCheckBox (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function AutoRadioButton(text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function CheckBox     (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function RadioButton  (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function GroupBox     (text, id=-1, x=0, y=0, w=0, h=0, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function LText        (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function CText        (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function RText        (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function Icon         (text, id, x, y, w, h, style=0, ex=0) { return Control(text, id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function EditText     (id, x, y, w, h, style=0, ex=0)       { return Control(\"\", id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function ListBox      (id, x, y, w, h, style=0, ex=0)       { return Control(\"\", id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function ComboBox     (id, x, y, w, h, style=0, ex=0)       { return Control(\"\", id, 0, style, x, y, w, h, ex); }\n")
+        TJS_W("    function ScrollBar    (id, x, y, w, h, style=0, ex=0)       { return Control(\"\", id, 0, style, x, y, w, h, ex); }\n")
+        // checkbox / list-box 操作 noop
+        TJS_W("    function getCheckBox(id) { return false; }\n")
+        TJS_W("    function setCheckBox(id, value) {}\n")
+        TJS_W("    function setListBoxTexts() {}\n")
+        TJS_W("    function setComboBoxTexts() {}\n")
+        TJS_W("    function selectListBox()  {}\n")
+        TJS_W("    function selectComboBox() {}\n")
+        TJS_W("    function addItemStrings(msg, id, list) {}\n")
+        TJS_W("    function selectItem(msg, id, value) {}\n")
+        TJS_W("    function removeAllBitmap() {}\n")
+        TJS_W("    function initItems() {}\n")
+        TJS_W("    function defaultCommand(msg, wp, lp) {}\n")
+        TJS_W("    function throwEvent(tag) { return void; }\n")
+        TJS_W("    function open(parent=null) { return 2; /* IDCANCEL */ }\n")
+        TJS_W("}\n")
+    );
+
+    // 3) WIN32GenericDialogEX extends WIN32DialogEX —— limelight option.ks 用
+    TVPExecuteScript(
+        TJS_W("class WIN32GenericDialogEX extends WIN32DialogEX {\n")
+        TJS_W("    var _templ, _padding, _ptSz, _cx, _cury, _curh, _maxy, _curband, _id2text, _inits;\n")
+        TJS_W("    function WIN32GenericDialogEX(elm=null) {\n")
+        TJS_W("        super.WIN32DialogEX();\n")
+        TJS_W("        elm = %[] if (typeof elm != \"Object\");\n")
+        TJS_W("        _padding = 4;\n")
+        TJS_W("        _cx = 100;\n")
+        TJS_W("        _ptSz = 9;\n")
+        TJS_W("        _curband = %[ x:_padding, w:_cx - _padding*2 ];\n")
+        TJS_W("        _maxy = _cury = _padding;\n")
+        TJS_W("        _curh = 0;\n")
+        TJS_W("        _id2text = %[];\n")
+        TJS_W("        _inits = %[];\n")
+        TJS_W("        _templ = %[ items:[] ];\n")
+        TJS_W("    }\n")
+        TJS_W("    function finalize() { super.finalize(...); }\n")
+        // layout helpers - 全部 noop / 回傳 dummy
+        TJS_W("    function makeDiv(pos, per, pad=void)        { return %[ type:\"per\", per:per, pos:pos, padding:pad ]; }\n")
+        TJS_W("    function makeSpan(pos, span, per, pad=void) { return %[ type:\"span\", per:per, pos:pos, span:span, padding:pad ]; }\n")
+        TJS_W("    function makeStep(align, index, step, width=void, pad=void) { return %[ type:\"step\", align:align, index:index, step:step, width:width, padding:pad ]; }\n")
+        TJS_W("    function makeStepLeft()  { return %[]; }\n")
+        TJS_W("    function makeStepRight() { return %[]; }\n")
+        TJS_W("    function makeCut(sel, pos, align=void) { return %[ type:sel, align:align ]; }\n")
+        TJS_W("    function makeCutLeft()   { return %[]; }\n")
+        TJS_W("    function makeCutRight()  { return %[]; }\n")
+        TJS_W("    function getCurrentRect(div=void, height=0) { return %[ x:0, y:0, w:_cx, h:height ]; }\n")
+        TJS_W("    function getNameInfo(name, initMethod=\"\", initValue=void) {\n")
+        TJS_W("        var ret = %[];\n")
+        TJS_W("        switch (typeof name) {\n")
+        TJS_W("            case \"Integer\": ret = %[ id:name, text:\"ID\"+name ]; break;\n")
+        TJS_W("            case \"String\":  ret = %[ id:name, text:name ]; break;\n")
+        TJS_W("            case \"Object\":  ret = name; break;\n")
+        TJS_W("        }\n")
+        TJS_W("        return ret;\n")
+        TJS_W("    }\n")
+        TJS_W("    function addInit(id, method, value) {\n")
+        TJS_W("        _inits[id] = [] if (_inits[id] === void);\n")
+        TJS_W("        _inits[id].add(%[ method => value ]);\n")
+        TJS_W("    }\n")
+        TJS_W("    function addItem(item)        { _templ.items.add(item) if (typeof _templ.items == \"Object\"); }\n")
+        TJS_W("    function addLText  (text, div=void, height=void, id=-1) {}\n")
+        TJS_W("    function addCText  (text, div=void, height=void, id=-1) {}\n")
+        TJS_W("    function addRText  (text, div=void, height=void, id=-1) {}\n")
+        TJS_W("    function addIcon   (id, height=void, div=void, style=0) {}\n")
+        TJS_W("    function addLineEdit(name, div=void, style=0)           {}\n")
+        TJS_W("    function addEditLine(name, div=void, style=0)           {}\n")
+        TJS_W("    function addEditBox (name, height=void, div=void, style=0) {}\n")
+        TJS_W("    function addPushButton    (name, div=void, height=void, defButton=false) {}\n")
+        TJS_W("    function addDefPushButton (name, div=void, height=void) {}\n")
+        TJS_W("    function addCheckBox    (name, div=void, height=void, style=0) {}\n")
+        TJS_W("    function addRadioButtons(items, div=void, height=void, vertical=false) {}\n")
+        TJS_W("    function addRadioButton (name, div=void, height=void, style=0) {}\n")
+        TJS_W("    function addGroupBox    (name, height=void, div=void) {}\n")
+        TJS_W("    function addListBox  (name, height=void, div=void, style=0) {}\n")
+        TJS_W("    function addComboBox (name, height=void, div=void, style=0) {}\n")
+        TJS_W("    function addDropDown (name, height=void, div=void, style=0) {}\n")
+        TJS_W("    function addScrollBar(name, div=void, height=void, style=0) {}\n")
+        TJS_W("    function addBitmap   (id,   div=void, height=void, style=0) {}\n")
+        TJS_W("    function addProgress (id,   div=void, height=void, style=0) {}\n")
+        TJS_W("    function addTab      (id,   div=void, height=void, style=0) {}\n")
+        TJS_W("    function addBlank    (height=0, div=void) {}\n")
+        TJS_W("    function addSeparator(height=2, div=void) {}\n")
+        TJS_W("    function addControl(item, div=void, height=void) {}\n")
+        // band/line cursor 移動
+        TJS_W("    function nextLine  (height=void) { _cury += (height !== void ? height : _ptSz); _curh = 0; }\n")
+        TJS_W("    function nextBand  (height=void) { _cury += (height !== void ? height : _ptSz); _curh = 0; }\n")
+        TJS_W("    function setBand   (band=void)   {}\n")
+        TJS_W("    function resetBand ()            { _curband = %[ x:_padding, w:_cx - _padding*2 ]; }\n")
+        TJS_W("    function setRow    (height=void) {}\n")
+        TJS_W("    function setMargin (m=void)      { _padding = m if (m !== void); }\n")
+        TJS_W("    function setIndent (i=void)      {}\n")
+        TJS_W("    function setWidth  (w=void)      { _cx = w if (w !== void); }\n")
+        TJS_W("    function setColumn (cols=void)   {}\n")
+        TJS_W("    function setHeight (h=void)      {}\n")
+        // open: 直接回 IDCANCEL (=2) 讓遊戲流程認為使用者取消
+        TJS_W("    function open(parent=null) { return 2; }\n")
+        TJS_W("    function close(result=2)   { return result; }\n")
+        TJS_W("    function build()           {}\n")
+        TJS_W("    function commit()          {}\n")
+        // 事件 noop
+        TJS_W("    function onInit()    {}\n")
+        TJS_W("    function onCommand() {}\n")
+        TJS_W("    function onSize()    {}\n")
+        TJS_W("}\n")
+    );
 }
 
 NCB_PRE_REGIST_CALLBACK(InitPlugin_WIN32Dialog);
