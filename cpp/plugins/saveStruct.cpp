@@ -367,6 +367,40 @@ NCB_ATTACH_CLASS(DictAdd, Dictionary) {
 };
 
 /**
+ * Scripts に saveStruct 形式で文字列化機能を追加
+ * (krkr2 port: 来自 wamsoft/saveStruct/Main.cpp 的 ScriptsAddStruct)
+ */
+class ScriptsAddStruct {
+public:
+    ScriptsAddStruct() {}
+
+    /**
+     * saveStruct 形式で文字列化
+     * @param target 文字列化する対象
+     * @param newline 改行コード 0:CRLF 1:LF
+     * @return 実行結果
+     */
+    static tjs_error TJS_INTF_METHOD toStructString(tTJSVariant *result,
+                                                    tjs_int numparams,
+                                                    tTJSVariant **param,
+                                                    iTJSDispatch2 *objthis) {
+        if(numparams < 1) return TJS_E_BADPARAMCOUNT;
+        if(result) {
+            tTVPMemoryStream ms;
+            tTVPStringStream writer(&ms, numparams > 1 ? (int)*param[1] : 1);
+            getVariantString(*param[0], &writer);
+            writer.write((tjs_char)0);
+            *result = (const tjs_char *)ms.GetInternalBuffer();
+        }
+        return TJS_S_OK;
+    }
+};
+
+NCB_ATTACH_CLASS(ScriptsAddStruct, Scripts) {
+    RawCallback("toStructString", &ScriptsAddStruct::toStructString, TJS_STATICMEMBER);
+};
+
+/**
  * 登録処理後
  */
 static void PostRegistCallback() {
