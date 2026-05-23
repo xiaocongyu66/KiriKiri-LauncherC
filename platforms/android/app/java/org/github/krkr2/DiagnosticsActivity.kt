@@ -73,6 +73,8 @@ private data class DiagSnapshot(
     val nativeFatalLog: String,
     val nativeFatalPath: String,
     val launcherLogPath: String,
+    val engineLog: String,
+    val engineLogPath: String,
 )
 
 private fun loadSnapshot(context: Context): DiagSnapshot {
@@ -108,6 +110,17 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
         tailFile(it, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
     } ?: ""
 
+    // Engine render-path probe log. Written by KR2RenderProbeWriteF in the
+    // native code to the app's external-files dir. Truncated each run, so
+    // it always contains the most recent game session — exactly what the
+    // user is asking to see ("game's last-launch log") for diagnosing
+    // black screen / render-pipeline issues without needing to fish
+    // through the global logcat.
+    val engineLogFile = File(context.getExternalFilesDir(null), "render_probe.log")
+    val engineLog = if (engineLogFile.exists() && engineLogFile.length() > 0) {
+        tailFile(engineLogFile, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
+    } else ""
+
     return DiagSnapshot(
         versionName = verName,
         versionCode = verCode,
@@ -118,6 +131,8 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
         nativeFatalLog = nativeFatalLog,
         nativeFatalPath = (fatalFile ?: fatalCandidates.first()).absolutePath,
         launcherLogPath = launcherLog.absolutePath,
+        engineLog = engineLog,
+        engineLogPath = engineLogFile.absolutePath,
     )
 }
 
@@ -223,6 +238,12 @@ private fun DiagnosticsScreen(onBack: () -> Unit) {
                     pathHint = snap.launcherLogPath,
                 )
 
+                LogCard(
+                    title = text.engineLog,
+                    body = snap.engineLog.ifBlank { text.noEngineLog },
+                    pathHint = snap.engineLogPath,
+                )
+
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilledTonalButton(onClick = { snap = loadSnapshot(context) }) { Text(text.refresh) }
                     FilledTonalButton(onClick = onBack) { Text(text.close) }
@@ -282,7 +303,9 @@ private fun buildShareText(snap: DiagSnapshot, text: LauncherStrings.Texts): Str
     append('\n').append("--- ").append(text.nativeFatalLog).append(" ---\n")
     append(snap.nativeFatalLog.ifBlank { text.noFatalLog }).append('\n')
     append('\n').append("--- ").append(text.launcherLog).append(" ---\n")
-    append(snap.launcherLogTail.ifBlank { text.noLauncherLog })
+    append(snap.launcherLogTail.ifBlank { text.noLauncherLog }).append('\n')
+    append('\n').append("--- ").append(text.engineLog).append(" ---\n")
+    append(snap.engineLog.ifBlank { text.noEngineLog })
 }
 
 private fun copyToClipboard(context: Context, value: String, toastMsg: String) {

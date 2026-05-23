@@ -1771,7 +1771,12 @@ void TVPMainScene::initialize() {
     ScreenRatio = screenSize.height / designSize.height;
     designSize.width = designSize.height * screenSize.width / screenSize.height;
     initWithSize(designSize);
-    addChild(LayerColor::create(Color4B::BLACK, designSize.width,
+    // DIAGNOSTIC: red background to distinguish "cocos2d director not
+    // drawing" from "DrawSprite content is black". If user still sees a
+    // pure black screen with this build, the cocos2d render pipeline
+    // itself is not running. If they see red around (or instead of) the
+    // game, the game's GLuint texture is what's coming through black.
+    addChild(LayerColor::create(Color4B::RED, designSize.width,
                                 designSize.height));
     GameNode = cocos2d::Node::create();
     // horizontal
