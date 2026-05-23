@@ -365,7 +365,7 @@ bool tTVPApplication::StartApplication(ttstr path) {
         spdlog::warn("[krkr] StartApplication aborted by EAbort");
     } catch(const Exception &exception) {
         spdlog::error("[krkr] StartApplication caught Exception: {}",
-                      exception.what());
+                      exception.what().AsStdString());
         TVPOnError();
         if(!TVPSystemUninitCalled)
             ShowException(exception.what());
