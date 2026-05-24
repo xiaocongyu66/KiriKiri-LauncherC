@@ -1566,6 +1566,18 @@ namespace TJS {
                                                    tjs_uint32 flags) {
         // ra[code[1]][ra[code[2]]] = ra[code[3]]]
 
+        if(Block && Block->GetName() &&
+           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
+            tTJSVariant *dst = TJS_GET_VM_REG_ADDR(ra, code[1]);
+            if(dst->Type() == tvtVoid) {
+                iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+                if(dict) {
+                    *dst = tTJSVariant(dict, dict);
+                    dict->Release();
+                }
+            }
+        }
+
         tTJSVariant *ra_code1 = TJS_GET_VM_REG_ADDR(ra, code[1]);
         tTJSVariantType type = ra_code1->Type();
         if(type == tvtString) {
