@@ -43,6 +43,76 @@
 #endif
 
 //---------------------------------------------------------------------------
+// gamepad.dll の代替スタブ実装
+//
+// 公式の gamepad.dll (x-row.net 製) は DirectInput / XInput を使う
+// Windows 専用プラグイン。Android では読み込めないため、TJS グローバルに
+// 「GamepadPort」「Gamepad」両クラスを登録し、count=0 / 各種カウント=0 を
+// 返す無効デバイスとして振る舞わせる。エラー
+//   "Member \"count\" does not exist @line(1) exgamepad.tjs"
+// は、このスタブが GamepadPort.count を実装していないことが原因。
+//
+// 対象 API は以下のソースに基づく（NCB バインディング）:
+//   /storage/emulated/0/逆向/plugin/gamepad-master/Main.cpp
+//---------------------------------------------------------------------------
+class tTJSNI_GamepadPortStub : public tTJSNativeInstance {
+public:
+    tjs_error Construct(tjs_int, tTJSVariant **, iTJSDispatch2 *) override {
+        return TJS_S_OK;
+    }
+    void Invalidate() override {}
+};
+
+class tTJSNC_GamepadPortStub : public tTJSNativeClass {
+public:
+    static tjs_uint32 ClassID;
+
+    tTJSNC_GamepadPortStub() : tTJSNativeClass(TJS_W("GamepadPort")) {
+        TJS_BEGIN_NATIVE_MEMBERS(GamepadPort)
+        TJS_DECL_EMPTY_FINALIZE_METHOD
+
+        TJS_BEGIN_NATIVE_CONSTRUCTOR_DECL(_this, tTJSNI_GamepadPortStub,
+                                          GamepadPort) {
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_CONSTRUCTOR_DECL(GamepadPort)
+
+        // initialize(window) — 実機ではコントローラ列挙。スタブは何もしない
+        TJS_BEGIN_NATIVE_METHOD_DECL(initialize) { return TJS_S_OK; }
+        TJS_END_NATIVE_METHOD_DECL(initialize)
+
+        // getController(index) — 接続されていない: void を返す
+        TJS_BEGIN_NATIVE_METHOD_DECL(getController) {
+            if(result)
+                result->Clear();
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_METHOD_DECL(getController)
+
+        // count（読み出し専用プロパティ）— 接続コントローラ数 = 0
+        TJS_BEGIN_NATIVE_PROP_DECL(count) {
+            TJS_BEGIN_NATIVE_PROP_GETTER {
+                if(result)
+                    *result = (tjs_int)0;
+                return TJS_S_OK;
+            }
+            TJS_END_NATIVE_PROP_GETTER
+            TJS_DENY_NATIVE_PROP_SETTER
+        }
+        TJS_END_NATIVE_PROP_DECL(count)
+
+        TJS_END_NATIVE_MEMBERS
+    }
+
+protected:
+    tTJSNativeInstance *CreateNativeInstance() override {
+        return new tTJSNI_GamepadPortStub();
+    }
+};
+
+tjs_uint32 tTJSNC_GamepadPortStub::ClassID = static_cast<tjs_uint32>(-1);
+
+//---------------------------------------------------------------------------
 class tTJSNI_GamepadStub : public tTJSNativeInstance {
 public:
     tjs_error Construct(tjs_int, tTJSVariant **, iTJSDispatch2 *) override {
@@ -55,44 +125,111 @@ class tTJSNC_GamepadStub : public tTJSNativeClass {
 public:
     static tjs_uint32 ClassID;
 
-    tTJSNC_GamepadStub() : tTJSNativeClass(TJS_W("GamepadPort")) {
-        TJS_BEGIN_NATIVE_MEMBERS(GamepadPort)
+    tTJSNC_GamepadStub() : tTJSNativeClass(TJS_W("Gamepad")) {
+        TJS_BEGIN_NATIVE_MEMBERS(Gamepad)
         TJS_DECL_EMPTY_FINALIZE_METHOD
 
-        TJS_BEGIN_NATIVE_CONSTRUCTOR_DECL(_this, tTJSNI_GamepadStub,
-                                          GamepadPort) {
+        TJS_BEGIN_NATIVE_CONSTRUCTOR_DECL(_this, tTJSNI_GamepadStub, Gamepad) {
             return TJS_S_OK;
         }
-        TJS_END_NATIVE_CONSTRUCTOR_DECL(GamepadPort)
+        TJS_END_NATIVE_CONSTRUCTOR_DECL(Gamepad)
 
+        // update() — 入力コンテキスト更新。スタブは何もしない
         TJS_BEGIN_NATIVE_METHOD_DECL(update) { return TJS_S_OK; }
         TJS_END_NATIVE_METHOD_DECL(update)
-        TJS_BEGIN_NATIVE_METHOD_DECL(initialize) { return TJS_S_OK; }
-        TJS_END_NATIVE_METHOD_DECL(initialize)
-        TJS_BEGIN_NATIVE_METHOD_DECL(getButtonCount) {
-            if(result)
-                *result = (tjs_int)0;
-            return TJS_S_OK;
+
+        // 0 を返すだけのカウント／状態系プロパティをまとめて生成するマクロ
+#define TVP_GAMEPAD_STUB_INT_RO_PROP(propname)                                 \
+    TJS_BEGIN_NATIVE_PROP_DECL(propname) {                                     \
+        TJS_BEGIN_NATIVE_PROP_GETTER {                                         \
+            if(result)                                                         \
+                *result = (tjs_int)0;                                          \
+            return TJS_S_OK;                                                   \
+        }                                                                      \
+        TJS_END_NATIVE_PROP_GETTER                                             \
+        TJS_DENY_NATIVE_PROP_SETTER                                            \
+    }                                                                          \
+    TJS_END_NATIVE_PROP_DECL(propname)
+
+#define TVP_GAMEPAD_STUB_REAL_RO_PROP(propname)                                \
+    TJS_BEGIN_NATIVE_PROP_DECL(propname) {                                     \
+        TJS_BEGIN_NATIVE_PROP_GETTER {                                         \
+            if(result)                                                         \
+                *result = (tjs_real)0.0;                                       \
+            return TJS_S_OK;                                                   \
+        }                                                                      \
+        TJS_END_NATIVE_PROP_GETTER                                             \
+        TJS_DENY_NATIVE_PROP_SETTER                                            \
+    }                                                                          \
+    TJS_END_NATIVE_PROP_DECL(propname)
+
+        // 文字列プロパティ: name
+        TJS_BEGIN_NATIVE_PROP_DECL(name) {
+            TJS_BEGIN_NATIVE_PROP_GETTER {
+                if(result)
+                    *result = ttstr(TJS_W(""));
+                return TJS_S_OK;
+            }
+            TJS_END_NATIVE_PROP_GETTER
+            TJS_DENY_NATIVE_PROP_SETTER
         }
-        TJS_END_NATIVE_METHOD_DECL(getButtonCount)
-        TJS_BEGIN_NATIVE_METHOD_DECL(getAxisCount) {
-            if(result)
-                *result = (tjs_int)0;
-            return TJS_S_OK;
+        TJS_END_NATIVE_PROP_DECL(name)
+
+        // int 系（type, keyState）
+        TVP_GAMEPAD_STUB_INT_RO_PROP(type)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(keyState)
+
+        // real 系（アナログ入力）
+        TVP_GAMEPAD_STUB_REAL_RO_PROP(leftTrigger)
+        TVP_GAMEPAD_STUB_REAL_RO_PROP(rightTrigger)
+        TVP_GAMEPAD_STUB_REAL_RO_PROP(leftThumbStickX)
+        TVP_GAMEPAD_STUB_REAL_RO_PROP(leftThumbStickY)
+        TVP_GAMEPAD_STUB_REAL_RO_PROP(rightThumbStickX)
+        TVP_GAMEPAD_STUB_REAL_RO_PROP(rightThumbStickY)
+
+        // 振動セッター（書き込みのみ）
+        TJS_BEGIN_NATIVE_PROP_DECL(leftVibration) {
+            TJS_DENY_NATIVE_PROP_GETTER
+            TJS_BEGIN_NATIVE_PROP_SETTER { return TJS_S_OK; }
+            TJS_END_NATIVE_PROP_SETTER
         }
-        TJS_END_NATIVE_METHOD_DECL(getAxisCount)
-        TJS_BEGIN_NATIVE_METHOD_DECL(isButtonPressed) {
-            if(result)
-                *result = (tjs_int)0;
-            return TJS_S_OK;
+        TJS_END_NATIVE_PROP_DECL(leftVibration)
+        TJS_BEGIN_NATIVE_PROP_DECL(rightVibration) {
+            TJS_DENY_NATIVE_PROP_GETTER
+            TJS_BEGIN_NATIVE_PROP_SETTER { return TJS_S_OK; }
+            TJS_END_NATIVE_PROP_SETTER
         }
-        TJS_END_NATIVE_METHOD_DECL(isButtonPressed)
-        TJS_BEGIN_NATIVE_METHOD_DECL(getAxisPosition) {
-            if(result)
-                *result = (tjs_int)0;
-            return TJS_S_OK;
-        }
-        TJS_END_NATIVE_METHOD_DECL(getAxisPosition)
+        TJS_END_NATIVE_PROP_DECL(rightVibration)
+
+        // アナログ／デジタル方向キー、各ボタンの押下回数 (全て 0)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogLeftUpCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogLeftDownCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogLeftLeftCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogLeftRightCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogRightUpCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogRightDownCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogRightLeftCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(analogRightRightCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(degitalUpCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(degitalDownCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(degitalLeftCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(degitalRightCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonStartCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonBackCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonLeftThumbCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonRightThumbCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonLeftShoulderCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonLeftTriggerCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonRightShoulderCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonRightTriggerCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonACount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonBCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonXCount)
+        TVP_GAMEPAD_STUB_INT_RO_PROP(buttonYCount)
+
+#undef TVP_GAMEPAD_STUB_INT_RO_PROP
+#undef TVP_GAMEPAD_STUB_REAL_RO_PROP
+
         TJS_END_NATIVE_MEMBERS
     }
 
@@ -104,34 +241,83 @@ protected:
 
 tjs_uint32 tTJSNC_GamepadStub::ClassID = static_cast<tjs_uint32>(-1);
 
+// gamepad.dll が定義する gp* 系グローバル定数。exgamepad.tjs は
+// gpButtonA / gpLeftTrigger などの数値をマスクとして使用するため、未定義の
+// ままだと TJS スクリプト側で ReferenceError が発生する。
+static void TVPRegisterGamepadConstants() {
+    static const tjs_char *const expression =
+        TJS_W("const gpDInput = 3, gpFFDInput = 2, gpXInput = 1,")
+        TJS_W("gpButtonDpadUp = 0x00000001, gpButtonDpadDown = 0x00000002,")
+        TJS_W("gpButtonDpadLeft = 0x00000004, gpButtonDpadRight = 0x00000008,")
+        TJS_W("gpButtonStart = 0x00000010, gpButtonBack = 0x00000020,")
+        TJS_W("gpButtonLeftThumb = 0x00000040, gpButtonRightThumb = 0x00000080,")
+        TJS_W("gpButtonLeftShoulder = 0x00000100,")
+        TJS_W("gpButtonRightShoulder = 0x00000200,")
+        TJS_W("gpButtonA = 0x00001000, gpButtonB = 0x00002000,")
+        TJS_W("gpButtonX = 0x00004000, gpButtonY = 0x00008000,")
+        TJS_W("gpLeftAxisX = 0x00010000, gpLeftAxisY = 0x00020000,")
+        TJS_W("gpRightAxisX = 0x00040000, gpRightAxisY = 0x00080000,")
+        TJS_W("gpLeftTrigger = 0x00100000, gpRightTrigger = 0x00200000,")
+        TJS_W("gpDIAxisX = 0, gpDIAxisY = 1, gpDIAxisZ = 2,")
+        TJS_W("gpDIAxisRotX = 3, gpDIAxisRotY = 4, gpDIAxisRotZ = 5,")
+        TJS_W("gpDISlider_0 = 6, gpDISlider_1 = 7,")
+        TJS_W("gpDIPOV_0 = 8, gpDIPOV_1 = 9, gpDIPOV_2 = 10, gpDIPOV_3 = 11,")
+        TJS_W("gpDIButton1 = 12, gpDIButton2 = 13, gpDIButton3 = 14,")
+        TJS_W("gpDIButton4 = 15, gpDIButton5 = 16, gpDIButton6 = 17,")
+        TJS_W("gpDIButton7 = 18, gpDIButton8 = 19, gpDIButton9 = 20,")
+        TJS_W("gpDIButton10 = 21, gpDIButton11 = 22, gpDIButton12 = 23,")
+        TJS_W("gpDIButton13 = 24, gpDIButton14 = 25, gpDIButton15 = 26,")
+        TJS_W("gpDIButton16 = 27, gpDIButton17 = 28, gpDIButton18 = 29,")
+        TJS_W("gpDIButton19 = 30, gpDIButton20 = 31, gpDIButton21 = 32,")
+        TJS_W("gpDIButton22 = 33, gpDIButton23 = 34, gpDIButton24 = 35,")
+        TJS_W("gpDIButton25 = 36, gpDIButton26 = 37, gpDIButton27 = 38,")
+        TJS_W("gpDIButton28 = 39, gpDIButton29 = 40, gpDIButton30 = 41,")
+        TJS_W("gpDIButton31 = 42, gpDIButton32 = 43, gpDIDisable = 44,")
+        TJS_W("gpTouchNo = 0, gpTouchDown = 1, gpTouchLiftoff = 0;");
+    try {
+        TVPExecuteExpression(expression);
+    } catch(...) {
+        // 既に定義済みなど何らかの例外が起きても本体起動を阻害しない
+        spdlog::warn("Gamepad stub: failed to register gp* constants");
+    }
+}
+
 static void TVPRegisterGamepadStub() {
-    iTJSDispatch2 *stub = new tTJSNC_GamepadStub();
-    if(!stub)
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(!global)
         return;
 
-    iTJSDispatch2 *global = TVPGetScriptDispatch();
-    if(!global) {
-        stub->Release();
-        return;
+    // GamepadPort クラスを登録
+    iTJSDispatch2 *portClass = new tTJSNC_GamepadPortStub();
+    if(portClass) {
+        tTJSVariant val(portClass);
+        global->PropSet(TJS_MEMBERENSURE, TJS_W("GamepadPort"), nullptr, &val,
+                        global);
+
+        // 一部のゲーム (例: limelight) は SystemConfig.GamepadPort も参照する
+        tTJSVariant configVar;
+        if(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &configVar,
+                           global) == TJS_S_OK &&
+           configVar.Type() == tvtObject && configVar.AsObjectNoAddRef()) {
+            configVar.AsObjectNoAddRef()->PropSet(
+                TJS_MEMBERENSURE, TJS_W("GamepadPort"), nullptr, &val,
+                configVar.AsObjectNoAddRef());
+        }
+        portClass->Release();
     }
 
-    tTJSVariant val(stub);
-    global->PropSet(TJS_MEMBERENSURE, TJS_W("GamepadPort"), nullptr, &val,
-                    global);
-    global->PropSet(TJS_MEMBERENSURE, TJS_W("Gamepad"), nullptr, &val,
-                    global);
-
-    tTJSVariant configVar;
-    if(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &configVar,
-                       global) == TJS_S_OK &&
-       configVar.Type() == tvtObject && configVar.AsObjectNoAddRef()) {
-        configVar.AsObjectNoAddRef()->PropSet(
-            TJS_MEMBERENSURE, TJS_W("GamepadPort"), nullptr, &val,
-            configVar.AsObjectNoAddRef());
+    // Gamepad クラスを登録
+    iTJSDispatch2 *padClass = new tTJSNC_GamepadStub();
+    if(padClass) {
+        tTJSVariant val(padClass);
+        global->PropSet(TJS_MEMBERENSURE, TJS_W("Gamepad"), nullptr, &val,
+                        global);
+        padClass->Release();
     }
 
     global->Release();
-    stub->Release();
+
+    TVPRegisterGamepadConstants();
     spdlog::info("Registered GamepadPort/Gamepad stub for missing gamepad.dll");
 }
 
