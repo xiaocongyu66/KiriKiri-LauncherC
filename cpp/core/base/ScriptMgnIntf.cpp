@@ -709,6 +709,13 @@ void TVPExecuteStorage(const ttstr &name, tTJSVariant *result,
 }
 #include <fstream>
 #include <tjsByteCodeLoader.h>
+
+static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
+                                                        iTJSDispatch2 *context,
+                                                        tTJSVariant *result,
+                                                        bool isexpression,
+                                                        const tjs_char *modestr);
+
 //---------------------------------------------------------------------------
 void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
                        tTJSVariant *result, bool isexpression,
