@@ -20,6 +20,13 @@
 #include <client/linux/handler/exception_handler.h>
 #include <client/linux/handler/minidump_descriptor.h>
 
+namespace TJS {
+#if defined(ANDROID)
+void TVPInstallKrkrHook();
+bool TVPIsKrkrHookInstalled();
+#endif
+}
+
 // std::string Android_GetDumpStoragePath();
 
 static bool DumpCallback(const google_breakpad::MinidumpDescriptor &descriptor,

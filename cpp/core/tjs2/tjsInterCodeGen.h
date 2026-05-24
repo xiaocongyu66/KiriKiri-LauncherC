@@ -14,10 +14,6 @@
 #include <vector>
 #include <stack>
 #include <list>
-#if defined(ANDROID)
-extern void TVPInstallKrkrHook();
-extern bool TVPIsKrkrHookInstalled();
-#endif
 #include "tjsVariant.h"
 #include "tjsInterface.h"
 #include "tjsNamespace.h"
