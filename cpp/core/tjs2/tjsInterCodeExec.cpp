@@ -1284,12 +1284,19 @@ namespace TJS {
                             }
                         }
                         iTJSDispatch2 *thisObj = nullptr;
+                        iTJSDispatch2 *fallbackThisObj = nullptr;
                         if(objthis.Type() == tvtObject) {
                             thisObj = objthis.AsObjectNoAddRef();
+                        } else if(objthis.Type() == tvtVoid &&
+                                  Block && Block->GetName() &&
+                                  TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
+                            fallbackThisObj = TJSCreateDictionaryObject();
+                            thisObj = fallbackThisObj;
                         } else if(objthis.Type() != tvtVoid) {
                             thisObj = objthis.AsObjectNoAddRef();
                         }
                         target.ChangeClosureObjThis(thisObj);
+                        if(fallbackThisObj) fallbackThisObj->Release();
                         code += 3;
                         break;
                     }
