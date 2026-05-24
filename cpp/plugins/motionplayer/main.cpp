@@ -137,6 +137,29 @@ NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
 // ---------------------------------------------------------------------------
 static bool gMotionPlayerStaticUseD3D = false;
 static bool gMotionPlayerStaticEnableD3D = false;
+static tTJSVariantClosure gMotionEnableD3DObject;
+
+static void MotionEnsureEnableD3DObject() {
+    if (gMotionEnableD3DObject.Object) return;
+    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
+    if (obj) {
+        gMotionEnableD3DObject.Object = obj;
+        gMotionEnableD3DObject.ObjThis = obj;
+        obj->AddRef();
+    }
+}
+
+static void MotionReleaseEnableD3DObject() {
+    if (gMotionEnableD3DObject.ObjThis) {
+        gMotionEnableD3DObject.ObjThis->Release();
+        gMotionEnableD3DObject.ObjThis = nullptr;
+    }
+    if (gMotionEnableD3DObject.Object) {
+        gMotionEnableD3DObject.Object->Release();
+        gMotionEnableD3DObject.Object = nullptr;
+    }
+}
+
 static tjs_error Player_getUseD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
     if(r) *r = tTJSVariant(static_cast<tjs_int>(0));
     return TJS_S_OK;
@@ -147,12 +170,13 @@ static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVaria
     return TJS_S_OK;
 }
 static tjs_error Player_getEnableD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
-    if (obj) {
-        if(r) *r = tTJSVariant(obj, obj);
-        obj->Release();
-    } else {
-        if(r) *r = tTJSVariant();
+    MotionEnsureEnableD3DObject();
+    if (r) {
+        if (gMotionEnableD3DObject.Object) {
+            *r = tTJSVariant(gMotionEnableD3DObject.Object, gMotionEnableD3DObject.ObjThis);
+        } else {
+            *r = tTJSVariant();
+        }
     }
     return TJS_S_OK;
 }
@@ -557,7 +581,9 @@ static void PostRegistCallback() {
 }
 
 static void PreRegistCallback() {}
-static void PostUnregistCallback() {}
+static void PostUnregistCallback() {
+    MotionReleaseEnableD3DObject();
+}
 
 NCB_PRE_REGIST_CALLBACK(PreRegistCallback);
 NCB_POST_UNREGIST_CALLBACK(PostUnregistCallback);
