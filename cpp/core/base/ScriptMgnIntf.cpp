@@ -899,17 +899,6 @@ void TVPDumpScriptEngine() {
 
 bool TVPStartupSuccess = false;
 void TVPOpenPatchLibUrl();
-void TVPEnsureKirikiroidCompatibilityPatch();
-static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
-                                                        iTJSDispatch2 *context,
-                                                        tTJSVariant *result,
-                                                        bool isexpression,
-                                                        const tjs_char *modestr);
-
-
-//---------------------------------------------------------------------------
-// TVPExecuteStartupScript
-//---------------------------------------------------------------------------
 static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
                                                         iTJSDispatch2 *context,
                                                         tTJSVariant *result,
@@ -941,6 +930,12 @@ static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
     return true;
 }
 
+void TVPEnsureKirikiroidCompatibilityPatch();
+
+
+//---------------------------------------------------------------------------
+// TVPExecuteStartupScript
+//---------------------------------------------------------------------------
 void TVPExecuteStartupScript() {
     TVPEnsureKirikiroidCompatibilityPatch();
     ttstr strPatchError;
