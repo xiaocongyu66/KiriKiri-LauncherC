@@ -67,6 +67,10 @@ public:
 
         TJS_BEGIN_NATIVE_METHOD_DECL(update) { return TJS_S_OK; }
         TJS_END_NATIVE_METHOD_DECL(update)
+        TJS_BEGIN_NATIVE_METHOD_DECL(initialize) { return TJS_S_OK; }
+        TJS_END_NATIVE_METHOD_DECL(initialize)
+        TJS_BEGIN_NATIVE_METHOD_DECL(finalize) { return TJS_S_OK; }
+        TJS_END_NATIVE_METHOD_DECL(finalize)
         TJS_BEGIN_NATIVE_METHOD_DECL(getButtonCount) {
             if(result)
                 *result = (tjs_int)0;
