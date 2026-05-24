@@ -22,6 +22,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     xp3filter.cpp
     textrender.cpp
     extrans.cpp
+    kirikiroidPatchCompat.cpp
     alphamovie.cpp
     layerExImage.cpp
     layerExBTOA.cpp

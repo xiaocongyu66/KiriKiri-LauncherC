@@ -895,11 +895,13 @@ void TVPDumpScriptEngine() {
 bool TVPStartupSuccess = false;
 
 void TVPOpenPatchLibUrl();
+void TVPEnsureKirikiroidCompatibilityPatch();
 
 //---------------------------------------------------------------------------
 // TVPExecuteStartupScript
 //---------------------------------------------------------------------------
 void TVPExecuteStartupScript() {
+    TVPEnsureKirikiroidCompatibilityPatch();
     ttstr strPatchError;
     try {
         ttstr patch = TVPGetAppPath() + "patch.tjs";
