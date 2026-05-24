@@ -1315,15 +1315,18 @@ namespace TJS {
                             tTJSVariant kagVar;
                             bool resolvedKagObject = false;
                             try {
-                                tTJSVariant globalVar;
-                                if(TJS_SUCCEEDED(TJSGetGlobal()->PropGet(0, TJS_W("SystemConfig"), nullptr, &globalVar, TJSGetGlobal())) &&
-                                   globalVar.Type() == tvtObject && globalVar.AsObjectNoAddRef()) {
-                                    tTJSVariant kagHolder;
-                                    if(TJS_SUCCEEDED(globalVar.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagHolder, globalVar.AsObjectNoAddRef())) &&
-                                       kagHolder.Type() == tvtObject && kagHolder.AsObjectNoAddRef()) {
-                                        kagVar = kagHolder;
-                                        thisObj = kagVar.AsObjectNoAddRef();
-                                        resolvedKagObject = (thisObj != nullptr);
+                                iTJSDispatch2 *global = Block->GetTJS()->GetGlobalNoAddRef();
+                                if(global) {
+                                    tTJSVariant globalVar;
+                                    if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &globalVar, global)) &&
+                                       globalVar.Type() == tvtObject && globalVar.AsObjectNoAddRef()) {
+                                        tTJSVariant kagHolder;
+                                        if(TJS_SUCCEEDED(globalVar.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagHolder, globalVar.AsObjectNoAddRef())) &&
+                                           kagHolder.Type() == tvtObject && kagHolder.AsObjectNoAddRef()) {
+                                            kagVar = kagHolder;
+                                            thisObj = kagVar.AsObjectNoAddRef();
+                                            resolvedKagObject = (thisObj != nullptr);
+                                        }
                                     }
                                 }
                             } catch(...) {}
