@@ -2191,18 +2191,39 @@ namespace TJS {
         TJS_BEGIN_FUNC_CALL_ARGS(code + 3)
 
         tTJSVariantClosure clo = TJS_GET_VM_REG(ra, code[2]).AsObjectClosure();
+        iTJSDispatch2 *callObjThis = clo.ObjThis ? clo.ObjThis : ra[-1].AsObjectNoAddRef();
+        if(Block && Block->GetName() &&
+           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs")) &&
+           clo.Object && pass_args_count == 1 && pass_args && pass_args[0]) {
+            tTJSVariant systemConfigVar;
+            iTJSDispatch2 *global = Block->GetTJS()->GetGlobalNoAddRef();
+            if(global &&
+               TJS_SUCCEEDED(global->PropGet(0, TJS_W("Dictionary"), nullptr, &systemConfigVar, global)) &&
+               systemConfigVar.Type() == tvtObject &&
+               systemConfigVar.AsObjectNoAddRef() == clo.Object) {
+                tTJSVariant kagRoot;
+                if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &kagRoot, global)) &&
+                   kagRoot.Type() == tvtObject && kagRoot.AsObjectNoAddRef()) {
+                    tTJSVariant kagObj;
+                    if(TJS_SUCCEEDED(kagRoot.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagObj, kagRoot.AsObjectNoAddRef())) &&
+                       kagObj.Type() == tvtObject && kagObj.AsObjectNoAddRef()) {
+                        callObjThis = kagObj.AsObjectNoAddRef();
+                    }
+                }
+            }
+        }
         try {
             if(code[0] == VM_CALL) {
                 hr = clo.FuncCall(
                     0, nullptr, nullptr,
                     code[1] ? TJS_GET_VM_REG_ADDR(ra, code[1]) : nullptr,
                     pass_args_count, pass_args,
-                    clo.ObjThis ? clo.ObjThis : ra[-1].AsObjectNoAddRef());
+                    callObjThis);
             } else {
                 iTJSDispatch2 *dsp;
                 hr = clo.CreateNew(
                     0, nullptr, nullptr, &dsp, pass_args_count, pass_args,
-                    clo.ObjThis ? clo.ObjThis : ra[-1].AsObjectNoAddRef());
+                    callObjThis);
                 if(TJS_SUCCEEDED(hr)) {
                     if(dsp) {
                         if(code[1])
