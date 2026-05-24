@@ -48,6 +48,15 @@ static bool DumpFilter(void *data) {
 
     spdlog::set_default_logger(core_logger);
 
+#if defined(ANDROID)
+    TJS::TVPInstallKrkrHook();
+    try {
+        spdlog::info("[hook] install requested, installed={}",
+                     TJS::TVPIsKrkrHookInstalled() ? 1 : 0);
+    } catch(...) {
+    }
+#endif
+
     JavaVM *vm{};
     env->GetJavaVM(&vm);
     void *handle = dlopen("libSDL2.so", RTLD_LAZY);

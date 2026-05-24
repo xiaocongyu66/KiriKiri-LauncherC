@@ -18,6 +18,10 @@ if(ANDROID)
     set(VCPKG_TARGET_ANDROID ON)
     set(ENV{ANDROID_NDK_HOME} "$ENV{ANDROID_NDK}")
     add_compile_options(-Wno-inconsistent-missing-override)
+    include_directories(${CMAKE_CURRENT_SOURCE_DIR}/hook/Dobby)
+    add_library(dobby STATIC IMPORTED)
+    set_target_properties(dobby PROPERTIES
+        IMPORTED_LOCATION ${CMAKE_CURRENT_SOURCE_DIR}/hook/Dobby/libraries/${ANDROID_ABI}/libdobby.a)
     # Legacy TJS2 code (tTJSVariantString::GetLength / operator const char* /
     # FixLength / ...) guards against being called with `this == nullptr`
     # via `if(!this) return ...;`. Modern Clang treats that as UB and
@@ -132,6 +136,7 @@ if(ANDROID OR LINUX)
         psdfile
         fstat
         -Wl,--no-whole-archive
+        $<$<BOOL:${ANDROID}>:dobby>
     )
 elseif(APPLE)
     # Apple ld: -force_load takes an absolute path; let CMake resolve

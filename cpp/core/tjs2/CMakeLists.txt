@@ -83,6 +83,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     tjsException.cpp
     tjsDictionary.cpp
     tjsInterCodeExec.cpp
+    tjsHookProbe.cpp
     tjsVariantString.cpp
     tjsScriptBlock.cpp
     tjsMath.cpp
