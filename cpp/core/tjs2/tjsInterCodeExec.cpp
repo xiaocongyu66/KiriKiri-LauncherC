@@ -1338,6 +1338,23 @@ namespace TJS {
                             thisObj = objthis.AsObjectNoAddRef();
                         }
                         target.ChangeClosureObjThis(thisObj);
+                        if(Block && Block->GetName() &&
+                           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs")) &&
+                           target.Type() == tvtObject && target.AsObjectNoAddRef()) {
+                            tTJSVariant systemConfigVar;
+                            iTJSDispatch2 *global = Block->GetTJS()->GetGlobalNoAddRef();
+                            if(global &&
+                               TJS_SUCCEEDED(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &systemConfigVar, global)) &&
+                               systemConfigVar.Type() == tvtObject && systemConfigVar.AsObjectNoAddRef()) {
+                                tTJSVariant kagObj;
+                                if(TJS_SUCCEEDED(systemConfigVar.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagObj, systemConfigVar.AsObjectNoAddRef())) &&
+                                   kagObj.Type() == tvtObject && kagObj.AsObjectNoAddRef()) {
+                                    tTJSVariant rebound(target);
+                                    rebound.ChangeClosureObjThis(kagObj.AsObjectNoAddRef());
+                                    target = rebound;
+                                }
+                            }
+                        }
                         if(fallbackThisObj) fallbackThisObj->Release();
                         code += 3;
                         break;
