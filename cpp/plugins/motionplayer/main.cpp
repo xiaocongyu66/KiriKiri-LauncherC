@@ -179,6 +179,24 @@ static tjs_error Motion_setEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSV
     return Player_setEnableD3D_static(r, count, p, objthis);
 }
 
+static bool MotionMakeDictionaryVariant(tTJSVariant &out) {
+    iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+    if (!dict) {
+        out.Clear();
+        return false;
+    }
+    out = tTJSVariant(dict);
+    dict->Release();
+    return true;
+}
+
+static void MotionForceObjectMember(iTJSDispatch2 *obj, const tjs_char *name) {
+    if (!obj) return;
+    tTJSVariant v;
+    if (!MotionMakeDictionaryVariant(v)) return;
+    obj->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
+                 name, nullptr, &v, obj);
+}
 NCB_REGISTER_CLASS(Player) {
     NCB_CONSTRUCTOR((ResourceManager));
 
@@ -536,10 +554,17 @@ static void PostRegistCallback() {
             if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Player"), nullptr, &playerVar, global))) {
                 if (playerVar.Type() == tvtObject &&
                     playerVar.AsObjectNoAddRef() != nullptr) {
+                    iTJSDispatch2 *player = playerVar.AsObjectNoAddRef();
+                    // Ensure property lookup sees concrete objects instead of
+                    // the native property integer flags when affinesourcemotion
+                    // probes/copies these members.
+                    MotionForceObjectMember(player, TJS_W("useD3D"));
+                    MotionForceObjectMember(player, TJS_W("enableD3D"));
                     motion->PropSet(TJS_MEMBERENSURE, TJS_W("Player"),
                                     nullptr, &playerVar, motion);
                 }
             }
+            MotionForceObjectMember(motion, TJS_W("enableD3D"));
         }
     }
 
