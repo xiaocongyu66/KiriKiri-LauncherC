@@ -5,6 +5,8 @@
 #include <android/log.h>
 #include <dlfcn.h>
 #include <mutex>
+#include <cstdio>
+#include <cstdarg>
 #include <spdlog/spdlog.h>
 
 #include "tjsInterCodeGen.h"
@@ -49,6 +51,12 @@ static void HookLog(const char *fmt, ...) {
     try {
         spdlog::debug("[hook] {}", buf);
     } catch(...) {
+    }
+    FILE *fp = fopen("/storage/emulated/0/Android/data/org.github.krkr2/files/krkr2_hook.log", "a");
+    if(fp) {
+        fputs(buf, fp);
+        fputc('\n', fp);
+        fclose(fp);
     }
 }
 

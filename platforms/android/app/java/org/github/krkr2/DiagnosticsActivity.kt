@@ -73,6 +73,8 @@ private data class DiagSnapshot(
     val nativeFatalLog: String,
     val nativeFatalPath: String,
     val launcherLogPath: String,
+    val hookLog: String,
+    val hookLogPath: String,
     val engineLog: String,
     val engineLogPath: String,
 )
@@ -99,6 +101,10 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
     val logDir = File(LauncherPrefs.getLogDir(context))
     val launcherLog = File(logDir, "krkr2_launcher.log")
     val launcherLogTail = if (launcherLog.exists()) tailFile(launcherLog, 200) else ""
+    val hookLogFile = File(logDir, "krkr2_hook.log")
+    val hookLog = if (hookLogFile.exists() && hookLogFile.length() > 0) {
+        tailFile(hookLogFile, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
+    } else ""
 
     val fatalCandidates = listOf(
         File(logDir, "krkr2_native_fatal.log"),
@@ -131,6 +137,8 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
         nativeFatalLog = nativeFatalLog,
         nativeFatalPath = (fatalFile ?: fatalCandidates.first()).absolutePath,
         launcherLogPath = launcherLog.absolutePath,
+        hookLog = hookLog,
+        hookLogPath = hookLogFile.absolutePath,
         engineLog = engineLog,
         engineLogPath = engineLogFile.absolutePath,
     )
@@ -239,6 +247,12 @@ private fun DiagnosticsScreen(onBack: () -> Unit) {
                 )
 
                 LogCard(
+                    title = text.hookLog,
+                    body = snap.hookLog.ifBlank { text.noHookLog },
+                    pathHint = snap.hookLogPath,
+                )
+
+                LogCard(
                     title = text.engineLog,
                     body = snap.engineLog.ifBlank { text.noEngineLog },
                     pathHint = snap.engineLogPath,
@@ -304,6 +318,8 @@ private fun buildShareText(snap: DiagSnapshot, text: LauncherStrings.Texts): Str
     append(snap.nativeFatalLog.ifBlank { text.noFatalLog }).append('\n')
     append('\n').append("--- ").append(text.launcherLog).append(" ---\n")
     append(snap.launcherLogTail.ifBlank { text.noLauncherLog }).append('\n')
+    append('\n').append("--- ").append(text.hookLog).append(" ---\n")
+    append(snap.hookLog.ifBlank { text.noHookLog }).append('\n')
     append('\n').append("--- ").append(text.engineLog).append(" ---\n")
     append(snap.engineLog.ifBlank { text.noEngineLog })
 }
