@@ -130,15 +130,26 @@ NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
 // Game script does:
 //   EmoteVariable.useD3D = (typeof Motion.Player.useD3D === "Object")
 //                          ? Motion.Player.useD3D : Motion.enableD3D;
-// If useD3D is exposed as Object, the then-branch may assign a comparison
-// result (int 0/1) into an Object slot and affinesourcemotion.tjs crashes with
-// "(int)0 to Object". Therefore Motion.Player.useD3D must be Integer, while
-// Motion.enableD3D must be Object.
+// Current game scripts expect Motion.Player.useD3D / Motion.enableD3D to be
+// Object-compatible probes.  The affinesourcemotion.tjs VM dump shows its
+// fallback path copies Motion.Player.useD3D into an Object slot, so returning
+// Integer 0 causes "(int)0 to Object".
 // ---------------------------------------------------------------------------
 static bool gMotionPlayerStaticUseD3D = false;
 static bool gMotionPlayerStaticEnableD3D = false;
 static tjs_error Player_getUseD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    if(r) *r = tTJSVariant(static_cast<tjs_int>(0));
+    // affinesourcemotion.tjs installs an exception handler that falls back to
+    // Motion.Player.useD3D. The VM dump shows that fallback register is copied
+    // into an Object slot; returning Integer 0 triggers "(int)0 to Object".
+    // Return a plain dictionary object here so both direct and fallback paths
+    // satisfy the script's Object expectation.
+    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
+    if (obj) {
+        if(r) *r = tTJSVariant(obj);
+        obj->Release();
+    } else {
+        if(r) *r = tTJSVariant();
+    }
     return TJS_S_OK;
 }
 static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
@@ -228,8 +239,7 @@ NCB_REGISTER_CLASS(Player) {
     NCB_PROPERTY(stealthMotion, getStealthMotion, setStealthMotion);
     NCB_PROPERTY(tags, getTags, setTags);
     NCB_PROPERTY(project, getProject, setProject);
-    // useD3D: must return Integer (not Object!) so game script typeof check
-    // falls through to else branch and assigns Motion.enableD3D (dictionary).
+    // useD3D must be Object-compatible for affinesourcemotion.tjs fallback.
     NCB_PROPERTY_RAW_CALLBACK(useD3D, Player_getUseD3D_static, Player_setUseD3D_static, TJS_STATICMEMBER);
     NCB_PROPERTY_RAW_CALLBACK(enableD3D, Player_getEnableD3D_static, Player_setEnableD3D_static, TJS_STATICMEMBER);
     NCB_PROPERTY(meshline, getMeshline, setMeshline);
@@ -517,10 +527,7 @@ static void PostRegistCallback() {
     iTJSDispatch2 *global = TVPGetScriptDispatch();
     if (!global) return;
 
-    // Alias top-level Player class into Motion namespace. Do NOT force
-    // Motion.Player.useD3D to a dictionary here: keybinder.tjs probes
-    // typeof Motion.Player.useD3D and must see Integer so it uses
-    // Motion.enableD3D (dictionary) instead.
+    // Alias top-level Player class into Motion namespace.
     tTJSVariant motionVar;
     if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Motion"), nullptr, &motionVar, global))) {
         iTJSDispatch2 *motion = motionVar.AsObjectNoAddRef();
