@@ -938,6 +938,7 @@ static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
 }
 
 void TVPEnsureKirikiroidCompatibilityPatch();
+void TVPExecuteWamsoftRuntimePatch();
 
 
 //---------------------------------------------------------------------------
@@ -945,6 +946,10 @@ void TVPEnsureKirikiroidCompatibilityPatch();
 //---------------------------------------------------------------------------
 void TVPExecuteStartupScript() {
     TVPEnsureKirikiroidCompatibilityPatch();
+    // patch.tjs 実行より前に走時補正を入れておく。これにより、
+    // ゲーム自前 patch.tjs が voiceeffect.tjs などで失敗しても
+    // 後続のフック (storeVoiceMap など) で Member not found を出さない。
+    TVPExecuteWamsoftRuntimePatch();
     ttstr strPatchError;
     try {
         ttstr patch = TVPGetAppPath() + "patch.tjs";
