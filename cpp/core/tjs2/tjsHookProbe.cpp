@@ -108,6 +108,7 @@ static tjs_int fake_CallFunction(tTJSInterCodeContext *thiz,
 
 void TVPInstallKrkrHook() {
     std::call_once(g_hook_once, []() {
+        HookLog("install begin");
         size_t symbol_size = 0;
         void *sym = DobbySymbolResolverEx(
             "libkrkr2.so",
@@ -115,9 +116,17 @@ void TVPInstallKrkrHook() {
             DOBBY_SYMBOL_RESOLVER_DEFAULT,
             &symbol_size);
         if(!sym) {
+            sym = DobbySymbolResolverEx(
+                nullptr,
+                "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKiPPS1_i",
+                DOBBY_SYMBOL_RESOLVER_DEFAULT,
+                &symbol_size);
+        }
+        if(!sym) {
             HookLog("resolver failed for CallFunction mangled symbol");
             return;
         }
+        HookLog("resolver ok sym=%p size=%zu", sym, symbol_size);
         int rc = DobbyHook(sym, (void *)fake_CallFunction,
                            (void **)&orig_CallFunction);
         if(rc == 0 && orig_CallFunction) {
