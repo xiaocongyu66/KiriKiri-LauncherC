@@ -19,6 +19,7 @@
 #include "tjsUtils.h"
 #include "tjsNative.h"
 #include "tjsArray.h"
+#include "tjsDictionary.h"
 #include "tjsDebug.h"
 #include "tjsOctPack.h"
 #include "tjsGlobalStringMap.h"
@@ -1269,12 +1270,23 @@ namespace TJS {
                         code += 2; // actually here not proceed...
                         break;
 
-                    case VM_CHGTHIS:
-                        TJS_GET_VM_REG(ra, code[1])
-                            .ChangeClosureObjThis(
-                                TJS_GET_VM_REG(ra, code[2]).AsObjectNoAddRef());
+                    case VM_CHGTHIS: {
+                        tTJSVariant &target = TJS_GET_VM_REG(ra, code[1]);
+                        tTJSVariant &objthis = TJS_GET_VM_REG(ra, code[2]);
+                        if(target.Type() != tvtObject &&
+                           objthis.Type() == tvtVoid &&
+                           Block && Block->GetName() &&
+                           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
+                            iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+                            if(dict) {
+                                target = tTJSVariant(dict, dict);
+                                dict->Release();
+                            }
+                        }
+                        target.ChangeClosureObjThis(objthis.AsObjectNoAddRef());
                         code += 3;
                         break;
+                    }
 
                     case VM_GLOBAL:
                         TJS_GET_VM_REG(ra, code[1]) =
