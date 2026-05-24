@@ -533,6 +533,17 @@ static void PostRegistCallback() {
                                     nullptr, &playerVar, motion);
                 }
             }
+            // affinesourcemotion.tjs later expects Motion.enableD3D to be an Object.
+            // Some commercial scripts assign integer 0 through the property setter;
+            // install a real dictionary member after class registration so property
+            // lookup sees an object instead of the stored integer flag.
+            iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+            if (dict) {
+                tTJSVariant enableD3D(dict, dict);
+                motion->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
+                                TJS_W("enableD3D"), nullptr, &enableD3D, motion);
+                dict->Release();
+            }
         }
     }
 
