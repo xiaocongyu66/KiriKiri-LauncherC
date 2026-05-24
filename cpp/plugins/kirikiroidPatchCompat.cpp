@@ -16,7 +16,24 @@ void TVPEnsureKirikiroidCompatibilityPatch() {
         static const tjs_char *kAutoPatch =
             TJS_W("// auto-generated compatibility patch\n")
             TJS_W("try { System.setArgument(\"-debugwin\", \"no\"); } catch(e) {}\n")
-            TJS_W("try { Plugins.link(\"kirikiroid2.dll\"); } catch(e) {}\n");
+            TJS_W("try { Plugins.link(\"kirikiroid2.dll\"); } catch(e) {}\n")
+            TJS_W("try {\n")
+            TJS_W("  if(typeof Scripts != \"undefined\" && typeof Scripts.execStorage == \"function\") {\n")
+            TJS_W("    if(typeof Scripts._execStorage_krkrCompat == \"undefined\") {\n")
+            TJS_W("      Scripts._execStorage_krkrCompat = Scripts.execStorage;\n")
+            TJS_W("      Scripts.execStorage = function(name) {\n")
+            TJS_W("        var ret = Scripts._execStorage_krkrCompat(*);\n")
+            TJS_W("        try {\n")
+            TJS_W("          if(name == \"Override.tjs\" || name == \"override.tjs\") {\n")
+            TJS_W("            if(Storages.isExistentStorage(System.exePath + \"Override2.tjs\"))\n")
+            TJS_W("              Scripts._execStorage_krkrCompat(System.exePath + \"Override2.tjs\");\n")
+            TJS_W("          }\n")
+            TJS_W("        } catch(e) {}\n")
+            TJS_W("        return ret;\n")
+            TJS_W("      };\n")
+            TJS_W("    }\n")
+            TJS_W("  }\n")
+            TJS_W("} catch(e) {}\n");
 
         iTJSTextWriteStream *stream =
             TVPCreateTextStreamForWrite(path, TJS_W("utf-8"));
