@@ -2194,21 +2194,17 @@ namespace TJS {
         iTJSDispatch2 *callObjThis = clo.ObjThis ? clo.ObjThis : ra[-1].AsObjectNoAddRef();
         if(Block && Block->GetName() &&
            TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs")) &&
-           clo.Object && pass_args_count == 1 && pass_args && pass_args[0]) {
+           code[0] == VM_CALL && pass_args_count == 1 && pass_args && pass_args[0] &&
+           (clo.ObjThis == nullptr || clo.ObjThis != ra[-1].AsObjectNoAddRef())) {
             tTJSVariant systemConfigVar;
             iTJSDispatch2 *global = Block->GetTJS()->GetGlobalNoAddRef();
             if(global &&
-               TJS_SUCCEEDED(global->PropGet(0, TJS_W("Dictionary"), nullptr, &systemConfigVar, global)) &&
-               systemConfigVar.Type() == tvtObject &&
-               systemConfigVar.AsObjectNoAddRef() == clo.Object) {
-                tTJSVariant kagRoot;
-                if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &kagRoot, global)) &&
-                   kagRoot.Type() == tvtObject && kagRoot.AsObjectNoAddRef()) {
-                    tTJSVariant kagObj;
-                    if(TJS_SUCCEEDED(kagRoot.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagObj, kagRoot.AsObjectNoAddRef())) &&
-                       kagObj.Type() == tvtObject && kagObj.AsObjectNoAddRef()) {
-                        callObjThis = kagObj.AsObjectNoAddRef();
-                    }
+               TJS_SUCCEEDED(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &systemConfigVar, global)) &&
+               systemConfigVar.Type() == tvtObject && systemConfigVar.AsObjectNoAddRef()) {
+                tTJSVariant kagObj;
+                if(TJS_SUCCEEDED(systemConfigVar.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagObj, systemConfigVar.AsObjectNoAddRef())) &&
+                   kagObj.Type() == tvtObject && kagObj.AsObjectNoAddRef()) {
+                    callObjThis = kagObj.AsObjectNoAddRef();
                 }
             }
         }
