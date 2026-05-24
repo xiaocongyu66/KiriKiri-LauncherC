@@ -1283,7 +1283,13 @@ namespace TJS {
                                 dict->Release();
                             }
                         }
-                        target.ChangeClosureObjThis(objthis.AsObjectNoAddRef());
+                        iTJSDispatch2 *thisObj = nullptr;
+                        if(objthis.Type() == tvtObject) {
+                            thisObj = objthis.AsObjectNoAddRef();
+                        } else if(objthis.Type() != tvtVoid) {
+                            thisObj = objthis.AsObjectNoAddRef();
+                        }
+                        target.ChangeClosureObjThis(thisObj);
                         code += 3;
                         break;
                     }
