@@ -1312,8 +1312,25 @@ namespace TJS {
                         } else if(objthis.Type() == tvtVoid &&
                                   Block && Block->GetName() &&
                                   TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
-                            fallbackThisObj = TJSCreateDictionaryObject();
-                            thisObj = fallbackThisObj;
+                            tTJSVariant kagVar;
+                            bool resolvedKagObject = false;
+                            try {
+                                tTJSVariant globalVar;
+                                if(TJS_SUCCEEDED(TJSGetGlobal()->PropGet(0, TJS_W("SystemConfig"), nullptr, &globalVar, TJSGetGlobal())) &&
+                                   globalVar.Type() == tvtObject && globalVar.AsObjectNoAddRef()) {
+                                    tTJSVariant kagHolder;
+                                    if(TJS_SUCCEEDED(globalVar.AsObjectNoAddRef()->PropGet(0, TJS_W("kag"), nullptr, &kagHolder, globalVar.AsObjectNoAddRef())) &&
+                                       kagHolder.Type() == tvtObject && kagHolder.AsObjectNoAddRef()) {
+                                        kagVar = kagHolder;
+                                        thisObj = kagVar.AsObjectNoAddRef();
+                                        resolvedKagObject = (thisObj != nullptr);
+                                    }
+                                }
+                            } catch(...) {}
+                            if(!resolvedKagObject) {
+                                fallbackThisObj = TJSCreateDictionaryObject();
+                                thisObj = fallbackThisObj;
+                            }
                         } else if(objthis.Type() != tvtVoid) {
                             thisObj = objthis.AsObjectNoAddRef();
                         }
