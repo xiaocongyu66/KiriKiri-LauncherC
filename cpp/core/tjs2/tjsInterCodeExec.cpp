@@ -1212,11 +1212,33 @@ namespace TJS {
                         break;
 
                     case VM_SPIE:
+                        if(Block && Block->GetName() &&
+                           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
+                            tTJSVariant *dst = TJS_GET_VM_REG_ADDR(ra, code[1]);
+                            if(dst->Type() == tvtVoid) {
+                                iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+                                if(dict) {
+                                    *dst = tTJSVariant(dict, dict);
+                                    dict->Release();
+                                }
+                            }
+                        }
                         SetPropertyIndirect(ra, code, TJS_MEMBERENSURE);
                         code += 4;
                         break;
 
                     case VM_SPIS:
+                        if(Block && Block->GetName() &&
+                           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
+                            tTJSVariant *dst = TJS_GET_VM_REG_ADDR(ra, code[1]);
+                            if(dst->Type() == tvtVoid) {
+                                iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+                                if(dict) {
+                                    *dst = tTJSVariant(dict, dict);
+                                    dict->Release();
+                                }
+                            }
+                        }
                         SetPropertyIndirect(ra, code,
                                             TJS_MEMBERENSURE | TJS_IGNOREPROP);
                         code += 4;
@@ -1565,18 +1587,6 @@ namespace TJS {
                                                    const tjs_int32 *code,
                                                    tjs_uint32 flags) {
         // ra[code[1]][ra[code[2]]] = ra[code[3]]]
-
-        if(Block && Block->GetName() &&
-           TJS_strstr(Block->GetName(), TJS_W("keybinder.tjs"))) {
-            tTJSVariant *dst = TJS_GET_VM_REG_ADDR(ra, code[1]);
-            if(dst->Type() == tvtVoid) {
-                iTJSDispatch2 *dict = TJSCreateDictionaryObject();
-                if(dict) {
-                    *dst = tTJSVariant(dict, dict);
-                    dict->Release();
-                }
-            }
-        }
 
         tTJSVariant *ra_code1 = TJS_GET_VM_REG_ADDR(ra, code[1]);
         tTJSVariantType type = ra_code1->Type();
