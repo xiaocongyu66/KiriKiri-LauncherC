@@ -717,6 +717,11 @@ void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
     if(!TVPScriptEngine)
         TVPThrowInternalError;
 
+    if(TVPExecuteStorageWithAfterInitCompatibility(name, context, result,
+                                                   isexpression, modestr)) {
+        return;
+    }
+
     { // for bytecode
         ttstr place(TVPSearchPlacedPath(name));
         ttstr shortname(TVPExtractStorageName(place));
@@ -893,13 +898,49 @@ void TVPDumpScriptEngine() {
 //---------------------------------------------------------------------------
 
 bool TVPStartupSuccess = false;
-
 void TVPOpenPatchLibUrl();
 void TVPEnsureKirikiroidCompatibilityPatch();
+static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
+                                                        iTJSDispatch2 *context,
+                                                        tTJSVariant *result,
+                                                        bool isexpression,
+                                                        const tjs_char *modestr);
+
 
 //---------------------------------------------------------------------------
 // TVPExecuteStartupScript
 //---------------------------------------------------------------------------
+static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
+                                                        iTJSDispatch2 *context,
+                                                        tTJSVariant *result,
+                                                        bool isexpression,
+                                                        const tjs_char *modestr) {
+    auto sn = name.AsStdString();
+    if(sn.find("AfterInit") == std::string::npos &&
+       sn.find("afterinit") == std::string::npos) {
+        return false;
+    }
+
+    static bool inAfterInit = false;
+    if(inAfterInit)
+        return false;
+
+    inAfterInit = true;
+    try {
+        TVPExecuteStorage(name, context, result, isexpression, modestr);
+    } catch(const eTJS &e) {
+        TVPAddLog(ttstr(TJS_W("(warning) AfterInit exception caught: ")) +
+                  e.GetMessage());
+    } catch(const std::exception &e) {
+        TVPAddLog(ttstr(TJS_W("(warning) AfterInit exception caught: ")) +
+                  ttstr(e.what()));
+    } catch(...) {
+        TVPAddLog(TJS_W("(warning) AfterInit exception caught (unknown)"));
+    }
+    inAfterInit = false;
+    return true;
+}
+
 void TVPExecuteStartupScript() {
     TVPEnsureKirikiroidCompatibilityPatch();
     ttstr strPatchError;

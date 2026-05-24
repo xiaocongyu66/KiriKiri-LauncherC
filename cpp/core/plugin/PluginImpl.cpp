@@ -43,6 +43,97 @@
 #endif
 
 //---------------------------------------------------------------------------
+class tTJSNI_GamepadStub : public tTJSNativeInstance {
+public:
+    tjs_error Construct(tjs_int, tTJSVariant **, iTJSDispatch2 *) override {
+        return TJS_S_OK;
+    }
+    void Invalidate() override {}
+};
+
+class tTJSNC_GamepadStub : public tTJSNativeClass {
+public:
+    static tjs_uint32 ClassID;
+
+    tTJSNC_GamepadStub() : tTJSNativeClass(TJS_W("GamepadPort")) {
+        TJS_BEGIN_NATIVE_MEMBERS(GamepadPort)
+        TJS_DECL_EMPTY_FINALIZE_METHOD
+
+        TJS_BEGIN_NATIVE_CONSTRUCTOR_DECL(_this, tTJSNI_GamepadStub,
+                                          GamepadPort) {
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_CONSTRUCTOR_DECL(GamepadPort)
+
+        TJS_BEGIN_NATIVE_METHOD_DECL(update) { return TJS_S_OK; }
+        TJS_END_NATIVE_METHOD_DECL(update)
+        TJS_BEGIN_NATIVE_METHOD_DECL(getButtonCount) {
+            if(result)
+                *result = (tjs_int)0;
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_METHOD_DECL(getButtonCount)
+        TJS_BEGIN_NATIVE_METHOD_DECL(getAxisCount) {
+            if(result)
+                *result = (tjs_int)0;
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_METHOD_DECL(getAxisCount)
+        TJS_BEGIN_NATIVE_METHOD_DECL(isButtonPressed) {
+            if(result)
+                *result = (tjs_int)0;
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_METHOD_DECL(isButtonPressed)
+        TJS_BEGIN_NATIVE_METHOD_DECL(getAxisPosition) {
+            if(result)
+                *result = (tjs_int)0;
+            return TJS_S_OK;
+        }
+        TJS_END_NATIVE_METHOD_DECL(getAxisPosition)
+        TJS_END_NATIVE_MEMBERS
+    }
+
+protected:
+    tTJSNativeInstance *CreateNativeInstance() override {
+        return new tTJSNI_GamepadStub();
+    }
+};
+
+tjs_uint32 tTJSNC_GamepadStub::ClassID = static_cast<tjs_uint32>(-1);
+
+static void TVPRegisterGamepadStub() {
+    iTJSDispatch2 *stub = new tTJSNC_GamepadStub();
+    if(!stub)
+        return;
+
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(!global) {
+        stub->Release();
+        return;
+    }
+
+    tTJSVariant val(stub);
+    global->PropSet(TJS_MEMBERENSURE, TJS_W("GamepadPort"), nullptr, &val,
+                    global);
+    global->PropSet(TJS_MEMBERENSURE, TJS_W("Gamepad"), nullptr, &val,
+                    global);
+
+    tTJSVariant configVar;
+    if(global->PropGet(0, TJS_W("SystemConfig"), nullptr, &configVar,
+                       global) == TJS_S_OK &&
+       configVar.Type() == tvtObject && configVar.AsObjectNoAddRef()) {
+        configVar.AsObjectNoAddRef()->PropSet(
+            TJS_MEMBERENSURE, TJS_W("GamepadPort"), nullptr, &val,
+            configVar.AsObjectNoAddRef());
+    }
+
+    global->Release();
+    stub->Release();
+    spdlog::info("Registered GamepadPort/Gamepad stub for missing gamepad.dll");
+}
+
+//---------------------------------------------------------------------------
 bool TVPLoadInternalPlugin(const ttstr &_name);
 
 void TVPLoadPlugin(const ttstr &name) {
@@ -55,6 +146,8 @@ void TVPLoadPlugin(const ttstr &name) {
         spdlog::debug("Loading Plugin: {} Success", name.AsStdString());
     } else {
         spdlog::error("Loading Plugin: {} Failed", name.AsStdString());
+        if(pluginName == TJS_W("gamepad.dll"))
+            TVPRegisterGamepadStub();
     }
 }
 
