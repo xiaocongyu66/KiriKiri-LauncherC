@@ -568,19 +568,25 @@ static void PostRegistCallback() {
         }
     }
 
-    // Define ShortCutInitialPadKeyMap and related members as empty dictionaries.
-    // These are referenced by encrypted keybinder.tjs but may not be defined
-    // if the gamepad initialization script hasn't run yet.
+    // keybinder.tjs later merges its maps through Dictionary.assignStruct.
+    // Its destination is SystemConfig.kag.ShortCutInitialPadKeyMap (not a
+    // global member); leaving it void makes chgthis fail with "() to Object".
+    // Install the empty KAG members after motionplayer is loaded and before
+    // keybinder.tjs / afterinit.tjs execute.
     {
         tTJSVariant r;
         try {
             TVPExecuteExpression(
-                TJS_W("global.ShortCutInitialPadKeyMap === void "
-                      "? (global.ShortCutInitialPadKeyMap = %[]) : void"),
+                TJS_W("SystemConfig.kag.ShortCutInitialPadKeyMap === void "
+                      "? (SystemConfig.kag.ShortCutInitialPadKeyMap = %[]) : void"),
                 &r);
             TVPExecuteExpression(
-                TJS_W("global.ShortCutInitialGamePadKeyMap === void "
-                      "? (global.ShortCutInitialGamePadKeyMap = %[]) : void"),
+                TJS_W("SystemConfig.kag.ShortCutInitialGamePadKeyMap === void "
+                      "? (SystemConfig.kag.ShortCutInitialGamePadKeyMap = %[]) : void"),
+                &r);
+            TVPExecuteExpression(
+                TJS_W("SystemConfig.kag._proceedingKeyList === void "
+                      "? (SystemConfig.kag._proceedingKeyList = %[]) : void"),
                 &r);
         } catch(...) {}
     }
