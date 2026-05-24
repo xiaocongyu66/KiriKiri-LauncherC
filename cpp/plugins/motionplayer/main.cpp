@@ -178,8 +178,35 @@ static tjs_error Motion_getEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSV
 static tjs_error Motion_setEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSVariant **p, iTJSDispatch2 *objthis) {
     return Player_setEnableD3D_static(r, count, p, objthis);
 }
+static void MotionEnsureKeybinderCompatObjects() {
+    tTJSVariant r;
+    try {
+        TVPExecuteExpression(
+            TJS_W("global.ShortCutInitialPadKeyMap === void "
+                  "? (global.ShortCutInitialPadKeyMap = %[]) : void"),
+            &r);
+        TVPExecuteExpression(
+            TJS_W("global.ShortCutInitialGamePadKeyMap === void "
+                  "? (global.ShortCutInitialGamePadKeyMap = %[]) : void"),
+            &r);
+        TVPExecuteExpression(
+            TJS_W("SystemConfig.kag.ShortCutInitialPadKeyMap === void "
+                  "? (SystemConfig.kag.ShortCutInitialPadKeyMap = %[]) : void"),
+            &r);
+        TVPExecuteExpression(
+            TJS_W("SystemConfig.kag.ShortCutInitialGamePadKeyMap === void "
+                  "? (SystemConfig.kag.ShortCutInitialGamePadKeyMap = %[]) : void"),
+            &r);
+        TVPExecuteExpression(
+            TJS_W("SystemConfig.kag._proceedingKeyList === void "
+                  "? (SystemConfig.kag._proceedingKeyList = %[]) : void"),
+            &r);
+    } catch(...) {
+    }
+}
 
 static bool MotionMakeDictionaryVariant(tTJSVariant &out) {
+
     iTJSDispatch2 *dict = TJSCreateDictionaryObject();
     if (!dict) {
         out.Clear();
@@ -590,6 +617,8 @@ static void PostRegistCallback() {
                 &r);
         } catch(...) {}
     }
+
+    MotionEnsureKeybinderCompatObjects();
 
     global->Release();
 }
