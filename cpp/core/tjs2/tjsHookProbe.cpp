@@ -118,23 +118,24 @@ void TVPInstallKrkrHook() {
     std::call_once(g_hook_once, []() {
         HookLog("install begin");
         size_t symbol_size = 0;
+        const char *symbol = "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKjPPS1_i";
         void *sym = DobbySymbolResolverEx(
             "libkrkr2.so",
-            "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKiPPS1_i",
+            symbol,
             DOBBY_SYMBOL_RESOLVER_DEFAULT,
             &symbol_size);
         if(!sym) {
             sym = DobbySymbolResolverEx(
                 nullptr,
-                "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKiPPS1_i",
+                symbol,
                 DOBBY_SYMBOL_RESOLVER_DEFAULT,
                 &symbol_size);
         }
         if(!sym) {
-            HookLog("resolver failed for CallFunction mangled symbol");
+            HookLog("resolver failed for CallFunction mangled symbol: %s", symbol);
             return;
         }
-        HookLog("resolver ok sym=%p size=%zu", sym, symbol_size);
+        HookLog("resolver ok sym=%p size=%zu symbol=%s", sym, symbol_size, symbol);
         int rc = DobbyHook(sym, (void *)fake_CallFunction,
                            (void **)&orig_CallFunction);
         if(rc == 0 && orig_CallFunction) {
