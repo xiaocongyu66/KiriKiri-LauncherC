@@ -1326,6 +1326,25 @@ namespace TJS {
                                             kagVar = kagHolder;
                                             thisObj = kagVar.AsObjectNoAddRef();
                                             resolvedKagObject = (thisObj != nullptr);
+                                            if(code[2] >= 0) {
+                                                tTJSVariant *nameVar = TJS_GET_VM_REG_ADDR(DataArea, code[2]);
+                                                if(nameVar && nameVar->Type() == tvtString) {
+                                                    tTJSVariant memberVar;
+                                                    iTJSDispatch2 *kagObj = kagVar.AsObjectNoAddRef();
+                                                    if(kagObj && TJS_FAILED(kagObj->PropGet(0, nameVar->GetString(), nameVar->GetHint(), &memberVar, kagObj))) {
+                                                        iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+                                                        if(dict) {
+                                                            memberVar = tTJSVariant(dict, dict);
+                                                            dict->Release();
+                                                            kagObj->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP, nameVar->GetString(), nameVar->GetHint(), &memberVar, kagObj);
+                                                        }
+                                                    }
+                                                    if(memberVar.Type() == tvtObject && memberVar.AsObjectNoAddRef()) {
+                                                        thisObj = memberVar.AsObjectNoAddRef();
+                                                        resolvedKagObject = true;
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
