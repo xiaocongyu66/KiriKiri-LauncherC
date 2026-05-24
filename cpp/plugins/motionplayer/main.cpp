@@ -21,29 +21,6 @@ using namespace motion;
 #define NCB_MODULE_NAME TJS_W("motionplayer.dll")
 #define LOGGER spdlog::get("plugin")
 
-static const char *MotionCompatVariantTypeName(const tTJSVariant &v) {
-    switch(v.Type()) {
-        case tvtVoid: return "Void";
-        case tvtObject: return "Object";
-        case tvtString: return "String";
-        case tvtOctet: return "Octet";
-        case tvtInteger: return "Integer";
-        case tvtReal: return "Real";
-        default: return "Unknown";
-    }
-}
-
-static void MotionCompatLogProp(iTJSDispatch2 *obj, const tjs_char *name,
-                                const char *label) {
-    if(!obj) return;
-    tTJSVariant v;
-    tjs_error hr = obj->PropGet(0, name, nullptr, &v, obj);
-    if(auto logger = LOGGER) {
-        logger->info("motion compat: {} hr={} type={}", label, (int)hr,
-                     TJS_SUCCEEDED(hr) ? MotionCompatVariantTypeName(v) : "<missing>");
-    }
-}
-
 // ============================================================
 // Subclass registrations (used as Motion.XXX)
 // ============================================================
@@ -172,7 +149,7 @@ static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVaria
 static tjs_error Player_getEnableD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
     iTJSDispatch2 *obj = TJSCreateDictionaryObject();
     if (obj) {
-        if(r) *r = tTJSVariant(obj);
+        if(r) *r = tTJSVariant(obj, obj);
         obj->Release();
     } else {
         if(r) *r = tTJSVariant();
@@ -540,28 +517,10 @@ static void PostRegistCallback() {
     iTJSDispatch2 *global = TVPGetScriptDispatch();
     if (!global) return;
 
-    auto ensurePlayerClassUseD3DProbe = [](iTJSDispatch2 *playerClass) {
-        if(!playerClass) return;
-        tTJSVariant current;
-        if(TJS_SUCCEEDED(playerClass->PropGet(0, TJS_W("useD3D"), nullptr,
-                                             &current, playerClass)) &&
-           current.Type() == tvtObject) {
-            return;
-        }
-        tTJSVariant marker;
-        try {
-            TVPExecuteExpression(TJS_W("%[]"), &marker);
-        } catch(...) {
-            if(auto logger = LOGGER) logger->warn("motion compat: failed to create useD3D probe object");
-            return;
-        }
-        if(marker.Type() != tvtObject) return;
-        // kirikiroid2-web alignment: original Player class exposes a class-level
-        // property object for useD3D. Some scripts only probe typeof here.
-        playerClass->PropSet(TJS_MEMBERENSURE | TJS_STATICMEMBER,
-                             TJS_W("useD3D"), nullptr, &marker, playerClass);
-    };
-
+    // Alias top-level Player class into Motion namespace. Do NOT force
+    // Motion.Player.useD3D to a dictionary here: keybinder.tjs probes
+    // typeof Motion.Player.useD3D and must see Integer so it uses
+    // Motion.enableD3D (dictionary) instead.
     tTJSVariant motionVar;
     if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Motion"), nullptr, &motionVar, global))) {
         iTJSDispatch2 *motion = motionVar.AsObjectNoAddRef();
@@ -570,30 +529,20 @@ static void PostRegistCallback() {
             if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Player"), nullptr, &playerVar, global))) {
                 if (playerVar.Type() == tvtObject &&
                     playerVar.AsObjectNoAddRef() != nullptr) {
-                    ensurePlayerClassUseD3DProbe(playerVar.AsObjectNoAddRef());
                     motion->PropSet(TJS_MEMBERENSURE, TJS_W("Player"),
                                     nullptr, &playerVar, motion);
                 }
             }
-
-            // KrKr2-Next alignment: Motion.enableD3D must resolve as Object
-            // even if compatibility scripts assign integer 0 through the setter.
+            // affinesourcemotion.tjs later expects Motion.enableD3D to be an Object.
+            // Some commercial scripts assign integer 0 through the property setter;
+            // install a real dictionary member after class registration so property
+            // lookup sees an object instead of the stored integer flag.
             iTJSDispatch2 *dict = TJSCreateDictionaryObject();
             if (dict) {
-                tTJSVariant enableD3D(dict);
+                tTJSVariant enableD3D(dict, dict);
                 motion->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
                                 TJS_W("enableD3D"), nullptr, &enableD3D, motion);
                 dict->Release();
-            }
-
-            MotionCompatLogProp(motion, TJS_W("Player"), "Motion.Player");
-            MotionCompatLogProp(motion, TJS_W("enableD3D"), "Motion.enableD3D");
-            tTJSVariant motionPlayer;
-            if(TJS_SUCCEEDED(motion->PropGet(0, TJS_W("Player"), nullptr,
-                                            &motionPlayer, motion)) &&
-               motionPlayer.Type() == tvtObject) {
-                MotionCompatLogProp(motionPlayer.AsObjectNoAddRef(), TJS_W("useD3D"),
-                                    "Motion.Player.useD3D");
             }
         }
     }
