@@ -182,14 +182,26 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
         return;
 
     // Skip if game / another plugin already provided a real implementation.
+    // Important: do NOT treat plain void-success compat reads as "already
+    // exists". Our tjsObject.cpp PropGet whitelist may return TJS_S_OK with
+    // result=void for missing members such as kag.voiceEffectPlugin, and if we
+    // stop here the real permissive stub never gets attached to kag.
     {
         tTJSVariant existing;
         if(global->PropGet(0, name, nullptr, &existing, global) == TJS_S_OK &&
            existing.Type() == tvtObject &&
            existing.AsObjectNoAddRef() != nullptr) {
-            spdlog::info("[krkr] {} already exists, leaving real impl in place",
-                         ttstr(name).AsStdString());
-            return;
+            const tjs_char *compatStubName = TJS_W("(compat-void-stub)");
+            tTJSVariantStringHolder holder(existing);
+            const tjs_char *existingType = holder.Type();
+            if(existingType && TJS_strcmp(existingType, compatStubName) == 0) {
+                TVPAddLog(ttstr(TJS_W("[krkr] replacing placeholder compat stub for ")) +
+                          name);
+            } else {
+                spdlog::info("[krkr] {} already exists, leaving real impl in place",
+                             ttstr(name).AsStdString());
+                return;
+            }
         }
     }
 
