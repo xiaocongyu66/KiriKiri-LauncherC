@@ -32,6 +32,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     wfBasicEffectCompat.cpp
     wfTypicalDSPCompat.cpp
     voiceEffectPluginCompat.cpp
+    pluginNameStubs.cpp
+    extNagano.cpp
+    multiimage.cpp
     runtimePatchLoader.cpp
     # drawDeviceD2DCompat.cpp  # disabled: D2D is Win32-only, KrKr2-Next never built it on Android
 )
