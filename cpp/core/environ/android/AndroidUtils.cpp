@@ -1,7 +1,9 @@
 #include "AndroidUtils.h"
 #include <unzip.h>
 #include "zlib.h"
+#include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <ctime>
 #include <map>
 #include <string>
@@ -554,6 +556,56 @@ static void TVPDumpFatalToFile(const char *pszText, const char *pszTitle) {
 
 int TVPShowSimpleMessageBox(const char *pszText, const char *pszTitle,
                             unsigned int nButton, const char **btnText) {
+    // [krkr2-pro] Suppress duplicate fatal dialogs.
+    //
+    // Stock kirikiri raises "Member XXX does not exist" through a try/catch
+    // boundary in KAGParser; KAG itself catches the throw, dispatches a
+    // user-visible dialog, then returns to the same script position. When
+    // the missing member is on a hot path (transition handler tables,
+    // gesture probes, etc.) this loops at >50 Hz and produces hundreds of
+    // identical message boxes that the user can't dismiss fast enough.
+    //
+    // We keep the *first* dialog of each unique (title|text) so the user
+    // still sees the failure once. Subsequent identical raises within a
+    // 5s window are coalesced and answered with "first button" without
+    // touching JNI or the fatal log file. After 5s of silence the entry
+    // expires so genuinely periodic failures still surface.
+    {
+        const char *titleKey = pszTitle ? pszTitle : "";
+        const char *textKey = pszText ? pszText : "";
+        std::string key;
+        key.reserve(strlen(titleKey) + strlen(textKey) + 1);
+        key.append(titleKey).append("\x01").append(textKey);
+
+        static std::mutex s_dedupMutex;
+        static std::map<std::string, std::chrono::steady_clock::time_point>
+            s_dedupLast;
+        constexpr auto kDedupWindow = std::chrono::seconds(5);
+
+        auto now = std::chrono::steady_clock::now();
+        std::lock_guard<std::mutex> lk(s_dedupMutex);
+        // Drop entries that have aged out so the map can't grow unbounded
+        // when a long session triggers hundreds of distinct failures.
+        for(auto it = s_dedupLast.begin(); it != s_dedupLast.end();) {
+            if(now - it->second > kDedupWindow * 6)
+                it = s_dedupLast.erase(it);
+            else
+                ++it;
+        }
+        auto it = s_dedupLast.find(key);
+        if(it != s_dedupLast.end() && now - it->second < kDedupWindow) {
+            it->second = now;
+            __android_log_print(ANDROID_LOG_WARN, "KrKr2NativeFatal",
+                                "MessageBox suppressed (dup within %lld ms): %s",
+                                (long long)std::chrono::duration_cast<
+                                    std::chrono::milliseconds>(now - it->second)
+                                    .count(),
+                                pszText ? pszText : "");
+            return 0; // pretend user clicked the first button
+        }
+        s_dedupLast[key] = now;
+    }
+
     // Always dump first so even if the JNI dialog deadlocks the main thread,
     // the user can pull the message text from the file.
     TVPDumpFatalToFile(pszText, pszTitle);
