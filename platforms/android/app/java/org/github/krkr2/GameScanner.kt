@@ -117,5 +117,40 @@ object GameScanner {
             ?: children.firstOrNull { it.isFile && it.extension.equals("ks", true) }
     }
 
+    /**
+     * Enumerate every plausible launch entry under [dir]. Used by the
+     * per-game settings sheet so the user can pick a non-default boot file
+     * (e.g. `startup.xp3`, `初始化.xp3`, a hand-written `.tjs`). Sorted
+     * with engine-canonical names first, then by extension priority, then
+     * alphabetically — so the obvious entry sits at the top.
+     */
+    fun listLaunchCandidates(dir: File): List<File> {
+        if (!dir.exists() || !dir.isDirectory) return emptyList()
+        val children = runCatching { dir.listFiles()?.toList().orEmpty() }
+            .getOrDefault(emptyList())
+            .filter { it.isFile }
+        val canonical = setOf("startup.tjs", "start.tjs", "data.xp3")
+        // Prefer real boot entries: kirikiri only ever boots .xp3, .tjs or .ks.
+        // Keeping the filter narrow stops asset images from polluting the list.
+        val candidates = children.filter { f ->
+            val ext = f.extension.lowercase(Locale.ROOT)
+            ext == "xp3" || ext == "tjs" || ext == "ks"
+        }
+        return candidates.sortedWith(
+            compareBy<File>(
+                { if (canonical.contains(it.name.lowercase(Locale.ROOT))) 0 else 1 },
+                { extPriority(it.extension.lowercase(Locale.ROOT)) },
+                { it.name.lowercase(Locale.ROOT) },
+            )
+        )
+    }
+
+    private fun extPriority(ext: String): Int = when (ext) {
+        "xp3" -> 0
+        "tjs" -> 1
+        "ks" -> 2
+        else -> 3
+    }
+
     private fun File.runCatchingReadText(): String? = runCatching { readText() }.getOrNull()
 }

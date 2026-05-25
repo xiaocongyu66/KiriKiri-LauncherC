@@ -121,6 +121,29 @@ object LauncherPrefs {
             .apply()
     }
 
+    /**
+     * Per-game override for the launch file (the .xp3/.tjs/.ks the engine
+     * boots from). Empty/null means "auto detect" — KR2Activity falls back
+     * to startup.tjs / start.tjs / data.xp3 / first .xp3 / first .ks under
+     * the game directory.
+     */
+    fun getCustomLaunchFile(context: Context, gameDir: String): String? {
+        val uuid = ensureGameUuid(context, gameDir)
+        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getString("custom_launch_$uuid", null)
+    }
+
+    fun setCustomLaunchFile(context: Context, gameDir: String, path: String) {
+        val uuid = ensureGameUuid(context, gameDir)
+        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+        val trimmed = path.trim()
+        if (trimmed.isEmpty()) {
+            pref.edit().remove("custom_launch_$uuid").apply()
+        } else {
+            pref.edit().putString("custom_launch_$uuid", trimmed).apply()
+        }
+    }
+
     fun setAlias(context: Context, gameDir: String, alias: String) {
         val uuid = ensureGameUuid(context, gameDir)
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)

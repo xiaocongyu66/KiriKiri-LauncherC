@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ElevatedAssistChip
@@ -41,12 +42,14 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -101,6 +104,20 @@ class LauncherActivity : AppCompatActivity() {
         intent.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK)
         intent.putExtra(MainActivity.EXTRA_GAME_DIR, gameDir)
         intent.putExtra(MainActivity.EXTRA_GAME_TITLE, title)
+        // Per-game launch file override. Only attach the extra when the
+        // user explicitly picked one and the file still exists. Otherwise
+        // KR2Activity.resolveLaunchGamePath() does its own auto detect on
+        // the gameDir (startup.tjs / start.tjs / data.xp3 / first .xp3 /
+        // first .ks). Validating here avoids handing native code a stale
+        // path that points at a deleted file.
+        LauncherPrefs.getCustomLaunchFile(this, gameDir)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { path ->
+                val f = java.io.File(path)
+                if (f.isFile && f.canRead()) {
+                    intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
+                }
+            }
         startActivity(intent)
     }
 
@@ -472,7 +489,16 @@ private fun GameDetailContent(game: GameEntry, text: LauncherStrings.Texts, onLa
     val stats = LauncherPrefs.getStats(context, game.gameDir)
     var alias by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getAlias(context, game.gameDir).orEmpty()) }
     var imagePath by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getCustomImagePath(context, game.gameDir).orEmpty()) }
+    var launchFile by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getCustomLaunchFile(context, game.gameDir).orEmpty()) }
+    var showLaunchPicker by remember { mutableStateOf(false) }
     val image = imagePath.takeIf { it.isNotBlank() } ?: game.coverPath ?: game.backgroundPath
+
+    fun persist() {
+        LauncherPrefs.setAlias(context, game.gameDir, alias)
+        LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath)
+        LauncherPrefs.setCustomLaunchFile(context, game.gameDir, launchFile)
+    }
+
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         AsyncImage(model = image, contentDescription = null, contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().height(180.dp))
         Text(LauncherPrefs.displayName(context, game), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -482,10 +508,96 @@ private fun GameDetailContent(game: GameEntry, text: LauncherStrings.Texts, onLa
         Text("${text.playTime}: ${stats.formatPlayTime()}", color = Color.White)
         OutlinedTextField(value = alias, onValueChange = { alias = it }, modifier = Modifier.fillMaxWidth(), label = { Text(text.alias) })
         OutlinedTextField(value = imagePath, onValueChange = { imagePath = it }, modifier = Modifier.fillMaxWidth(), label = { Text(text.customImagePath) })
+
+        // Per-game launch entry. Clicking the row opens a picker that lists
+        // every plausible boot file in the game directory; "Auto detect"
+        // clears the override so KR2Activity falls back to its built-in
+        // priority list.
+        Column(modifier = Modifier.fillMaxWidth().clickable { showLaunchPicker = true }) {
+            Text(text.launchFile, color = Color(0xFFCCCCCC), style = MaterialTheme.typography.bodySmall)
+            Text(
+                launchFile.ifBlank { text.launchFileAuto },
+                color = Color.White,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(text.launchFileHint, color = Color(0xFF888888), style = MaterialTheme.typography.bodySmall)
+        }
+
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath) }) { Text(text.save) }
-            FilledTonalButton(onClick = { LauncherPrefs.setAlias(context, game.gameDir, alias); LauncherPrefs.setCustomImagePath(context, game.gameDir, imagePath); onLaunch(game) }) { Icon(Icons.Default.PlayArrow, null); Text(text.start) }
+            FilledTonalButton(onClick = { persist() }) { Text(text.save) }
+            FilledTonalButton(onClick = { persist(); onLaunch(game) }) { Icon(Icons.Default.PlayArrow, null); Text(text.start) }
             FilledTonalButton(onClick = onClose) { Icon(Icons.Default.Close, null); Text("OK") }
+        }
+    }
+
+    if (showLaunchPicker) {
+        LaunchFilePickerDialog(
+            gameDir = game.gameDir,
+            current = launchFile,
+            text = text,
+            onPick = { picked ->
+                launchFile = picked
+                LauncherPrefs.setCustomLaunchFile(context, game.gameDir, picked)
+                showLaunchPicker = false
+            },
+            onDismiss = { showLaunchPicker = false },
+        )
+    }
+}
+
+@Composable
+private fun LaunchFilePickerDialog(
+    gameDir: String,
+    current: String,
+    text: LauncherStrings.Texts,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    // Re-scan candidates on every open so the user sees newly-added files
+    // without having to refresh the launcher first.
+    val candidates = remember(gameDir) { GameScanner.listLaunchCandidates(File(gameDir)) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(text.launchFile) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(text.launchFileHint, style = MaterialTheme.typography.bodySmall, color = Color(0xFFBBBBBB))
+                Spacer(Modifier.height(8.dp))
+                LaunchFileRow(
+                    label = text.launchFileAuto,
+                    sub = null,
+                    selected = current.isBlank(),
+                    onClick = { onPick("") },
+                )
+                candidates.forEach { f ->
+                    LaunchFileRow(
+                        label = f.name,
+                        sub = f.absolutePath,
+                        selected = f.absolutePath == current,
+                        onClick = { onPick(f.absolutePath) },
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(text.close) }
+        },
+    )
+}
+
+@Composable
+private fun LaunchFileRow(label: String, sub: String?, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Column {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            if (!sub.isNullOrBlank()) {
+                Text(sub, style = MaterialTheme.typography.bodySmall, color = Color(0xFF888888))
+            }
         }
     }
 }
