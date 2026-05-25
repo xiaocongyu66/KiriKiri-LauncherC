@@ -256,3 +256,27 @@ void TVPRegisterVoiceEffectStubs() {
 
     global->Release();
 }
+
+// ---------------------------------------------------------------------------
+// Public accessor for tjsObject.cpp's PropGet whitelist fallback.
+// Returns a singleton permissive stub instance (lifetime = engine).
+// Caller does NOT own the reference; AddRef yourself if you store it.
+// ---------------------------------------------------------------------------
+
+namespace {
+// Singleton instance — definition outside anonymous block would also work
+// but we keep it together with the class. Using a function-local static
+// gives us thread-safe lazy init under C++11.
+tTJSPermissiveStub *GetCompatPermissiveStubInternal() {
+    static tTJSPermissiveStub *singleton = nullptr;
+    if(!singleton) {
+        singleton = new tTJSPermissiveStub(TJS_W("(compat-void-stub)"));
+        // singleton stays alive forever; never Release it.
+    }
+    return singleton;
+}
+} // namespace
+
+extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub() {
+    return GetCompatPermissiveStubInternal();
+}

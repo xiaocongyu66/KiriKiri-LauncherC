@@ -1311,12 +1311,34 @@ namespace TJS {
             // voiceEffectFactory, etc.) that aren't part of upstream KAG.
             // When startup fails halfway, these members are never assigned;
             // any later access then raises "Member ... does not exist" and
-            // hard-crashes initialize.tjs. Treat a small whitelist as
-            // permissive void to keep the script chain alive instead of
-            // killing the whole game.
-            static const tjs_char *const k_compat_void_members[] = {
+            // hard-crashes initialize.tjs. Treat a small whitelist as a
+            // permissive proxy object so chained accesses like
+            //     voiceEffectPlugin.storeVoiceMap(...)
+            // also survive (returning void instead of throwing
+            // "Cannot convert () to Object").
+            static const tjs_char *const k_compat_stub_members[] = {
                 TJS_W("voiceEffectPlugin"),
                 TJS_W("voiceEffectFactory"),
+                nullptr,
+            };
+            for(const tjs_char *const *p = k_compat_stub_members; *p; ++p) {
+                if(TJS_strcmp(membername, *p) == 0) {
+                    if(result) {
+                        extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
+                        iTJSDispatch2 *stub = TVPGetCompatPermissiveStub();
+                        if(stub) {
+                            tTJSVariant v(stub, stub);
+                            *result = v;
+                        } else {
+                            result->Clear();
+                        }
+                    }
+                    return TJS_S_OK;
+                }
+            }
+            // Members that scripts only ever read as a tag/string fall back
+            // to plain void (cheaper than allocating the proxy stub).
+            static const tjs_char *const k_compat_void_members[] = {
                 TJS_W("voiceEffectTag"),
                 nullptr,
             };
