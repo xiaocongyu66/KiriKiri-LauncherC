@@ -213,10 +213,17 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
         }
     }
 
-    auto *stub = new tTJSPermissiveStub(name);
-    tTJSVariant val(stub, stub);
+    // Reuse the singleton from tjsObject.cpp so that later registration can
+    // detect and replace placeholder objects on kag/global.
+    extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
+    iTJSDispatch2 *stub = TVPGetCompatPermissiveStub();
+    if(!stub)
+        return;
+
+    auto *val = new tTJSVariant(stub, stub);
     tjs_error hr =
-        global->PropSet(TJS_MEMBERENSURE, name, nullptr, &val, global);
+        global->PropSet(TJS_MEMBERENSURE, name, nullptr, val, global);
+    delete val;
     if(TJS_FAILED(hr)) {
         spdlog::warn("[krkr] failed to register stub for {}: 0x{:x}",
                      ttstr(name).AsStdString(),
@@ -225,7 +232,6 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
         spdlog::info("[krkr] registered permissive stub on global.{}",
                      ttstr(name).AsStdString());
     }
-    stub->Release();
 }
 
 } // namespace
