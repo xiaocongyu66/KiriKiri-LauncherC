@@ -174,6 +174,27 @@ namespace TJS {
     //---------------------------------------------------------------------------
 
     //---------------------------------------------------------------------------
+    // Compat: shared closure pair { Object, ObjThis } pointing at the
+    // TJSGetCompatBoolObject singleton. Returned by AsObjectClosure /
+    // AsObjectClosureNoAddRef when a non-object variant is being forced
+    // into an Object Closure slot. Hot path — KAG handler tables resolve
+    // their entries through these two methods, so without the fallback any
+    // void-typed handler lookup hard-throws "() to Object".
+    //---------------------------------------------------------------------------
+    static tTJSVariantClosure_S g_TJSCompatBoolClosure = { nullptr, nullptr };
+    tTJSVariantClosure_S &TJSGetCompatBoolClosure(bool add_ref) {
+        if(!g_TJSCompatBoolClosure.Object) {
+            iTJSDispatch2 *dict = TJSGetCompatBoolObject(false);
+            g_TJSCompatBoolClosure.Object = dict;
+            g_TJSCompatBoolClosure.ObjThis = dict;
+        }
+        if(add_ref && g_TJSCompatBoolClosure.Object)
+            g_TJSCompatBoolClosure.Object->AddRef();
+        return g_TJSCompatBoolClosure;
+    }
+    //---------------------------------------------------------------------------
+
+    //---------------------------------------------------------------------------
     void TJSThrowVariantConvertError(const tTJSVariant &from,
                                      tTJSVariantType to) {
         // [krkr2-pro compat diagnostic] Dump the failing source type before

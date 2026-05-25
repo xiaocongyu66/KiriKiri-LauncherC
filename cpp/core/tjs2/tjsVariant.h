@@ -167,6 +167,13 @@ namespace TJS {
     //---------------------------------------------------------------------------
     extern tTJSVariantClosure_S TJSNullVariantClosure;
 
+    // Compat: see comment above TJSGetCompatBoolObject. Returns a shared
+    // closure pair pointing at the empty-dict singleton; used by
+    // AsObjectClosure / AsObjectClosureNoAddRef as a non-throwing fallback
+    // for void / int 0|1 source values.
+    TJS_EXP_FUNC_DEF(tTJSVariantClosure_S &, TJSGetCompatBoolClosure,
+                     (bool add_ref));
+
 /*[*/
 //---------------------------------------------------------------------------
 // tTJSVariantClosure
@@ -747,6 +754,15 @@ namespace TJS {
                 this->AddRefObject();
                 return *(tTJSVariantClosure *)&Object;
             }
+            // [krkr2-pro compat] Same fallback as AsObject*, but returning a
+            // closure pair { dict, dict } instead of a single Dispatch. KAG
+            // handler dispatch routes through here; void-typed handler slots
+            // would otherwise hard-throw.
+            if(vt == tvtVoid ||
+               (vt == tvtInteger && (Integer == 0 || Integer == 1))) {
+                tTJSVariantClosure_S &c = TJSGetCompatBoolClosure(true);
+                return *(tTJSVariantClosure *)&c;
+            }
             TJSThrowVariantConvertError(*this, tvtObject);
             return *(tTJSVariantClosure *)&TJSNullVariantClosure;
         }
@@ -755,6 +771,11 @@ namespace TJS {
                              ()) {
             if(vt == tvtObject) {
                 return *(tTJSVariantClosure *)&Object;
+            }
+            if(vt == tvtVoid ||
+               (vt == tvtInteger && (Integer == 0 || Integer == 1))) {
+                tTJSVariantClosure_S &c = TJSGetCompatBoolClosure(false);
+                return *(tTJSVariantClosure *)&c;
             }
             TJSThrowVariantConvertError(*this, tvtObject);
             return *(tTJSVariantClosure *)&TJSNullVariantClosure;

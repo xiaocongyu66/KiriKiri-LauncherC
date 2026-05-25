@@ -17,12 +17,15 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
@@ -556,11 +559,23 @@ private fun LaunchFilePickerDialog(
     // Re-scan candidates on every open so the user sees newly-added files
     // without having to refresh the launcher first.
     val candidates = remember(gameDir) { GameScanner.listLaunchCandidates(File(gameDir)) }
+    val scrollState = rememberScrollState()
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(text.launchFile) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            // Cap the dialog body at ~60% screen height so a long candidate
+            // list doesn't push the action buttons off-screen, then make the
+            // candidate column itself scrollable. Without this the AlertDialog
+            // clips overflow silently and the user can't reach entries below
+            // the fold (observed on phones with deep game directories).
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 420.dp)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(2.dp),
+            ) {
                 Text(text.launchFileHint, style = MaterialTheme.typography.bodySmall, color = Color(0xFFBBBBBB))
                 Spacer(Modifier.height(8.dp))
                 LaunchFileRow(
