@@ -103,8 +103,15 @@ public:
                        tjs_int numparams, tTJSVariant **param,
                        iTJSDispatch2 *objthis) override {
         if(result) {
-            tTJSVariant v;
-            *result = v; // void
+            // Return self so chained calls like
+            //   kag.voiceEffectPlugin.loadFilter(...).foo
+            // and
+            //   waveFilters.add(kag.voiceEffectPlugin.loadFilter(...))
+            // work even though we never actually built a filter.
+            // Returning void here triggers "Cannot convert (() to Object)"
+            // upstream in option.ks / movieaudiosample.tjs.
+            tTJSVariant v(this, this);
+            *result = v;
         }
         return TJS_S_OK;
     }
@@ -114,7 +121,7 @@ public:
                             tTJSVariant **param,
                             iTJSDispatch2 *objthis) override {
         if(result) {
-            tTJSVariant v;
+            tTJSVariant v(this, this);
             *result = v;
         }
         return TJS_S_OK;
