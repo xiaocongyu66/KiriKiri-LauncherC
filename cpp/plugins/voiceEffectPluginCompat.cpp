@@ -408,19 +408,87 @@ extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub() {
 // Diagnostic exit point used by tjsObject.cpp::PropGet right before it
 // returns TJS_E_MEMBERNOTFOUND. We can't always tell from the upstream
 // "Member XXX does not exist" exception which member was being read on
-// which object — by funneling missing names through TVPAddLog here we get
-// a chronological list in 78.log that immediately precedes a crash.
+// which object — by funneling missing names through KR2RenderProbeWriteF
+// here we get a chronological list in render_probe.log (and thus 78.log)
+// that immediately precedes a crash.
 //
-// Independent of the stub's own LogStubHit budget so a flood of stub
-// PropGet calls can't drown out the real "missing" trail.
+// Filter out names that are produced by *typeof probes* in stock KAG3
+// startup (Config.tjs uses `if (typeof patch_appendN != "undefined") ...`
+// for slots 0..99, plus a small list of helper names that legitimate KAG
+// games never define). These are noise and would otherwise drown out the
+// real culprit by exhausting the per-run budget within startup.
+//
+// Independent of the stub's own LogStubHit budget.
 // ---------------------------------------------------------------------------
 namespace {
 std::atomic<int> g_missingLogCount{0};
-constexpr int kMissingLogMax = 200;
+constexpr int kMissingLogMax = 800;
+
+bool IsKnownTypeofProbeName(const tjs_char *name) {
+    if(!name)
+        return true;
+    // Numeric-suffixed typeof probes from Config.tjs.
+    static const tjs_char *const kPrefixProbes[] = {
+        TJS_W("patch_append"),
+        TJS_W("folder_append"),
+        nullptr,
+    };
+    for(const tjs_char *const *p = kPrefixProbes; *p; ++p) {
+        const tjs_char *prefix = *p;
+        size_t plen = TJS_strlen(prefix);
+        if(TJS_strncmp(name, prefix, plen) == 0) {
+            // Tail must be all digits to count as a probe (don't accidentally
+            // swallow a real "patch_append_thing" definition).
+            const tjs_char *q = name + plen;
+            if(*q == 0)
+                continue; // "patch_append" with no suffix — not a probe
+            bool allDigits = true;
+            for(; *q; ++q) {
+                if(*q < TJS_W('0') || *q > TJS_W('9')) {
+                    allDigits = false;
+                    break;
+                }
+            }
+            if(allDigits)
+                return true;
+        }
+    }
+    // Bare typeof probes that show up on every limelight startup but never
+    // matter to a game running on krkr2-pro. Update conservatively.
+    static const tjs_char *const kExactProbes[] = {
+        TJS_W("__krkr2_runtimePatchApplied"),
+        TJS_W("kirikiriz_generic"),
+        TJS_W("commitSavedata"),
+        TJS_W("getToolsPath"),
+        TJS_W("developMode"),
+        TJS_W("setDefaultDllDirectories"),
+        TJS_W("setuphook"),
+        TJS_W("group"),
+        TJS_W("min"),
+        TJS_W("max"),
+        TJS_W("dirlist"),
+        TJS_W("motion"),
+        TJS_W("thum"),
+        TJS_W("scenario"),
+        TJS_W("uipsd"),
+        TJS_W("locale"),
+        TJS_W("arcPath"),
+        TJS_W("OGLDrawDevice"),
+        TJS_W("ShortCutInitialPadKeyMap"),
+        nullptr,
+    };
+    for(const tjs_char *const *p = kExactProbes; *p; ++p) {
+        if(TJS_strcmp(name, *p) == 0)
+            return true;
+    }
+    return false;
+}
 } // namespace
 
 extern "C" void TVPCompatLogMissingMember(const tjs_char *membername) {
     if(!membername)
+        return;
+    if(IsKnownTypeofProbeName(membername))
         return;
     int n = g_missingLogCount.fetch_add(1, std::memory_order_relaxed);
     if(n >= kMissingLogMax)
