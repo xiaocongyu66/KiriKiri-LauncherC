@@ -993,6 +993,14 @@ static tjs_error loadDataPack(tTJSVariant *result,
             failreason = TJS_W("stream null");
         } else {
             dbg_ssize = stream->GetSize();
+
+            // LoadBinaryDictionayArray consumes the 8-byte KBAD100 header and
+            // then calls tTJSBinarySerializer::Read(stream), which reads from
+            // the *current* stream position. So we must rewind to the original
+            // position before the second-stage read, otherwise the first type
+            // byte is skipped and valid .pbd files fall into false / read error.
+            stream->SetPosition(0);
+
             tTJSVariant tmp;
             if(tTJS::LoadBinaryDictionayArray(stream, &tmp)) {
                 *result = tmp;
