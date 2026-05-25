@@ -43,6 +43,13 @@
 
 extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
 
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#define KR2_DIAG(fmt_, ...) KR2RenderProbeWriteF(fmt_, ##__VA_ARGS__)
+#else
+#define KR2_DIAG(...) ((void)0)
+#endif
+
 namespace {
 
 // ---------------------------------------------------------------------------
@@ -51,8 +58,10 @@ namespace {
 // limelight crashes mid-option with `Cannot convert (object) to real`, where
 // the (object) is *our* permissive stub. To pinpoint which member a script
 // is actually reading on the stub (so we can return a real-typed default for
-// just those names instead of throwing), we log the first ~N PropGet /
-// FuncCall hits via TVPAddLog so they show up in 78.log's engine log section.
+// just those names instead of throwing), we mirror the first ~N PropGet /
+// FuncCall hits to render_probe.log so they show up in 78.log's engine log
+// section. TVPAddLog is NOT used here because that engine log stream is not
+// captured by the launcher's diagnostics panel on Android.
 //
 // The cap is intentional — once the stub is wired into `kag.voiceEffectPlugin`
 // scripts will iterate over it and a few hundred entries is plenty to identify
@@ -61,14 +70,17 @@ namespace {
 std::atomic<int> g_stubLogCount{0};
 constexpr int kStubLogMax = 200;
 
-inline void LogStubHit(const tjs_char *op, const tjs_char *membername) {
+inline void LogStubHit(const char *op, const tjs_char *membername) {
     int n = g_stubLogCount.fetch_add(1, std::memory_order_relaxed);
     if(n >= kStubLogMax)
         return;
-    ttstr line = ttstr(TJS_W("[krkr] voiceEffect stub ")) + op +
-                 TJS_W(": ") +
-                 (membername ? membername : TJS_W("(self)"));
-    TVPAddLog(line);
+    if(membername) {
+        ttstr name(membername);
+        KR2_DIAG("[krkr][stub] %s: %s", op,
+                 name.AsStdString().c_str());
+    } else {
+        KR2_DIAG("[krkr][stub] %s: (byNum)", op);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -89,7 +101,7 @@ public:
     tjs_error PropGet(tjs_uint32 flag, const tjs_char *membername,
                       tjs_uint32 *hint, tTJSVariant *result,
                       iTJSDispatch2 *objthis) override {
-        LogStubHit(TJS_W("PropGet"), membername);
+        LogStubHit("PropGet", membername);
         if(result) {
             // returning self makes voiceEffectPlugin.foo.bar still work
             tTJSVariant v(this, this);
@@ -101,7 +113,7 @@ public:
     tjs_error PropGetByNum(tjs_uint32 flag, tjs_int num,
                            tTJSVariant *result,
                            iTJSDispatch2 *objthis) override {
-        LogStubHit(TJS_W("PropGetByNum"), nullptr);
+        LogStubHit("PropGetByNum", nullptr);
         if(result) {
             tTJSVariant v(this, this);
             *result = v;
@@ -132,7 +144,7 @@ public:
                        tjs_uint32 *hint, tTJSVariant *result,
                        tjs_int numparams, tTJSVariant **param,
                        iTJSDispatch2 *objthis) override {
-        LogStubHit(TJS_W("FuncCall"), membername);
+        LogStubHit("FuncCall", membername);
         if(result) {
             // Return self so chained calls like
             //   kag.voiceEffectPlugin.loadFilter(...).foo
@@ -151,7 +163,7 @@ public:
                             tTJSVariant *result, tjs_int numparams,
                             tTJSVariant **param,
                             iTJSDispatch2 *objthis) override {
-        LogStubHit(TJS_W("FuncCallByNum"), nullptr);
+        LogStubHit("FuncCallByNum", nullptr);
         if(result) {
             tTJSVariant v(this, this);
             *result = v;
@@ -368,6 +380,6 @@ extern "C" void TVPCompatLogMissingMember(const tjs_char *membername) {
     int n = g_missingLogCount.fetch_add(1, std::memory_order_relaxed);
     if(n >= kMissingLogMax)
         return;
-    ttstr line = ttstr(TJS_W("[krkr] missing member: ")) + membername;
-    TVPAddLog(line);
+    ttstr name(membername);
+    KR2_DIAG("[krkr][missing] %s", name.AsStdString().c_str());
 }
