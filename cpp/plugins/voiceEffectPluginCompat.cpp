@@ -31,8 +31,6 @@
 // Strict equivalents (real audio) belong in a future port of the wamsoft
 // plugins; for now keep gameplay running.
 
-extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
-
 #include <spdlog/spdlog.h>
 #include "tjsCommHead.h"
 #include "tjs.h"
@@ -40,6 +38,8 @@ extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
 #include "tjsVariant.h"
 #include "ScriptMgnIntf.h"
 #include "DebugIntf.h"
+
+extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
 
 namespace {
 
