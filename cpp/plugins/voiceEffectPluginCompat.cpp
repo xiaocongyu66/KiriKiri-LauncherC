@@ -194,9 +194,11 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
             const tjs_char *compatStubName = TJS_W("(compat-void-stub)");
             iTJSDispatch2 *existingObj = existing.AsObjectNoAddRef();
             ttstr existingType;
-            if(existingObj)
+            if(existingObj) {
+                tTJSVariant dummy;
                 existingObj->Operation(0, TJS_W("typeof"), nullptr, &existingType,
-                                       nullptr);
+                                       &dummy, nullptr);
+            }
             if(existingType == compatStubName) {
                 TVPAddLog(ttstr(TJS_W("[krkr] replacing placeholder compat stub for ")) +
                           name);
