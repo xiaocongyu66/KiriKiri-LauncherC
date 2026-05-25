@@ -142,9 +142,57 @@ namespace TJS {
     //---------------------------------------------------------------------------
     tTJSVariantClosure_S TJSNullVariantClosure = { nullptr, nullptr };
 
+#if defined(__ANDROID__)
+    extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#define KR2_DIAG(...) ::KR2RenderProbeWriteF(__VA_ARGS__)
+#else
+#define KR2_DIAG(...) ((void)0)
+#endif
+
+    //---------------------------------------------------------------------------
+    // Compat: shared empty Dictionary returned in place of throwing when a
+    // primitive (void / int 0|1) is forced into an Object slot. Matches the
+    // KrKr2-Next strategy for surviving "() to Object" / "0 to Object"
+    // crashes that legitimate KAG3 code paths (drawtextparam.tjs typeof
+    // probes, dictionary value defaults, etc.) raise on a non-Japanese
+    // locale or on a partially-initialised SystemConfig.
+    //
+    // The instance is created lazily on first use because TJS engine static
+    // init runs before TJSCreateDictionaryObject is callable. We don't free
+    // it; lifetime equals process lifetime, which matches every other
+    // engine-global singleton (TJSNullVariantClosure, etc.).
+    //---------------------------------------------------------------------------
+    iTJSDispatch2 *TJSGetCompatBoolObject(bool add_ref) {
+        static iTJSDispatch2 *s_compat_bool_object = nullptr;
+        if(!s_compat_bool_object)
+            s_compat_bool_object = TJSCreateDictionaryObject();
+        if(s_compat_bool_object && add_ref)
+            s_compat_bool_object->AddRef();
+        return s_compat_bool_object;
+    }
+    //---------------------------------------------------------------------------
+
     //---------------------------------------------------------------------------
     void TJSThrowVariantConvertError(const tTJSVariant &from,
                                      tTJSVariantType to) {
+        // [krkr2-pro compat diagnostic] Dump the failing source type before
+        // the throw. The fatal handler only shows the formatted error
+        // string ("Cannot convert () to Object"), which loses the actual
+        // tjs_int / nullptr-string / etc. we were trying to coerce. Push
+        // this into render_probe.log so 78.log captures it and the next
+        // round of triage can target the correct value class.
+        if(to == tvtObject) {
+            const char *fromName = "?";
+            switch(from.Type()) {
+                case tvtVoid:    fromName = "void";    break;
+                case tvtObject:  fromName = "object";  break;
+                case tvtString:  fromName = "string";  break;
+                case tvtOctet:   fromName = "octet";   break;
+                case tvtInteger: fromName = "int";     break;
+                case tvtReal:    fromName = "real";    break;
+            }
+            KR2_DIAG("[krkr][convert-fail] %s -> Object", fromName);
+        }
         if(to == tvtObject) {
             ttstr msg(TJSVariantConvertErrorToObject);
 
@@ -934,8 +982,10 @@ namespace TJS {
 
     //---------------------------------------------------------------------------
     void tTJSVariant::increment() {
-        if(vt == tvtString)
-            String->ToNumber(*this);
+        if(vt == tvtString) {
+            if(String) String->ToNumber(*this);
+            else *this = (tjs_int)0;
+        }
 
         if(vt == tvtReal) {
             TJSSetFPUE();
@@ -950,8 +1000,10 @@ namespace TJS {
 
     //---------------------------------------------------------------------------
     void tTJSVariant::decrement() {
-        if(vt == tvtString)
-            String->ToNumber(*this);
+        if(vt == tvtString) {
+            if(String) String->ToNumber(*this);
+            else *this = (tjs_int)0;
+        }
 
         if(vt == tvtReal) {
             TJSSetFPUE();
@@ -1075,7 +1127,8 @@ namespace TJS {
             return; // nothing to do
 
         if(vt == tvtString) {
-            String->ToNumber(*this);
+            if(String) String->ToNumber(*this);
+            else *this = (tjs_int)0;
             return;
         }
 

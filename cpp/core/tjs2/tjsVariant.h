@@ -20,6 +20,11 @@ namespace TJS {
 
     TJS_EXP_FUNC_DEF(void, TJSThrowDivideByZero, ());
 
+    // Compat: shared empty Dictionary returned in place of throwing when a
+    // primitive (void / int 0|1) is coerced into an Object slot. Defined in
+    // tjsVariant.cpp; declared here so AsObject* below can call it inline.
+    TJS_EXP_FUNC_DEF(iTJSDispatch2 *, TJSGetCompatBoolObject, (bool add_ref));
+
     //---------------------------------------------------------------------------
     class tTJSVariantString;
 
@@ -685,6 +690,18 @@ namespace TJS {
                     Object.Object->AddRef();
                 return Object.Object;
             }
+            // [krkr2-pro compat] Coerce primitives to a shared empty
+            // Dictionary instead of throwing. Covers two real-world cases:
+            //   1) Member typeof probes returning void (KAG3 startup).
+            //   2) Boolean-valued config knobs stored as int 0/1 that
+            //      legitimate scripts later expect to dereference (e.g.
+            //      `if(cfg.someEnabled.foo)`).
+            // Mirrors KrKr2-Next's strategy, extended to also catch tvtVoid
+            // since our 78.log shows "() to Object" as the dominant crash
+            // class before this guard existed.
+            if(vt == tvtVoid ||
+               (vt == tvtInteger && (Integer == 0 || Integer == 1)))
+                return TJSGetCompatBoolObject(true);
 
             TJSThrowVariantConvertError(*this, tvtObject);
 
@@ -694,6 +711,9 @@ namespace TJS {
         TJS_CONST_METHOD_DEF(iTJSDispatch2 *, AsObjectNoAddRef, ()) {
             if(vt == tvtObject)
                 return Object.Object;
+            if(vt == tvtVoid ||
+               (vt == tvtInteger && (Integer == 0 || Integer == 1)))
+                return TJSGetCompatBoolObject(false);
             TJSThrowVariantConvertError(*this, tvtObject);
             return nullptr;
         }
@@ -704,6 +724,9 @@ namespace TJS {
                     Object.ObjThis->AddRef();
                 return Object.ObjThis;
             }
+            if(vt == tvtVoid ||
+               (vt == tvtInteger && (Integer == 0 || Integer == 1)))
+                return TJSGetCompatBoolObject(true);
             TJSThrowVariantConvertError(*this, tvtObject);
             return nullptr;
         }
@@ -712,6 +735,9 @@ namespace TJS {
             if(vt == tvtObject) {
                 return Object.ObjThis;
             }
+            if(vt == tvtVoid ||
+               (vt == tvtInteger && (Integer == 0 || Integer == 1)))
+                return TJSGetCompatBoolObject(false);
             TJSThrowVariantConvertError(*this, tvtObject);
             return nullptr;
         }
@@ -866,7 +892,13 @@ namespace TJS {
                 case tvtObject:
                     TJSThrowVariantConvertError(*this, tvtInteger);
                 case tvtString:
-                    return String->ToInteger();
+                    // [krkr2-pro compat] Guard against partially-constructed
+                    // tvtString variants whose payload pointer is null. We've
+                    // seen this when a SHIFT_JIS narrow-to-wide conversion
+                    // failed earlier in the same expression and the engine
+                    // continued into the arithmetic op anyway. Original
+                    // upstream would SIGSEGV here.
+                    return String ? String->ToInteger() : 0;
                 case tvtInteger:
                     return Integer;
                 case tvtReal:
@@ -886,7 +918,8 @@ namespace TJS {
                 case tvtObject:
                     TJSThrowVariantConvertError(*this, tvtInteger, tvtReal);
                 case tvtString:
-                    String->ToNumber(targ);
+                    if(String) String->ToNumber(targ);
+                    else targ = (tjs_int)0;
                     return;
                 case tvtInteger:
                     targ = Integer;
@@ -943,7 +976,7 @@ namespace TJS {
                 case tvtObject:
                     TJSThrowVariantConvertError(*this, tvtReal);
                 case tvtString:
-                    return String->ToReal();
+                    return String ? String->ToReal() : 0;
                 case tvtInteger:
                     return (tTVReal)Integer;
                 case tvtReal:
@@ -1163,7 +1196,8 @@ namespace TJS {
 
             if(vt == tvtString) {
                 tTJSVariant val;
-                String->ToNumber(val);
+                if(String) String->ToNumber(val);
+                else val = (tjs_int)0;
                 return val;
             }
 
