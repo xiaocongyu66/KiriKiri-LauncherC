@@ -11,6 +11,7 @@
 #include "tjsCommHead.h"
 
 #include "tjsVariant.h"
+#include "tjsDictionary.h"
 #include "tjsError.h"
 #include "tjsLex.h"
 #include "tjsUtils.h"
