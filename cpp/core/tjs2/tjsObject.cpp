@@ -17,6 +17,8 @@
 #include "tjsGlobalStringMap.h"
 #include "tjsDebug.h"
 
+extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
+
 namespace TJS {
 
     //---------------------------------------------------------------------------
@@ -1324,7 +1326,6 @@ namespace TJS {
             for(const tjs_char *const *p = k_compat_stub_members; *p; ++p) {
                 if(TJS_strcmp(membername, *p) == 0) {
                     if(result) {
-                        extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
                         iTJSDispatch2 *stub = TVPGetCompatPermissiveStub();
                         if(stub) {
                             tTJSVariant v(stub, stub);
