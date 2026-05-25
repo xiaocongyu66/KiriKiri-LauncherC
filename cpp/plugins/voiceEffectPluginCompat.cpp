@@ -31,6 +31,8 @@
 // Strict equivalents (real audio) belong in a future port of the wamsoft
 // plugins; for now keep gameplay running.
 
+#include <atomic>
+
 #include <spdlog/spdlog.h>
 #include "tjsCommHead.h"
 #include "tjs.h"
@@ -42,6 +44,32 @@
 extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
 
 namespace {
+
+// ---------------------------------------------------------------------------
+// Diagnostic helper.
+//
+// limelight crashes mid-option with `Cannot convert (object) to real`, where
+// the (object) is *our* permissive stub. To pinpoint which member a script
+// is actually reading on the stub (so we can return a real-typed default for
+// just those names instead of throwing), we log the first ~N PropGet /
+// FuncCall hits via TVPAddLog so they show up in 78.log's engine log section.
+//
+// The cap is intentional — once the stub is wired into `kag.voiceEffectPlugin`
+// scripts will iterate over it and a few hundred entries is plenty to identify
+// the culprit without flooding logcat.
+// ---------------------------------------------------------------------------
+std::atomic<int> g_stubLogCount{0};
+constexpr int kStubLogMax = 200;
+
+inline void LogStubHit(const tjs_char *op, const tjs_char *membername) {
+    int n = g_stubLogCount.fetch_add(1, std::memory_order_relaxed);
+    if(n >= kStubLogMax)
+        return;
+    ttstr line = ttstr(TJS_W("[krkr] voiceEffect stub ")) + op +
+                 TJS_W(": ") +
+                 (membername ? membername : TJS_W("(self)"));
+    TVPAddLog(line);
+}
 
 // ---------------------------------------------------------------------------
 // tTJSPermissiveStub
@@ -61,6 +89,7 @@ public:
     tjs_error PropGet(tjs_uint32 flag, const tjs_char *membername,
                       tjs_uint32 *hint, tTJSVariant *result,
                       iTJSDispatch2 *objthis) override {
+        LogStubHit(TJS_W("PropGet"), membername);
         if(result) {
             // returning self makes voiceEffectPlugin.foo.bar still work
             tTJSVariant v(this, this);
@@ -72,6 +101,7 @@ public:
     tjs_error PropGetByNum(tjs_uint32 flag, tjs_int num,
                            tTJSVariant *result,
                            iTJSDispatch2 *objthis) override {
+        LogStubHit(TJS_W("PropGetByNum"), nullptr);
         if(result) {
             tTJSVariant v(this, this);
             *result = v;
@@ -102,6 +132,7 @@ public:
                        tjs_uint32 *hint, tTJSVariant *result,
                        tjs_int numparams, tTJSVariant **param,
                        iTJSDispatch2 *objthis) override {
+        LogStubHit(TJS_W("FuncCall"), membername);
         if(result) {
             // Return self so chained calls like
             //   kag.voiceEffectPlugin.loadFilter(...).foo
@@ -120,6 +151,7 @@ public:
                             tTJSVariant *result, tjs_int numparams,
                             tTJSVariant **param,
                             iTJSDispatch2 *objthis) override {
+        LogStubHit(TJS_W("FuncCallByNum"), nullptr);
         if(result) {
             tTJSVariant v(this, this);
             *result = v;
@@ -313,4 +345,29 @@ tTJSPermissiveStub *GetCompatPermissiveStubInternal() {
 
 extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub() {
     return GetCompatPermissiveStubInternal();
+}
+
+// ---------------------------------------------------------------------------
+// Diagnostic exit point used by tjsObject.cpp::PropGet right before it
+// returns TJS_E_MEMBERNOTFOUND. We can't always tell from the upstream
+// "Member XXX does not exist" exception which member was being read on
+// which object — by funneling missing names through TVPAddLog here we get
+// a chronological list in 78.log that immediately precedes a crash.
+//
+// Independent of the stub's own LogStubHit budget so a flood of stub
+// PropGet calls can't drown out the real "missing" trail.
+// ---------------------------------------------------------------------------
+namespace {
+std::atomic<int> g_missingLogCount{0};
+constexpr int kMissingLogMax = 200;
+} // namespace
+
+extern "C" void TVPCompatLogMissingMember(const tjs_char *membername) {
+    if(!membername)
+        return;
+    int n = g_missingLogCount.fetch_add(1, std::memory_order_relaxed);
+    if(n >= kMissingLogMax)
+        return;
+    ttstr line = ttstr(TJS_W("[krkr] missing member: ")) + membername;
+    TVPAddLog(line);
 }

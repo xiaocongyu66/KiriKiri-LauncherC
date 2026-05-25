@@ -18,6 +18,7 @@
 #include "tjsDebug.h"
 
 extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
+extern "C" void TVPCompatLogMissingMember(const tjs_char *membername);
 
 namespace TJS {
 
@@ -1350,6 +1351,12 @@ namespace TJS {
                     return TJS_S_OK;
                 }
             }
+            // [krkr2-pro compat diagnostic] log first ~200 truly-missing member
+            // accesses so 78.log shows what limelight is reaching for that we
+            // don't have. Anything appearing here right before a "Cannot
+            // convert (object) to real" crash is a strong candidate for a
+            // numeric-fallback whitelist (e.g. wavevolume / bgmenable / ...).
+            ::TVPCompatLogMissingMember(membername);
             return TJS_E_MEMBERNOTFOUND; // not found
         }
 
