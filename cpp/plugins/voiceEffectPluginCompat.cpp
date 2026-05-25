@@ -31,6 +31,8 @@
 // Strict equivalents (real audio) belong in a future port of the wamsoft
 // plugins; for now keep gameplay running.
 
+extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
+
 #include <spdlog/spdlog.h>
 #include "tjsCommHead.h"
 #include "tjs.h"
@@ -215,7 +217,6 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
 
     // Reuse the singleton from tjsObject.cpp so that later registration can
     // detect and replace placeholder objects on kag/global.
-    extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub();
     iTJSDispatch2 *stub = TVPGetCompatPermissiveStub();
     if(!stub)
         return;
