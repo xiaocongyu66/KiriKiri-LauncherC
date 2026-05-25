@@ -96,16 +96,61 @@ public:
     explicit tTJSPermissiveStub(const tjs_char *debugName)
         : DebugName(debugName ? debugName : TJS_W("(anonymous)")) {}
 
+    // Members whose names suggest a numeric value. When the script does
+    // `mul`, `div`, `cgt` or any other arithmetic on a stub PropGet, TJS
+    // calls `tTJSVariant::AsReal()` which throws on tvtObject — that's
+    // exactly the "Cannot convert (object) to real" crash limelight hits
+    // after a `loadFilter()` chain. By returning a real 0 instead of self
+    // for these names, the arithmetic keeps the script alive.
+    //
+    // Conservative list: only names that semantically MUST be numeric in
+    // KAG / wamsoft-style filter / waveFilters / voiceEffect APIs. Anything
+    // else still falls through to "return self" so `.foo.bar` chains work.
+    static bool IsNumericLikeMember(const tjs_char *name) {
+        if(!name)
+            return false;
+        static const tjs_char *const kNumericMembers[] = {
+            TJS_W("count"),
+            TJS_W("length"),
+            TJS_W("size"),
+            TJS_W("volume"),
+            TJS_W("level"),
+            TJS_W("gain"),
+            TJS_W("pan"),
+            TJS_W("pitch"),
+            TJS_W("speed"),
+            TJS_W("freq"),
+            TJS_W("frequency"),
+            TJS_W("samplerate"),
+            TJS_W("channels"),
+            TJS_W("bitrate"),
+            TJS_W("position"),
+            TJS_W("time"),
+            TJS_W("duration"),
+            nullptr,
+        };
+        for(const tjs_char *const *p = kNumericMembers; *p; ++p) {
+            if(TJS_strcmp(name, *p) == 0)
+                return true;
+        }
+        return false;
+    }
+
     // PropGet returns this stub itself wrapped in a tTJSVariant so that
-    // chained accesses resolve without crashing.
+    // chained accesses resolve without crashing. Numeric-looking members
+    // return integer 0 instead so arithmetic does not throw.
     tjs_error PropGet(tjs_uint32 flag, const tjs_char *membername,
                       tjs_uint32 *hint, tTJSVariant *result,
                       iTJSDispatch2 *objthis) override {
         LogStubHit("PropGet", membername);
         if(result) {
-            // returning self makes voiceEffectPlugin.foo.bar still work
-            tTJSVariant v(this, this);
-            *result = v;
+            if(IsNumericLikeMember(membername)) {
+                *result = (tjs_int)0;
+            } else {
+                // returning self makes voiceEffectPlugin.foo.bar still work
+                tTJSVariant v(this, this);
+                *result = v;
+            }
         }
         return TJS_S_OK;
     }
