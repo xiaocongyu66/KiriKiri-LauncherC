@@ -933,14 +933,22 @@ void TVPAddAutoPath(const ttstr &name) {
     auto i =
         std::find(TVPAutoPathList.begin(), TVPAutoPathList.end(), normalized);
     bool already_in_list = (i != TVPAutoPathList.end());
-    if(!already_in_list)
-        TVPAutoPathList.push_back(normalized);
+
+    if(already_in_list) {
+        // No-op: the path is already registered. Clearing the cache here
+        // would force a useless full rebuild on the next storage lookup
+        // (commercial KAG3 startup scripts call addAutoPath idempotently
+        // many times — see 78.log: 30+ rebuilds during append_init.tjs).
+        return;
+    }
+
+    TVPAutoPathList.push_back(normalized);
 
     // If the auto path table has already been built, incrementally
     // append files from this single new path instead of forcing a full
     // rebuild. This avoids O(N*M) rebuilds when scripts call addAutoPath
-    // many times during startup (e.g. KAG3 commercial VNs).
-    if(AutoPathTableInit && !already_in_list) {
+    // many times during startup.
+    if(AutoPathTableInit) {
         try {
             TVPAddAutoPathToTableSingle(normalized);
             // keep AutoPathTableInit = true; only invalidate negative

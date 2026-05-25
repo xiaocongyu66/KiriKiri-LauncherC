@@ -984,16 +984,30 @@ static tjs_error loadDataPack(tTJSVariant *result,
         modestr = *param[1];
 
     bool ok = false;
+    const tjs_char *failreason = TJS_W("unknown");
+    tjs_uint64 dbg_ssize = 0;
     tTJSBinaryStream *stream = nullptr;
     try {
         stream = TVPCreateBinaryStreamForRead(name, modestr);
-        if(stream) {
+        if(!stream) {
+            failreason = TJS_W("stream null");
+        } else {
+            dbg_ssize = stream->GetSize();
             tTJSVariant tmp;
             if(tTJS::LoadBinaryDictionayArray(stream, &tmp)) {
                 *result = tmp;
                 ok = true;
+            } else {
+                failreason = TJS_W("LoadBinaryDictionayArray returned false");
             }
         }
+    } catch(eTJSError &e) {
+        if(stream)
+            delete stream;
+        stream = nullptr;
+        TVPAddLog(ttstr(TJS_W("scriptsEx: loadDataPack threw eTJSError for ")) +
+                  name + TJS_W(": ") + e.GetMessage());
+        failreason = TJS_W("eTJSError caught");
     } catch(...) {
         if(stream)
             delete stream;
@@ -1007,7 +1021,9 @@ static tjs_error loadDataPack(tTJSVariant *result,
         iTJSDispatch2 *dict = TJSCreateDictionaryObject();
         *result = tTJSVariant(dict, dict);
         dict->Release();
-        TVPAddLog(ttstr(TJS_W("scriptsEx: loadDataPack fallback empty dict for ")) + name);
+        TVPAddLog(ttstr(TJS_W("scriptsEx: loadDataPack fallback empty dict for ")) +
+                  name + TJS_W(" reason=") + ttstr(failreason) +
+                  TJS_W(" size=") + ttstr((tjs_int)dbg_ssize));
     }
     return TJS_S_OK;
 }
