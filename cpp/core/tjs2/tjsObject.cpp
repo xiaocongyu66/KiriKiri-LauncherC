@@ -1305,8 +1305,30 @@ namespace TJS {
             data = Add(membername, hint);
         }
 
-        if(!data)
+        if(!data) {
+            // [krkr2-pro compat] Some commercial KAG3 VNs (wamsoft etc.)
+            // depend on private engine extensions or DLLs (voiceEffectPlugin,
+            // voiceEffectFactory, etc.) that aren't part of upstream KAG.
+            // When startup fails halfway, these members are never assigned;
+            // any later access then raises "Member ... does not exist" and
+            // hard-crashes initialize.tjs. Treat a small whitelist as
+            // permissive void to keep the script chain alive instead of
+            // killing the whole game.
+            static const tjs_char *const k_compat_void_members[] = {
+                TJS_W("voiceEffectPlugin"),
+                TJS_W("voiceEffectFactory"),
+                TJS_W("voiceEffectTag"),
+                nullptr,
+            };
+            for(const tjs_char *const *p = k_compat_void_members; *p; ++p) {
+                if(TJS_strcmp(membername, *p) == 0) {
+                    if(result)
+                        result->Clear();
+                    return TJS_S_OK;
+                }
+            }
             return TJS_E_MEMBERNOTFOUND; // not found
+        }
 
         return TJSDefaultPropGet(flag, GetValue(data), result, objthis);
     }
