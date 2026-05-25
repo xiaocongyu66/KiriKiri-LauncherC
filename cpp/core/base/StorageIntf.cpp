@@ -918,6 +918,8 @@ struct tTVPClearAutoPathCacheCallback : public tTVPCompactEventCallbackIntf {
 static bool TVPClearAutoPathCacheCallbackInit = false;
 
 //---------------------------------------------------------------------------
+static tjs_uint TVPAddAutoPathToTableSingle(const ttstr &path);
+//---------------------------------------------------------------------------
 void TVPAddAutoPath(const ttstr &name) {
     tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
 
@@ -930,8 +932,27 @@ void TVPAddAutoPath(const ttstr &name) {
 
     auto i =
         std::find(TVPAutoPathList.begin(), TVPAutoPathList.end(), normalized);
-    if(i == TVPAutoPathList.end())
+    bool already_in_list = (i != TVPAutoPathList.end());
+    if(!already_in_list)
         TVPAutoPathList.push_back(normalized);
+
+    // If the auto path table has already been built, incrementally
+    // append files from this single new path instead of forcing a full
+    // rebuild. This avoids O(N*M) rebuilds when scripts call addAutoPath
+    // many times during startup (e.g. KAG3 commercial VNs).
+    if(AutoPathTableInit && !already_in_list) {
+        try {
+            TVPAddAutoPathToTableSingle(normalized);
+            // keep AutoPathTableInit = true; only invalidate negative
+            // lookups stashed in the AutoPathCache.
+            TVPAutoPathCache.Clear();
+            return;
+        } catch(...) {
+            // fall back to full rebuild on next access
+            TVPClearAutoPathCache();
+            return;
+        }
+    }
 
     TVPClearAutoPathCache();
 }
@@ -956,6 +977,66 @@ void TVPRemoveAutoPath(const ttstr &name) {
 }
 
 //---------------------------------------------------------------------------
+// Incrementally add one auto-path entry to the AutoPathTable.
+// Returns the file count contributed by this single path.
+// Caller must hold TVPCreateStreamCS.
+static tjs_uint TVPAddAutoPathToTableSingle(const ttstr &path) {
+    tjs_uint count = 0;
+
+    const tjs_char *sharp_pos =
+        TJS_strchr(path.c_str(), TVPArchiveDelimiter);
+    if(sharp_pos) {
+        // this storagename indicates a file in an archive
+        ttstr arcname(path, (int)(sharp_pos - path.c_str()));
+        ttstr in_arc_name(sharp_pos + 1);
+        tTVPArchive::NormalizeInArchiveStorageName(in_arc_name);
+        tjs_int in_arc_name_len = in_arc_name.GetLen();
+
+        tTVPArchive *arc = TVPArchiveCache.Get(arcname);
+
+        try {
+            tjs_uint storagecount = arc->GetCount();
+            tjs_int i = arc->GetFirstIndexStartsWith(in_arc_name);
+            if(i != -1) {
+                for(; i < (tjs_int)storagecount; i++) {
+                    ttstr name = arc->GetName(i);
+                    if(name.StartsWith(in_arc_name)) {
+                        if(!TJS_strchr(name.c_str() + in_arc_name_len,
+                                       TJS_W('/'))) {
+                            ttstr sname = TVPExtractStorageName(name);
+                            TVPAutoPathTable.Add(sname, path);
+                            count++;
+                        }
+                    } else {
+                        // sorted: no need to check more
+                        break;
+                    }
+                }
+            }
+        } catch(...) {
+            arc->Release();
+            throw;
+        }
+        arc->Release();
+    } else {
+        // normal folder
+        class tLister : public iTVPStorageLister {
+        public:
+            std::vector<ttstr> list;
+            void Add(const ttstr &file) override { list.push_back(file); }
+        } lister;
+
+        TVPStorageMediaManager.GetListAt(path, &lister);
+        for(auto &i : lister.list) {
+            TVPAutoPathTable.Add(i, path);
+            count++;
+        }
+    }
+
+    return count;
+}
+
+//---------------------------------------------------------------------------
 static tjs_uint TVPRebuildAutoPathTable() {
     // rebuild auto path table
     if(AutoPathTableInit)
@@ -970,75 +1051,8 @@ static tjs_uint TVPRebuildAutoPathTable() {
 
     tjs_uint totalcount = 0;
 
-    std::vector<ttstr>::iterator it;
-    for(it = TVPAutoPathList.begin(); it != TVPAutoPathList.end(); it++) {
-        const ttstr &path = *it;
-        tjs_uint count = 0;
-
-        const tjs_char *sharp_pos =
-            TJS_strchr(path.c_str(), TVPArchiveDelimiter);
-        if(sharp_pos) {
-            // this storagename indicates a file in an archive
-
-            ttstr arcname(path, (int)(sharp_pos - path.c_str()));
-            ttstr in_arc_name(sharp_pos + 1);
-            tTVPArchive::NormalizeInArchiveStorageName(in_arc_name);
-            tjs_int in_arc_name_len = in_arc_name.GetLen();
-
-            tTVPArchive *arc;
-            arc = TVPArchiveCache.Get(arcname);
-
-            try {
-                tjs_uint storagecount = arc->GetCount();
-
-                // get first index which the item has 'in_arc_name' as
-                // its start of the string.
-                tjs_int i = arc->GetFirstIndexStartsWith(in_arc_name);
-                if(i != -1) {
-                    for(; i < (tjs_int)storagecount; i++) {
-                        ttstr name = arc->GetName(i);
-
-                        if(name.StartsWith(in_arc_name)) {
-                            if(!TJS_strchr(name.c_str() + in_arc_name_len,
-                                           TJS_W('/'))) {
-                                ttstr sname = TVPExtractStorageName(name);
-                                TVPAutoPathTable.Add(sname, path);
-                                count++;
-                            }
-                        } else {
-                            // no need to check more;
-                            // because the list is sorted by the name.
-                            break;
-                        }
-                    }
-                }
-            } catch(...) {
-                arc->Release();
-                throw;
-            }
-            arc->Release();
-        } else {
-            // normal folder
-            class tLister : public iTVPStorageLister {
-            public:
-                std::vector<ttstr> list;
-
-                void Add(const ttstr &file) override { list.push_back(file); }
-            } lister;
-
-            TVPStorageMediaManager.GetListAt(path, &lister);
-            for(auto &i : lister.list) {
-                TVPAutoPathTable.Add(i, path);
-                count++;
-            }
-        }
-
-        //		TVPAddLog(ttstr(TJS_W("(info) Path ")) + path +
-        // TJS_W("
-        // contains ")
-        //+ 			ttstr((tjs_int)count) + TJS_W(" file(s)."));
-
-        totalcount += count;
+    for(const auto &path : TVPAutoPathList) {
+        totalcount += TVPAddAutoPathToTableSingle(path);
     }
 
     tjs_uint64 endtick = TVPGetTickCount();
