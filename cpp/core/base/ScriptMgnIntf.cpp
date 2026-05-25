@@ -389,7 +389,13 @@ class tTVPTJSGCCallback : public tTVPCompactEventCallbackIntf {
     }
 } static TVPTJSGCCallback;
 //---------------------------------------------------------------------------
-
+// Forward declarations for compat-layer entry points implemented in
+// cpp/plugins/. They must be reachable from TVPInitScriptEngine /
+// TVPExecuteStartupScript below.
+void TVPEnsureKirikiroidCompatibilityPatch();
+void TVPRunRuntimeCompatibilityPatches();
+void TVPRegisterVoiceEffectStubs();
+//---------------------------------------------------------------------------
 //---------------------------------------------------------------------------
 // TVPInitScriptEngine
 //---------------------------------------------------------------------------
@@ -545,7 +551,12 @@ void TVPInitScriptEngine() {
 
     // Add Extension Classes
     TVPCauseAtInstallExtensionClass(global);
-
+    // Register no-op stubs for KAG-side compat names that some games
+    // depend on but aren't always created (e.g. when wamsoft DLLs are
+    // missing). Doing this in C++ avoids any TJS-script bootstrapping
+    // ambiguity and is safe even if a real plugin later replaces the
+    // stub.
+    TVPRegisterVoiceEffectStubs();
     // Garbage Collection Hook
     TVPAddCompactEventHook(&TVPTJSGCCallback);
 }
@@ -937,9 +948,7 @@ static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
     return true;
 }
 
-void TVPEnsureKirikiroidCompatibilityPatch();
-void TVPRunRuntimeCompatibilityPatches();
-
+// (forward declarations moved up near TVPInitScriptEngine)
 
 //---------------------------------------------------------------------------
 // TVPExecuteStartupScript

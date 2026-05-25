@@ -1,93 +1,21 @@
 // ===========================================================================
 // krkr2 Android — built-in runtime compatibility patch
 //
-// Injected before patch.tjs runs at every startup. Provides safe fallbacks
-// for game scripts that depend on closed-source Wamsoft / KAGEx style plugins
-// that are not (yet) ported to Android.
+// This script is auto-injected before patch.tjs at every startup. It is
+// the "default" stage of the compat framework.
 //
-// Conventions:
-//   * Add NEW fallbacks behind `if(typeof global.<name> == "undefined")`
-//     so this script never overrides a real native or game-side
-//     implementation.
-//   * Group additions by the originating dll name and add a comment
-//     pointing at the upstream source/docs.
-//   * Keep code small and side-effect free — each new fallback is opt-in
-//     by being absent.
+// Most fallbacks are now handled in C++ (see
+// cpp/plugins/voiceEffectPluginCompat.cpp etc.) because TJS-side
+// definitions are subtle and brittle — TJS lookups fall back from `this`
+// to `global`, and the `kag` instance only exists after KAGWindow's
+// constructor runs.
+//
+// This file is intentionally tiny. Add high-level, opt-in *script*
+// fallbacks here when they help across many games. For per-game tweaks
+// drop a script into `<gamedir>/compat/*.tjs` instead.
 // ===========================================================================
 
 if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
     global.__krkr2_runtimePatchApplied = true;
-
-    // ---------------------------------------------------------------
-    // helpers
-    // ---------------------------------------------------------------
-    function __krkr2_makeNoopFn() {
-        return function() { return void; };
-    }
-
-    function __krkr2_hasGlobal(name) {
-        var has = false;
-        try {
-            var probe = global[name];
-            if(probe !== void) has = true;
-        } catch(e) {
-            has = false;
-        }
-        return has;
-    }
-
-    function __krkr2_setGlobal(name, value) {
-        global[name] = value;
-    }
-
-    // ---------------------------------------------------------------
-    // wamsoft voiceeffect.tjs / KAGPlugin shortcut fallback
-    //
-    // limelight 系のゲームスクリプトは voiceeffect.tjs の冒頭で
-    // wfBasicEffect/wfTypicalDSP/wumultitrack/wuopus/wuvorbis/wvdecoder
-    // を Plugins.link し、その後 kag.addPlugin(new VoiceEffectPlugin()) を
-    // 行う。Android では一部 dll が未実装で構築失敗→
-    // global.voiceEffectPlugin が設定されない → LineModeEx.onStore で
-    //   Member "voiceEffectPlugin" does not exist
-    // が発生する。
-    //
-    // 下記は KAGPlugin 標準フックと voiceeffect 内部メソッドを no-op で
-    // 持つダミー Dictionary を用意する。実装が完成しているゲームでは
-    // 何も上書きしない。
-    // ---------------------------------------------------------------
-    function __krkr2_makeKagPluginStub(name) {
-        var d = %[ ];
-        d.__krkr2_stubName = name;
-
-        // KAGPlugin standard hooks
-        d.onStore = __krkr2_makeNoopFn();
-        d.onRestore = __krkr2_makeNoopFn();
-        d.onCompare = function() { return true; };
-        d.onScenarioLoaded = __krkr2_makeNoopFn();
-        d.onScenarioStored = __krkr2_makeNoopFn();
-        d.onMessageHistoryClear = __krkr2_makeNoopFn();
-        d.onCopyFront = __krkr2_makeNoopFn();
-
-        // voiceeffect.tjs API surface
-        d.storeVoiceMap = __krkr2_makeNoopFn();
-        d.restoreVoiceMap = __krkr2_makeNoopFn();
-        d.setVoiceEffect = __krkr2_makeNoopFn();
-        d.checkVoiceEffectParam = __krkr2_makeNoopFn();
-        d.filterVoice = __krkr2_makeNoopFn();
-        d.checkVoiceParam = __krkr2_makeNoopFn();
-        d.onVoiceEffectEnabledChanged = __krkr2_makeNoopFn();
-        d._voiceEffect_storeVoiceMap = __krkr2_makeNoopFn();
-        d._voiceEffect_restoreVoiceMap = __krkr2_makeNoopFn();
-        d._voiceEffect_filterVoice = __krkr2_makeNoopFn();
-        d._voiceEffect_checkVoiceParam = __krkr2_makeNoopFn();
-        d.enabled = false;
-        return d;
-    }
-
-    if(!__krkr2_hasGlobal("voiceEffectPlugin"))
-        __krkr2_setGlobal("voiceEffectPlugin",
-                          __krkr2_makeKagPluginStub("voiceEffectPlugin"));
-    if(!__krkr2_hasGlobal("voiceEffectFactory"))
-        __krkr2_setGlobal("voiceEffectFactory",
-                          __krkr2_makeKagPluginStub("voiceEffectFactory"));
+    // (no script-level patches needed at the moment.)
 }
