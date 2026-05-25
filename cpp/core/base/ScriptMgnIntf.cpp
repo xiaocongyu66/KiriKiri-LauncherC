@@ -1034,6 +1034,15 @@ void TVPExecuteStartupScript() {
             TVPStartupSuccess = true;
         }
         spdlog::info("Startup script ended.");
+        // After startup.tjs, kag (KAGWindow) is fully constructed. Re-run
+        // the voiceEffect compat to also attach the no-op stub onto the
+        // live kag instance so chained accesses like kag.voiceEffectPlugin
+        // .storeVoiceMap() survive missing wamsoft DLLs.
+        try {
+            TVPRegisterVoiceEffectStubs();
+        } catch(...) {
+            TVPAddLog(TJS_W("[krkr] post-startup voiceEffect stub re-run failed"));
+        }
         try {
             ttstr patch = TVPGetAppPath() + "AfterStartup.tjs";
             if(TVPIsExistentStorageNoSearch(patch))

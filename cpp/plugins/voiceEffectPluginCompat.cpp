@@ -32,12 +32,12 @@
 // plugins; for now keep gameplay running.
 
 #include <spdlog/spdlog.h>
-
 #include "tjsCommHead.h"
 #include "tjs.h"
 #include "tjsObject.h"
 #include "tjsVariant.h"
 #include "ScriptMgnIntf.h"
+#include "DebugIntf.h"
 
 namespace {
 
@@ -218,6 +218,7 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
 void TVPRegisterVoiceEffectStubs() {
     iTJSDispatch2 *global = TVPGetScriptDispatch();
     if(!global) {
+        TVPAddLog(TJS_W("[krkr] voiceEffect stub: TVPGetScriptDispatch returned null"));
         spdlog::warn("[krkr] TVPGetScriptDispatch returned null, "
                      "skip voiceEffect stub registration");
         return;
@@ -228,6 +229,30 @@ void TVPRegisterVoiceEffectStubs() {
     // for objects that should logically behave as a no-op KAGPlugin.
     RegisterPermissiveStubOnGlobal(global, TJS_W("voiceEffectPlugin"));
     RegisterPermissiveStubOnGlobal(global, TJS_W("voiceEffectFactory"));
+
+    // Many wamsoft-shaped scripts read `kag.voiceEffectPlugin` (KAGWindow
+    // instance member), not `voiceEffectPlugin` directly, so a global-only
+    // stub does not help. Also try to attach the same stub to the running
+    // KAGWindow instance (`global.kag`) if it has been created already.
+    {
+        tTJSVariant kagVar;
+        if(global->PropGet(0, TJS_W("kag"), nullptr, &kagVar, global) ==
+               TJS_S_OK &&
+           kagVar.Type() == tvtObject) {
+            iTJSDispatch2 *kag = kagVar.AsObjectNoAddRef();
+            if(kag) {
+                TVPAddLog(TJS_W("[krkr] voiceEffect stub: kag already exists, "
+                                "attaching stubs to it"));
+                RegisterPermissiveStubOnGlobal(kag,
+                                               TJS_W("voiceEffectPlugin"));
+                RegisterPermissiveStubOnGlobal(kag,
+                                               TJS_W("voiceEffectFactory"));
+            }
+        } else {
+            TVPAddLog(TJS_W("[krkr] voiceEffect stub: kag not yet created, "
+                            "global stub only"));
+        }
+    }
 
     global->Release();
 }
