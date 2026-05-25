@@ -7,6 +7,8 @@
 #include <algorithm>
 #include "PluginImpl.h"
 #include "TextStream.h"
+#include "BinaryStream.h"
+#include "tjsBinarySerializer.h"
 
 #define NCB_MODULE_NAME TJS_W("ScriptsEx.dll")
 
@@ -965,6 +967,51 @@ tjs_error ScriptsAdd::safeEvalStorage(tTJSVariant *result, tjs_int numparams,
     return TJS_S_OK;
 }
 //----------------------------------------------------------------------
+// KBAD100 .pbd データパックを Dictionary/Array として読み込む
+// wamsoft 私有 KAG 引擎扩展。limelight 等游戏的 touchuibar.pbd 等加载需要。
+static tjs_error loadDataPack(tTJSVariant *result,
+                              tjs_int numparams,
+                              tTJSVariant **param,
+                              iTJSDispatch2 *objthis) {
+    if(numparams < 1)
+        return TJS_E_BADPARAMCOUNT;
+    if(!result)
+        return TJS_S_OK;
+
+    ttstr name = *param[0];
+    ttstr modestr;
+    if(numparams >= 2 && param[1]->Type() != tvtVoid)
+        modestr = *param[1];
+
+    bool ok = false;
+    tTJSBinaryStream *stream = nullptr;
+    try {
+        stream = TVPCreateBinaryStreamForRead(name, modestr);
+        if(stream) {
+            tTJSVariant tmp;
+            if(tTJS::LoadBinaryDictionayArray(stream, &tmp)) {
+                *result = tmp;
+                ok = true;
+            }
+        }
+    } catch(...) {
+        if(stream)
+            delete stream;
+        throw;
+    }
+    if(stream)
+        delete stream;
+
+    if(!ok) {
+        // 解析失败时回退为空 Dictionary，避免上层访问 nullptr
+        iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+        *result = tTJSVariant(dict, dict);
+        dict->Release();
+        TVPAddLog(ttstr(TJS_W("scriptsEx: loadDataPack fallback empty dict for ")) + name);
+    }
+    return TJS_S_OK;
+}
+//----------------------------------------------------------------------
 NCB_ATTACH_CLASS(ScriptsAdd, Scripts) {
     RawCallback(TJS_W("getObjectKeys"), &ScriptsAdd::getKeys, TJS_STATICMEMBER);
     RawCallback(TJS_W("getObjectCount"), &ScriptsAdd::getCount,
@@ -988,6 +1035,7 @@ NCB_ATTACH_CLASS(ScriptsAdd, Scripts) {
 
     RawCallback(TJS_W("safeEvalStorage"), &ScriptsAdd::safeEvalStorage,
                 TJS_STATICMEMBER);
+    RawCallback(TJS_W("loadDataPack"), &loadDataPack, TJS_STATICMEMBER);
 };
 
 NCB_ATTACH_FUNCTION(rehash, Scripts, TJSDoRehash);
