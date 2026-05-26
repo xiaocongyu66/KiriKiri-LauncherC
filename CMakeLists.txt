@@ -108,23 +108,10 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cpp/external)
 add_subdirectory(${KRKR2CORE_PATH})
 add_subdirectory(${KRKR2PLUGIN_PATH})
 
-# Plugin auto-registration relies on file-scope static constructors
-# (NCB_REGISTER_SUBCLASS_DELAY -> _internal_plugins map population).
-# With a normal static-library link, the linker discards those object
-# files because nothing references their symbols, which manifests as
-#     Loading Plugin: motionplayer.dll Failed
-# at runtime even though the sources were compiled into the .a.
-# The fix is to force the whole archive into the final image on ELF
-# linkers (Android/Linux). Apple/MSVC use different syntax; gate by
-# platform so cross-platform builds keep working.
-#
-# IMPORTANT: each plugin sub-target (motionplayer, psbfile, layerex_draw,
-# psdfile, fstat) is its own static archive that becomes a separate -l
-# argument on the link line. Wrapping only the krkr2plugin aggregate is
-# not enough: the individual sub-archives still get dead-code stripped
-# because they appear AFTER --no-whole-archive on the linker command.
-# We must list every plugin archive explicitly inside the whole-archive
-# section so their NCB static constructors are preserved.
+# For Android/Linux keep the aggregate plugin archive under whole-archive so
+# file-scope NCB static constructors in krkr2plugin are preserved. Do not list
+# plugin sub-archives here as well: krkr2plugin already links them, and adding
+# them again under whole-archive causes duplicate symbols.
 if(ANDROID OR LINUX)
     target_link_libraries(${PROJECT_NAME} PUBLIC
         -Wl,--whole-archive

@@ -325,16 +325,11 @@ static void TVPRegisterGamepadStub() {
 bool TVPLoadInternalPlugin(const ttstr &_name);
 
 void TVPLoadPlugin(const ttstr &name) {
-    auto pluginName = name;
-    // motionplayer.dll and emoteplayer.dll may be same?
-    if(name == TJS_W("emoteplayer.dll"))
-        pluginName = "motionplayer.dll";
-
-    if(TVPLoadInternalPlugin(pluginName)) {
+    if(TVPLoadInternalPlugin(name)) {
         spdlog::debug("Loading Plugin: {} Success", name.AsStdString());
     } else {
         spdlog::error("Loading Plugin: {} Failed", name.AsStdString());
-        if(pluginName == TJS_W("gamepad.dll"))
+        if(name == TJS_W("gamepad.dll"))
             TVPRegisterGamepadStub();
     }
 }

@@ -38,4 +38,4 @@ target_sources(${PROJECT_NAME}
         SeparateLayerAdaptor.cpp
 )
 
-target_link_libraries(${PROJECT_NAME} PRIVATE krkr2plugin)
+target_link_libraries(${PROJECT_NAME} PRIVATE krkr2plugin psbfile)
