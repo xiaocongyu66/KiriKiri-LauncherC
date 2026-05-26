@@ -154,7 +154,7 @@ private fun LauncherScreen(
     var lang by remember { mutableStateOf(LauncherPrefs.getLanguage(context)) }
     var selectedGame by remember { mutableStateOf<GameEntry?>(null) }
     var currentDest by remember { mutableStateOf(LauncherDest.Library) }
-    val text = if (lang == LauncherPrefs.LANG_ZH) LauncherStrings.zh else LauncherStrings.en
+    val text: LauncherStrings.Texts = if (lang == LauncherPrefs.LANG_ZH) LauncherStrings.zh else LauncherStrings.en
 
     fun rescan(path: String) {
         val normalized = path.trim().ifBlank { LauncherPrefs.DEFAULT_GAME_ROOT }
@@ -282,7 +282,7 @@ private fun LauncherHero(
     gamesCount: Int,
     onOpenSettings: () -> Unit,
     onOpenDiagnostics: () -> Unit,
-    text: LauncherStrings,
+    text: LauncherStrings.Texts,
 ) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
         Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -314,7 +314,7 @@ private fun GameGrid(
     onGameClick: (GameEntry) -> Unit,
     onLaunchGame: (GameEntry) -> Unit,
     loading: Boolean,
-    text: LauncherStrings,
+    text: LauncherStrings.Texts,
 ) {
     if (games.isEmpty()) {
         EmptyState(loading, text)
@@ -366,7 +366,7 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit)
 }
 
 @Composable
-private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () -> Unit, text: LauncherStrings) {
+private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () -> Unit, text: LauncherStrings.Texts) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest), modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -384,7 +384,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
 }
 
 @Composable
-private fun EmptyDetailPane(text: LauncherStrings) {
+private fun EmptyDetailPane(text: LauncherStrings.Texts) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -396,7 +396,7 @@ private fun EmptyDetailPane(text: LauncherStrings) {
 }
 
 @Composable
-private fun EmptyState(loading: Boolean, text: LauncherStrings) {
+private fun EmptyState(loading: Boolean, text: LauncherStrings.Texts) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (loading) CircularProgressIndicator() else Icon(Icons.Default.FolderOpen, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)

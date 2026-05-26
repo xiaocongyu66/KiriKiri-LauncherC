@@ -5,6 +5,11 @@ import android.content.Context
 object LauncherStrings {
     data class Texts(
         val title: String,
+        val appName: String,
+        val scanning: String,
+        val launch: String,
+        val noDescription: String,
+        val noGameSelected: String,
         val grantStorage: String,
         val settings: String,
         val scan: String,
@@ -83,6 +88,11 @@ object LauncherStrings {
 
     val en = Texts(
         title = "KrKr2 Launcher",
+        appName = "KrKr2 Launcher",
+        scanning = "Scanning…",
+        launch = "Launch",
+        noDescription = "No description available.",
+        noGameSelected = "Select a game to view details.",
         grantStorage = "Grant Storage",
         settings = "Settings",
         scan = "Scan",
@@ -157,6 +167,11 @@ object LauncherStrings {
 
     val zh = Texts(
         title = "KrKr2 启动器",
+        appName = "KrKr2 启动器",
+        scanning = "扫描中…",
+        launch = "启动",
+        noDescription = "暂无简介。",
+        noGameSelected = "请选择一个游戏查看详情。",
         grantStorage = "授权存储",
         settings = "设置",
         scan = "扫描",
@@ -229,3 +244,4 @@ object LauncherStrings {
         aboutCopiedUrl = "链接已复制",
     )
 }
+
