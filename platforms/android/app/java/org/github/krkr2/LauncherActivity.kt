@@ -397,12 +397,12 @@ private fun GameGrid(
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
-        items(games) { game -> GameCard(game, { onGameClick(game) }, { onLaunchGame(game) }) }
+        items(games) { game -> GameCard(game, { onGameClick(game) }, { onLaunchGame(game) }, text) }
     }
 }
 
 @Composable
-private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit) {
+private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit, text: LauncherStrings.Texts) {
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),

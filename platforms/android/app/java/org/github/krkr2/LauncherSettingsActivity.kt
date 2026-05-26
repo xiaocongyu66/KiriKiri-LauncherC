@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -444,8 +445,7 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
     val versionCode = pInfo?.let {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong()
     } ?: 0L
-    var checking by remember { mutableStateOf(false) }
-    var snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
 
     SettingsPanel(text.settingsAbout, Icons.Default.Info, compact) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -464,21 +464,8 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         RowSetting(Icons.Default.Code, text.aboutOpenSource, text.aboutOpenSourceUrl, onClick = { onCopy(text.aboutOpenSourceUrl) })
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-        RowSetting(Icons.Default.Update, if (checking) text.aboutCheckingUpdate else text.aboutCheckUpdate, "Check whether a newer release exists.", onClick = {
-            if (checking) return@RowSetting
-            checking = true
-            val scope = rememberCoroutineScope()
-            scope.launch {
-                val result = checkLatestRelease(context)
-                checking = false
-                snackbarHostState.showSnackbar(
-                    when (result) {
-                        UpdateResult.UpToDate -> text.aboutAlreadyLatest
-                        is UpdateResult.NewVersion -> "${text.aboutNewVersion} ${result.tag}"
-                        UpdateResult.Failed -> text.aboutUpdateFailed
-                    }
-                )
-            }
+        RowSetting(Icons.Default.Update, text.aboutCheckUpdate, "Check whether a newer release exists.", onClick = {
+            scope.launch { checkLatestRelease(context) }
         })
     }
 }
@@ -508,5 +495,4 @@ private suspend fun checkLatestRelease(context: Context): UpdateResult = withCon
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     cm?.setPrimaryClip(ClipData.newPlainText("krkr2", text))
-}
 }
