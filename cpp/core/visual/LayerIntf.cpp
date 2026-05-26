@@ -19,6 +19,10 @@
 #include <cmath>
 #include <spdlog/spdlog.h>
 
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#endif
+
 #include "tjsArray.h"
 #include "LayerIntf.h"
 #include "MsgIntf.h"
@@ -2336,6 +2340,25 @@ void tTJSNI_BaseLayer::AllocateImage() {
         MainImage->Fill(tTVPRect(0, 0, Rect.get_width(), Rect.get_height()),
                         NeutralColor);
         MainImage->SetFont(Font); // set font
+
+#if defined(__ANDROID__)
+        // [DIAG 2026-05-26 v2] Trace MainImage allocation + initial Fill.
+        // If we don't see this log for the title-screen layers, then
+        // AllocateImage is never being called and the layers are stuck
+        // with no MainImage at all.
+        static int s_aiCount = 0;
+        ++s_aiCount;
+        if(s_aiCount <= 64 || (s_aiCount & 0x7F) == 0) {
+            iTVPTexture2D *t = MainImage->GetTexture();
+            KR2RenderProbeWriteF(
+                "Layer::AllocateImage#%d this=%p img=%p sz=%dx%d "
+                "neutral=%08x tex=%p fmt=%d",
+                s_aiCount, (void *)this, (void *)MainImage,
+                (int)Rect.get_width(), (int)Rect.get_height(),
+                (unsigned)NeutralColor, (void *)t,
+                t ? (int)t->GetFormat() : -1);
+        }
+#endif
     }
 
     if(MainImage)

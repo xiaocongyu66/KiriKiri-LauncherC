@@ -153,48 +153,44 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
 
 #if defined(__ANDROID__)
     {
-        // [DIAG 2026-05-26] Trace every layer→DrawBuffer Blt. If we
-        // never see a 1920×1080 destrect Blt for fore.base content,
-        // then DrawSelf isn't reaching here despite the LayerTree
-        // having hasImg=1 children — that's the actual black-screen
-        // root cause.
+        // [DIAG 2026-05-26 v2] The previous v1 probe used iTVPTexture2D::
+        // GetPoint() to sample pixels, but for GPU-backed (OGL) textures
+        // GetPoint() does glReadPixels on the current FBO — which is
+        // unreliable from the krkr main thread (no GL context active),
+        // so it always returned 0x00000000 and falsely suggested every
+        // bitmap was empty.
+        //
+        // Instead, observe the texture's metadata: format, dims, static
+        // flag, and whether the source bitmap is GPU-backed at all.
+        // Combined with the Fill() trace below this gives us a clear
+        // picture of whether content is being produced at all.
         static int s_dcCount = 0;
         ++s_dcCount;
-        if(s_dcCount <= 16 || (s_dcCount & 0x7F) == 0) {
-            // [DIAG 2026-05-26] Sample pixels from the source bitmap at
-            // 5 points (corners + center) so we can tell if the bitmap
-            // is actually content or just an empty/cleared buffer.
-            // If all 5 samples are 0 or fully transparent, the layer
-            // image was never decoded — that's the real black-screen
-            // cause.
-            tjs_uint32 px_tl = 0, px_tr = 0, px_bl = 0, px_br = 0,
-                       px_c = 0;
+        if(s_dcCount <= 32 || (s_dcCount & 0x7F) == 0) {
+            iTVPTexture2D *tex = nullptr;
+            tjs_int bw = 0, bh = 0;
+            int fmt = -1;
+            int isStatic = -1;
             if(bmp) {
-                tjs_int bw = bmp->GetWidth();
-                tjs_int bh = bmp->GetHeight();
-                if(bw > 0 && bh > 0) {
-                    iTVPTexture2D *tex = bmp->GetTexture();
-                    if(tex) {
-                        px_tl = tex->GetPoint(0, 0);
-                        px_tr = tex->GetPoint(bw - 1, 0);
-                        px_bl = tex->GetPoint(0, bh - 1);
-                        px_br = tex->GetPoint(bw - 1, bh - 1);
-                        px_c = tex->GetPoint(bw / 2, bh / 2);
-                    }
+                bw = bmp->GetWidth();
+                bh = bmp->GetHeight();
+                tex = bmp->GetTexture();
+                if(tex) {
+                    fmt = (int)tex->GetFormat();
+                    isStatic = tex->IsStatic() ? 1 : 0;
                 }
             }
             KR2RenderProbeWriteF(
                 "LayerMgr::DrawCompleted#%d dst=%d,%d,%dx%d "
-                "bmp=%p clip=%d,%d,%dx%d type=%d opacity=%d "
-                "px[tl=%08x tr=%08x bl=%08x br=%08x c=%08x]",
+                "bmp=%p sz=%dx%d tex=%p fmt=%d static=%d "
+                "clip=%d,%d,%dx%d type=%d opacity=%d",
                 s_dcCount,
                 destrect.left, destrect.top,
                 destrect.get_width(), destrect.get_height(),
-                (void *)bmp,
+                (void *)bmp, bw, bh, (void *)tex, fmt, isStatic,
                 cliprect.left, cliprect.top,
                 cliprect.get_width(), cliprect.get_height(),
-                (int)type, (int)opacity,
-                px_tl, px_tr, px_bl, px_br, px_c);
+                (int)type, (int)opacity);
         }
     }
 #endif
