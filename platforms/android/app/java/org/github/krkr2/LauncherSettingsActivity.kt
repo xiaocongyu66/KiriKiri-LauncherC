@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.provider.Settings
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,8 +27,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
-import androidx.compose.material.icons.automirrored.filled.ChevronRight
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.Info
@@ -37,7 +38,6 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Update
 import androidx.compose.material.icons.filled.Upload
-
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -66,11 +66,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -258,9 +260,7 @@ class LauncherSettingsActivity : AppCompatActivity() {
 
                                 SettingsSection(text.settingsAbout, Color.Unspecified) {
                                     val pInfo = remember { runCatching { packageManager.getPackageInfo(packageName, 0) }.getOrNull() }
-                                    val appIcon = remember {
-                                        runCatching { packageManager.getApplicationIcon(packageName) }.getOrNull()
-                                    }
+                                    val appIcon = remember { runCatching { packageManager.getApplicationIcon(packageName) }.getOrNull() }
                                     val versionName = pInfo?.versionName ?: "—"
                                     val versionCode = pInfo?.let {
                                         @Suppress("DEPRECATION")
@@ -272,7 +272,11 @@ class LauncherSettingsActivity : AppCompatActivity() {
                                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                             Surface(color = MaterialTheme.colorScheme.primaryContainer, shape = RoundedCornerShape(20.dp)) {
                                                 Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
-                                                    Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                                    if (appIcon != null) {
+                                                        Image(bitmap = appIcon.toBitmap(56, 56).asImageBitmap(), contentDescription = null, modifier = Modifier.size(56.dp))
+                                                    } else {
+                                                        Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                                                    }
                                                 }
                                             }
                                             Column(Modifier.weight(1f)) {
@@ -367,6 +371,21 @@ private fun SettingsSection(title: String, accent: Color, content: @Composable (
 }
 
 @Composable
+private fun SettingRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    content: @Composable () -> Unit,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        RowSetting(icon = icon, title = title, subtitle = subtitle, showChevron = false)
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+            content()
+        }
+    }
+}
+
+@Composable
 private fun RowSetting(
     icon: ImageVector,
     title: String,
@@ -390,7 +409,7 @@ private fun RowSetting(
                     Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            if (trailing != null) trailing() else if (showChevron) Icon(Icons.AutoMirrored.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (trailing != null) trailing() else if (showChevron) Icon(Icons.Filled.ChevronRight, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
