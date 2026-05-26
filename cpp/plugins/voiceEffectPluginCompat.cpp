@@ -185,21 +185,60 @@ public:
         return TJS_S_OK;
     }
 
+    // Function names whose return value is treated as int/real by the
+    // calling script. If we return self (object) instead, the caller's
+    // arithmetic / comparison throws "Cannot convert (object) to real".
+    // limelight specifically reaches this through:
+    //   * yuzu sysTransitionEffect's processOpen/processStop — return value
+    //     is checked numerically in screenshot transition logic.
+    //   * voiceEffectPlugin.processFilter — used as a counter.
+    //
+    // Conservative list: only names that are commonly defined to return
+    // a numeric status code in stock kirikiri / wamsoft / yuzu plugin
+    // headers. Anything not on the list still falls through to "return
+    // self" so chained calls keep working.
+    static bool IsNumericReturnFunc(const tjs_char *name) {
+        if(!name)
+            return false;
+        static const tjs_char *const kNumericReturnFuncs[] = {
+            TJS_W("processOpen"),
+            TJS_W("processStop"),
+            TJS_W("processFilter"),
+            TJS_W("filterVoice"),
+            TJS_W("storeVoiceMap"),
+            TJS_W("restoreVoiceMap"),
+            TJS_W("setDelayMultiTrackMask"),
+            nullptr,
+        };
+        for(const tjs_char *const *p = kNumericReturnFuncs; *p; ++p) {
+            if(TJS_strcmp(name, *p) == 0)
+                return true;
+        }
+        return false;
+    }
+
     tjs_error FuncCall(tjs_uint32 flag, const tjs_char *membername,
                        tjs_uint32 *hint, tTJSVariant *result,
                        tjs_int numparams, tTJSVariant **param,
                        iTJSDispatch2 *objthis) override {
         LogStubHit("FuncCall", membername);
         if(result) {
-            // Return self so chained calls like
-            //   kag.voiceEffectPlugin.loadFilter(...).foo
-            // and
-            //   waveFilters.add(kag.voiceEffectPlugin.loadFilter(...))
-            // work even though we never actually built a filter.
-            // Returning void here triggers "Cannot convert (() to Object)"
-            // upstream in option.ks / movieaudiosample.tjs.
-            tTJSVariant v(this, this);
-            *result = v;
+            if(IsNumericReturnFunc(membername)) {
+                // Return real 0 so callers that do `if (proc.processOpen() > 0)`
+                // or `proc.processOpen() + n` don't blow up converting our
+                // stub object to int/real.
+                *result = (tjs_int)0;
+            } else {
+                // Return self so chained calls like
+                //   kag.voiceEffectPlugin.loadFilter(...).foo
+                // and
+                //   waveFilters.add(kag.voiceEffectPlugin.loadFilter(...))
+                // work even though we never actually built a filter.
+                // Returning void here triggers "Cannot convert (() to Object)"
+                // upstream in option.ks / movieaudiosample.tjs.
+                tTJSVariant v(this, this);
+                *result = v;
+            }
         }
         return TJS_S_OK;
     }
