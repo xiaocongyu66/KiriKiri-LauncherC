@@ -129,12 +129,6 @@ if(ANDROID OR LINUX)
     target_link_libraries(${PROJECT_NAME} PUBLIC
         -Wl,--whole-archive
         krkr2plugin
-        krkr2core
-        motionplayer
-        psbfile
-        layerExDraw
-        psdfile
-        fstat
         -Wl,--no-whole-archive
         $<$<BOOL:${ANDROID}>:dobby>
     )
