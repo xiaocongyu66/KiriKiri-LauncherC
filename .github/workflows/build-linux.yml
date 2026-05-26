@@ -1,11 +1,8 @@
 name: Build Linux
-
+# Disabled auto-trigger on push to conserve CI quota.
+# Run manually via "Run workflow" button when needed.
 on:
   workflow_dispatch:
-
-  workflow_run:
-    workflows: ["Code Format Check"]
-    types: [ "completed" ]
 
 permissions:
   contents: read
