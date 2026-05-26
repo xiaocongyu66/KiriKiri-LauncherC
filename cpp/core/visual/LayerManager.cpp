@@ -1056,16 +1056,78 @@ void tTVPLayerManager::UpdateToDrawDevice() {
 #if defined(__ANDROID__)
     static int s_count = 0;
     static int s_noprimary = 0;
+    static int s_lastHasImage = -1;
     ++s_count;
     if(!Primary) ++s_noprimary;
+
+    // Helper: walk the primary layer subtree non-recursively (BFS-ish) and
+    // dump up to N nodes. Use the public Children container that
+    // LayerIntf.h exposes. Each line: depth, ptr, type, visible, opacity,
+    // hasImage, x,y,w,h. We cap at 64 nodes to keep render_probe.log
+    // bounded — if the real tree is larger, the truncation tells us so.
+    auto dumpLayerTree = [](tTJSNI_BaseLayer *root, const char *tag) {
+        if(!root) return;
+        struct Node { tTJSNI_BaseLayer *layer; int depth; };
+        std::vector<Node> stack;
+        stack.push_back({ root, 0 });
+        int emitted = 0;
+        auto typeName = [](tTVPLayerType t) -> const char * {
+            switch(t) {
+                case ltOpaque:         return "Opaque";
+                case ltAlpha:          return "Alpha";
+                case ltAdditive:       return "Additive";
+                case ltSubtractive:    return "Subtractive";
+                case ltMultiplicative: return "Multi";
+                case ltEffect:         return "Effect";
+                case ltFilter:         return "Filter";
+                case ltDodge:          return "Dodge";
+                case ltDarken:         return "Darken";
+                case ltLighten:        return "Lighten";
+                case ltScreen:         return "Screen";
+                case ltAddAlpha:       return "AddAlpha";
+                case ltPsNormal:       return "PsNormal";
+                default:               return "Other";
+            }
+        };
+        while(!stack.empty() && emitted < 64) {
+            Node n = stack.back();
+            stack.pop_back();
+            tTJSNI_BaseLayer *L = n.layer;
+            if(!L) continue;
+            // Both Type and DisplayType matter — DrawSelf consults
+            // DisplayType for the no-MainImage fallback. When DisplayType
+            // != ltOpaque AND MainImage is null, DrawSelf returns
+            // immediately without painting anything (LayerIntf.cpp:6505).
+            // Reachable from LayerManager because it is `friend class`.
+            KR2RenderProbeWriteF(
+                "  [%s][%d] L=%p type=%s disp=%s vis=%d op=%d hasImg=%d "
+                "mainImg=%p neutral=%08x rect=%d,%d,%ux%u children=%u",
+                tag, n.depth, (void *)L, typeName(L->Type),
+                typeName(L->DisplayType),
+                L->GetVisible() ? 1 : 0, (int)L->GetOpacity(),
+                L->GetHasImage() ? 1 : 0,
+                (void *)L->MainImage,
+                (unsigned)L->GetNeutralColor(),
+                L->GetLeft(), L->GetTop(),
+                (unsigned)L->GetWidth(), (unsigned)L->GetHeight(),
+                (unsigned)L->GetCount());
+            ++emitted;
+            // Push children in reverse so log order is left-to-right.
+            for(tjs_int i = (tjs_int)L->GetCount() - 1; i >= 0; --i) {
+                if(tTJSNI_BaseLayer *C = L->GetChildren(i))
+                    stack.push_back({ C, n.depth + 1 });
+            }
+        }
+        if(emitted >= 64) {
+            KR2RenderProbeWriteF("  [%s] truncated at 64 nodes", tag);
+        }
+    };
+
     if(s_count == 1) {
         // Probe the primary layer state on the very first compose so we can
         // tell apart "engine never got around to drawing the title image"
         // (HasImage=0, MainImage=nullptr) from "drawing happened but went
         // somewhere we don't see" (HasImage=1, but device still black).
-        // Reported issue: black screen on limelight after KAG startup. We
-        // know primary != nullptr from earlier logs; this prints the
-        // dimensions and image-presence so the next 78.log can localise it.
         if(Primary) {
             KR2RenderProbeWriteF(
                 "LayerMgr::UpdateToDrawDevice#FIRST primary=%p "
@@ -1075,9 +1137,32 @@ void tTVPLayerManager::UpdateToDrawDevice() {
                 Primary->GetHasImage() ? 1 : 0,
                 (void *)Primary->MainImage,
                 (unsigned)Primary->GetNeutralColor());
+            // [DIAG 2026-05-26] User reports "by black -> white -> black"
+            // transition with hasImage=0 throughout. That means a child
+            // layer is overdrawing the primary's neutral white with black.
+            // Dump the tree once on first compose to see who.
+            KR2RenderProbeWriteF("LayerTree#FIRST (rooted at primary):");
+            dumpLayerTree(Primary, "T1");
+            s_lastHasImage = Primary->GetHasImage() ? 1 : 0;
         } else {
             KR2RenderProbeWriteF(
                 "LayerMgr::UpdateToDrawDevice#FIRST primary=(null)");
+        }
+    }
+    // Dump again any time hasImage flips, and a periodic re-dump every 256
+    // frames so we can track "did the script eventually load something".
+    if(Primary) {
+        int hi = Primary->GetHasImage() ? 1 : 0;
+        if(hi != s_lastHasImage) {
+            KR2RenderProbeWriteF(
+                "LayerMgr::hasImage transition %d -> %d at frame %d",
+                s_lastHasImage, hi, s_count);
+            KR2RenderProbeWriteF("LayerTree#transition (rooted at primary):");
+            dumpLayerTree(Primary, "Tx");
+            s_lastHasImage = hi;
+        } else if((s_count & 0xFF) == 0) {
+            KR2RenderProbeWriteF("LayerTree#%d (rooted at primary):", s_count);
+            dumpLayerTree(Primary, "Tp");
         }
     }
     if((s_count & 0x3F) == 0) {

@@ -691,12 +691,31 @@ namespace TJS {
         //---- type conversion
         //--------------------------------------------------
 
+        // [BISECT 2026-05-26] Per-fix toggle for the AsObject*/AsObjectClosure*
+        // empty-Dict fallback introduced by 32d767f / 900f352.
+        //
+        // Bisect on bisect/no-asobject-fallback (b3fb13af) confirmed the
+        // fallback is NOT the cause of the post-startup black screen — log
+        // diff between fallback-on (f79c552c) and fallback-off (b3fb13af)
+        // shows identical hasImage=0 and identical (object) to int/real
+        // crash. Macro is left in place as a build-time switch in case a
+        // future regression points back at this code.
+        //
+        // Default: 0 (fallback enabled, matches f1274c9..ef70fe8 main).
+        // Set to 1 via -DKR2_BISECT_DISABLE_ASOBJECT_FALLBACK=1 to compile
+        // the fallback out and restore pristine throw-on-mismatch behavior
+        // (matches kirikiroid2-web / krkrz baseline).
+#ifndef KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
+#    define KR2_BISECT_DISABLE_ASOBJECT_FALLBACK 0
+#endif
+
         TJS_CONST_METHOD_DEF(iTJSDispatch2 *, AsObject, ()) {
             if(vt == tvtObject) {
                 if(Object.Object)
                     Object.Object->AddRef();
                 return Object.Object;
             }
+#if !KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
             // [krkr2-pro compat] Coerce primitives to a shared empty
             // Dictionary instead of throwing. Covers two real-world cases:
             //   1) Member typeof probes returning void (KAG3 startup).
@@ -709,6 +728,7 @@ namespace TJS {
             if(vt == tvtVoid ||
                (vt == tvtInteger && (Integer == 0 || Integer == 1)))
                 return TJSGetCompatBoolObject(true);
+#endif
 
             TJSThrowVariantConvertError(*this, tvtObject);
 
@@ -718,9 +738,11 @@ namespace TJS {
         TJS_CONST_METHOD_DEF(iTJSDispatch2 *, AsObjectNoAddRef, ()) {
             if(vt == tvtObject)
                 return Object.Object;
+#if !KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
             if(vt == tvtVoid ||
                (vt == tvtInteger && (Integer == 0 || Integer == 1)))
                 return TJSGetCompatBoolObject(false);
+#endif
             TJSThrowVariantConvertError(*this, tvtObject);
             return nullptr;
         }
@@ -731,9 +753,11 @@ namespace TJS {
                     Object.ObjThis->AddRef();
                 return Object.ObjThis;
             }
+#if !KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
             if(vt == tvtVoid ||
                (vt == tvtInteger && (Integer == 0 || Integer == 1)))
                 return TJSGetCompatBoolObject(true);
+#endif
             TJSThrowVariantConvertError(*this, tvtObject);
             return nullptr;
         }
@@ -742,9 +766,11 @@ namespace TJS {
             if(vt == tvtObject) {
                 return Object.ObjThis;
             }
+#if !KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
             if(vt == tvtVoid ||
                (vt == tvtInteger && (Integer == 0 || Integer == 1)))
                 return TJSGetCompatBoolObject(false);
+#endif
             TJSThrowVariantConvertError(*this, tvtObject);
             return nullptr;
         }
@@ -754,6 +780,7 @@ namespace TJS {
                 this->AddRefObject();
                 return *(tTJSVariantClosure *)&Object;
             }
+#if !KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
             // [krkr2-pro compat] Same fallback as AsObject*, but returning a
             // closure pair { dict, dict } instead of a single Dispatch. KAG
             // handler dispatch routes through here; void-typed handler slots
@@ -763,6 +790,7 @@ namespace TJS {
                 tTJSVariantClosure_S &c = TJSGetCompatBoolClosure(true);
                 return *(tTJSVariantClosure *)&c;
             }
+#endif
             TJSThrowVariantConvertError(*this, tvtObject);
             return *(tTJSVariantClosure *)&TJSNullVariantClosure;
         }
@@ -772,11 +800,13 @@ namespace TJS {
             if(vt == tvtObject) {
                 return *(tTJSVariantClosure *)&Object;
             }
+#if !KR2_BISECT_DISABLE_ASOBJECT_FALLBACK
             if(vt == tvtVoid ||
                (vt == tvtInteger && (Integer == 0 || Integer == 1))) {
                 tTJSVariantClosure_S &c = TJSGetCompatBoolClosure(false);
                 return *(tTJSVariantClosure *)&c;
             }
+#endif
             TJSThrowVariantConvertError(*this, tvtObject);
             return *(tTJSVariantClosure *)&TJSNullVariantClosure;
         }

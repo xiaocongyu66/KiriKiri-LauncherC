@@ -235,6 +235,47 @@ namespace TJS {
     //---------------------------------------------------------------------------
     void TJSThrowVariantConvertError(const tTJSVariant &from,
                                      tTJSVariantType to1, tTJSVariantType to2) {
+        // [krkr2-pro compat diagnostic] Mirror of the to=Object dump above,
+        // for the (object) -> int/real failure mode that emerged after the
+        // AsObject fallback landed. When `from` is itself an Object, the
+        // formatted error string only carries pointers — capture the actual
+        // ClassName chain so we can identify which NCB class is being
+        // misused as a number by the script.
+        if(from.Type() == tvtObject) {
+            tTJSVariantClosure clo = from.AsObjectClosureNoAddRef();
+            iTJSDispatch2 *probe = clo.SelectObjectNoAddRef();
+            const char *className = "?";
+            char classBuf[128] = "";
+            if(probe) {
+                tTJSVariant nameVar;
+                if(TJS_SUCCEEDED(probe->ClassInstanceInfo(
+                       /* TJS_CII_GET */ 0, 0, &nameVar)) &&
+                   nameVar.Type() == tvtString) {
+                    ttstr s = nameVar.AsString();
+                    // tjs_char (UTF-16) -> narrow ASCII for the diag log.
+                    const tjs_char *src = s.c_str();
+                    size_t i = 0;
+                    while(src && src[i] && i < sizeof(classBuf) - 1) {
+                        tjs_char c = src[i];
+                        classBuf[i] = (c < 0x80) ? (char)c : '?';
+                        ++i;
+                    }
+                    classBuf[i] = '\0';
+                    if(classBuf[0])
+                        className = classBuf;
+                }
+            }
+            const char *toStr =
+                (to1 == tvtInteger && to2 == tvtReal) ? "int/real"
+                : (to1 == tvtInteger)                 ? "int"
+                : (to1 == tvtReal)                    ? "real"
+                : (to1 == tvtString)                  ? "string"
+                                                      : "?";
+            KR2_DIAG("[krkr][convert-fail] object<%s> obj=%p this=%p -> %s",
+                     className, (void *)clo.Object, (void *)clo.ObjThis,
+                     toStr);
+        }
+
         ttstr msg(TJSVariantConvertError);
 
         msg.Replace(TJS_W("%1"), TJSVariantToReadableString(from));
