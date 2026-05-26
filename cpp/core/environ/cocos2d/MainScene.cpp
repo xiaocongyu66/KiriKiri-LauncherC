@@ -439,6 +439,17 @@ public:
         setClippingToBounds(false);
         DrawSprite = Sprite::create();
         DrawSprite->setAnchorPoint(Vec2(0, 1)); // top-left
+#if defined(__ANDROID__)
+        // [DIAG 2026-05-26] FBO content is bottom-up by GL convention
+        // but cocos2d Sprite UV expects top-down image data. The
+        // krkr layer GPU pipeline renders into an FBO-backed texture
+        // and cocos2d samples it as a normal sprite — without flipY,
+        // the visible 1920×1080 content gets sampled as if mirrored
+        // vertically, but since DrawBuffer is initialized to 0xFF000000
+        // (black) and the rendered content fills only the top region
+        // when Y is wrong, the screen stays black. Try flipY to verify.
+        DrawSprite->setFlippedY(true);
+#endif
         PrimaryLayerArea = Node::create();
         addChild(PrimaryLayerArea);
         PrimaryLayerArea->addChild(DrawSprite);
