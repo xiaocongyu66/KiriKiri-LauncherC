@@ -6,7 +6,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE krkr2plugin)
 
 if(WINDOWS)
     target_compile_definitions(${PROJECT_NAME} PRIVATE -DUNICODE -D_UNICODE)
-    target_sources(${PROJECT_NAME} PUBLIC
+    target_sources(${PROJECT_NAME} PRIVATE
             windows/main.cpp
             windows/LayerExDraw.cpp
     )
@@ -14,7 +14,7 @@ else()
 
     find_package(blend2d CONFIG REQUIRED)
     target_link_libraries(${PROJECT_NAME} PRIVATE blend2d::blend2d)
-    target_sources(${PROJECT_NAME} PUBLIC
+    target_sources(${PROJECT_NAME} PRIVATE
 #            blend2d/main.cpp
             blend2d/LayerExDraw.cpp
 #            blend2d/DrawPath.cpp
