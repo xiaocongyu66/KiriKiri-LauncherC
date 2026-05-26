@@ -465,7 +465,7 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
         RowSetting(Icons.Default.Code, text.aboutOpenSource, text.aboutOpenSourceUrl, onClick = { onCopy(text.aboutOpenSourceUrl) })
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         RowSetting(Icons.Default.Update, text.aboutCheckUpdate, "Check whether a newer release exists.", onClick = {
-            scope.launch { checkLatestRelease(context) }
+            scope.launch { checkLatestRelease() }
         })
     }
 }
@@ -476,7 +476,7 @@ private sealed interface UpdateResult {
     data object Failed : UpdateResult
 }
 
-private suspend fun checkLatestRelease(context: Context): UpdateResult = withContext(Dispatchers.IO) {
+private suspend fun checkLatestRelease(): UpdateResult = withContext(Dispatchers.IO) {
     runCatching {
         val conn = URL("https://api.github.com/repos/xiaocongyu66/krkr2/releases/latest").openConnection() as HttpURLConnection
         conn.requestMethod = "GET"

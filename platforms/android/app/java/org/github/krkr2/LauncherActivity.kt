@@ -97,7 +97,6 @@ class LauncherActivity : AppCompatActivity() {
                     onOpenSettings = { startActivity(Intent(this, LauncherSettingsActivity::class.java)) },
                     onOpenDiagnostics = { startActivity(Intent(this, DiagnosticsActivity::class.java)) },
                     onLaunchGame = { game -> startGame(game.gameDir, game.title) },
-                    onLaunchOriginal = { startOriginal() },
                     onRequestPermission = { requestStoragePermission() },
                     onRegisterRefresh = { refreshHome = it },
                 )
@@ -156,7 +155,6 @@ private fun LauncherScreen(
     onOpenSettings: () -> Unit,
     onOpenDiagnostics: () -> Unit,
     onLaunchGame: (GameEntry) -> Unit,
-    onLaunchOriginal: () -> Unit,
     onRequestPermission: () -> Unit,
     onRegisterRefresh: ((() -> Unit)?) -> Unit,
 ) {
