@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -26,6 +27,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -207,6 +209,9 @@ private fun LauncherScreen(
 
     BoxWithConstraints {
         val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val compactLandscape = landscape && maxHeight < 520.dp
+        val contentPadding = if (compactLandscape) 8.dp else 16.dp
+        val contentGap = if (compactLandscape) 8.dp else 16.dp
         val wideLayout = landscape || maxWidth >= 600.dp
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
@@ -246,9 +251,9 @@ private fun LauncherScreen(
                         NavigationRailItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
                         NavigationRailItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text("Tools") })
                     }
-                    Column(Modifier.weight(1f).fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Column(Modifier.weight(1f).fillMaxSize().padding(contentPadding), verticalArrangement = Arrangement.spacedBy(contentGap)) {
                         LauncherHero(rootPath, editPath, { editPath = it }, { rescan(editPath) }, onRequestPermission, onLaunchOriginal, scanProgressPath, loading, games.size, onOpenSettings, onOpenDiagnostics, text)
-                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(contentGap)) {
                             Box(Modifier.weight(1.2f).fillMaxHeight()) { GameGrid(games, true, { selectedGame = it }, onLaunchGame, loading, text) }
                             Box(Modifier.weight(0.8f).fillMaxHeight()) {
                                 selectedGame?.let { game ->
@@ -259,7 +264,7 @@ private fun LauncherScreen(
                     }
                 }
             } else {
-                Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(Modifier.fillMaxSize().padding(padding).padding(contentPadding), verticalArrangement = Arrangement.spacedBy(contentGap)) {
                     LauncherHero(rootPath, editPath, { editPath = it }, { rescan(editPath) }, onRequestPermission, onLaunchOriginal, scanProgressPath, loading, games.size, onOpenSettings, onOpenDiagnostics, text)
                     GameGrid(games, false, { selectedGame = it }, onLaunchGame, loading, text)
                 }
@@ -292,10 +297,10 @@ private fun LauncherHero(
     text: LauncherStrings.Texts,
 ) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(text.gameRootPath, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             androidx.compose.material3.OutlinedTextField(value = editPath, onValueChange = onEditPathChange, modifier = Modifier.fillMaxWidth(), label = { Text(text.gameRootPath) }, singleLine = true)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ElevatedAssistChip(onClick = onRescan, label = { Text(text.refresh) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
                 ElevatedAssistChip(onClick = onOpenPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
                 ElevatedAssistChip(onClick = onLaunchOriginal, label = { Text(text.launchOriginal) }, leadingIcon = { Icon(Icons.Default.PlayArrow, null) })
@@ -304,7 +309,7 @@ private fun LauncherHero(
             }
             if (loading) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CircularProgressIndicator(modifier = Modifier.width(24.dp), strokeWidth = 2.dp)
+                    CircularProgressIndicator(modifier = Modifier.width(20.dp), strokeWidth = 2.dp)
                     Text(if (scanProgressPath.isBlank()) text.scanning else scanProgressPath, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
@@ -328,12 +333,12 @@ private fun GameGrid(
         EmptyState(loading, text)
         return
     }
-    val columns = if (expanded) 3 else 2
+    val columns = if (expanded) 4 else 2
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         contentPadding = PaddingValues(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier.fillMaxSize(),
     ) {
         items(games) { game -> GameCard(game, { onGameClick(game) }, { onLaunchGame(game) }) }
@@ -361,7 +366,7 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit)
                     Icon(Icons.Default.GridView, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
                 }
             }
-            Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(game.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(game.gameDir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -376,14 +381,14 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit)
 @Composable
 private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () -> Unit, text: LauncherStrings.Texts) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest), modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text(game.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, null) }
             }
             Text(game.gameDir, color = MaterialTheme.colorScheme.onSurfaceVariant)
             game.iconPath?.let { path ->
-                AsyncImage(model = File(path), contentDescription = game.title, modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+                AsyncImage(model = File(path), contentDescription = game.title, modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
             }
             Text(game.description?.takeIf { it.isNotBlank() } ?: text.noDescription, color = MaterialTheme.colorScheme.onSurfaceVariant)
             FilledTonalButton(onClick = onLaunch, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(text.launch) }
