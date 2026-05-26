@@ -25,9 +25,8 @@ jobs:
     runs-on: ubuntu-latest
     env:
       VCPKG_ROOT: ${{ github.workspace }}/.act/vcpkg
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_NDK: /usr/local/lib/android/sdk/ndk/${{ env.ANDROID_NDK_VERSION }}
+      ANDROID_SDK_ROOT: ${{ github.workspace }}/.act/android-sdk
+      ANDROID_NDK: ${{ github.workspace }}/.act/android-ndk
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,8 +38,7 @@ jobs:
           df -h
       
           sudo rm -rf /usr/share/dotnet
-          # Keep the preinstalled Android SDK. Reusing it is faster and avoids
-          # license prompts from a freshly-created SDK directory.
+          sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache
           sudo rm -rf /usr/local/share/boost
@@ -89,7 +87,14 @@ jobs:
 
       - name: Install Android SDK/NDK
         run: |
-          yes | ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin/sdkmanager --sdk_root=${{ env.ANDROID_SDK_ROOT }} --licenses || true
+          if [ ! -d "${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin" ]; then
+            unzip -d ${{ github.workspace }}/.act ${{ github.workspace }}/.act/commandlinetools-linux-10406996_latest.zip
+            mkdir -p ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest
+            mv ${{ github.workspace }}/.act/cmdline-tools/* ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest
+          fi
+          
+          yes | ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin/sdkmanager --sdk_root=${{ env.ANDROID_SDK_ROOT }} --licenses
+          
           ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin/sdkmanager --sdk_root=${{ env.ANDROID_SDK_ROOT }} \
             "platform-tools" \
             "platforms;android-34" \
@@ -99,9 +104,12 @@ jobs:
 
       - name: Set Android SDK/NDK Env
         run: |
+          if [ ! -d "${{ env.ANDROID_NDK }}" ]; then
+            ln -s ${{ env.ANDROID_SDK_ROOT }}/ndk/${{ env.ANDROID_NDK_VERSION }} ${{ env.ANDROID_NDK }}
+          fi
+
           echo "ANDROID_NDK=${{ env.ANDROID_NDK }}" >> $GITHUB_ENV
           echo "ANDROID_HOME=${{ env.ANDROID_SDK_ROOT }}" >> $GITHUB_ENV
-          echo "ANDROID_SDK_ROOT=${{ env.ANDROID_SDK_ROOT }}" >> $GITHUB_ENV
 
       - name: Setup vcpkg
         run: |
