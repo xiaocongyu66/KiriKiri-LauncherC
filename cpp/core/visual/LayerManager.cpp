@@ -160,16 +160,40 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
         static int s_dcCount = 0;
         ++s_dcCount;
         if(s_dcCount <= 16 || (s_dcCount & 0x7F) == 0) {
+            // [DIAG 2026-05-26] Sample pixels from the source bitmap at
+            // 5 points (corners + center) so we can tell if the bitmap
+            // is actually content or just an empty/cleared buffer.
+            // If all 5 samples are 0 or fully transparent, the layer
+            // image was never decoded — that's the real black-screen
+            // cause.
+            tjs_uint32 px_tl = 0, px_tr = 0, px_bl = 0, px_br = 0,
+                       px_c = 0;
+            if(bmp) {
+                tjs_int bw = bmp->GetWidth();
+                tjs_int bh = bmp->GetHeight();
+                if(bw > 0 && bh > 0) {
+                    iTVPTexture2D *tex = bmp->GetTexture();
+                    if(tex) {
+                        px_tl = tex->GetPoint(0, 0);
+                        px_tr = tex->GetPoint(bw - 1, 0);
+                        px_bl = tex->GetPoint(0, bh - 1);
+                        px_br = tex->GetPoint(bw - 1, bh - 1);
+                        px_c = tex->GetPoint(bw / 2, bh / 2);
+                    }
+                }
+            }
             KR2RenderProbeWriteF(
                 "LayerMgr::DrawCompleted#%d dst=%d,%d,%dx%d "
-                "bmp=%p clip=%d,%d,%dx%d type=%d opacity=%d",
+                "bmp=%p clip=%d,%d,%dx%d type=%d opacity=%d "
+                "px[tl=%08x tr=%08x bl=%08x br=%08x c=%08x]",
                 s_dcCount,
                 destrect.left, destrect.top,
                 destrect.get_width(), destrect.get_height(),
                 (void *)bmp,
                 cliprect.left, cliprect.top,
                 cliprect.get_width(), cliprect.get_height(),
-                (int)type, (int)opacity);
+                (int)type, (int)opacity,
+                px_tl, px_tr, px_bl, px_br, px_c);
         }
     }
 #endif
