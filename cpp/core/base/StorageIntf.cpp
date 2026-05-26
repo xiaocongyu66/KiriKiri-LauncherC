@@ -935,10 +935,12 @@ void TVPAddAutoPath(const ttstr &name) {
     bool already_in_list = (i != TVPAutoPathList.end());
 
     if(already_in_list) {
-        // No-op: the path is already registered. Clearing the cache here
-        // would force a useless full rebuild on the next storage lookup
-        // (commercial KAG3 startup scripts call addAutoPath idempotently
-        // many times — see 78.log: 30+ rebuilds during append_init.tjs).
+        // The path is already registered, but the underlying archive
+        // contents may have changed since (e.g. a patch xp3 mounted
+        // between the two addAutoPath calls). Match the original KAG3
+        // behavior and force a rebuild on next storage lookup so the
+        // table reflects the current archive cache state.
+        TVPClearAutoPathCache();
         return;
     }
 
