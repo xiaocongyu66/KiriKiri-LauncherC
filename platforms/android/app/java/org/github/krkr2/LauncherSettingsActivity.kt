@@ -16,6 +16,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -428,9 +429,9 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
                 checking = false
                 snackbarHostState.showSnackbar(
                     when (result) {
-                        is UpdateResult.UpToDate -> text.aboutAlreadyLatest
+                        UpdateResult.UpToDate -> text.aboutAlreadyLatest
                         is UpdateResult.NewVersion -> "${text.aboutNewVersion} ${result.tag}"
-                        is UpdateResult.Failed -> text.aboutUpdateFailed
+                        UpdateResult.Failed -> text.aboutUpdateFailed
                     }
                 )
             }
@@ -440,7 +441,7 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
 }
 
 @Composable
-private fun SettingsPanel(title: String, icon: ImageVector, compact: Boolean, content: @Composable Column.() -> Unit) {
+private fun SettingsPanel(title: String, icon: ImageVector, compact: Boolean, content: @Composable ColumnScope.() -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(if (compact) 18.dp else 24.dp)) {
         Column(Modifier.fillMaxWidth().padding(if (compact) 12.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
