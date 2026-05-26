@@ -612,6 +612,7 @@ void tTVPBasicDrawDevice::Show() {
     static int s_nullBuf = 0;
     static int s_nullTex = 0;
     static int s_okFrames = 0;
+    static int s_lastOkFrames = -1;
     ++s_callCount;
     if(s_callCount == 1) {
         // First-call beacon — confirms the cocos2d render thread actually
@@ -627,12 +628,31 @@ void tTVPBasicDrawDevice::Show() {
                 iTVPTexture2D *tex = buf->GetTexture();
                 if(tex) {
                     ++s_okFrames;
+                    // [DIAG 2026-05-26] First time we actually get a real
+                    // texture from the layer manager, log its identity.
+                    // If this never fires, the sprite never gets a real
+                    // texture and the screen stays at its cocos2d clear
+                    // color (black). Sprite::setTexture(nullptr) silently
+                    // falls back to a 2x2 white dummy texture (CCSprite.cpp
+                    // 3.17.2 line 386-401), so even the "white flash" the
+                    // user reports could be the dummy white surface.
+                    if(s_okFrames == 1) {
+                        KR2_RLOG("Show#FIRST_OK_TEX tex=%p buf=%p form=%p",
+                                 (void *)tex, (void *)buf, (void *)form);
+                    }
                     form->UpdateDrawBuffer(tex);
                 } else {
                     ++s_nullTex;
+                    if(s_nullTex == 1) {
+                        KR2_RLOG("Show#FIRST_NULL_TEX buf=%p", (void *)buf);
+                    }
                 }
             } else {
                 ++s_nullBuf;
+                if(s_nullBuf == 1) {
+                    KR2_RLOG("Show#FIRST_NULL_BUF mgr=%p",
+                             (void *)Managers.back());
+                }
             }
         } else if(!form) {
             ++s_nullForm;
@@ -640,12 +660,26 @@ void tTVPBasicDrawDevice::Show() {
     } else {
         ++s_nullWindow;
     }
-    // Print once per second-ish, not every frame, to avoid spamming logcat.
-    if((s_callCount & 0x3F) == 0) {
+    // Sample at 16 / 64 / 256 / ... so we get an early signal even when
+    // the cocos2d render thread is throttled, then stop spamming once we
+    // have steady-state info.
+    bool shouldLog = false;
+    if(s_callCount == 16 || s_callCount == 32 ||
+       (s_callCount & 0xFF) == 0) {
+        shouldLog = true;
+    } else if(s_okFrames != s_lastOkFrames &&
+              ((s_callCount & 0x3F) == 0)) {
+        // Also re-log whenever ok counter ticked since last sample — that
+        // tells us "ok grew from 0 to N" which is the transition we care
+        // about.
+        shouldLog = true;
+    }
+    if(shouldLog) {
         KR2_RLOG("Show#%d ok=%d nullWin=%d nullForm=%d nullBuf=%d nullTex=%d "
                  "managers=%zu",
                  s_callCount, s_okFrames, s_nullWindow, s_nullForm,
                  s_nullBuf, s_nullTex, Managers.size());
+        s_lastOkFrames = s_okFrames;
     }
 }
 #if 0
