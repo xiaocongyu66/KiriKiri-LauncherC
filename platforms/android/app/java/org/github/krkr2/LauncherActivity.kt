@@ -30,6 +30,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.FolderOpen
 import androidx.compose.material.icons.filled.GridView
@@ -52,6 +53,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
@@ -65,6 +67,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -90,7 +93,7 @@ class LauncherActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        applyLauncherOrientation()
         setContent {
             LauncherTheme {
                 LauncherScreen(
@@ -106,8 +109,16 @@ class LauncherActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        applyLauncherOrientation()
         refreshHome?.invoke()
+    }
+
+    private fun applyLauncherOrientation() {
+        requestedOrientation = if (ForceLandscapeHelper.isTabletClass(this)) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
 
     private fun startGame(gameDir: String, title: String) {
@@ -171,6 +182,7 @@ private fun LauncherScreen(
     var lang by remember { mutableStateOf(LauncherPrefs.getLanguage(context)) }
     var selectedGame by remember { mutableStateOf<GameEntry?>(null) }
     var currentDest by remember { mutableStateOf(LauncherDest.Library) }
+    var showRootSheet by rememberSaveable { mutableStateOf(false) }
     val text: LauncherStrings.Texts = if (lang == LauncherPrefs.LANG_ZH) LauncherStrings.zh else LauncherStrings.en
 
     fun rescan(path: String) {
@@ -263,8 +275,9 @@ private fun LauncherScreen(
                         }
                     },
                     actions = {
-                        IconButton(onClick = { rescan(editPath) }) { Icon(Icons.Default.Refresh, null) }
-                        IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, null) }
+                        IconButton(onClick = { showRootSheet = true }) { Icon(Icons.Default.Add, contentDescription = text.gameRootPath) }
+                        IconButton(onClick = { rescan(editPath) }) { Icon(Icons.Default.Refresh, contentDescription = text.refresh) }
+                        IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, contentDescription = text.settings) }
                     },
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 )
@@ -289,9 +302,6 @@ private fun LauncherScreen(
                     Column(Modifier.weight(1f).fillMaxSize().padding(contentPadding), verticalArrangement = Arrangement.spacedBy(contentGap)) {
                         LauncherHero(
                             rootPath = rootPath,
-                            editPath = editPath,
-                            onEditPathChange = { editPath = it },
-                            onRescan = { rescan(editPath) },
                             onOpenPermission = onRequestPermission,
                             scanProgressPath = scanProgressPath,
                             loading = loading,
@@ -313,9 +323,6 @@ private fun LauncherScreen(
                 Column(Modifier.fillMaxSize().padding(padding).padding(contentPadding), verticalArrangement = Arrangement.spacedBy(contentGap)) {
                     LauncherHero(
                         rootPath = rootPath,
-                        editPath = editPath,
-                        onEditPathChange = { editPath = it },
-                        onRescan = { rescan(editPath) },
                         onOpenPermission = onRequestPermission,
                         scanProgressPath = scanProgressPath,
                         loading = loading,
@@ -327,6 +334,24 @@ private fun LauncherScreen(
                         GameGrid(games, false, { selectedGame = it }, onLaunchGame, loading, text)
                     }
                 }
+            }
+        }
+
+        if (showRootSheet) {
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+            ModalBottomSheet(onDismissRequest = { showRootSheet = false }, sheetState = sheetState) {
+                RootConfigSheet(
+                    rootPath = editPath,
+                    onRootPathChange = { editPath = it },
+                    onSave = {
+                        rescan(editPath)
+                        showRootSheet = false
+                    },
+                    onRefresh = { rescan(editPath) },
+                    onGrantStorage = onRequestPermission,
+                    onClose = { showRootSheet = false },
+                    text = text,
+                )
             }
         }
 
@@ -343,9 +368,6 @@ private fun LauncherScreen(
 @Composable
 private fun LauncherHero(
     rootPath: String,
-    editPath: String,
-    onEditPathChange: (String) -> Unit,
-    onRescan: () -> Unit,
     onOpenPermission: () -> Unit,
     scanProgressPath: String,
     loading: Boolean,
@@ -355,10 +377,9 @@ private fun LauncherHero(
 ) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
         Column(Modifier.fillMaxWidth().padding(if (compact) 8.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
-            Text(text.gameRootPath, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            androidx.compose.material3.OutlinedTextField(value = editPath, onValueChange = onEditPathChange, modifier = Modifier.fillMaxWidth(), label = { Text(text.gameRootPath) }, singleLine = true)
+            Text(text.appName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(rootPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                ElevatedAssistChip(onClick = onRescan, label = { Text(text.refresh) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
                 ElevatedAssistChip(onClick = onOpenPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
             }
             if (loading) {
@@ -369,7 +390,36 @@ private fun LauncherHero(
             } else {
                 Text("$gamesCount ${text.running}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(rootPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+private fun RootConfigSheet(
+    rootPath: String,
+    onRootPathChange: (String) -> Unit,
+    onSave: () -> Unit,
+    onRefresh: () -> Unit,
+    onGrantStorage: () -> Unit,
+    onClose: () -> Unit,
+    text: LauncherStrings.Texts,
+) {
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(text.gameRootPath, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+        OutlinedTextField(
+            value = rootPath,
+            onValueChange = onRootPathChange,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(text.gameRootPath) },
+            singleLine = true,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ElevatedAssistChip(onClick = onGrantStorage, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
+            ElevatedAssistChip(onClick = onRefresh, label = { Text(text.refresh) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+            TextButton(onClick = onClose, modifier = Modifier.weight(1f)) { Text(text.close) }
+            FilledTonalButton(onClick = onSave, modifier = Modifier.weight(1f)) { Text(text.saveAndScan) }
         }
     }
 }

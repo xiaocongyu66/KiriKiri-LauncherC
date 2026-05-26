@@ -95,7 +95,7 @@ import java.net.URL
 class LauncherSettingsActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        applyLauncherOrientation()
         setContent {
             LauncherTheme {
                 SettingsScreen(
@@ -123,7 +123,15 @@ class LauncherSettingsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        applyLauncherOrientation()
+    }
+
+    private fun applyLauncherOrientation() {
+        requestedOrientation = if (ForceLandscapeHelper.isTabletClass(this)) {
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        } else {
+            ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+        }
     }
 }
 
