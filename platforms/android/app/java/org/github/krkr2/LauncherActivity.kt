@@ -204,15 +204,6 @@ private fun LauncherScreen(
 
     BoxWithConstraints {
         val expanded = maxWidth >= 840.dp
-        val bottomBarContent: (@Composable () -> Unit)? = if (expanded) null else {
-            {
-                NavigationBar {
-                    NavigationBarItem(selected = currentDest == LauncherDest.Library, onClick = { currentDest = LauncherDest.Library }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
-                    NavigationBarItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
-                    NavigationBarItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text("Tools") })
-                }
-            }
-        }
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -234,7 +225,15 @@ private fun LauncherScreen(
                     colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 )
             },
-            bottomBar = bottomBarContent,
+            bottomBar = {
+                if (!expanded) {
+                    NavigationBar {
+                        NavigationBarItem(selected = currentDest == LauncherDest.Library, onClick = { currentDest = LauncherDest.Library }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
+                        NavigationBarItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
+                        NavigationBarItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text("Tools") })
+                    }
+                }
+            },
         ) { padding ->
             if (expanded) {
                 Row(Modifier.fillMaxSize().padding(padding)) {
