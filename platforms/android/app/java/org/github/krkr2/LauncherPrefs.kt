@@ -16,6 +16,15 @@ object LauncherPrefs {
     private const val KEY_LANGUAGE = "language"
     private const val KEY_FORCE_LANDSCAPE = "force_landscape"
     private const val KEY_KNOWN_GAMES = "known_games"
+    // Maximum directory depth GameScanner walks below the configured root
+    // before giving up. Deeper trees take quadratically longer, especially
+    // when MANAGE_EXTERNAL_STORAGE is granted and the root happens to be
+    // /storage/emulated/0. Tyranor uses 2 by default — keep parity unless
+    // the user opts into a deeper walk via Settings.
+    private const val KEY_SCAN_DEPTH = "scan_depth"
+    const val SCAN_DEPTH_MIN = 1
+    const val SCAN_DEPTH_MAX = 10
+    const val SCAN_DEPTH_DEFAULT = 2
     // Snapshot of Settings.System.ACCELEROMETER_ROTATION captured by
     // ForceLandscapeHelper before it disabled auto-rotate. -1 means "no
     // saved value, do not restore". We persist this so a process kill
@@ -60,6 +69,20 @@ object LauncherPrefs {
         context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
             .edit()
             .putBoolean(KEY_FORCE_LANDSCAPE, enabled)
+            .apply()
+    }
+
+    fun getScanDepth(context: Context): Int {
+        val raw = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .getInt(KEY_SCAN_DEPTH, SCAN_DEPTH_DEFAULT)
+        return raw.coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)
+    }
+
+    fun setScanDepth(context: Context, depth: Int) {
+        val clamped = depth.coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)
+        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
+            .edit()
+            .putInt(KEY_SCAN_DEPTH, clamped)
             .apply()
     }
 

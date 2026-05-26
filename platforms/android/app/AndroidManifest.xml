@@ -19,13 +19,6 @@
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="29" />
-    <!-- WRITE_SETTINGS lets the launcher temporarily flip ACCELEROMETER_ROTATION
-         when the user enables "Force landscape" in settings. Without it,
-         system-level auto-rotation lock can still rotate the activity even
-         though we requested SCREEN_ORIENTATION_LANDSCAPE. tools:ignore is
-         required because Lint warns that this permission is not granted to
-         third-party apps without user opt-in (which is exactly the flow we
-         drive from LauncherSettingsActivity). -->
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
@@ -47,7 +40,7 @@
             android:name=".LauncherActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="true"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.KR2.Launcher">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -59,21 +52,21 @@
             android:name=".LauncherSettingsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="false"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity
             android:name=".RenderSettingsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="false"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity
             android:name=".DiagnosticsActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="false"
-            android:screenOrientation="unspecified"
+            android:screenOrientation="sensorLandscape"
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity

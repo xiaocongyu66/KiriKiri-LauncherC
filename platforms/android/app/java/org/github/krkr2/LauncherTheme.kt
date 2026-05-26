@@ -1,72 +1,77 @@
 package org.github.krkr2
 
+import android.app.Activity
+import android.os.Build
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 /**
- * Gaming-launcher dark theme.
+ * MD3-first launcher theme.
  *
- * Style anchor: "Dark & Elegant + Gaming". Engine assets (krkr / emoteplayer)
- * lean on warm orange-red, so we use that as primary; cyan tertiary picks up
- * the rendering / engine config sections so they read as "system" not as
- * primary actions.
- *
- * Surfaces are stacked with explicit colors instead of pure tonal elevation
- * because the launcher mixes high-contrast game cards with subtle settings
- * surfaces — explicit values give predictable cards on top of a near-black
- * background.
+ * Dynamic color is enabled on Android 12+ and falls back to a calm,
+ * high-contrast static palette on older versions. We keep the launcher
+ * accent in the warm orange family to echo the krkr/game identity, but
+ * everything else follows Material 3 tonal surfaces.
  */
-private val GamingDark = darkColorScheme(
-    // Primary — krkr orange. Used for FAB, primary buttons, highlight chips.
-    primary = Color(0xFFFF7043),
-    onPrimary = Color(0xFF1B0900),
-    primaryContainer = Color(0xFF7A2900),
-    onPrimaryContainer = Color(0xFFFFDBCB),
-
-    // Secondary — muted lavender for selection / accents.
-    secondary = Color(0xFFCDB7E5),
-    onSecondary = Color(0xFF332644),
-    secondaryContainer = Color(0xFF483C5C),
-    onSecondaryContainer = Color(0xFFEADDFF),
-
-    // Tertiary — cyan, reserved for engine / render settings cards.
-    tertiary = Color(0xFF80DEEA),
-    onTertiary = Color(0xFF003640),
-    tertiaryContainer = Color(0xFF005662),
-    onTertiaryContainer = Color(0xFFB2EBF2),
-
-    // Surfaces — near-black background, slightly lifted surfaces.
-    background = Color(0xFF0A0A0F),
-    onBackground = Color(0xFFE6E1E5),
-    surface = Color(0xFF13131A),
-    onSurface = Color(0xFFE6E1E5),
-    surfaceVariant = Color(0xFF1F1F28),
-    onSurfaceVariant = Color(0xFFC8C5D0),
-    surfaceTint = Color(0xFFFF7043),
-
-    // Errors stay in the red family but a touch warmer to match primary.
-    error = Color(0xFFFFB4AB),
-    onError = Color(0xFF690005),
-    errorContainer = Color(0xFF93000A),
-    onErrorContainer = Color(0xFFFFDAD6),
-
-    outline = Color(0xFF2A2A35),
-    outlineVariant = Color(0xFF3A3A48),
+private val StaticDark = darkColorScheme(
+    primary = Color(0xFFFFB59D),
+    onPrimary = Color(0xFF4B1A08),
+    primaryContainer = Color(0xFF6B2B13),
+    onPrimaryContainer = Color(0xFFFFDBCF),
+    secondary = Color(0xFFD8C2FF),
+    onSecondary = Color(0xFF382A4A),
+    secondaryContainer = Color(0xFF4F4061),
+    onSecondaryContainer = Color(0xFFF0DEFF),
+    tertiary = Color(0xFF9AD8E8),
+    onTertiary = Color(0xFF053743),
+    tertiaryContainer = Color(0xFF214D59),
+    onTertiaryContainer = Color(0xFFBEEAF7),
+    background = Color(0xFF121318),
+    onBackground = Color(0xFFE4E1E8),
+    surface = Color(0xFF121318),
+    onSurface = Color(0xFFE4E1E8),
+    surfaceVariant = Color(0xFF47464F),
+    onSurfaceVariant = Color(0xFFC8C5CF),
+    outline = Color(0xFF918F99),
+    outlineVariant = Color(0xFF47464F),
     scrim = Color(0xFF000000),
 )
 
-/**
- * Typography aligned to M3 spec but with slightly tightened display weights
- * for the gaming feel. We keep Roboto so the system bundles the font, not
- * our APK.
- */
-private val GamingTypography = Typography(
+private val StaticLight = lightColorScheme(
+    primary = Color(0xFF8D4B35),
+    onPrimary = Color(0xFFFFFFFF),
+    primaryContainer = Color(0xFFFFDBCF),
+    onPrimaryContainer = Color(0xFF361003),
+    secondary = Color(0xFF645A70),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFE8DEF8),
+    onSecondaryContainer = Color(0xFF1F182A),
+    tertiary = Color(0xFF4F6974),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFCDE7F1),
+    onTertiaryContainer = Color(0xFF061F29),
+    background = Color(0xFFFDF7FF),
+    onBackground = Color(0xFF1D1B20),
+    surface = Color(0xFFFDF7FF),
+    onSurface = Color(0xFF1D1B20),
+    surfaceVariant = Color(0xFFE7E0EB),
+    onSurfaceVariant = Color(0xFF49454E),
+    outline = Color(0xFF7A757F),
+    outlineVariant = Color(0xFFCAC4CF),
+    scrim = Color(0xFF000000),
+)
+
+private val LauncherTypography = Typography(
     displayLarge = TextStyle(fontSize = 48.sp, fontWeight = FontWeight.Bold, lineHeight = 56.sp, letterSpacing = (-0.25).sp),
     displayMedium = TextStyle(fontSize = 36.sp, fontWeight = FontWeight.SemiBold, lineHeight = 44.sp),
     headlineLarge = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.SemiBold, lineHeight = 36.sp),
@@ -85,26 +90,21 @@ private val GamingTypography = Typography(
 
 @Composable
 fun LauncherTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val scheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+        if ((context as? Activity) != null) dynamicDarkColorScheme(context) else StaticDark
+    } else {
+        StaticDark
+    }
     MaterialTheme(
-        colorScheme = GamingDark,
-        typography = GamingTypography,
+        colorScheme = scheme,
+        typography = LauncherTypography,
         content = content,
     )
 }
 
-/**
- * Color tokens that don't exist in M3 but the launcher uses repeatedly.
- * Centralised here so we don't sprinkle hex values across screens.
- */
 object LauncherTokens {
-    // Engine / render settings accent — matches tertiary so render cards
-    // read as "system" sections without changing the M3 colorScheme calls.
-    val EngineAccent = Color(0xFF80DEEA)
-
-    // Per-game override accent — different from engine to make it clear
-    // that the value shadows global. Warm yellow-amber.
-    val OverrideAccent = Color(0xFFFFC857)
-
-    // Dim disclosed state used by the diagnostics chips.
+    val EngineAccent = Color(0xFF4F6974)
+    val OverrideAccent = Color(0xFF8D4B35)
     val Dim = Color(0xFF8E8E99)
 }

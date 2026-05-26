@@ -21,30 +21,58 @@ object GameScanner {
         "cover", "icon", "title", "thumb", "thumbnail", "package", "bg", "background", "main"
     )
 
-    fun scan(root: File, maxDepth: Int = 6): List<GameEntry> {
+    /**
+     * Scan [root] for kirikiri/KAG game directories.
+     *
+     * @param maxDepth maximum directory recursion below [root]. The
+     * default of 2 matches Tyranor's behavior — kirikiri games typically
+     * live at <root>/<game>/, so depth 2 already covers a publisher folder
+     * wrapping individual titles. Configurable 1..10 via Settings.
+     * @param onProgress optional callback invoked once per directory the
+     * scanner enters. The current directory's absolute path is passed so
+     * the caller can show "Scanning /storage/.../foo" in the loading UI
+     * without having to poll. Called on the calling thread.
+     */
+    fun scan(
+        root: File,
+        maxDepth: Int = 2,
+        onProgress: ((String) -> Unit)? = null,
+    ): List<GameEntry> {
         if (!root.exists() || !root.isDirectory) return emptyList()
         val result = linkedMapOf<String, GameEntry>()
-        scanDir(root, 0, maxDepth, result)
+        scanDir(root, 0, maxDepth, result, onProgress)
         return result.values.sortedWith(
             compareByDescending<GameEntry> { it.lastModified }.thenBy { it.title.lowercase(Locale.ROOT) }
         )
     }
 
-    private fun scanDir(dir: File, depth: Int, maxDepth: Int, result: MutableMap<String, GameEntry>) {
+    private fun scanDir(
+        dir: File,
+        depth: Int,
+        maxDepth: Int,
+        result: MutableMap<String, GameEntry>,
+        onProgress: ((String) -> Unit)?,
+    ) {
         if (depth > maxDepth || dir.name.startsWith(".")) return
+        if (!dir.canRead()) return
+        onProgress?.invoke(dir.absolutePath)
         val children = runCatching { dir.listFiles()?.toList().orEmpty() }.getOrDefault(emptyList())
         if (children.isEmpty()) return
 
         if (isGameDir(dir, children)) {
             val entry = buildGameEntry(dir, children)
             result[entry.gameDir] = entry
+            // Tyranor-style pruning: once we identify a game directory we
+            // do NOT descend further. Kirikiri games never nest inside
+            // each other, so descending only wastes IO walking the game's
+            // own asset tree (image/, voice/, scenario/, ...).
             return
         }
 
         children.asSequence()
-            .filter { it.isDirectory }
-            .filterNot { it.name.equals("Android", true) || it.name.startsWith(".") }
-            .forEach { scanDir(it, depth + 1, maxDepth, result) }
+            .filter { it.isDirectory && it.canRead() }
+            .filterNot { it.name.startsWith(".") }
+            .forEach { scanDir(it, depth + 1, maxDepth, result, onProgress) }
     }
 
     private fun isGameDir(dir: File, children: List<File>): Boolean {
