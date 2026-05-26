@@ -133,6 +133,11 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
         DrawBuffer = new tTVPDestTexture(w, h);
         DrawBuffer->Fill(tTVPRect(0, 0, w, h), 0xFF000000);
         static_cast<tTVPDestTexture *>(DrawBuffer)->SetHoldAlpha(HoldAlpha);
+#if defined(__ANDROID__)
+        KR2RenderProbeWriteF(
+            "LayerMgr::DrawBuffer#CREATED size=%dx%d holdAlpha=%d",
+            (int)w, (int)h, HoldAlpha ? 1 : 0);
+#endif
     } else {
         tjs_int bw = DrawBuffer->GetWidth();
         tjs_int bh = DrawBuffer->GetHeight();
@@ -144,6 +149,30 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
             DrawBuffer->Fill(tTVPRect(0, 0, neww, newh), 0xFF000000);
         }
     }
+
+#if defined(__ANDROID__)
+    {
+        // [DIAG 2026-05-26] Trace every layer→DrawBuffer Blt. If we
+        // never see a 1920×1080 destrect Blt for fore.base content,
+        // then DrawSelf isn't reaching here despite the LayerTree
+        // having hasImg=1 children — that's the actual black-screen
+        // root cause.
+        static int s_dcCount = 0;
+        ++s_dcCount;
+        if(s_dcCount <= 16 || (s_dcCount & 0x7F) == 0) {
+            KR2RenderProbeWriteF(
+                "LayerMgr::DrawCompleted#%d dst=%d,%d,%dx%d "
+                "bmp=%p clip=%d,%d,%dx%d type=%d opacity=%d",
+                s_dcCount,
+                destrect.left, destrect.top,
+                destrect.get_width(), destrect.get_height(),
+                (void *)bmp,
+                cliprect.left, cliprect.top,
+                cliprect.get_width(), cliprect.get_height(),
+                (int)type, (int)opacity);
+        }
+    }
+#endif
 
     DrawBuffer->Blt(destrect.left, destrect.top, bmp, cliprect, type, opacity,
                     HoldAlpha);
@@ -1165,7 +1194,8 @@ void tTVPLayerManager::UpdateToDrawDevice() {
             dumpLayerTree(Primary, "Tp");
         }
     }
-    if((s_count & 0x3F) == 0) {
+    if((s_count <= 8) ||
+       (s_count & 0x3F) == 0) {
         KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#%d noPrimary=%d "
                              "primarySize=%ux%u hasImage=%d",
                              s_count, s_noprimary,
