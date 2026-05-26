@@ -1059,12 +1059,34 @@ void tTVPLayerManager::UpdateToDrawDevice() {
     ++s_count;
     if(!Primary) ++s_noprimary;
     if(s_count == 1) {
-        KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#FIRST primary=%p",
-                             (void *)Primary);
+        // Probe the primary layer state on the very first compose so we can
+        // tell apart "engine never got around to drawing the title image"
+        // (HasImage=0, MainImage=nullptr) from "drawing happened but went
+        // somewhere we don't see" (HasImage=1, but device still black).
+        // Reported issue: black screen on limelight after KAG startup. We
+        // know primary != nullptr from earlier logs; this prints the
+        // dimensions and image-presence so the next 78.log can localise it.
+        if(Primary) {
+            KR2RenderProbeWriteF(
+                "LayerMgr::UpdateToDrawDevice#FIRST primary=%p "
+                "size=%ux%u hasImage=%d mainImage=%p neutral=%08x",
+                (void *)Primary,
+                (unsigned)Primary->GetWidth(), (unsigned)Primary->GetHeight(),
+                Primary->GetHasImage() ? 1 : 0,
+                (void *)Primary->MainImage,
+                (unsigned)Primary->GetNeutralColor());
+        } else {
+            KR2RenderProbeWriteF(
+                "LayerMgr::UpdateToDrawDevice#FIRST primary=(null)");
+        }
     }
     if((s_count & 0x3F) == 0) {
-        KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#%d noPrimary=%d",
-                             s_count, s_noprimary);
+        KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#%d noPrimary=%d "
+                             "primarySize=%ux%u hasImage=%d",
+                             s_count, s_noprimary,
+                             Primary ? (unsigned)Primary->GetWidth() : 0,
+                             Primary ? (unsigned)Primary->GetHeight() : 0,
+                             Primary ? (Primary->GetHasImage() ? 1 : 0) : -1);
     }
 #endif
     // drawdevice -> layer

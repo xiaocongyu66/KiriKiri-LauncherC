@@ -370,6 +370,16 @@ void TVPRegisterVoiceEffectStubs() {
                                                TJS_W("voiceEffectPlugin"));
                 RegisterPermissiveStubOnGlobal(kag,
                                                TJS_W("voiceEffectFactory"));
+                // wamsoft KAG plugins that we don't ship on Android. Each
+                // is driven by a dedicated DLL on Windows; without the DLL
+                // the stock script still publishes its instance member
+                // name, then the `[trans method=...]` / sysHook handlers
+                // call .processOpen / .processStop / .filterVoice on it.
+                // Returning a permissive stub for those slots lets the
+                // KAG dispatcher reach the no-op fast path instead of
+                // raising "Member ... does not exist" repeatedly.
+                RegisterPermissiveStubOnGlobal(kag,
+                                               TJS_W("sysTransitionEffect"));
             }
         } else {
             TVPAddLog(TJS_W("[krkr] voiceEffect stub: kag not yet created, "
