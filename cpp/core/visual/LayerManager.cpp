@@ -26,6 +26,7 @@ extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
 #include "TickCount.h"
 #include "DebugIntf.h"
 #include "LayerTreeOwner.h"
+#include "RenderManager.h"
 
 //---------------------------------------------------------------------------
 // tTVPLayerManager
