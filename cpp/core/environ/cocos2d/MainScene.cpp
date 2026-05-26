@@ -752,6 +752,19 @@ public:
     }
 
     void SetPaintBoxSize(tjs_int w, tjs_int h) override {
+#if defined(__ANDROID__)
+        // [DIAG 2026-05-26] Trace size assignment. If this never fires
+        // before UpdateDrawBuffer, sw=LayerWidth=0 makes
+        // setTextureRect(0,0,0×0) and the sprite is invisible — that
+        // matches "black screen even though LayerTree has content".
+        static int s_setSizeCount = 0;
+        ++s_setSizeCount;
+        if(s_setSizeCount <= 4 || (s_setSizeCount & 0x3F) == 0) {
+            KR2RenderProbeWriteF(
+                "WindowLayer::SetPaintBoxSize#%d w=%d h=%d (was %dx%d)",
+                s_setSizeCount, (int)w, (int)h, LayerWidth, LayerHeight);
+        }
+#endif
         LayerWidth = w;
         LayerHeight = h;
         RecalcPaintBox();
@@ -1010,6 +1023,36 @@ public:
         // 		}
         Texture2D *tex2d = DrawSprite->getTexture();
         Texture2D *newtex = tex->GetAdapterTexture(tex2d);
+#if defined(__ANDROID__)
+        {
+            // [DIAG 2026-05-26] After Show#FIRST_OK_TEX we know
+            // Show()->UpdateDrawBuffer is reached at least once; but the
+            // screen is still black. This trace verifies the cocos2d
+            // sprite update branch:
+            //   - tex2d==newtex => branch SKIPPED (no setTextureRect, no
+            //     ResetDrawSprite). If LayerWidth still 0, the sprite
+            //     stays invisible.
+            //   - LayerWidth/LayerHeight 0 => sw=0 even when branch
+            //     taken => setTextureRect(0,0,0×0) ⇒ invisible.
+            static int s_udbCount = 0;
+            static int s_udbBranch = 0;
+            ++s_udbCount;
+            bool branchTaken = (tex2d != newtex);
+            if(branchTaken) ++s_udbBranch;
+            if(s_udbCount <= 4 || (s_udbCount & 0x7F) == 0) {
+                KR2RenderProbeWriteF(
+                    "WindowLayer::UpdateDrawBuffer#%d branch=%d "
+                    "tex=%p tex2d=%p newtex=%p LayerW=%d LayerH=%d "
+                    "internalW=%d internalH=%d gpu=%d",
+                    s_udbCount, branchTaken ? 1 : 0,
+                    (void *)tex, (void *)tex2d, (void *)newtex,
+                    LayerWidth, LayerHeight,
+                    (int)tex->GetInternalWidth(),
+                    (int)tex->GetInternalHeight(),
+                    (int)tex->IsGPU());
+            }
+        }
+#endif
         if(tex2d != newtex) {
             DrawSprite->setTexture(newtex);
             float sw, sh;
@@ -1028,6 +1071,12 @@ public:
                     ((float)LayerHeight / tex->GetHeight());
                 _drawTextureScaleY = 1 / _drawTextureScaleY;
             }
+#if defined(__ANDROID__)
+            KR2RenderProbeWriteF(
+                "WindowLayer::UpdateDrawBuffer applied "
+                "sw=%.1f sh=%.1f scaleX=%.3f scaleY=%.3f",
+                sw, sh, _drawTextureScaleX, _drawTextureScaleY);
+#endif
             DrawSprite->setTextureRect(cocos2d::Rect(0, 0, sw, sh));
             DrawSprite->setBlendFunc(BlendFunc::DISABLE);
             ResetDrawSprite();

@@ -660,15 +660,16 @@ void tTVPBasicDrawDevice::Show() {
     } else {
         ++s_nullWindow;
     }
-    // Sample at 16 / 64 / 256 / ... so we get an early signal even when
-    // the cocos2d render thread is throttled, then stop spamming once we
-    // have steady-state info.
+    // Sample early frames densely (every frame for the first 8 calls so we
+    // can see the ok transition), then space out exponentially to avoid
+    // log spam in steady state.
     bool shouldLog = false;
-    if(s_callCount == 16 || s_callCount == 32 ||
+    if(s_callCount <= 8 ||
+       s_callCount == 16 || s_callCount == 32 || s_callCount == 64 ||
+       s_callCount == 128 ||
        (s_callCount & 0xFF) == 0) {
         shouldLog = true;
-    } else if(s_okFrames != s_lastOkFrames &&
-              ((s_callCount & 0x3F) == 0)) {
+    } else if(s_okFrames != s_lastOkFrames) {
         // Also re-log whenever ok counter ticked since last sample — that
         // tells us "ok grew from 0 to N" which is the transition we care
         // about.
