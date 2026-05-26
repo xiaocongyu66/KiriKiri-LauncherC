@@ -1043,13 +1043,12 @@ public:
                 KR2RenderProbeWriteF(
                     "WindowLayer::UpdateDrawBuffer#%d branch=%d "
                     "tex=%p tex2d=%p newtex=%p LayerW=%d LayerH=%d "
-                    "internalW=%d internalH=%d gpu=%d",
+                    "internalW=%d internalH=%d",
                     s_udbCount, branchTaken ? 1 : 0,
                     (void *)tex, (void *)tex2d, (void *)newtex,
                     LayerWidth, LayerHeight,
                     (int)tex->GetInternalWidth(),
-                    (int)tex->GetInternalHeight(),
-                    (int)tex->IsGPU());
+                    (int)tex->GetInternalHeight());
             }
         }
 #endif
