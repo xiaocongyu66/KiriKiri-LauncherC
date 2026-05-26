@@ -10,7 +10,12 @@ data class GameEntry(
     val backgroundPath: String? = null,
     val launchFile: String? = null,
     val lastModified: Long = 0L,
-)
+) {
+    val iconPath: String? get() = coverPath
+    val bannerPath: String? get() = backgroundPath
+    val thumbnailPath: String? get() = coverPath
+    val description: String? get() = null
+}
 
 object GameScanner {
     private val gameMarkers = setOf(
