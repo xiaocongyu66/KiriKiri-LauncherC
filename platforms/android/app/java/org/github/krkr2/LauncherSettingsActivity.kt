@@ -87,6 +87,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -103,6 +104,14 @@ class LauncherSettingsActivity : AppCompatActivity() {
                     onLaunchOriginal = {
                         val intent = Intent(this, MainActivity::class.java)
                         intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        val root = LauncherPrefs.getGameRoot(this)
+                        intent.putExtra(MainActivity.EXTRA_GAME_DIR, root)
+                        LauncherPrefs.getCustomLaunchFile(this, root)
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let { path ->
+                                val f = File(path)
+                                if (f.isFile && f.canRead()) intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
+                            }
                         startActivity(intent)
                         finish()
                     },
@@ -146,7 +155,7 @@ private fun SettingsScreen(
         val normalized = pathInput.trim().ifBlank { LauncherPrefs.DEFAULT_GAME_ROOT }
         LauncherPrefs.setGameRoot(context, normalized)
         scope.launch {
-            val games = withContext(Dispatchers.IO) { GameScanner.scan(java.io.File(normalized), maxDepth = scanDepth) }
+            val games = withContext(Dispatchers.IO) { GameScanner.scan(File(normalized), maxDepth = scanDepth) }
             statusLine = "${text.scan}: ${games.size}"
             snackbarHostState.showSnackbar(statusLine)
         }
@@ -174,7 +183,7 @@ private fun SettingsScreen(
                 ) {
                     SettingsHero(text, statusLine, compact, onPrimary = { saveAndScan() }, onSecondary = {
                         scope.launch {
-                            val games = withContext(Dispatchers.IO) { GameScanner.scan(java.io.File(LauncherPrefs.getGameRoot(context)), maxDepth = scanDepth) }
+                            val games = withContext(Dispatchers.IO) { GameScanner.scan(File(LauncherPrefs.getGameRoot(context)), maxDepth = scanDepth) }
                             statusLine = "${text.scan}: ${games.size}"
                             snackbarHostState.showSnackbar(statusLine)
                         }
@@ -194,7 +203,7 @@ private fun SettingsScreen(
                         onSaveAndScan = { saveAndScan() },
                         onRefresh = {
                             scope.launch {
-                                val games = withContext(Dispatchers.IO) { GameScanner.scan(java.io.File(LauncherPrefs.getGameRoot(context)), maxDepth = scanDepth) }
+                                val games = withContext(Dispatchers.IO) { GameScanner.scan(File(LauncherPrefs.getGameRoot(context)), maxDepth = scanDepth) }
                                 statusLine = "${text.scan}: ${games.size}"
                                 snackbarHostState.showSnackbar(statusLine)
                             }
@@ -296,18 +305,6 @@ private fun SettingsHero(text: LauncherStrings.Texts, statusLine: String, compac
 }
 
 @Composable
-private fun QuickStatusCard(text: LauncherStrings.Texts, path: String, depth: Int, compact: Boolean) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(if (compact) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(text.settingsLibrary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-            Text(path, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-            Text("${text.scanDepth}: $depth/10", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
 private fun SettingsContent(
     dest: SettingsDest,
     text: LauncherStrings.Texts,
@@ -326,16 +323,64 @@ private fun SettingsContent(
     onLaunchOriginal: () -> Unit,
     onExportBackup: () -> Unit,
     onCopy: (String) -> Unit,
-    modifier: Modifier = Modifier.fillMaxSize(),
+    modifier: Modifier = Modifier,
 ) {
-    val scroll = rememberScrollState()
-    Column(modifier.verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
+    Box(modifier) {
         when (dest) {
             SettingsDest.Library -> LibrarySettings(text, compact, pathInput, onPathChange, scanDepth, onScanDepthChange, statusLine, onSaveAndScan, onRefresh, onGrantStorage)
             SettingsDest.Display -> DisplaySettings(text, compact, onLangChange)
             SettingsDest.Engine -> EngineSettings(text, compact, onOpenRenderSettings)
             SettingsDest.Tools -> ToolsSettings(text, compact, onOpenDiagnostics, onLaunchOriginal, onExportBackup)
             SettingsDest.About -> AboutSettings(text, compact, onCopy)
+        }
+    }
+}
+
+@Composable
+private fun SettingsPanel(title: String, icon: ImageVector, compact: Boolean, content: @Composable ColumnScope.() -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(if (compact) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            }
+            content()
+        }
+    }
+}
+
+@Composable
+private fun RowSetting(icon: ImageVector, title: String, subtitle: String, onClick: (() -> Unit)? = null, trailing: (@Composable () -> Unit)? = null, showChevron: Boolean = onClick != null) {
+    Row(
+        Modifier.fillMaxWidth().then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        trailing?.invoke()
+        if (showChevron) Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun PrimaryChip(text: String, icon: ImageVector, onClick: () -> Unit) {
+    ElevatedAssistChip(onClick = onClick, label = { Text(text) }, leadingIcon = { Icon(icon, null) })
+}
+
+@Composable
+private fun QuickStatusCard(text: LauncherStrings.Texts, path: String, depth: Int, compact: Boolean) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(18.dp)) {
+        Column(Modifier.fillMaxWidth().padding(if (compact) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(text.settingsLibrary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+            Text(path, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            Text("${text.scanDepth}: $depth/10", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -397,12 +442,10 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
     val appIcon = remember { runCatching { context.packageManager.getApplicationIcon(context.packageName) }.getOrNull() }
     val versionName = pInfo?.versionName ?: "—"
     val versionCode = pInfo?.let {
-        @Suppress("DEPRECATION")
-        if (android.os.Build.VERSION.SDK_INT >= 28) it.longVersionCode else it.versionCode.toLong()
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) it.longVersionCode else @Suppress("DEPRECATION") it.versionCode.toLong()
     } ?: 0L
     var checking by remember { mutableStateOf(false) }
-    val scope = rememberCoroutineScope()
-    val snackbarHostState = remember { SnackbarHostState() }
+    var snackbarHostState = remember { SnackbarHostState() }
 
     SettingsPanel(text.settingsAbout, Icons.Default.Info, compact) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -424,8 +467,9 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
         RowSetting(Icons.Default.Update, if (checking) text.aboutCheckingUpdate else text.aboutCheckUpdate, "Check whether a newer release exists.", onClick = {
             if (checking) return@RowSetting
             checking = true
+            val scope = rememberCoroutineScope()
             scope.launch {
-                val result = checkUpdate(versionName)
+                val result = checkLatestRelease(context)
                 checking = false
                 snackbarHostState.showSnackbar(
                     when (result) {
@@ -436,72 +480,27 @@ private fun AboutSettings(text: LauncherStrings.Texts, compact: Boolean, onCopy:
                 )
             }
         })
-        SnackbarHost(snackbarHostState)
     }
 }
 
-@Composable
-private fun SettingsPanel(title: String, icon: ImageVector, compact: Boolean, content: @Composable ColumnScope.() -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(if (compact) 18.dp else 24.dp)) {
-        Column(Modifier.fillMaxWidth().padding(if (compact) 12.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(14.dp)) {
-                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
-                }
-                Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            }
-            content()
-        }
-    }
+private sealed interface UpdateResult {
+    data object UpToDate : UpdateResult
+    data class NewVersion(val tag: String) : UpdateResult
+    data object Failed : UpdateResult
 }
 
-@Composable
-private fun RowSetting(icon: ImageVector, title: String, subtitle: String? = null, onClick: (() -> Unit)? = null, showChevron: Boolean = onClick != null, trailing: (@Composable () -> Unit)? = null) {
-    Surface(onClick = { onClick?.invoke() }, enabled = onClick != null, color = Color.Transparent, modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Surface(color = MaterialTheme.colorScheme.secondaryContainer, shape = RoundedCornerShape(12.dp)) {
-                Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) { Icon(icon, null, tint = MaterialTheme.colorScheme.onSecondaryContainer) }
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-                if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            if (trailing != null) trailing() else if (showChevron) Text("›", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-    }
-}
-
-@Composable
-private fun PrimaryChip(text: String, icon: ImageVector, onClick: () -> Unit) {
-    ElevatedAssistChip(onClick = onClick, label = { Text(text) }, leadingIcon = { Icon(icon, null, modifier = Modifier.size(16.dp)) })
-}
-
-private sealed class UpdateResult {
-    data object UpToDate : UpdateResult()
-    data class NewVersion(val tag: String) : UpdateResult()
-    data object Failed : UpdateResult()
-}
-
-private suspend fun checkUpdate(currentVersion: String): UpdateResult = withContext(Dispatchers.IO) {
+private suspend fun checkLatestRelease(context: Context): UpdateResult = withContext(Dispatchers.IO) {
     runCatching {
-        val url = URL("https://api.github.com/repos/xiaocongyu66/krkr2/releases/latest")
-        val conn = (url.openConnection() as HttpURLConnection).apply {
-            connectTimeout = 8000
-            readTimeout = 8000
-            requestMethod = "GET"
-            setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "krkr2-launcher/$currentVersion")
-        }
-        try {
-            if (conn.responseCode != 200) return@runCatching UpdateResult.Failed
-            val body = conn.inputStream.bufferedReader().use { it.readText() }
-            val tag = JSONObject(body).optString("tag_name").trim()
-            if (tag.isEmpty()) UpdateResult.Failed
-            else if (tag.equals(currentVersion, ignoreCase = true) || tag.equals("v$currentVersion", ignoreCase = true)) UpdateResult.UpToDate
-            else UpdateResult.NewVersion(tag)
-        } finally {
-            conn.disconnect()
+        val conn = URL("https://api.github.com/repos/xiaocongyu66/krkr2/releases/latest").openConnection() as HttpURLConnection
+        conn.requestMethod = "GET"
+        conn.connectTimeout = 8000
+        conn.readTimeout = 8000
+        conn.setRequestProperty("Accept", "application/vnd.github+json")
+        conn.setRequestProperty("User-Agent", "krkr2-launcher")
+        conn.inputStream.bufferedReader().use { reader ->
+            val json = JSONObject(reader.readText())
+            val tag = json.optString("tag_name", "").trim()
+            if (tag.isNotBlank()) UpdateResult.NewVersion(tag) else UpdateResult.Failed
         }
     }.getOrElse { UpdateResult.Failed }
 }
@@ -509,4 +508,5 @@ private suspend fun checkUpdate(currentVersion: String): UpdateResult = withCont
 private fun copyToClipboard(context: Context, text: String) {
     val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
     cm?.setPrimaryClip(ClipData.newPlainText("krkr2", text))
+}
 }

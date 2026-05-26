@@ -34,22 +34,18 @@ namespace motion {
     };
 
     iTJSDispatch2 *ensurePrivateMotionGLLLike_0x6D5948(
-        SeparateLayerAdaptor &sla,
-        const tTJSVariant &ownerVariant,
-        const tTJSVariant &targetLayerVariant,
-        iTJSDispatch2 *targetLayerObject,
-        int canvasWidth,
-        int canvasHeight);
+        SeparateLayerAdaptor &sla, const tTJSVariant &ownerVariant,
+        const tTJSVariant &targetLayerVariant, iTJSDispatch2 *targetLayerObject,
+        int canvasWidth, int canvasHeight);
 
-    tTJSNI_BaseLayer *resolvePrivateMotionGLLNativeLike_0x6DE24C(
-        iTJSDispatch2 *object);
+    tTJSNI_BaseLayer *
+    resolvePrivateMotionGLLNativeLike_0x6DE24C(iTJSDispatch2 *object);
 
-    void clearPrivateMotionGLLRenderQueueLike_0x6DE738(
-        iTJSDispatch2 *object);
+    void clearPrivateMotionGLLRenderQueueLike_0x6DE738(iTJSDispatch2 *object);
     void appendPrivateMotionGLLRenderItemLike_0x6DE738(
         iTJSDispatch2 *object,
         const PrivateMotionGLLRenderItemInputLike_0x6DE738 &item);
-    std::size_t privateMotionGLLRenderQueueSizeLike_0x6DE738(
-        iTJSDispatch2 *object);
+    std::size_t
+    privateMotionGLLRenderQueueSizeLike_0x6DE738(iTJSDispatch2 *object);
 
 } // namespace motion

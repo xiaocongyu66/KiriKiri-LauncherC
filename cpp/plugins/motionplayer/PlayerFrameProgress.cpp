@@ -36,16 +36,16 @@ namespace {
             const double consume = std::min(remaining, remainingDuration);
             if(state.duration > 0.0f) {
                 state.progress = static_cast<float>(std::min(
-                    1.0, static_cast<double>(state.progress) +
-                             consume / static_cast<double>(state.duration)));
+                    1.0,
+                    static_cast<double>(state.progress) +
+                        consume / static_cast<double>(state.duration)));
             } else {
                 state.progress = 1.0f;
             }
 
-            const double ratio =
-                std::pow(std::clamp(static_cast<double>(state.progress), 0.0,
-                                    1.0),
-                         static_cast<double>(state.weight));
+            const double ratio = std::pow(
+                std::clamp(static_cast<double>(state.progress), 0.0, 1.0),
+                static_cast<double>(state.weight));
             state.currentValue = static_cast<float>(
                 state.startValue +
                 (state.targetValue - state.startValue) * ratio);
@@ -136,8 +136,7 @@ namespace motion {
 
     void Player::setTimelineBlendLike_0x6735AC(const std::string &label,
                                                bool autoStop, double value,
-                                               double transition,
-                                               double ease) {
+                                               double transition, double ease) {
         if(!_runtime || label.empty()) {
             return;
         }
@@ -296,7 +295,8 @@ namespace motion {
                    trackIndex >= state.controlTrackValues.size()) {
                     continue;
                 }
-                value += static_cast<double>(state.controlTrackValues[trackIndex]) *
+                value +=
+                    static_cast<double>(state.controlTrackValues[trackIndex]) *
                     state.blendRatio;
             }
         }
@@ -340,10 +340,8 @@ namespace motion {
                 udValue = getVariable(detail::widen(binding.varUd));
             }
 
-            double lrNorm =
-                ((lrValue - binding.minValue) / range) * 2.0 - 1.0;
-            double udNorm =
-                ((udValue - binding.minValue) / range) * 2.0 - 1.0;
+            double lrNorm = ((lrValue - binding.minValue) / range) * 2.0 - 1.0;
+            double udNorm = ((udValue - binding.minValue) / range) * 2.0 - 1.0;
 
             if(lrNorm != 0.0 && udNorm != 0.0) {
                 if(binding.type == 1) {
@@ -359,8 +357,7 @@ namespace motion {
                     if(ratio > 1.0) {
                         ratio = 1.0 / ratio;
                     }
-                    const double invLen =
-                        1.0 / std::sqrt(ratio * ratio + 1.0);
+                    const double invLen = 1.0 / std::sqrt(ratio * ratio + 1.0);
                     const double projX = lrNorm * invLen;
                     const double projY = udNorm * invLen;
                     const double projLen =
@@ -390,7 +387,8 @@ namespace motion {
 
     void Player::applyEvalResultPostProcessLike_0x67CC9C() {
         for(auto &entry : _evalResultList) {
-            accumulateTimelineContributionLike_0x67C560(entry.label, entry.value);
+            accumulateTimelineContributionLike_0x67C560(entry.label,
+                                                        entry.value);
             double outputValue = entry.value;
             if(shouldMirrorEvalLabelLike_0x67C6B0(entry.label)) {
                 outputValue = -outputValue;
@@ -411,7 +409,8 @@ namespace motion {
         size_t writeIndex = 0;
         for(size_t readIndex = 0;
             readIndex < _runtime->playingTimelineLabels.size(); ++readIndex) {
-            const std::string label = _runtime->playingTimelineLabels[readIndex];
+            const std::string label =
+                _runtime->playingTimelineLabels[readIndex];
             const auto it = _runtime->timelines.find(label);
             if(it == _runtime->timelines.end()) {
                 continue;
@@ -444,9 +443,8 @@ namespace motion {
                    state.currentTime >= state.totalFrames) {
                     if(state.loopTime >= 0.0) {
                         while(state.currentTime >= state.totalFrames) {
-                            state.currentTime =
-                                state.currentTime + state.loopTime -
-                                state.totalFrames;
+                            state.currentTime = state.currentTime +
+                                state.loopTime - state.totalFrames;
                         }
                     } else {
                         state.currentTime = state.totalFrames;
@@ -455,59 +453,57 @@ namespace motion {
                     }
                 }
             } else {
-                const auto stepInternalRoute =
-                    [this, &state, binding](double routeDt) {
-                        if((state.flags & 2) == 0 || routeDt <= 0.0) {
-                            return;
+                const auto stepInternalRoute = [this, &state,
+                                                binding](double routeDt) {
+                    if((state.flags & 2) == 0 || routeDt <= 0.0) {
+                        return;
+                    }
+
+                    double steppedBlend = state.blendRatio;
+                    const bool blendAnimating = stepQueuedAnimatorLike_0x67D01C(
+                        state.blendAnimator, routeDt, steppedBlend);
+                    state.blendRatio = steppedBlend;
+                    if(blendAnimating) {
+                        _emoteDirty = true;
+                    }
+
+                    if(state.controlTrackValues.size() <
+                       binding->tracks.size()) {
+                        state.controlTrackValues.resize(binding->tracks.size(),
+                                                        0.0f);
+                    }
+                    if(state.controlTrackAnimators.size() <
+                       binding->tracks.size()) {
+                        state.controlTrackAnimators.resize(
+                            binding->tracks.size());
+                    }
+
+                    for(size_t trackIndex = 0;
+                        trackIndex < binding->tracks.size(); ++trackIndex) {
+                        const auto &track = binding->tracks[trackIndex];
+                        if(track.instantVariable || track.frames.empty()) {
+                            continue;
                         }
 
-                        double steppedBlend = state.blendRatio;
-                        const bool blendAnimating =
+                        double steppedValue = static_cast<double>(
+                            state.controlTrackValues[trackIndex]);
+                        const bool trackAnimating =
                             stepQueuedAnimatorLike_0x67D01C(
-                                state.blendAnimator, routeDt, steppedBlend);
-                        state.blendRatio = steppedBlend;
-                        if(blendAnimating) {
+                                state.controlTrackAnimators[trackIndex],
+                                routeDt, steppedValue);
+                        state.controlTrackValues[trackIndex] =
+                            static_cast<float>(steppedValue);
+                        if(trackAnimating) {
                             _emoteDirty = true;
                         }
-
-                        if(state.controlTrackValues.size() <
-                           binding->tracks.size()) {
-                            state.controlTrackValues.resize(
-                                binding->tracks.size(), 0.0f);
-                        }
-                        if(state.controlTrackAnimators.size() <
-                           binding->tracks.size()) {
-                            state.controlTrackAnimators.resize(
-                                binding->tracks.size());
-                        }
-
-                        for(size_t trackIndex = 0;
-                            trackIndex < binding->tracks.size(); ++trackIndex) {
-                            const auto &track = binding->tracks[trackIndex];
-                            if(track.instantVariable || track.frames.empty()) {
-                                continue;
-                            }
-
-                            double steppedValue =
-                                static_cast<double>(
-                                    state.controlTrackValues[trackIndex]);
-                            const bool trackAnimating =
-                                stepQueuedAnimatorLike_0x67D01C(
-                                    state.controlTrackAnimators[trackIndex],
-                                    routeDt, steppedValue);
-                            state.controlTrackValues[trackIndex] =
-                                static_cast<float>(steppedValue);
-                            if(trackAnimating) {
-                                _emoteDirty = true;
-                            }
-                        }
-                    };
+                    }
+                };
 
                 const double loopBegin = binding->loopBegin;
                 const double loopEnd = binding->loopEnd;
-                const double lastTime =
-                    binding->lastTime >= 0.0 ? binding->lastTime
-                                             : state.totalFrames;
+                const double lastTime = binding->lastTime >= 0.0
+                    ? binding->lastTime
+                    : state.totalFrames;
 
                 if(!state.controlInitialized ||
                    state.controlFrameCursor.size() != binding->tracks.size()) {
@@ -534,11 +530,11 @@ namespace motion {
                     while(remaining > 0.0 &&
                           state.currentTime + remaining >= loopEnd) {
                         const double currentTime = state.currentTime;
-                        applyTimelineControlWindowLike_0x669E1C(
-                            state, *binding, loopEnd, false);
+                        applyTimelineControlWindowLike_0x669E1C(state, *binding,
+                                                                loopEnd, false);
                         remaining -= std::max(loopEnd - currentTime, 0.0);
-                        resetTimelineControlStateLike_0x671A50(
-                            state, *binding, loopBegin);
+                        resetTimelineControlStateLike_0x671A50(state, *binding,
+                                                               loopBegin);
                     }
                     applyTimelineControlWindowLike_0x669E1C(
                         state, *binding, state.currentTime + remaining, true);
@@ -569,7 +565,7 @@ namespace motion {
             }
 
             if(!keepPlaying && state.wasPlaying) {
-                _runtime->pendingEvents.push_back({1, label, {}});
+                _runtime->pendingEvents.push_back({ 1, label, {} });
                 state.wasPlaying = false;
             }
 
@@ -582,8 +578,7 @@ namespace motion {
 
     void Player::resetTimelineControlStateLike_0x671A50(
         detail::TimelineState &state,
-        const detail::TimelineControlBinding &binding,
-        double time) {
+        const detail::TimelineControlBinding &binding, double time) {
         state.controlFrameCursor.assign(binding.tracks.size(), -1);
         state.controlTrackValues.assign(binding.tracks.size(), 0.0f);
         state.controlTrackAnimators.assign(binding.tracks.size(), {});
@@ -613,8 +608,7 @@ namespace motion {
             const auto &frame =
                 track.frames[static_cast<size_t>(lastNonTypeZero)];
             const size_t nextIndex = static_cast<size_t>(lastNonTypeZero + 1);
-            const double transition =
-                nextIndex < track.frames.size()
+            const double transition = nextIndex < track.frames.size()
                 ? std::max(track.frames[nextIndex].time - time - 1.0, 0.0)
                 : 0.0;
             if((state.flags & 2) != 0 && !track.instantVariable) {
@@ -633,8 +627,7 @@ namespace motion {
 
     void Player::applyTimelineControlWindowLike_0x669E1C(
         detail::TimelineState &state,
-        const detail::TimelineControlBinding &binding,
-        double targetTime,
+        const detail::TimelineControlBinding &binding, double targetTime,
         bool inclusiveEnd) {
         if(state.controlFrameCursor.size() != binding.tracks.size()) {
             state.controlFrameCursor.assign(binding.tracks.size(), -1);
@@ -659,8 +652,7 @@ namespace motion {
             const bool internalRoute =
                 (state.flags & 2) != 0 && !track.instantVariable;
             int cursor = state.controlFrameCursor[trackIndex];
-            const int lastCursor =
-                static_cast<int>(track.frames.size()) - 1;
+            const int lastCursor = static_cast<int>(track.frames.size()) - 1;
             if(cursor >= lastCursor) {
                 continue;
             }
@@ -668,9 +660,8 @@ namespace motion {
             while(cursor + 1 < static_cast<int>(track.frames.size())) {
                 const auto nextIndex = static_cast<size_t>(cursor + 1);
                 const auto &nextFrame = track.frames[nextIndex];
-                const bool crossed = inclusiveEnd
-                    ? nextFrame.time <= targetTime
-                    : nextFrame.time < targetTime;
+                const bool crossed = inclusiveEnd ? nextFrame.time <= targetTime
+                                                  : nextFrame.time < targetTime;
                 if(!crossed) {
                     break;
                 }
@@ -678,8 +669,8 @@ namespace motion {
                 if(!nextFrame.isTypeZero &&
                    nextIndex + 1 < track.frames.size()) {
                     const auto &followingFrame = track.frames[nextIndex + 1];
-                    const double transition = std::max(
-                        followingFrame.time - targetTime - 1.0, 0.0);
+                    const double transition =
+                        std::max(followingFrame.time - targetTime - 1.0, 0.0);
                     if(internalRoute) {
                         scheduleTimelineControlAnimatorLike_0x671A50(
                             state, trackIndex, nextFrame.value, transition,
@@ -728,8 +719,8 @@ namespace motion {
             if(rewound) {
                 // Aligned to sub_671A50: re-seek per-track cursors using the
                 // timeline time before the current crossing scan.
-                resetTimelineControlStateLike_0x671A50(
-                    state, binding, std::max(prevTime, 0.0));
+                resetTimelineControlStateLike_0x671A50(state, binding,
+                                                       std::max(prevTime, 0.0));
             }
 
             if((state.flags & 2) != 0 && (state.flags & 4) == 0) {
@@ -754,9 +745,8 @@ namespace motion {
                 int cursor = trackIndex < state.controlFrameCursor.size()
                     ? state.controlFrameCursor[trackIndex]
                     : -1;
-                size_t nextIndex = cursor >= 0
-                    ? static_cast<size_t>(cursor + 1)
-                    : 0;
+                size_t nextIndex =
+                    cursor >= 0 ? static_cast<size_t>(cursor + 1) : 0;
                 while(nextIndex < track.frames.size() &&
                       track.frames[nextIndex].time <= state.currentTime) {
                     const auto &frame = track.frames[nextIndex];
@@ -781,7 +771,8 @@ namespace motion {
 
     void Player::frameProgress(double dt) {
         // Aligned to libkrkr2.so Player_progress_inner (0x6C106C):
-        // _speed is a bool flag (play/pause). When false, skip progress entirely.
+        // _speed is a bool flag (play/pause). When false, skip progress
+        // entirely.
         if(!_speed) {
             return;
         }
@@ -809,18 +800,18 @@ namespace motion {
         preProgressPlayingTimelinesLike_0x671764(actualDelta, &prevTimes);
 
         double remainingControllerStep = actualDelta;
-        const auto stepControllerBucket =
-            [this](auto &bucket, double controllerDt) {
-                for(auto &[label, state] : bucket) {
-                    double steppedValue = state.currentValue;
-                    const bool stillAnimating = stepQueuedAnimatorLike_0x67D01C(
-                        state, controllerDt, steppedValue);
-                    writeEvalResultValueLike_0x6C4668(label, steppedValue);
-                    if(stillAnimating) {
-                        _emoteDirty = true;
-                    }
+        const auto stepControllerBucket = [this](auto &bucket,
+                                                 double controllerDt) {
+            for(auto &[label, state] : bucket) {
+                double steppedValue = state.currentValue;
+                const bool stillAnimating = stepQueuedAnimatorLike_0x67D01C(
+                    state, controllerDt, steppedValue);
+                writeEvalResultValueLike_0x6C4668(label, steppedValue);
+                if(stillAnimating) {
+                    _emoteDirty = true;
                 }
-            };
+            }
+        };
         while(remainingControllerStep > 0.0) {
             const double controllerDt = std::min(remainingControllerStep, 1.1);
             // Aligned to 0x67D01C container order: type4 -> type5 -> type6
@@ -836,7 +827,8 @@ namespace motion {
 
         applyEvalResultPostProcessLike_0x67CC9C();
 
-        // Camera velocity/friction moved to updateLayers pre-loop (0x6BB360..0x6BB42C)
+        // Camera velocity/friction moved to updateLayers pre-loop
+        // (0x6BB360..0x6BB42C)
 
         // Inference from libkrkr2.so Player_progress_inner (0x6C106C):
         // player+456 is the selected clip/timeline eval time consumed by
@@ -852,8 +844,8 @@ namespace motion {
                     continue;
                 }
                 if(stateIt->second.currentTime > prev) {
-                    detail::scanLayerActions(*_runtime->activeMotion,
-                                             prev, stateIt->second.currentTime,
+                    detail::scanLayerActions(*_runtime->activeMotion, prev,
+                                             stateIt->second.currentTime,
                                              _runtime->pendingEvents);
                 }
             }
@@ -883,10 +875,12 @@ namespace motion {
         }
     }
 
-    tjs_error Player::progressCompatMethod(tTJSVariant *result, tjs_int numparams,
+    tjs_error Player::progressCompatMethod(tTJSVariant *result,
+                                           tjs_int numparams,
                                            tTJSVariant **param,
                                            iTJSDispatch2 *objthis) {
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
         if(!self) {
             return TJS_E_INVALIDOBJECT;
         }
@@ -906,17 +900,16 @@ namespace motion {
 
         self->_runtime->pendingEvents.clear();
         self->frameProgress(delta * kMotionFramesPerMillisecond);
-        const auto motionPath =
-            self->_runtime && self->_runtime->activeMotion
-                ? self->_runtime->activeMotion->path
-                : std::string{};
+        const auto motionPath = self->_runtime && self->_runtime->activeMotion
+            ? self->_runtime->activeMotion->path
+            : std::string{};
         detail::logoChainTraceCheck(
-            motionPath, "progressCompat.dt", "0x6D2A98",
-            self->_clampedEvalTime,
-            fmt::format("dt_ms*60/1000={:.6f}", delta * kMotionFramesPerMillisecond),
+            motionPath, "progressCompat.dt", "0x6D2A98", self->_clampedEvalTime,
+            fmt::format("dt_ms*60/1000={:.6f}",
+                        delta * kMotionFramesPerMillisecond),
             fmt::format("dt_frames={:.6f}", self->_frameLastTime),
-            std::fabs(self->_frameLastTime - delta * kMotionFramesPerMillisecond) <
-                0.000001,
+            std::fabs(self->_frameLastTime -
+                      delta * kMotionFramesPerMillisecond) < 0.000001,
             "progressCompat dt(ms)->frame conversion diverged from 0x6D2A98");
 
         // Aligned to libkrkr2.so Player_progressCompat (0x6D2A98):
@@ -961,14 +954,15 @@ namespace motion {
                         tTJSVariant p1(detail::widen(ev.param1));
                         tTJSVariant p2(detail::widen(ev.param2));
                         tTJSVariant *args[] = { &p1, &p2 };
-                        objthis->FuncCall(0, TJS_W("onAction"),
-                            nullptr, nullptr, 2, args, objthis);
+                        objthis->FuncCall(0, TJS_W("onAction"), nullptr,
+                                          nullptr, 2, args, objthis);
                     } else if(ev.type == 1) {
                         // onSync()
-                        objthis->FuncCall(0, TJS_W("onSync"),
-                            nullptr, nullptr, 0, nullptr, objthis);
+                        objthis->FuncCall(0, TJS_W("onSync"), nullptr, nullptr,
+                                          0, nullptr, objthis);
                     }
-                } catch(...) {}
+                } catch(...) {
+                }
             }
             self->_runtime->pendingEvents.clear();
         }

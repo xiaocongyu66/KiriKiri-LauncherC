@@ -4,7 +4,6 @@
 //
 #include <spdlog/spdlog.h>
 #include "tjs.h"
-#include "tjsDictionary.h"
 #include "ncbind.hpp"
 #include "psbfile/PSBFile.h"
 
@@ -33,7 +32,8 @@ NCB_REGISTER_SUBCLASS_DELAY(SourceCache) {
 }
 NCB_REGISTER_SUBCLASS_DELAY(ObjSource) { NCB_CONSTRUCTOR(()); }
 
-// Aligned to libkrkr2.so Motion.Point/Circle/Rect/Quad/LayerGetter (0x690FBC~0x69B350)
+// Aligned to libkrkr2.so Motion.Point/Circle/Rect/Quad/LayerGetter
+// (0x690FBC~0x69B350)
 NCB_REGISTER_SUBCLASS_DELAY(Point) {
     NCB_CONSTRUCTOR(());
     NCB_PROPERTY_RO(type, getType);
@@ -102,8 +102,8 @@ NCB_REGISTER_SUBCLASS_DELAY(SeparateLayerAdaptor) {
     NCB_METHOD(clear);
     RawCallback(TJS_W("assign"), &SeparateLayerAdaptor::assignCompat, 0);
     RawCallback(TJS_W("layerTreeOwnerInterface"),
-                &SeparateLayerAdaptor::getLayerTreeOwnerInterfaceCompat,
-                (int)0, TJS_HIDDENMEMBER);
+                &SeparateLayerAdaptor::getLayerTreeOwnerInterfaceCompat, (int)0,
+                TJS_HIDDENMEMBER);
 }
 NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
     Factory(&D3DAdaptor::factory);
@@ -120,110 +120,11 @@ NCB_REGISTER_SUBCLASS_DELAY(D3DAdaptor) {
     RawCallback(TJS_W("captureCanvas"), &D3DAdaptor::captureCanvasStatic, 0);
     NCB_PROPERTY(visible, getVisible, setVisible);
     NCB_PROPERTY(alphaOpAdd, getAlphaOpAdd, setAlphaOpAdd);
-    NCB_PROPERTY(canvasCaptureEnabled, getCanvasCaptureEnabled, setCanvasCaptureEnabled);
+    NCB_PROPERTY(canvasCaptureEnabled, getCanvasCaptureEnabled,
+                 setCanvasCaptureEnabled);
     NCB_PROPERTY(clearEnabled, getClearEnabled, setClearEnabled);
 }
 
-// ---------------------------------------------------------------------------
-// useD3D / enableD3D static raw callbacks (ported from KrKr2-Next)
-//
-// Game script does:
-//   EmoteVariable.useD3D = (typeof Motion.Player.useD3D === "Object")
-//                          ? Motion.Player.useD3D : Motion.enableD3D;
-// Current game scripts expect Motion.Player.useD3D / Motion.enableD3D to be
-// Object-compatible probes.  The affinesourcemotion.tjs VM dump shows its
-// fallback path copies Motion.Player.useD3D into an Object slot, so returning
-// Integer 0 causes "(int)0 to Object".
-// ---------------------------------------------------------------------------
-static bool gMotionPlayerStaticUseD3D = false;
-static bool gMotionPlayerStaticEnableD3D = false;
-static tjs_error Player_getUseD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    // affinesourcemotion.tjs installs an exception handler that falls back to
-    // Motion.Player.useD3D. The VM dump shows that fallback register is copied
-    // into an Object slot; returning Integer 0 triggers "(int)0 to Object".
-    // Return a plain dictionary object here so both direct and fallback paths
-    // satisfy the script's Object expectation.
-    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
-    if (obj) {
-        if(r) *r = tTJSVariant(obj);
-        obj->Release();
-    } else {
-        if(r) *r = tTJSVariant();
-    }
-    return TJS_S_OK;
-}
-static tjs_error Player_setUseD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
-    if (count >= 1 && (*p)->Type() == tvtInteger)
-        gMotionPlayerStaticUseD3D = static_cast<bool>(**p);
-    return TJS_S_OK;
-}
-static tjs_error Player_getEnableD3D_static(tTJSVariant *r, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
-    iTJSDispatch2 *obj = TJSCreateDictionaryObject();
-    if (obj) {
-        if(r) *r = tTJSVariant(obj);
-        obj->Release();
-    } else {
-        if(r) *r = tTJSVariant();
-    }
-    return TJS_S_OK;
-}
-static tjs_error Player_setEnableD3D_static(tTJSVariant *, tjs_int count, tTJSVariant **p, iTJSDispatch2 *) {
-    if (count >= 1 && (*p)->Type() == tvtInteger)
-        gMotionPlayerStaticEnableD3D = static_cast<bool>(**p);
-    return TJS_S_OK;
-}
-static tjs_error Motion_getEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSVariant **p, iTJSDispatch2 *objthis) {
-    return Player_getEnableD3D_static(r, count, p, objthis);
-}
-static tjs_error Motion_setEnableD3D_static(tTJSVariant *r, tjs_int count, tTJSVariant **p, iTJSDispatch2 *objthis) {
-    return Player_setEnableD3D_static(r, count, p, objthis);
-}
-static void MotionEnsureKeybinderCompatObjects() {
-    tTJSVariant r;
-    try {
-        TVPExecuteExpression(
-            TJS_W("global.ShortCutInitialPadKeyMap === void "
-                  "? (global.ShortCutInitialPadKeyMap = %[]) : void"),
-            &r);
-        TVPExecuteExpression(
-            TJS_W("global.ShortCutInitialGamePadKeyMap === void "
-                  "? (global.ShortCutInitialGamePadKeyMap = %[]) : void"),
-            &r);
-        TVPExecuteExpression(
-            TJS_W("SystemConfig.kag.ShortCutInitialPadKeyMap === void "
-                  "? (SystemConfig.kag.ShortCutInitialPadKeyMap = %[]) : void"),
-            &r);
-        TVPExecuteExpression(
-            TJS_W("SystemConfig.kag.ShortCutInitialGamePadKeyMap === void "
-                  "? (SystemConfig.kag.ShortCutInitialGamePadKeyMap = %[]) : void"),
-            &r);
-        TVPExecuteExpression(
-            TJS_W("SystemConfig.kag._proceedingKeyList === void "
-                  "? (SystemConfig.kag._proceedingKeyList = %[]) : void"),
-            &r);
-    } catch(...) {
-    }
-}
-
-static bool MotionMakeDictionaryVariant(tTJSVariant &out) {
-
-    iTJSDispatch2 *dict = TJSCreateDictionaryObject();
-    if (!dict) {
-        out.Clear();
-        return false;
-    }
-    out = tTJSVariant(dict);
-    dict->Release();
-    return true;
-}
-
-static void MotionForceObjectMember(iTJSDispatch2 *obj, const tjs_char *name) {
-    if (!obj) return;
-    tTJSVariant v;
-    if (!MotionMakeDictionaryVariant(v)) return;
-    obj->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
-                 name, nullptr, &v, obj);
-}
 NCB_REGISTER_CLASS(Player) {
     NCB_CONSTRUCTOR((ResourceManager));
 
@@ -284,9 +185,7 @@ NCB_REGISTER_CLASS(Player) {
     NCB_PROPERTY(stealthMotion, getStealthMotion, setStealthMotion);
     NCB_PROPERTY(tags, getTags, setTags);
     NCB_PROPERTY(project, getProject, setProject);
-    // useD3D must be Object-compatible for affinesourcemotion.tjs fallback.
-    NCB_PROPERTY_RAW_CALLBACK(useD3D, Player_getUseD3D_static, Player_setUseD3D_static, TJS_STATICMEMBER);
-    NCB_PROPERTY_RAW_CALLBACK(enableD3D, Player_getEnableD3D_static, Player_setEnableD3D_static, TJS_STATICMEMBER);
+    NCB_PROPERTY(useD3D, getUseD3D, setUseD3D);
     NCB_PROPERTY(meshline, getMeshline, setMeshline);
     NCB_PROPERTY_RO(busy, getBusy);
 
@@ -435,11 +334,14 @@ NCB_REGISTER_SUBCLASS_DELAY(EmotePlayer) {
     NCB_METHOD(create);
     NCB_METHOD(load);
     NCB_METHOD(clone);
+    NCB_METHOD(serialize);
+    NCB_METHOD(unserialize);
     NCB_METHOD(show);
     NCB_METHOD(hide);
     NCB_METHOD(assignState);
     NCB_METHOD(initPhysics);
     NCB_METHOD_RAW_CALLBACK(setRot, &EmotePlayer::setRotCompat, 0);
+    NCB_METHOD_RAW_CALLBACK(setRotate, &EmotePlayer::setRotCompat, 0);
     NCB_METHOD(getRot);
     NCB_METHOD_RAW_CALLBACK(setCoord, &EmotePlayer::setCoordCompat, 0);
     NCB_METHOD_RAW_CALLBACK(setScale, &EmotePlayer::setScaleCompat, 0);
@@ -454,34 +356,43 @@ NCB_REGISTER_SUBCLASS_DELAY(EmotePlayer) {
     NCB_METHOD(getVariableFrameValueAt);
     NCB_METHOD_RAW_CALLBACK(setVariable, &EmotePlayer::setVariableCompat, 0);
     NCB_METHOD(getVariable);
+    NCB_METHOD(getVariableFrameList);
     NCB_METHOD_RAW_CALLBACK(startWind, &EmotePlayer::startWindCompat, 0);
     NCB_METHOD_RAW_CALLBACK(stopWind, &EmotePlayer::stopWindCompat, 0);
     NCB_METHOD(countMainTimelines);
     NCB_METHOD(getMainTimelineLabelAt);
+    NCB_METHOD(getMainTimelineLabelList);
     NCB_METHOD(countDiffTimelines);
     NCB_METHOD(getDiffTimelineLabelAt);
+    NCB_METHOD(getDiffTimelineLabelList);
     NCB_METHOD(countPlayingTimelines);
     NCB_METHOD(getPlayingTimelineLabelAt);
     NCB_METHOD(getPlayingTimelineFlagsAt);
     NCB_METHOD(isLoopTimeline);
+    NCB_METHOD(getLoopTimeline);
     NCB_METHOD(getTimelineTotalFrameCount);
     NCB_METHOD(play);
     NCB_METHOD(playTimeline);
     NCB_METHOD(isTimelinePlaying);
+    NCB_METHOD(getTimelinePlaying);
     NCB_METHOD(stopTimeline);
     NCB_METHOD(setTimeline);
     NCB_METHOD(setTimelineBlendRatio);
     NCB_METHOD(getTimelineBlendRatio);
     NCB_METHOD(fadeInTimeline);
     NCB_METHOD(fadeOutTimeline);
+    NCB_METHOD(getPlayingTimelineInfoList);
     NCB_METHOD(skip);
+    NCB_METHOD(skipToSync);
     NCB_METHOD(addPlayCallback);
     NCB_METHOD(pass);
     NCB_METHOD(progress);
     NCB_METHOD_DETAIL(draw, Class, void, Class::draw, (tTJSVariant));
     NCB_METHOD_RAW_CALLBACK(setDrawAffineTranslateMatrix,
-                            &EmotePlayer::setDrawAffineTranslateMatrixCompat, 0);
-    NCB_METHOD_RAW_CALLBACK(setOuterForce, &EmotePlayer::setOuterForceCompat, 0);
+                            &EmotePlayer::setDrawAffineTranslateMatrixCompat,
+                            0);
+    NCB_METHOD_RAW_CALLBACK(setOuterForce, &EmotePlayer::setOuterForceCompat,
+                            0);
     NCB_METHOD(getOuterForce);
     NCB_METHOD_RAW_CALLBACK(contains, &EmotePlayer::containsCompat, 0);
 }
@@ -511,12 +422,11 @@ NCB_REGISTER_SUBCLASS(ResourceManager) {
 // Motion top-level class with constants and subclasses
 // ============================================================
 
-class Motion {
-};
+class Motion {};
 
 NCB_REGISTER_CLASS(Motion) {
-    NCB_PROPERTY_RAW_CALLBACK(enableD3D, Motion_getEnableD3D_static, Motion_setEnableD3D_static, TJS_STATICMEMBER);
-    // Subclasses (Player registered as top-level class, aliased in PostRegistCallback)
+    // Subclasses (Player registered as top-level class, aliased in
+    // PostRegistCallback)
     NCB_SUBCLASS(ResourceManager, ResourceManager);
     NCB_SUBCLASS(EmotePlayer, EmotePlayer);
     NCB_SUBCLASS(SeparateLayerAdaptor, SeparateLayerAdaptor);
@@ -562,6 +472,9 @@ NCB_REGISTER_CLASS(Motion) {
             (tjs_int)CoordinateRecutangularXY);
     Variant(TJS_W("CoordinateRecutangularXZ"),
             (tjs_int)CoordinateRecutangularXZ);
+
+    Variant("MaskModeStencil", (tjs_int)MaskModeStencil);
+    Variant("MaskModeAlpha", (tjs_int)MaskModeAlpha);
 }
 
 // ============================================================
@@ -570,55 +483,67 @@ NCB_REGISTER_CLASS(Motion) {
 
 static void PostRegistCallback() {
     iTJSDispatch2 *global = TVPGetScriptDispatch();
-    if (!global) return;
+    if(!global)
+        return;
 
-    // Alias top-level Player class into Motion namespace.
+    auto ensurePlayerClassUseD3DProbe = [](iTJSDispatch2 *playerClass) {
+        if(!playerClass) {
+            return;
+        }
+        tTJSVariant marker;
+        try {
+            TVPExecuteExpression(TJS_W("%[]"), &marker);
+        } catch(...) {
+            return;
+        }
+        if(marker.Type() != tvtObject) {
+            return;
+        }
+
+        // Player_ncb_registerMembers @ 0x6D69C8 registers useD3D as a
+        // property object on the Player class; game scripts probe that with
+        // typeof Motion.Player.useD3D. This restores the class-level NCB shape
+        // without adding a mutable static useD3D state.
+        playerClass->PropSet(TJS_MEMBERENSURE | TJS_STATICMEMBER,
+                             TJS_W("useD3D"), nullptr, &marker, playerClass);
+    };
+
+    // Alias Player class into Motion namespace
     tTJSVariant motionVar;
-    if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Motion"), nullptr, &motionVar, global))) {
+    if(TJS_SUCCEEDED(
+           global->PropGet(0, TJS_W("Motion"), nullptr, &motionVar, global))) {
         iTJSDispatch2 *motion = motionVar.AsObjectNoAddRef();
-        if (motion) {
+        if(motion) {
             tTJSVariant playerVar;
-            if (TJS_SUCCEEDED(global->PropGet(0, TJS_W("Player"), nullptr, &playerVar, global))) {
-                if (playerVar.Type() == tvtObject &&
-                    playerVar.AsObjectNoAddRef() != nullptr) {
-                    iTJSDispatch2 *player = playerVar.AsObjectNoAddRef();
-                    // Ensure property lookup sees concrete objects instead of
-                    // the native property integer flags when affinesourcemotion
-                    // probes/copies these members.
-                    MotionForceObjectMember(player, TJS_W("useD3D"));
-                    MotionForceObjectMember(player, TJS_W("enableD3D"));
-                    motion->PropSet(TJS_MEMBERENSURE, TJS_W("Player"),
-                                    nullptr, &playerVar, motion);
+            if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("Player"), nullptr,
+                                             &playerVar, global))) {
+                if(playerVar.Type() == tvtObject &&
+                   playerVar.AsObjectNoAddRef() != nullptr) {
+                    ensurePlayerClassUseD3DProbe(playerVar.AsObjectNoAddRef());
+                    motion->PropSet(TJS_MEMBERENSURE, TJS_W("Player"), nullptr,
+                                    &playerVar, motion);
                 }
             }
-            MotionForceObjectMember(motion, TJS_W("enableD3D"));
         }
     }
 
-    // keybinder.tjs later merges its maps through Dictionary.assignStruct.
-    // Its destination is SystemConfig.kag.ShortCutInitialPadKeyMap (not a
-    // global member); leaving it void makes chgthis fail with "() to Object".
-    // Install the empty KAG members after motionplayer is loaded and before
-    // keybinder.tjs / afterinit.tjs execute.
+    // Define ShortCutInitialPadKeyMap and related members as empty
+    // dictionaries. These are referenced by encrypted keybinder.tjs but may not
+    // be defined if the gamepad initialization script hasn't run yet.
     {
         tTJSVariant r;
         try {
             TVPExecuteExpression(
-                TJS_W("SystemConfig.kag.ShortCutInitialPadKeyMap === void "
-                      "? (SystemConfig.kag.ShortCutInitialPadKeyMap = %[]) : void"),
+                TJS_W("global.ShortCutInitialPadKeyMap === void "
+                      "? (global.ShortCutInitialPadKeyMap = %[]) : void"),
                 &r);
             TVPExecuteExpression(
-                TJS_W("SystemConfig.kag.ShortCutInitialGamePadKeyMap === void "
-                      "? (SystemConfig.kag.ShortCutInitialGamePadKeyMap = %[]) : void"),
+                TJS_W("global.ShortCutInitialGamePadKeyMap === void "
+                      "? (global.ShortCutInitialGamePadKeyMap = %[]) : void"),
                 &r);
-            TVPExecuteExpression(
-                TJS_W("SystemConfig.kag._proceedingKeyList === void "
-                      "? (SystemConfig.kag._proceedingKeyList = %[]) : void"),
-                &r);
-        } catch(...) {}
+        } catch(...) {
+        }
     }
-
-    MotionEnsureKeybinderCompatObjects();
 
     global->Release();
 }
@@ -627,9 +552,9 @@ static void PreRegistCallback() {}
 static void PostUnregistCallback() {}
 
 NCB_PRE_REGIST_CALLBACK(PreRegistCallback);
+NCB_POST_REGIST_CALLBACK(PostRegistCallback);
 NCB_POST_UNREGIST_CALLBACK(PostUnregistCallback);
 
-NCB_POST_REGIST_CALLBACK(PostRegistCallback);
 // ============================================================
 // emoteplayer.dll module — separate from motionplayer.dll
 // In libkrkr2.so, emoteplayer.dll is an independent module whose
@@ -648,9 +573,6 @@ NCB_PRE_REGIST_CALLBACK(EmotePlayerPreRegist);
 NCB_REGISTER_CLASS(D3DEmoteModule) {
     NCB_CONSTRUCTOR(());
 
-    // Constants
-    Variant(TJS_W("MaskModeStencil"), (tjs_int)MaskModeStencil);
-    Variant(TJS_W("MaskModeAlpha"), (tjs_int)MaskModeAlpha);
     Variant(TJS_W("TimelinePlayFlagParallel"),
             (tjs_int)TimelinePlayFlagParallel);
     Variant(TJS_W("TimelinePlayFlagSequential"),
@@ -674,7 +596,8 @@ NCB_REGISTER_CLASS(D3DEmoteModule) {
 NCB_REGISTER_CLASS(D3DEmotePlayer) {
     NCB_CONSTRUCTOR((ResourceManager));
 
-    // Properties (same as EmotePlayer subclass, matching IDA registration order)
+    // Properties (same as EmotePlayer subclass, matching IDA registration
+    // order)
     NCB_PROPERTY_RO(module, getModule);
     NCB_PROPERTY(completionType, getCompletionType, setCompletionType);
     NCB_PROPERTY(chara, getChara, setChara);
@@ -709,11 +632,14 @@ NCB_REGISTER_CLASS(D3DEmotePlayer) {
     NCB_METHOD(create);
     NCB_METHOD(load);
     NCB_METHOD(clone);
+    NCB_METHOD(serialize);
+    NCB_METHOD(unserialize);
     NCB_METHOD(show);
     NCB_METHOD(hide);
     NCB_METHOD(assignState);
     NCB_METHOD(initPhysics);
     NCB_METHOD_RAW_CALLBACK(setRot, &EmotePlayer::setRotCompat, 0);
+    NCB_METHOD_RAW_CALLBACK(setRotate, &EmotePlayer::setRotCompat, 0);
     NCB_METHOD(getRot);
     NCB_METHOD_RAW_CALLBACK(setCoord, &EmotePlayer::setCoordCompat, 0);
     NCB_METHOD_RAW_CALLBACK(setScale, &EmotePlayer::setScaleCompat, 0);
@@ -728,35 +654,42 @@ NCB_REGISTER_CLASS(D3DEmotePlayer) {
     NCB_METHOD(getVariableFrameValueAt);
     NCB_METHOD_RAW_CALLBACK(setVariable, &EmotePlayer::setVariableCompat, 0);
     NCB_METHOD(getVariable);
+    NCB_METHOD(getVariableFrameList);
     NCB_METHOD_RAW_CALLBACK(startWind, &EmotePlayer::startWindCompat, 0);
     NCB_METHOD_RAW_CALLBACK(stopWind, &EmotePlayer::stopWindCompat, 0);
     NCB_METHOD(countMainTimelines);
     NCB_METHOD(getMainTimelineLabelAt);
     NCB_METHOD(countDiffTimelines);
     NCB_METHOD(getDiffTimelineLabelAt);
+    NCB_METHOD(getDiffTimelineLabelList);
     NCB_METHOD(countPlayingTimelines);
     NCB_METHOD(getPlayingTimelineLabelAt);
     NCB_METHOD(getPlayingTimelineFlagsAt);
     NCB_METHOD(isLoopTimeline);
+    NCB_METHOD(getLoopTimeline);
     NCB_METHOD(getTimelineTotalFrameCount);
     NCB_METHOD(play);
     NCB_METHOD(playTimeline);
     NCB_METHOD(isTimelinePlaying);
+    NCB_METHOD(getTimelinePlaying);
     NCB_METHOD(stopTimeline);
     NCB_METHOD(setTimeline);
     NCB_METHOD(setTimelineBlendRatio);
     NCB_METHOD(getTimelineBlendRatio);
     NCB_METHOD(fadeInTimeline);
     NCB_METHOD(fadeOutTimeline);
+    NCB_METHOD(getPlayingTimelineInfoList);
     NCB_METHOD(skip);
+    NCB_METHOD(skipToSync);
     NCB_METHOD(addPlayCallback);
     NCB_METHOD(pass);
     NCB_METHOD(progress);
     NCB_METHOD_DETAIL(draw, Class, void, Class::draw, (tTJSVariant));
     NCB_METHOD_RAW_CALLBACK(setDrawAffineTranslateMatrix,
-                            &EmotePlayer::setDrawAffineTranslateMatrixCompat, 0);
-    NCB_METHOD_RAW_CALLBACK(setOuterForce, &EmotePlayer::setOuterForceCompat, 0);
+                            &EmotePlayer::setDrawAffineTranslateMatrixCompat,
+                            0);
+    NCB_METHOD_RAW_CALLBACK(setOuterForce, &EmotePlayer::setOuterForceCompat,
+                            0);
     NCB_METHOD(getOuterForce);
     NCB_METHOD_RAW_CALLBACK(contains, &EmotePlayer::containsCompat, 0);
 }
-

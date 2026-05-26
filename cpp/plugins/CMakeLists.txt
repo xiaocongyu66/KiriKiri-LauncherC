@@ -35,6 +35,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     pluginNameStubs.cpp
     extNagano.cpp
     multiimage.cpp
+    emotePlayer.cpp
     runtimePatchLoader.cpp
     # drawDeviceD2DCompat.cpp  # disabled: D2D is Win32-only, KrKr2-Next never built it on Android
 )

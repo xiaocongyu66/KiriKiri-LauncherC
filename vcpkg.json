@@ -40,7 +40,7 @@
     "jxrlib",
     "libarchive",
     {
-      "name": "libgdiplus",
+      "name": "blend2d",
       "platform": "!windows"
     },
     "libjpeg-turbo",

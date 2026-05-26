@@ -17,7 +17,8 @@ namespace motion::detail {
         ~MotionTraceProgressScope();
 
         MotionTraceProgressScope(const MotionTraceProgressScope &) = delete;
-        MotionTraceProgressScope &operator=(const MotionTraceProgressScope &) = delete;
+        MotionTraceProgressScope &
+        operator=(const MotionTraceProgressScope &) = delete;
 
     private:
         Player *_player = nullptr;
@@ -33,7 +34,8 @@ namespace motion::detail {
         ~MotionTraceRenderDrawScope();
 
         MotionTraceRenderDrawScope(const MotionTraceRenderDrawScope &) = delete;
-        MotionTraceRenderDrawScope &operator=(const MotionTraceRenderDrawScope &) = delete;
+        MotionTraceRenderDrawScope &
+        operator=(const MotionTraceRenderDrawScope &) = delete;
 
         void setRoute(const char *route);
         void recordTargetCheckD3D(bool hit);
@@ -73,8 +75,10 @@ namespace motion::detail {
                                       bool skipUpdate);
         ~MotionTraceRenderExecuteScope();
 
-        MotionTraceRenderExecuteScope(const MotionTraceRenderExecuteScope &) = delete;
-        MotionTraceRenderExecuteScope &operator=(const MotionTraceRenderExecuteScope &) = delete;
+        MotionTraceRenderExecuteScope(const MotionTraceRenderExecuteScope &) =
+            delete;
+        MotionTraceRenderExecuteScope &
+        operator=(const MotionTraceRenderExecuteScope &) = delete;
 
         void setResult(bool ok);
 
@@ -91,11 +95,9 @@ namespace motion::detail {
     void motionTraceRenderApplyTranslateLeave(Player *player);
     void motionTraceRenderBuildItemsEnter(Player *player);
     void motionTraceRenderBuildItemsLeave(Player *player);
-    void motionTraceRenderBuildCommandsEnter(Player *player,
-                                             int canvasWidth,
+    void motionTraceRenderBuildCommandsEnter(Player *player, int canvasWidth,
                                              int canvasHeight);
-    void motionTraceRenderBuildCommandsLeave(Player *player,
-                                             int canvasWidth,
+    void motionTraceRenderBuildCommandsLeave(Player *player, int canvasWidth,
                                              int canvasHeight);
     void motionTraceRenderImageCheckpoint(Player *player,
                                           void *renderLayerObject,
@@ -112,16 +114,11 @@ namespace motion::detail {
     void motionTraceRenderDirectExecuteProbe(Player *player,
                                              const char *samplePoint,
                                              const char *payload);
-    void motionTracePrivateMotionGLLDraw(void *nativeLayer,
-                                         int queuedItems,
-                                         int clipLeft,
-                                         int clipTop,
-                                         int clipRight,
-                                         int clipBottom,
-                                         int targetLeft,
-                                         int targetTop,
-                                         int targetRight,
-                                         int targetBottom,
+    void motionTracePrivateMotionGLLDraw(void *nativeLayer, int queuedItems,
+                                         int clipLeft, int clipTop,
+                                         int clipRight, int clipBottom,
+                                         int targetLeft, int targetTop,
+                                         int targetRight, int targetBottom,
                                          bool visibleCheck);
     void motionTraceLayerRawProbe(Player *player, void *renderLayerObject,
                                   const char *samplePoint);

@@ -22,7 +22,9 @@ namespace motion {
 
     void Player::removeAllCaption() { _runtime->captions.clear(); }
 
-    void Player::registerBg(tTJSVariant bg) { _runtime->backgrounds.push_back(bg); }
+    void Player::registerBg(tTJSVariant bg) {
+        _runtime->backgrounds.push_back(bg);
+    }
 
     void Player::registerCaption(tTJSVariant caption) {
         _runtime->captions.push_back(caption);
@@ -70,7 +72,8 @@ namespace motion {
 
     void Player::draw() {
         // Keep the no-arg C++ method as a lightweight prepare pass. The real
-        // libkrkr2.so draw dispatch happens in drawCompat based on argument type.
+        // libkrkr2.so draw dispatch happens in drawCompat based on argument
+        // type.
         if(!_runtime->visible) {
             _runtime->lastCanvas.Clear();
             return;

@@ -1,6 +1,8 @@
 // PlayerTimeline.cpp — timeline queries and playback raw callbacks
 // Split out for maintainability.
 //
+#include <algorithm>
+
 #include "PlayerInternal.h"
 #include "ncbind.hpp"
 
@@ -8,27 +10,56 @@ using namespace motion::internal;
 
 namespace motion {
     void Player::skipToSync() {
-        for(auto &[_, state] : _runtime->timelines) {
-            if(state.totalFrames > 0.0) {
-                state.currentTime = state.totalFrames;
+        ensureMotionLoaded();
+        if(!_runtime || !_runtime->activeMotion) {
+            LOGGER->warn(
+                "Player::skipToSync(): no active motion (SDL3 ref: requires "
+                "_currmotion)");
+            return;
+        }
+
+        // SDL3 ref: sdl3/emoteplayerclass.cpp skipToSync() sets clockPassed to
+        // emotefile::getSyncTime(). We approximate sync time from timeline
+        // metadata because libkrkr2.so stores it separately from timeline end.
+        double syncTime = 0.0;
+        for(const auto &[label, binding] :
+            _runtime->activeMotion->timelineControlByLabel) {
+            syncTime = std::max(syncTime, binding.lastTime);
+            if(binding.loopEnd >= binding.loopBegin) {
+                syncTime = std::max(syncTime, binding.loopEnd);
             }
-            if(!state.loop) {
+            (void)label;
+        }
+        if(const auto *clip = selectActiveClip()) {
+            syncTime = std::max(syncTime, clip->totalFrames);
+        }
+        LOGGER->debug(
+            "Player::skipToSync(): seeking timelines to syncTime={:.3f} "
+            "(SDL3 ref: getSyncTime(); libkrkr2.so may differ)",
+            syncTime);
+
+        for(auto &[_, state] : _runtime->timelines) {
+            state.currentTime = syncTime;
+            if(state.totalFrames > 0.0 &&
+               state.currentTime >= state.totalFrames && !state.loop) {
                 state.playing = false;
             }
         }
-        if(const auto it = std::remove_if(_runtime->playingTimelineLabels.begin(),
-                                          _runtime->playingTimelineLabels.end(),
-                                          [this](const std::string &label) {
-                                              const auto found =
-                                                  _runtime->timelines.find(label);
-                                              return found ==
-                                                      _runtime->timelines.end() ||
-                                                  !found->second.playing;
-                                          });
+        if(const auto it =
+               std::remove_if(_runtime->playingTimelineLabels.begin(),
+                              _runtime->playingTimelineLabels.end(),
+                              [this](const std::string &label) {
+                                  const auto found =
+                                      _runtime->timelines.find(label);
+                                  return found == _runtime->timelines.end() ||
+                                      !found->second.playing;
+                              });
            it != _runtime->playingTimelineLabels.end()) {
             _runtime->playingTimelineLabels.erase(
                 it, _runtime->playingTimelineLabels.end());
         }
+        _frameLoopTime = syncTime;
+        _clampedEvalTime = syncTime;
         _syncWaiting = false;
         _syncActive = false;
         _allplaying = !_runtime->playingTimelineLabels.empty();
@@ -47,7 +78,8 @@ namespace motion {
     tjs_int Player::countMainTimelines() {
         ensureMotionLoaded();
         return _runtime->activeMotion
-            ? static_cast<tjs_int>(_runtime->activeMotion->mainTimelineLabels.size())
+            ? static_cast<tjs_int>(
+                  _runtime->activeMotion->mainTimelineLabels.size())
             : 0;
     }
 
@@ -73,7 +105,8 @@ namespace motion {
     tjs_int Player::countDiffTimelines() {
         ensureMotionLoaded();
         return _runtime->activeMotion
-            ? static_cast<tjs_int>(_runtime->activeMotion->diffTimelineLabels.size())
+            ? static_cast<tjs_int>(
+                  _runtime->activeMotion->diffTimelineLabels.size())
             : 0;
     }
 
@@ -102,6 +135,13 @@ namespace motion {
             return false;
         }
         const auto key = detail::narrow(label);
+        if(const auto controlIt =
+               _runtime->activeMotion->timelineControlByLabel.find(key);
+           controlIt != _runtime->activeMotion->timelineControlByLabel.end()) {
+            // SDL3 ref: sdl3/emoteplayerclass.cpp getLoopTimeline()
+            // returns timelineControl.lastTime < 0.
+            return controlIt->second.lastTime < 0.0;
+        }
         if(const auto it = _runtime->activeMotion->loopTimelines.find(key);
            it != _runtime->activeMotion->loopTimelines.end()) {
             return it->second;
@@ -139,12 +179,26 @@ namespace motion {
     tjs_int Player::getTimelineTotalFrameCount(ttstr label) {
         ensureMotionLoaded();
         const auto key = detail::narrow(label);
+        if(_runtime->activeMotion) {
+            if(const auto controlIt =
+                   _runtime->activeMotion->timelineControlByLabel.find(key);
+               controlIt !=
+               _runtime->activeMotion->timelineControlByLabel.end()) {
+                const auto &binding = controlIt->second;
+                if(binding.loopEnd >= binding.loopBegin) {
+                    // SDL3 ref: loopEnd - loopBegin + 1
+                    return static_cast<tjs_int>(binding.loopEnd -
+                                                binding.loopBegin + 1.0);
+                }
+            }
+        }
         if(const auto it = _runtime->timelines.find(key);
            it != _runtime->timelines.end()) {
             return static_cast<tjs_int>(it->second.totalFrames);
         }
         if(_runtime->activeMotion) {
-            if(const auto it = _runtime->activeMotion->timelineTotalFrames.find(key);
+            if(const auto it =
+                   _runtime->activeMotion->timelineTotalFrames.find(key);
                it != _runtime->activeMotion->timelineTotalFrames.end()) {
                 return static_cast<tjs_int>(it->second);
             }
@@ -158,7 +212,8 @@ namespace motion {
             return;
         }
         if(_runtime->timelines.empty()) {
-            detail::primeTimelineStates(_runtime->timelines, *_runtime->activeMotion);
+            detail::primeTimelineStates(_runtime->timelines,
+                                        *_runtime->activeMotion);
         }
 
         const auto key = detail::narrow(label);
@@ -195,8 +250,8 @@ namespace motion {
         if(const auto controlIt =
                _runtime->activeMotion->timelineControlByLabel.find(key);
            controlIt != _runtime->activeMotion->timelineControlByLabel.end()) {
-            resetTimelineControlStateLike_0x671A50(
-                it->second, controlIt->second, 0.0);
+            resetTimelineControlStateLike_0x671A50(it->second,
+                                                   controlIt->second, 0.0);
         }
         _allplaying = !_runtime->playingTimelineLabels.empty();
     }
@@ -227,9 +282,9 @@ namespace motion {
                 it->second.controlTrackValues.clear();
                 it->second.controlTrackAnimators.clear();
             }
-            if(const auto it = std::remove(_runtime->playingTimelineLabels.begin(),
-                                           _runtime->playingTimelineLabels.end(),
-                                           key);
+            if(const auto it =
+                   std::remove(_runtime->playingTimelineLabels.begin(),
+                               _runtime->playingTimelineLabels.end(), key);
                it != _runtime->playingTimelineLabels.end()) {
                 _runtime->playingTimelineLabels.erase(
                     it, _runtime->playingTimelineLabels.end());
@@ -242,7 +297,8 @@ namespace motion {
     void Player::setTimelineBlendRatio(ttstr label, double ratio) {
         ensureMotionLoaded();
         if(_runtime->timelines.empty() && _runtime->activeMotion) {
-            detail::primeTimelineStates(_runtime->timelines, *_runtime->activeMotion);
+            detail::primeTimelineStates(_runtime->timelines,
+                                        *_runtime->activeMotion);
         }
 
         const auto key = detail::narrow(label);
@@ -309,8 +365,7 @@ namespace motion {
 
         ensureMotionLoaded();
         commitRequestedMotionLike_0x6B2380();
-        initNonEmoteMotionLike_0x6B365C(
-            static_cast<std::uint32_t>(flags));
+        initNonEmoteMotionLike_0x6B365C(static_cast<std::uint32_t>(flags));
         if(_runtime->activeMotion && _runtime->timelines.empty()) {
             detail::primeTimelineStates(_runtime->timelines,
                                         *_runtime->activeMotion);
@@ -320,8 +375,7 @@ namespace motion {
             setMotion(label);
             ensureMotionLoaded();
             commitRequestedMotionLike_0x6B2380();
-            initNonEmoteMotionLike_0x6B365C(
-                static_cast<std::uint32_t>(flags));
+            initNonEmoteMotionLike_0x6B365C(static_cast<std::uint32_t>(flags));
             if(_runtime->activeMotion && _runtime->timelines.empty()) {
                 detail::primeTimelineStates(_runtime->timelines,
                                             *_runtime->activeMotion);
@@ -353,12 +407,14 @@ namespace motion {
             }
             if(std::find(_runtime->playingTimelineLabels.begin(),
                          _runtime->playingTimelineLabels.end(),
-                         timelineLabel) == _runtime->playingTimelineLabels.end()) {
+                         timelineLabel) ==
+               _runtime->playingTimelineLabels.end()) {
                 _runtime->playingTimelineLabels.push_back(timelineLabel);
             }
             if(state.totalFrames <= 0.0 && _runtime->activeMotion) {
                 const auto it =
-                    _runtime->activeMotion->timelineTotalFrames.find(timelineLabel);
+                    _runtime->activeMotion->timelineTotalFrames.find(
+                        timelineLabel);
                 if(it != _runtime->activeMotion->timelineTotalFrames.end()) {
                     state.totalFrames = it->second;
                 }
@@ -377,8 +433,8 @@ namespace motion {
         if(!started) {
             const auto &primary =
                 !_runtime->activeMotion->mainTimelineLabels.empty()
-                    ? _runtime->activeMotion->mainTimelineLabels
-                    : _runtime->activeMotion->diffTimelineLabels;
+                ? _runtime->activeMotion->mainTimelineLabels
+                : _runtime->activeMotion->diffTimelineLabels;
             for(const auto &timelineLabel : primary) {
                 playOne(timelineLabel);
                 started = true;
@@ -395,7 +451,8 @@ namespace motion {
             result->Clear();
         }
 
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
         if(!self) {
             return TJS_E_INVALIDOBJECT;
         }
@@ -413,8 +470,10 @@ namespace motion {
             flags = param[1]->AsInteger();
         }
 
-        if(!self->_runtime->activeMotion && self->_project.Type() == tvtObject) {
-            if(const auto snapshot = detail::lookupModuleSnapshot(self->_project)) {
+        if(!self->_runtime->activeMotion &&
+           self->_project.Type() == tvtObject) {
+            if(const auto snapshot =
+                   detail::lookupModuleSnapshot(self->_project)) {
                 activateMotion(*self->_runtime, snapshot);
                 self->syncVariableKeysFromActiveMotion();
             }
@@ -454,7 +513,8 @@ namespace motion {
             commitRequestedMotionLike_0x6B2380();
             self->initNonEmoteMotionLike_0x6B365C(
                 static_cast<std::uint32_t>(flags));
-            if(self->_runtime->activeMotion && self->_runtime->timelines.empty()) {
+            if(self->_runtime->activeMotion &&
+               self->_runtime->timelines.empty()) {
                 detail::primeTimelineStates(self->_runtime->timelines,
                                             *self->_runtime->activeMotion);
             }
@@ -505,8 +565,11 @@ namespace motion {
             }
             // Ensure totalFrames is set (may be 0 if timeline wasn't primed)
             if(state.totalFrames <= 0.0 && self->_runtime->activeMotion) {
-                auto it = self->_runtime->activeMotion->timelineTotalFrames.find(timelineLabel);
-                if(it != self->_runtime->activeMotion->timelineTotalFrames.end()) {
+                auto it =
+                    self->_runtime->activeMotion->timelineTotalFrames.find(
+                        timelineLabel);
+                if(it !=
+                   self->_runtime->activeMotion->timelineTotalFrames.end()) {
                     state.totalFrames = it->second;
                 }
             }
@@ -515,14 +578,16 @@ namespace motion {
         bool started = false;
         if(!label.IsEmpty()) {
             const auto key = detail::narrow(label);
-            if(self->_runtime->timelines.find(key) != self->_runtime->timelines.end()) {
+            if(self->_runtime->timelines.find(key) !=
+               self->_runtime->timelines.end()) {
                 playOne(key);
                 started = true;
             }
         }
 
         if(!started) {
-            const auto &primary = !self->_runtime->activeMotion->mainTimelineLabels.empty()
+            const auto &primary =
+                !self->_runtime->activeMotion->mainTimelineLabels.empty()
                 ? self->_runtime->activeMotion->mainTimelineLabels
                 : self->_runtime->activeMotion->diffTimelineLabels;
             for(const auto &timelineLabel : primary) {
@@ -536,7 +601,8 @@ namespace motion {
         if(self->_runtime->activeMotion &&
            detail::logoChainTraceEnabled(self->_runtime->activeMotion)) {
             std::string playingLabels;
-            for(const auto &timelineLabel : self->_runtime->playingTimelineLabels) {
+            for(const auto &timelineLabel :
+                self->_runtime->playingTimelineLabels) {
                 if(!playingLabels.empty()) {
                     playingLabels += ",";
                 }
@@ -545,7 +611,8 @@ namespace motion {
             detail::logoChainTraceLogf(
                 self->_runtime->activeMotion->path, "playCompat", "0x6B2284",
                 self->_clampedEvalTime,
-                "label={} flags={} started={} timelineCount={} playingLabels={} allplaying={}",
+                "label={} flags={} started={} timelineCount={} "
+                "playingLabels={} allplaying={}",
                 detail::narrow(label), flags, started ? 1 : 0,
                 self->_runtime->timelines.size(),
                 playingLabels.empty() ? std::string("<none>") : playingLabels,
@@ -560,7 +627,8 @@ namespace motion {
 
     tjs_error Player::isPlayingCompat(tTJSVariant *result, tjs_int,
                                       tTJSVariant **, iTJSDispatch2 *objthis) {
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
         if(!self) {
             return TJS_E_INVALIDOBJECT;
         }
@@ -575,7 +643,8 @@ namespace motion {
 
     tjs_error Player::stopCompat(tTJSVariant *result, tjs_int numparams,
                                  tTJSVariant **param, iTJSDispatch2 *objthis) {
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
         if(!self) {
             return TJS_E_INVALIDOBJECT;
         }

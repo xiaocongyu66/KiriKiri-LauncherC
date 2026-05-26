@@ -12,9 +12,7 @@
 
 namespace motion {
 
-    D3DAdaptor::~D3DAdaptor() {
-        releaseTargetTexture();
-    }
+    D3DAdaptor::~D3DAdaptor() { releaseTargetTexture(); }
 
     tjs_error D3DAdaptor::factory(D3DAdaptor **result, tjs_int numparams,
                                   tTJSVariant **param, iTJSDispatch2 *) {
@@ -22,9 +20,12 @@ namespace motion {
         if(logger) {
             logger->warn("D3DAdaptor::factory called, numparams={}", numparams);
         }
-        if(numparams < 5) return TJS_E_BADPARAMCOUNT;
-        if(!result) return TJS_E_INVALIDPARAM;
-        if(!param || !param[0]) return TJS_E_INVALIDPARAM;
+        if(numparams < 5)
+            return TJS_E_BADPARAMCOUNT;
+        if(!result)
+            return TJS_E_INVALIDPARAM;
+        if(!param || !param[0])
+            return TJS_E_INVALIDPARAM;
 
         iTJSDispatch2 *windowObject = param[0]->AsObjectNoAddRef();
         if(!windowObject ||
@@ -34,12 +35,11 @@ namespace motion {
         }
 
         auto *obj = new D3DAdaptor();
-        obj->initializeLike_0x6ADB10(
-            *param[0],
-            static_cast<int>(param[1]->AsInteger()),
-            static_cast<int>(param[2]->AsInteger()),
-            static_cast<int>(param[3]->AsInteger()),
-            static_cast<int>(param[4]->AsInteger()));
+        obj->initializeLike_0x6ADB10(*param[0],
+                                     static_cast<int>(param[1]->AsInteger()),
+                                     static_cast<int>(param[2]->AsInteger()),
+                                     static_cast<int>(param[3]->AsInteger()),
+                                     static_cast<int>(param[4]->AsInteger()));
         if(logger) {
             logger->warn("D3DAdaptor::factory OK, w={} h={} center=({}, {})",
                          obj->_width, obj->_height, obj->_centerX,
@@ -64,15 +64,18 @@ namespace motion {
                                         tTJSVariant **param,
                                         iTJSDispatch2 *objthis) {
         (void)objthis;
-        if(numparams < 1 || !param[0]) return TJS_E_BADPARAMCOUNT;
+        if(numparams < 1 || !param[0])
+            return TJS_E_BADPARAMCOUNT;
 
         iTJSDispatch2 *layerObj = param[0]->AsObjectNoAddRef();
-        if(!layerObj) return TJS_E_INVALIDPARAM;
+        if(!layerObj)
+            return TJS_E_INVALIDPARAM;
 
         tTJSNI_BaseLayer *layer = nullptr;
         if(TJS_FAILED(layerObj->NativeInstanceSupport(
                TJS_NIS_GETINSTANCE, tTJSNC_Layer::ClassID,
-               reinterpret_cast<iTJSNativeInstance **>(&layer))) || !layer) {
+               reinterpret_cast<iTJSNativeInstance **>(&layer))) ||
+           !layer) {
             return TJS_E_INVALIDPARAM;
         }
 
@@ -80,20 +83,23 @@ namespace motion {
             return TJS_S_OK;
         }
 
-        if(!layer->GetHasImage()) layer->SetHasImage(true);
+        if(!layer->GetHasImage())
+            layer->SetHasImage(true);
         layer->SetImageSize(static_cast<tjs_uint>(_width),
                             static_cast<tjs_uint>(_height));
 
         auto *dst = reinterpret_cast<std::uint8_t *>(
             layer->GetMainImagePixelBufferForWrite());
         auto dstPitch = layer->GetMainImagePixelBufferPitch();
-        if(!dst || dstPitch <= 0) return TJS_S_OK;
+        if(!dst || dstPitch <= 0)
+            return TJS_S_OK;
 
         copyTargetTextureRowsForCaptureLike_0x6AD92C(dst, dstPitch);
 
         layer->Update(false);
 
-        if(result) *result = *param[0];
+        if(result)
+            *result = *param[0];
         return TJS_S_OK;
     }
 
@@ -101,7 +107,8 @@ namespace motion {
                                               tjs_int numparams,
                                               tTJSVariant **param,
                                               D3DAdaptor *nativeInstance) {
-        if(!nativeInstance) return TJS_E_NATIVECLASSCRASH;
+        if(!nativeInstance)
+            return TJS_E_NATIVECLASSCRASH;
         return nativeInstance->captureCanvas(result, numparams, param, nullptr);
     }
 
@@ -138,14 +145,16 @@ namespace motion {
             return;
         }
         const int colorId = method->EnumParameterID("color");
-        method->SetParameterColor4B(colorId, static_cast<unsigned int>(_clearColor));
+        method->SetParameterColor4B(colorId,
+                                    static_cast<unsigned int>(_clearColor));
         const tTVPRect rc(0, 0, _width, _height);
         mgr->OperateRect(method, _targetTexture, nullptr, rc,
                          tRenderTexRectArray());
     }
 
-    bool D3DAdaptor::copyTargetTextureRowsForCaptureLike_0x6AD92C(
-        std::uint8_t *dst, tjs_int dstPitch) {
+    bool
+    D3DAdaptor::copyTargetTextureRowsForCaptureLike_0x6AD92C(std::uint8_t *dst,
+                                                             tjs_int dstPitch) {
         if(!dst || dstPitch <= 0 || _width <= 0 || _height <= 0) {
             return false;
         }
@@ -156,7 +165,8 @@ namespace motion {
         int copyHeight = _height;
 
         // Aligned to libkrkr2.so D3DAdaptor_captureCanvas @ 0x6AD92C: the
-        // primary path reads back adaptor+48 texture rows into the target Layer.
+        // primary path reads back adaptor+48 texture rows into the target
+        // Layer.
         if(_targetTexture) {
             srcBase = static_cast<const std::uint8_t *>(
                 _targetTexture->GetScanLineForRead(0));
@@ -182,9 +192,7 @@ namespace motion {
     }
 
     void D3DAdaptor::initializeLike_0x6ADB10(const tTJSVariant &window,
-                                             int width,
-                                             int height,
-                                             int centerX,
+                                             int width, int height, int centerX,
                                              int centerY) {
         _window = window;
         _width = width;
@@ -204,7 +212,8 @@ namespace motion {
     void D3DAdaptor::allocBuffer() {
         if(_width > 0 && _height > 0) {
             _buffer.resize(static_cast<size_t>(_width) *
-                           static_cast<size_t>(_height) * 4u, 0);
+                               static_cast<size_t>(_height) * 4u,
+                           0);
         } else {
             _buffer.clear();
         }

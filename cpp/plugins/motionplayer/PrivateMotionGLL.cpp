@@ -59,14 +59,16 @@ namespace {
         std::uint64_t sourceTexture = 0; // item+80; AddRef/Release in native
     };
 
-    static_assert(sizeof(PrivateMotionGLLRenderItemLike_0x6DE738) == 88,
-                  "PrivateMotionGLL render item must mirror native 88-byte items");
+    static_assert(
+        sizeof(PrivateMotionGLLRenderItemLike_0x6DE738) == 88,
+        "PrivateMotionGLL render item must mirror native 88-byte items");
 
     static_assert(sizeof(motion::PrivateMotionGLLPackedPointLike_0x6DF33C) == 8,
                   "PrivateMotionGLL points mirror native packed float pairs");
 
     std::uint64_t storeNativePointerLike_0x6DE738(const void *ptr) {
-        return static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(ptr));
+        return static_cast<std::uint64_t>(
+            reinterpret_cast<std::uintptr_t>(ptr));
     }
 
     template <typename T>
@@ -76,8 +78,8 @@ namespace {
 
     void cleanupRenderItemLike_0x6DDE80(
         PrivateMotionGLLRenderItemLike_0x6DE738 &item) {
-        if(auto *texture =
-               loadNativePointerLike_0x6DE738<iTVPTexture2D>(item.sourceTexture)) {
+        if(auto *texture = loadNativePointerLike_0x6DE738<iTVPTexture2D>(
+               item.sourceTexture)) {
             texture->Release();
             item.sourceTexture = 0;
         }
@@ -103,8 +105,7 @@ namespace {
     pointsBeginLike_0x6DD56C(
         const PrivateMotionGLLRenderItemLike_0x6DE738 &item) {
         return loadNativePointerLike_0x6DE738<
-            motion::PrivateMotionGLLPackedPointLike_0x6DF33C>(
-            item.pointsBegin);
+            motion::PrivateMotionGLLPackedPointLike_0x6DF33C>(item.pointsBegin);
     }
 
     std::size_t pointCountLike_0x6DD56C(
@@ -125,21 +126,26 @@ namespace {
         return rgb | ((item.opacity & 0xffu) << 24u);
     }
 
-    tTVPBBBltMethod softwareMethodForPrivateMotionGLLLike_0x6DD56C(
-        int blendLowNibble) {
+    tTVPBBBltMethod
+    softwareMethodForPrivateMotionGLLLike_0x6DD56C(int blendLowNibble) {
         switch(blendLowNibble) {
-            case 1: return bmPsAdditive;
+            case 1:
+                return bmPsAdditive;
             case 2:
-            case 5: return bmPsSubtractive;
-            case 3: return bmPsMultiplicative;
-            case 4: return bmPsScreen;
-            default: return bmAlpha;
+            case 5:
+                return bmPsSubtractive;
+            case 3:
+                return bmPsMultiplicative;
+            case 4:
+                return bmPsScreen;
+            default:
+                return bmAlpha;
         }
     }
 
-    const char *gpuMethodNameForPrivateMotionGLLLike_0x6DD56C(
-        int blendLowNibble,
-        bool alphaTest) {
+    const char *
+    gpuMethodNameForPrivateMotionGLLLike_0x6DD56C(int blendLowNibble,
+                                                  bool alphaTest) {
         switch(blendLowNibble) {
             case 1:
                 return alphaTest ? "PsAddBlend_color_AlphaTest"
@@ -161,20 +167,16 @@ namespace {
     }
 
     iTVPRenderMethod *selectPrivateMotionGLLRenderMethodLike_0x6DD56C(
-        int blendLowNibble,
-        unsigned int color,
-        bool alphaTest,
-        int opacity) {
+        int blendLowNibble, unsigned int color, bool alphaTest, int opacity) {
         auto *mgr = TVPGetRenderManager();
         if(mgr->IsSoftware()) {
             return mgr->GetRenderMethod(
                 opacity, false,
-                softwareMethodForPrivateMotionGLLLike_0x6DD56C(
-                    blendLowNibble));
+                softwareMethodForPrivateMotionGLLLike_0x6DD56C(blendLowNibble));
         }
 
-        auto *method = mgr->GetRenderMethod(
-            gpuMethodNameForPrivateMotionGLLLike_0x6DD56C(
+        auto *method =
+            mgr->GetRenderMethod(gpuMethodNameForPrivateMotionGLLLike_0x6DD56C(
                 blendLowNibble, alphaTest));
         if(!method) {
             return nullptr;
@@ -198,9 +200,8 @@ namespace {
         return false;
     }
 
-    void beginPrivateMotionGLLStencilLike_0x6DD56C(
-        iTVPTexture2D *target,
-        bool enabled) {
+    void beginPrivateMotionGLLStencilLike_0x6DD56C(iTVPTexture2D *target,
+                                                   bool enabled) {
         if(!enabled || !target) {
             return;
         }
@@ -221,8 +222,7 @@ namespace {
     }
 
     void applyPrivateMotionGLLStencilStateLike_0x6DD56C(
-        const PrivateMotionGLLRenderItemLike_0x6DE738 &item,
-        bool enabled) {
+        const PrivateMotionGLLRenderItemLike_0x6DE738 &item, bool enabled) {
         if(!enabled) {
             return;
         }
@@ -264,41 +264,39 @@ namespace {
     }
 
     std::array<tTVPPointD, 6> affineTargetQuadLike_0x6DD56C(
-        const PrivateMotionGLLRenderItemLike_0x6DE738 &item,
-        double xOffset,
+        const PrivateMotionGLLRenderItemLike_0x6DE738 &item, double xOffset,
         double yOffset) {
         std::array<tTVPPointD, 6> out{};
         const auto *points = pointsBeginLike_0x6DD56C(item);
         if(!points || pointCountLike_0x6DD56C(item) < 3) {
             return out;
         }
-        const tTVPPointD p0{points[0].x + xOffset, points[0].y + yOffset};
-        const tTVPPointD p1{points[1].x + xOffset, points[1].y + yOffset};
-        const tTVPPointD p2{points[2].x + xOffset, points[2].y + yOffset};
-        const tTVPPointD p3{p1.x + p2.x - p0.x, p1.y + p2.y - p0.y};
-        out = {{p0, p1, p2, p1, p2, p3}};
+        const tTVPPointD p0{ points[0].x + xOffset, points[0].y + yOffset };
+        const tTVPPointD p1{ points[1].x + xOffset, points[1].y + yOffset };
+        const tTVPPointD p2{ points[2].x + xOffset, points[2].y + yOffset };
+        const tTVPPointD p3{ p1.x + p2.x - p0.x, p1.y + p2.y - p0.y };
+        out = { { p0, p1, p2, p1, p2, p3 } };
         return out;
     }
 
-    std::array<tTVPPointD, 6> affineSourceQuadLike_0x6DD56C(
-        const tTVPRect &sourceRect) {
+    std::array<tTVPPointD, 6>
+    affineSourceQuadLike_0x6DD56C(const tTVPRect &sourceRect) {
         const double left = sourceRect.left;
         const double top = sourceRect.top;
         const double right = sourceRect.right;
         const double bottom = sourceRect.bottom;
-        return {{
-            {left, top},
-            {right, top},
-            {left, bottom},
-            {right, top},
-            {left, bottom},
-            {right, bottom},
-        }};
+        return { {
+            { left, top },
+            { right, top },
+            { left, bottom },
+            { right, top },
+            { left, bottom },
+            { right, bottom },
+        } };
     }
 
     std::vector<tTVPPointD> offsetMeshPointsLike_0x6DD56C(
-        const PrivateMotionGLLRenderItemLike_0x6DE738 &item,
-        double xOffset,
+        const PrivateMotionGLLRenderItemLike_0x6DE738 &item, double xOffset,
         double yOffset) {
         std::vector<tTVPPointD> out;
         const auto *points = pointsBeginLike_0x6DD56C(item);
@@ -308,14 +306,13 @@ namespace {
         }
         out.reserve(count);
         for(std::size_t i = 0; i < count; ++i) {
-            out.push_back({points[i].x + xOffset, points[i].y + yOffset});
+            out.push_back({ points[i].x + xOffset, points[i].y + yOffset });
         }
         return out;
     }
 
     std::vector<tTVPPointD> tessellateBezierPatchLike_0x6DD56C(
-        const PrivateMotionGLLRenderItemLike_0x6DE738 &item,
-        double xOffset,
+        const PrivateMotionGLLRenderItemLike_0x6DE738 &item, double xOffset,
         double yOffset) {
         std::vector<tTVPPointD> out;
         const auto *points = pointsBeginLike_0x6DD56C(item);
@@ -323,8 +320,8 @@ namespace {
         if(!points || count < 16 || item.meshDivX < 2 || item.meshDivY < 2) {
             return out;
         }
-        const auto cubicBlend = [](double p0, double p1, double p2,
-                                   double p3, double t) {
+        const auto cubicBlend = [](double p0, double p1, double p2, double p3,
+                                   double t) {
             const double mt = 1.0 - t;
             return mt * mt * mt * p0 + 3.0 * mt * mt * t * p1 +
                 3.0 * mt * t * t * p2 + t * t * t * p3;
@@ -333,16 +330,16 @@ namespace {
             tTVPPointD curve[4];
             for(int row = 0; row < 4; ++row) {
                 const auto *base = points + row * 4;
-                curve[row].x = cubicBlend(base[0].x, base[1].x, base[2].x,
-                                          base[3].x, u);
-                curve[row].y = cubicBlend(base[0].y, base[1].y, base[2].y,
-                                          base[3].y, u);
+                curve[row].x =
+                    cubicBlend(base[0].x, base[1].x, base[2].x, base[3].x, u);
+                curve[row].y =
+                    cubicBlend(base[0].y, base[1].y, base[2].y, base[3].y, u);
             }
             return tTVPPointD{
-                cubicBlend(curve[0].x, curve[1].x, curve[2].x,
-                           curve[3].x, v) + xOffset,
-                cubicBlend(curve[0].y, curve[1].y, curve[2].y,
-                           curve[3].y, v) + yOffset,
+                cubicBlend(curve[0].x, curve[1].x, curve[2].x, curve[3].x, v) +
+                    xOffset,
+                cubicBlend(curve[0].y, curve[1].y, curve[2].y, curve[3].y, v) +
+                    yOffset,
             };
         };
 
@@ -361,21 +358,17 @@ namespace {
     }
 
     bool operatePrivateMotionGLLAffineLike_0x6DD56C(
-        iTVPRenderMethod *method,
-        iTVPTexture2D *targetTexture,
+        iTVPRenderMethod *method, iTVPTexture2D *targetTexture,
         const tTVPRect &targetRect,
         const PrivateMotionGLLRenderItemLike_0x6DE738 &item,
-        iTVPTexture2D *sourceTexture,
-        double xOffset,
-        double yOffset) {
+        iTVPTexture2D *sourceTexture, double xOffset, double yOffset) {
         if(pointCountLike_0x6DD56C(item) < 3) {
             return false;
         }
         auto dst = affineTargetQuadLike_0x6DD56C(item, xOffset, yOffset);
         auto src = affineSourceQuadLike_0x6DD56C(sourceRectLike_0x6DD56C(item));
-        tRenderTexQuadArray::Element srcTex[] = {
-            tRenderTexQuadArray::Element(sourceTexture, src.data())
-        };
+        tRenderTexQuadArray::Element srcTex[] = { tRenderTexQuadArray::Element(
+            sourceTexture, src.data()) };
         TVPGetRenderManager()->OperateTriangles(
             method, 2, targetTexture, targetTexture, targetRect, dst.data(),
             tRenderTexQuadArray(srcTex));
@@ -383,8 +376,7 @@ namespace {
     }
 
     bool operatePrivateMotionGLLMeshLike_0x6DD56C(
-        iTVPRenderMethod *method,
-        iTVPTexture2D *targetTexture,
+        iTVPRenderMethod *method, iTVPTexture2D *targetTexture,
         const tTVPRect &targetRect,
         const PrivateMotionGLLRenderItemLike_0x6DE738 &item,
         iTVPTexture2D *sourceTexture,
@@ -411,23 +403,22 @@ namespace {
                 const auto &p0 = meshPoints[y * item.meshDivX + x];
                 const auto &p1 = meshPoints[y * item.meshDivX + x + 1];
                 const auto &p2 = meshPoints[(y + 1) * item.meshDivX + x];
-                const auto &p3 =
-                    meshPoints[(y + 1) * item.meshDivX + x + 1];
-                std::array<tTVPPointD, 6> dst{{p0, p1, p2, p1, p2, p3}};
-                std::array<tTVPPointD, 6> src{{
-                    {sourceRect.left + std::floor(srcW * u0),
-                     sourceRect.top + std::floor(srcH * v0)},
-                    {sourceRect.left + std::ceil(srcW * u1),
-                     sourceRect.top + std::floor(srcH * v0)},
-                    {sourceRect.left + std::floor(srcW * u0),
-                     sourceRect.top + std::ceil(srcH * v1)},
-                    {sourceRect.left + std::ceil(srcW * u1),
-                     sourceRect.top + std::floor(srcH * v0)},
-                    {sourceRect.left + std::floor(srcW * u0),
-                     sourceRect.top + std::ceil(srcH * v1)},
-                    {sourceRect.left + std::ceil(srcW * u1),
-                     sourceRect.top + std::ceil(srcH * v1)},
-                }};
+                const auto &p3 = meshPoints[(y + 1) * item.meshDivX + x + 1];
+                std::array<tTVPPointD, 6> dst{ { p0, p1, p2, p1, p2, p3 } };
+                std::array<tTVPPointD, 6> src{ {
+                    { sourceRect.left + std::floor(srcW * u0),
+                      sourceRect.top + std::floor(srcH * v0) },
+                    { sourceRect.left + std::ceil(srcW * u1),
+                      sourceRect.top + std::floor(srcH * v0) },
+                    { sourceRect.left + std::floor(srcW * u0),
+                      sourceRect.top + std::ceil(srcH * v1) },
+                    { sourceRect.left + std::ceil(srcW * u1),
+                      sourceRect.top + std::floor(srcH * v0) },
+                    { sourceRect.left + std::floor(srcW * u0),
+                      sourceRect.top + std::ceil(srcH * v1) },
+                    { sourceRect.left + std::ceil(srcW * u1),
+                      sourceRect.top + std::ceil(srcH * v1) },
+                } };
                 tRenderTexQuadArray::Element srcTex[] = {
                     tRenderTexQuadArray::Element(sourceTexture, src.data())
                 };
@@ -439,9 +430,10 @@ namespace {
         return true;
     }
 
-    OwnerResolutionLike_0x800438 requireOwnerClosureLike_0x800438(
-        const tTJSVariant &ownerVariant) {
-        if(ownerVariant.Type() != tvtObject || !ownerVariant.AsObjectNoAddRef()) {
+    OwnerResolutionLike_0x800438
+    requireOwnerClosureLike_0x800438(const tTJSVariant &ownerVariant) {
+        if(ownerVariant.Type() != tvtObject ||
+           !ownerVariant.AsObjectNoAddRef()) {
             TVPThrowExceptionMessage(
                 TJS_W("Please specify layerTreeOwnerInterface object"));
         }
@@ -453,11 +445,11 @@ namespace {
         }
 
         tTJSVariant ownerInterface;
-        iTJSDispatch2 *objthis = closure.ObjThis ? closure.ObjThis
-                                                 : closure.Object;
-        const tjs_error hr = closure.Object->PropGet(
-            0, TJS_W("layerTreeOwnerInterface"), nullptr, &ownerInterface,
-            objthis);
+        iTJSDispatch2 *objthis =
+            closure.ObjThis ? closure.ObjThis : closure.Object;
+        const tjs_error hr =
+            closure.Object->PropGet(0, TJS_W("layerTreeOwnerInterface"),
+                                    nullptr, &ownerInterface, objthis);
         if(TJS_FAILED(hr)) {
             TVPThrowExceptionMessage(
                 TJS_W("Cannot Retrive Layer Tree Owner Interface."));
@@ -480,32 +472,39 @@ namespace {
         }
 
         tTJSNI_BaseLayer *layer = nullptr;
-        if(TJS_FAILED(targetLayerVariant.AsObjectNoAddRef()->NativeInstanceSupport(
-               TJS_NIS_GETINSTANCE, tTJSNC_Layer::ClassID,
-               reinterpret_cast<iTJSNativeInstance **>(&layer)))) {
+        if(TJS_FAILED(
+               targetLayerVariant.AsObjectNoAddRef()->NativeInstanceSupport(
+                   TJS_NIS_GETINSTANCE, tTJSNC_Layer::ClassID,
+                   reinterpret_cast<iTJSNativeInstance **>(&layer)))) {
             TVPThrowExceptionMessage(TVPSpecifyLayer);
         }
         return layer;
     }
 
-    class tTJSNI_PrivateMotionGLLLayerLike_0x800438 final : public tTJSNI_Layer {
+    class tTJSNI_PrivateMotionGLLLayerLike_0x800438 final
+        : public tTJSNI_Layer {
     public:
+        tTJSNI_PrivateMotionGLLLayerLike_0x800438() {
+            // __Private_Motion_GLLayer::CreateNativeInstance @ 0x6DD430
+            // runs the base Layer constructor path that allocates the default
+            // alpha image/clip before storing the private render queue.
+            AllocateImage();
+        }
+
         ~tTJSNI_PrivateMotionGLLLayerLike_0x800438() override {
             ClearRenderQueueLike_0x6DE738();
         }
 
-        tjs_error Construct(tjs_int numparams,
-                            tTJSVariant **param,
+        tjs_error Construct(tjs_int numparams, tTJSVariant **param,
                             iTJSDispatch2 *tjs_obj) override {
             if(numparams < 2) {
                 return TJS_E_BADPARAMCOUNT;
             }
 
-            auto owner =
-                requireOwnerClosureLike_0x800438(*param[0]);
-            iTJSDispatch2 *targetObject =
-                param[1]->Type() == tvtObject ? param[1]->AsObjectNoAddRef()
-                                               : nullptr;
+            auto owner = requireOwnerClosureLike_0x800438(*param[0]);
+            iTJSDispatch2 *targetObject = param[1]->Type() == tvtObject
+                ? param[1]->AsObjectNoAddRef()
+                : nullptr;
             auto *parentLayer = resolveTargetLayerNativeOrNullLike_0x800438(
                 *param[1], targetObject);
 
@@ -534,10 +533,7 @@ namespace {
             return TJS_S_OK;
         }
 
-        void Draw_GPU(tTVPDrawable *target,
-                      int x,
-                      int y,
-                      const tTVPRect &r,
+        void Draw_GPU(tTVPDrawable *target, int x, int y, const tTVPRect &r,
                       bool visiblecheck = true) override {
             if(visiblecheck && !IsSeen()) {
                 return;
@@ -552,28 +548,30 @@ namespace {
             y += rect.top - r.top;
             tTVPRect targetRect(rect);
             targetRect.set_offsets(x, y);
+            ParentRectToChildRect(rect);
+            SetFace(dfAuto);
 
 #if defined(KRKR2_WASMTIME_HEADLESS)
             motion::detail::motionTracePrivateMotionGLLDraw(
                 this, static_cast<int>(_renderQueueLike_0x6DDBD8.size()),
-                rect.left, rect.top, rect.right, rect.bottom,
-                targetRect.left, targetRect.top,
-                targetRect.right, targetRect.bottom, visiblecheck);
+                rect.left, rect.top, rect.right, rect.bottom, targetRect.left,
+                targetRect.top, targetRect.right, targetRect.bottom,
+                visiblecheck);
 #endif
 
             CurrentDrawTarget = target;
             auto resetTarget = [&] { CurrentDrawTarget = nullptr; };
             tTVPRect clipRect;
-            auto *targetBitmap = target ? target->GetDrawTargetBitmap(
-                                              targetRect, clipRect)
-                                        : nullptr;
+            auto *targetBitmap = target
+                ? target->GetDrawTargetBitmap(targetRect, clipRect)
+                : nullptr;
             if(!targetBitmap) {
                 resetTarget();
                 return;
             }
 
-            auto *targetTexture = targetBitmap->GetTextureForRender(
-                true, &clipRect);
+            auto *targetTexture =
+                targetBitmap->GetTextureForRender(true, &clipRect);
             if(!targetTexture) {
                 resetTarget();
                 return;
@@ -585,7 +583,7 @@ namespace {
                 privateMotionGLLStencilNeededLike_0x6DD56C(
                     _renderQueueLike_0x6DDBD8);
             beginPrivateMotionGLLStencilLike_0x6DD56C(targetTexture,
-                                                       stencilEnabled);
+                                                      stencilEnabled);
             const double xOffset = static_cast<double>(x) - 0.5;
             const double yOffset = static_cast<double>(y) - 0.5;
 
@@ -605,8 +603,8 @@ namespace {
                     continue;
                 }
 
-                applyPrivateMotionGLLStencilStateLike_0x6DD56C(
-                    item, stencilEnabled);
+                applyPrivateMotionGLLStencilStateLike_0x6DD56C(item,
+                                                               stencilEnabled);
                 switch(item.geometryType) {
                     case 0:
                         operatePrivateMotionGLLAffineLike_0x6DD56C(
@@ -615,8 +613,8 @@ namespace {
                         break;
                     case 1: {
                         const auto meshPoints =
-                            tessellateBezierPatchLike_0x6DD56C(
-                                item, xOffset, yOffset);
+                            tessellateBezierPatchLike_0x6DD56C(item, xOffset,
+                                                               yOffset);
                         operatePrivateMotionGLLMeshLike_0x6DD56C(
                             method, targetTexture, clipRect, item,
                             sourceTexture, meshPoints);
@@ -636,6 +634,7 @@ namespace {
             }
 
             endPrivateMotionGLLStencilLike_0x6DD56C(stencilEnabled);
+            ResetClip();
             resetTarget();
         }
 
@@ -657,12 +656,11 @@ namespace {
             };
             std::unique_ptr<void, OperatorDelete> pointsOwner;
             if(!input.points.empty()) {
-                const auto bytes =
-                    input.points.size() *
+                const auto bytes = input.points.size() *
                     sizeof(motion::PrivateMotionGLLPackedPointLike_0x6DF33C);
-                auto *points = static_cast<
-                    motion::PrivateMotionGLLPackedPointLike_0x6DF33C *>(
-                    operator new(bytes));
+                auto *points =
+                    static_cast<motion::PrivateMotionGLLPackedPointLike_0x6DF33C
+                                    *>(operator new(bytes));
                 std::memcpy(points, input.points.data(), bytes);
                 pointsOwner.reset(points);
                 item.pointsBegin = storeNativePointerLike_0x6DE738(points);
@@ -682,14 +680,14 @@ namespace {
             item.color2And3 =
                 static_cast<std::uint64_t>(input.packedColors[2]) |
                 (static_cast<std::uint64_t>(input.packedColors[3]) << 32);
-            item.sourceRect0 =
-                static_cast<std::uint32_t>(input.sourceRect[0]) |
+            item.sourceRect0 = static_cast<std::uint32_t>(input.sourceRect[0]) |
                 (static_cast<std::uint64_t>(
-                     static_cast<std::uint32_t>(input.sourceRect[1])) << 32);
-            item.sourceRect1 =
-                static_cast<std::uint32_t>(input.sourceRect[2]) |
+                     static_cast<std::uint32_t>(input.sourceRect[1]))
+                 << 32);
+            item.sourceRect1 = static_cast<std::uint32_t>(input.sourceRect[2]) |
                 (static_cast<std::uint64_t>(
-                     static_cast<std::uint32_t>(input.sourceRect[3])) << 32);
+                     static_cast<std::uint32_t>(input.sourceRect[3]))
+                 << 32);
             if(input.sourceTexture) {
                 input.sourceTexture->AddRef();
                 item.sourceTexture =
@@ -729,30 +727,30 @@ namespace {
         tTJSNI_PrivateMotionGLLLayerLike_0x800438 *layer = nullptr;
         if(TJS_FAILED(object->NativeInstanceSupport(
                TJS_NIS_GETINSTANCE, g_PrivateMotionGLL_ClassID_Like_0x6DD284,
-               reinterpret_cast<iTJSNativeInstance **>(&layer))) || !layer) {
+               reinterpret_cast<iTJSNativeInstance **>(&layer))) ||
+           !layer) {
             return nullptr;
         }
         return layer;
     }
 
     tjs_error PrivateMotionGLL_constructorLike_0x6DE24C(
-        tTJSVariant * /*result*/,
-        tjs_int numparams,
-        tTJSVariant **param,
+        tTJSVariant * /*result*/, tjs_int numparams, tTJSVariant **param,
         iTJSDispatch2 *objthis) {
-        auto *self = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
+        auto *self =
+            resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
         if(!self) {
             return TJS_E_NATIVECLASSCRASH;
         }
         return self->Construct(numparams, param, objthis);
     }
 
-    tjs_error PrivateMotionGLL_setSizeLike_0x6DE2E0(
-        tTJSVariant * /*result*/,
-        tjs_int numparams,
-        tTJSVariant **param,
-        iTJSDispatch2 *objthis) {
-        auto *self = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
+    tjs_error PrivateMotionGLL_setSizeLike_0x6DE2E0(tTJSVariant * /*result*/,
+                                                    tjs_int numparams,
+                                                    tTJSVariant **param,
+                                                    iTJSDispatch2 *objthis) {
+        auto *self =
+            resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
         if(!self) {
             return TJS_E_NATIVECLASSCRASH;
         }
@@ -764,10 +762,10 @@ namespace {
         return TJS_S_OK;
     }
 
-    tjs_error PrivateMotionGLL_getVisibleLike_0x6DE46C(
-        tTJSVariant *result,
-        iTJSDispatch2 *objthis) {
-        auto *self = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
+    tjs_error PrivateMotionGLL_getVisibleLike_0x6DE46C(tTJSVariant *result,
+                                                       iTJSDispatch2 *objthis) {
+        auto *self =
+            resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
         if(!self) {
             return TJS_E_NATIVECLASSCRASH;
         }
@@ -777,10 +775,10 @@ namespace {
         return TJS_S_OK;
     }
 
-    tjs_error PrivateMotionGLL_setVisibleLike_0x6DE4EC(
-        const tTJSVariant *param,
-        iTJSDispatch2 *objthis) {
-        auto *self = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
+    tjs_error PrivateMotionGLL_setVisibleLike_0x6DE4EC(const tTJSVariant *param,
+                                                       iTJSDispatch2 *objthis) {
+        auto *self =
+            resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
         if(!self) {
             return TJS_E_NATIVECLASSCRASH;
         }
@@ -788,10 +786,11 @@ namespace {
         return TJS_S_OK;
     }
 
-    tjs_error PrivateMotionGLL_getAbsoluteLike_0x6DE5C8(
-        tTJSVariant *result,
-        iTJSDispatch2 *objthis) {
-        auto *self = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
+    tjs_error
+    PrivateMotionGLL_getAbsoluteLike_0x6DE5C8(tTJSVariant *result,
+                                              iTJSDispatch2 *objthis) {
+        auto *self =
+            resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
         if(!self) {
             return TJS_E_NATIVECLASSCRASH;
         }
@@ -801,10 +800,11 @@ namespace {
         return TJS_S_OK;
     }
 
-    tjs_error PrivateMotionGLL_setAbsoluteLike_0x6DE64C(
-        const tTJSVariant *param,
-        iTJSDispatch2 *objthis) {
-        auto *self = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
+    tjs_error
+    PrivateMotionGLL_setAbsoluteLike_0x6DE64C(const tTJSVariant *param,
+                                              iTJSDispatch2 *objthis) {
+        auto *self =
+            resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(objthis);
         if(!self) {
             return TJS_E_NATIVECLASSCRASH;
         }
@@ -812,11 +812,13 @@ namespace {
         return TJS_S_OK;
     }
 
-    class tTJSNC_PrivateMotionGLLLayerLike_0x6DD284 final : public tTJSNativeClass {
+    class tTJSNC_PrivateMotionGLLLayerLike_0x6DD284 final
+        : public tTJSNativeClass {
     public:
-        tTJSNC_PrivateMotionGLLLayerLike_0x6DD284()
-            : tTJSNativeClass(privateMotionGLLClassNameLike_0x6DD284()) {
-            const tjs_char *className = privateMotionGLLClassNameLike_0x6DD284();
+        tTJSNC_PrivateMotionGLLLayerLike_0x6DD284() :
+            tTJSNativeClass(privateMotionGLLClassNameLike_0x6DD284()) {
+            const tjs_char *className =
+                privateMotionGLLClassNameLike_0x6DD284();
             g_PrivateMotionGLL_ClassID_Like_0x6DD284 =
                 TJSRegisterNativeClass(className);
             SetClassID(g_PrivateMotionGLL_ClassID_Like_0x6DD284);
@@ -828,7 +830,8 @@ namespace {
                 className, nitMethod);
             TJSNativeClassRegisterNCM(
                 this, TJS_W("setSize"),
-                TJSCreateNativeClassMethod(PrivateMotionGLL_setSizeLike_0x6DE2E0),
+                TJSCreateNativeClassMethod(
+                    PrivateMotionGLL_setSizeLike_0x6DE2E0),
                 className, nitMethod);
             TJSNativeClassRegisterNCM(
                 this, TJS_W("visible"),
@@ -854,8 +857,7 @@ namespace {
     privateMotionGLLClassDispatchLike_0x6D5948() {
         // Player_ResolveSLATarget @ 0x6D5948 guards qword_1AB8578, initialized
         // by PrivateMotionGLL_CreateClass @ 0x6DD284, then reuses it forever.
-        static auto *klass =
-            new tTJSNC_PrivateMotionGLLLayerLike_0x6DD284();
+        static auto *klass = new tTJSNC_PrivateMotionGLLLayerLike_0x6DD284();
         return klass;
     }
 
@@ -867,18 +869,18 @@ namespace {
         tTJSVariant ownerArg(ownerVariant);
         tTJSVariant targetArg(targetLayerVariant);
         tTJSVariant *args[] = { &ownerArg, &targetArg };
-        const tjs_error hr = layerClass->CreateNew(0, nullptr, nullptr, &created,
-                                                   2, args, layerClass);
+        const tjs_error hr = layerClass->CreateNew(
+            0, nullptr, nullptr, &created, 2, args, layerClass);
         if(TJS_FAILED(hr) || !created) {
             TVPThrowExceptionMessage(TJS_W("Cannot create PrivateMotionGLL."));
         }
         return created;
     }
 
-    iTJSDispatch2 *createPrivateLayerObjectLike_0x800438(
-        const tTJSVariant &ownerVariant,
-        const tTJSVariant &targetLayerVariant,
-        iTJSDispatch2 *targetLayerObject) {
+    iTJSDispatch2 *
+    createPrivateLayerObjectLike_0x800438(const tTJSVariant &ownerVariant,
+                                          const tTJSVariant &targetLayerVariant,
+                                          iTJSDispatch2 *targetLayerObject) {
         requireOwnerClosureLike_0x800438(ownerVariant);
         if(!resolveTargetLayerNativeOrNullLike_0x800438(targetLayerVariant,
                                                         targetLayerObject)) {
@@ -904,12 +906,9 @@ namespace {
 namespace motion {
 
     iTJSDispatch2 *ensurePrivateMotionGLLLike_0x6D5948(
-        SeparateLayerAdaptor &sla,
-        const tTJSVariant &ownerVariant,
-        const tTJSVariant &targetLayerVariant,
-        iTJSDispatch2 *targetLayerObject,
-        int canvasWidth,
-        int canvasHeight) {
+        SeparateLayerAdaptor &sla, const tTJSVariant &ownerVariant,
+        const tTJSVariant &targetLayerVariant, iTJSDispatch2 *targetLayerObject,
+        int canvasWidth, int canvasHeight) {
         if(!targetLayerObject || canvasWidth <= 0 || canvasHeight <= 0) {
             return nullptr;
         }
@@ -929,8 +928,7 @@ namespace motion {
                 // Player_ResolveSLATarget @ 0x6D5948 performs these writes
                 // immediately after the newly created object is stored in
                 // SLA+40, before the per-frame SetSize call.
-                layer->SetAbsoluteOrderIndex(
-                    static_cast<tjs_int>(sla.getAbsolute()));
+                layer->SetAbsoluteOrderIndex(sla.getAbsolute());
                 layer->SetVisible(true);
             }
             sla.trackManagedTargetLike_0x6AC410(sla._privateTarget, 0);
@@ -950,14 +948,14 @@ namespace motion {
         return layerObject;
     }
 
-    tTJSNI_BaseLayer *resolvePrivateMotionGLLNativeLike_0x6DE24C(
-        iTJSDispatch2 *object) {
+    tTJSNI_BaseLayer *
+    resolvePrivateMotionGLLNativeLike_0x6DE24C(iTJSDispatch2 *object) {
         return resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(object);
     }
 
     void clearPrivateMotionGLLRenderQueueLike_0x6DE738(iTJSDispatch2 *object) {
-        if(auto *layer = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(
-               object)) {
+        if(auto *layer =
+               resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(object)) {
             layer->ClearRenderQueueLike_0x6DE738();
         }
     }
@@ -965,16 +963,16 @@ namespace motion {
     void appendPrivateMotionGLLRenderItemLike_0x6DE738(
         iTJSDispatch2 *object,
         const PrivateMotionGLLRenderItemInputLike_0x6DE738 &item) {
-        if(auto *layer = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(
-               object)) {
+        if(auto *layer =
+               resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(object)) {
             layer->AppendRenderItemLike_0x6DE738(item);
         }
     }
 
-    std::size_t privateMotionGLLRenderQueueSizeLike_0x6DE738(
-        iTJSDispatch2 *object) {
-        if(auto *layer = resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(
-               object)) {
+    std::size_t
+    privateMotionGLLRenderQueueSizeLike_0x6DE738(iTJSDispatch2 *object) {
+        if(auto *layer =
+               resolvePrivateMotionGLLNativeInternalLike_0x6DE24C(object)) {
             return layer->RenderQueueSizeLike_0x6DE738();
         }
         return 0;

@@ -29,36 +29,32 @@ namespace motion {
         using PreparedRenderItem = detail::PlayerRuntime::PreparedRenderItem;
 
         std::array<tTVPPointD, 6> makeTextureQuad(double w, double h) {
-            return {{
-                {0.0, 0.0},
-                {w, 0.0},
-                {0.0, h},
-                {w, 0.0},
-                {0.0, h},
-                {w, h},
-            }};
+            return { {
+                { 0.0, 0.0 },
+                { w, 0.0 },
+                { 0.0, h },
+                { w, 0.0 },
+                { 0.0, h },
+                { w, h },
+            } };
         }
 
-        std::array<tTVPPointD, 6> makeAffineTargetQuad(
-            const PreparedRenderItem &item,
-            double xOffset,
-            double yOffset) {
-            return {{
-                {item.corners[0] + xOffset, item.corners[1] + yOffset},
-                {item.corners[2] + xOffset, item.corners[3] + yOffset},
-                {item.corners[6] + xOffset, item.corners[7] + yOffset},
-                {item.corners[2] + xOffset, item.corners[3] + yOffset},
-                {item.corners[6] + xOffset, item.corners[7] + yOffset},
-                {item.corners[4] + xOffset, item.corners[5] + yOffset},
-            }};
+        std::array<tTVPPointD, 6>
+        makeAffineTargetQuad(const PreparedRenderItem &item, double xOffset,
+                             double yOffset) {
+            return { {
+                { item.corners[0] + xOffset, item.corners[1] + yOffset },
+                { item.corners[2] + xOffset, item.corners[3] + yOffset },
+                { item.corners[6] + xOffset, item.corners[7] + yOffset },
+                { item.corners[2] + xOffset, item.corners[3] + yOffset },
+                { item.corners[6] + xOffset, item.corners[7] + yOffset },
+                { item.corners[4] + xOffset, item.corners[5] + yOffset },
+            } };
         }
 
-        std::vector<tTVPPointD> tessellateBezierPatch(
-            const std::vector<float> &controlPoints,
-            int divx,
-            int divy,
-            double xOffset,
-            double yOffset) {
+        std::vector<tTVPPointD>
+        tessellateBezierPatch(const std::vector<float> &controlPoints, int divx,
+                              int divy, double xOffset, double yOffset) {
             std::vector<tTVPPointD> out;
             if(controlPoints.size() < 32u || divx < 2 || divy < 2) {
                 return out;
@@ -81,40 +77,40 @@ namespace motion {
                         controlPoints[base + 5], controlPoints[base + 7], u);
                 }
                 return tTVPPointD{
-                    cubicBlend(curve[0].x, curve[1].x, curve[2].x,
-                               curve[3].x, v) + xOffset,
-                    cubicBlend(curve[0].y, curve[1].y, curve[2].y,
-                               curve[3].y, v) + yOffset,
+                    cubicBlend(curve[0].x, curve[1].x, curve[2].x, curve[3].x,
+                               v) +
+                        xOffset,
+                    cubicBlend(curve[0].y, curve[1].y, curve[2].y, curve[3].y,
+                               v) +
+                        yOffset,
                 };
             };
             out.reserve(static_cast<size_t>(divx) * static_cast<size_t>(divy));
             for(int y = 0; y < divy; ++y) {
-                const double v = static_cast<double>(y) /
-                    static_cast<double>(divy - 1);
+                const double v =
+                    static_cast<double>(y) / static_cast<double>(divy - 1);
                 for(int x = 0; x < divx; ++x) {
-                    const double u = static_cast<double>(x) /
-                        static_cast<double>(divx - 1);
+                    const double u =
+                        static_cast<double>(x) / static_cast<double>(divx - 1);
                     out.push_back(samplePatch(u, v));
                 }
             }
             return out;
         }
 
-        std::vector<tTVPPointD> buildOffsetMeshPoints(
-            const std::vector<float> &points,
-            double xOffset,
-            double yOffset) {
+        std::vector<tTVPPointD>
+        buildOffsetMeshPoints(const std::vector<float> &points, double xOffset,
+                              double yOffset) {
             std::vector<tTVPPointD> out;
             out.reserve(points.size() / 2u);
             for(size_t i = 0; i + 1 < points.size(); i += 2) {
-                out.push_back({points[i] + xOffset, points[i + 1] + yOffset});
+                out.push_back({ points[i] + xOffset, points[i + 1] + yOffset });
             }
             return out;
         }
 
         bool shouldQueuePrivateMotionGLLRenderItemLike_0x6DE738(
-            const PreparedRenderItem &item,
-            bool preview) {
+            const PreparedRenderItem &item, bool preview) {
             if((item.blendMode & 0xF) == 6 || item.skipFlag0 ||
                item.rawFlag16 || item.opacity == 0) {
                 return false;
@@ -125,9 +121,8 @@ namespace motion {
             return !item.sourceKey.empty();
         }
 
-        int privateMotionGLLOpacityLike_0x6DE738(
-            const PreparedRenderItem &item,
-            bool preview) {
+        int privateMotionGLLOpacityLike_0x6DE738(const PreparedRenderItem &item,
+                                                 bool preview) {
             int opacity = item.opacity;
             if(preview) {
                 opacity = opacity >= 0 ? opacity / 2 : (opacity + 1) / 2;
@@ -154,34 +149,43 @@ namespace motion {
             }
         }
 
-        unsigned int d3dPackedColorWithOpacity(
-            const PreparedRenderItem &item,
-            int opacity) {
+        unsigned int d3dPackedColorWithOpacity(const PreparedRenderItem &item,
+                                               int opacity) {
             const auto base = item.packedColors[0];
-            const auto rgb = base == 0xFF808080u ? 0x00FFFFFFu
-                                                 : (base & 0x00FFFFFFu);
+            const auto rgb =
+                base == 0xFF808080u ? 0x00FFFFFFu : (base & 0x00FFFFFFu);
             return rgb | (static_cast<unsigned int>(opacity) << 24u);
         }
 
         tTVPBBBltMethod softwareMethodForD3DBlend(int blendLowNibble) {
             switch(blendLowNibble) {
-                case 1: return bmPsAdditive;
+                case 1:
+                    return bmPsAdditive;
                 case 2:
-                case 5: return bmPsSubtractive;
-                case 3: return bmPsMultiplicative;
-                case 4: return bmPsScreen;
-                default: return bmAlpha;
+                case 5:
+                    return bmPsSubtractive;
+                case 3:
+                    return bmPsMultiplicative;
+                case 4:
+                    return bmPsScreen;
+                default:
+                    return bmAlpha;
             }
         }
 
         tTVPLayerType accurateSlaLayerTypeLike_0x6C9CA8(int rawBlendMode) {
             switch(rawBlendMode & 0x0F) {
-                case 1: return ltPsAdditive;
+                case 1:
+                    return ltPsAdditive;
                 case 2:
-                case 5: return ltPsSubtractive;
-                case 3: return ltPsMultiplicative;
-                case 4: return ltPsScreen;
-                default: return ltAlpha;
+                case 5:
+                    return ltPsSubtractive;
+                case 3:
+                    return ltPsMultiplicative;
+                case 4:
+                    return ltPsScreen;
+                default:
+                    return ltAlpha;
             }
         }
 
@@ -191,17 +195,16 @@ namespace motion {
                 !item.sourceKey.empty();
         }
 
-        bool computeAccurateSlaClipLike_0x6C9CA8(
-            const PreparedRenderItem &item,
-            int canvasWidth,
-            int canvasHeight,
-            RenderClipRect &out) {
+        bool computeAccurateSlaClipLike_0x6C9CA8(const PreparedRenderItem &item,
+                                                 int canvasWidth,
+                                                 int canvasHeight,
+                                                 RenderClipRect &out) {
             float clipLeft = std::max(item.paintBox[0], 0.0f);
             float clipTop = std::max(item.paintBox[1], 0.0f);
-            float clipRight = std::min(item.paintBox[2],
-                                       static_cast<float>(canvasWidth));
-            float clipBottom = std::min(item.paintBox[3],
-                                        static_cast<float>(canvasHeight));
+            float clipRight =
+                std::min(item.paintBox[2], static_cast<float>(canvasWidth));
+            float clipBottom =
+                std::min(item.paintBox[3], static_cast<float>(canvasHeight));
 
             if(item.hasViewport && item.viewport[2] >= item.viewport[0] &&
                item.viewport[3] >= item.viewport[1]) {
@@ -211,8 +214,9 @@ namespace motion {
                     clipTop, static_cast<float>(std::floor(item.viewport[1])));
                 clipRight = std::min(
                     clipRight, static_cast<float>(std::ceil(item.viewport[2])));
-                clipBottom = std::min(
-                    clipBottom, static_cast<float>(std::ceil(item.viewport[3])));
+                clipBottom =
+                    std::min(clipBottom,
+                             static_cast<float>(std::ceil(item.viewport[3])));
             }
 
             if(!(clipLeft < clipRight && clipTop < clipBottom)) {
@@ -226,16 +230,16 @@ namespace motion {
             return out.left < out.right && out.top < out.bottom;
         }
 
-        iTJSDispatch2 *resolveLayerWindowObjectLike_0x6CE19C(
-            iTJSDispatch2 *targetLayerObject,
-            tTJSVariant &ownerStorage) {
+        iTJSDispatch2 *
+        resolveLayerWindowObjectLike_0x6CE19C(iTJSDispatch2 *targetLayerObject,
+                                              tTJSVariant &ownerStorage) {
             ownerStorage.Clear();
             if(!targetLayerObject) {
                 return nullptr;
             }
-            if(TJS_FAILED(targetLayerObject->PropGet(
-                   0, TJS_W("window"), nullptr, &ownerStorage,
-                   targetLayerObject))) {
+            if(TJS_FAILED(targetLayerObject->PropGet(0, TJS_W("window"),
+                                                     nullptr, &ownerStorage,
+                                                     targetLayerObject))) {
                 return nullptr;
             }
             return ownerStorage.Type() == tvtObject
@@ -243,8 +247,7 @@ namespace motion {
                 : nullptr;
         }
 
-        bool setLayerSizeLike_0x6CE19C(iTJSDispatch2 *layerObject,
-                                       int width,
+        bool setLayerSizeLike_0x6CE19C(iTJSDispatch2 *layerObject, int width,
                                        int height) {
             if(!layerObject || width <= 0 || height <= 0) {
                 return false;
@@ -257,8 +260,7 @@ namespace motion {
         }
 
         bool piledCopyLayerLike_0x6CE938(iTJSDispatch2 *destinationObject,
-                                         iTJSDispatch2 *sourceObject,
-                                         int width,
+                                         iTJSDispatch2 *sourceObject, int width,
                                          int height) {
             auto *destination = resolveNativeLayer(destinationObject);
             auto *source = resolveNativeLayer(sourceObject);
@@ -271,10 +273,8 @@ namespace motion {
         }
 
         iTJSDispatch2 *ensureAccurateSlaStateLayerLike_0x6C6B48(
-            tTJSVariant &slot,
-            iTJSDispatch2 *layerTreeOwnerObject,
-            iTJSDispatch2 *parentLayerObject,
-            tTVPLayerType layerType) {
+            tTJSVariant &slot, iTJSDispatch2 *layerTreeOwnerObject,
+            iTJSDispatch2 *parentLayerObject, tTVPLayerType layerType) {
             if(!parentLayerObject && layerTreeOwnerObject) {
                 parentLayerObject =
                     resolvePrimaryLayerObject(layerTreeOwnerObject);
@@ -312,8 +312,7 @@ namespace motion {
         }
 
         const char *gpuMethodNameForD3DBlend(int blendLowNibble,
-                                             bool alphaOpAdd,
-                                             bool alphaTest) {
+                                             bool alphaOpAdd, bool alphaTest) {
             switch(blendLowNibble) {
                 case 1:
                     return alphaTest ? "PsAddBlend_color_AlphaTest"
@@ -340,8 +339,7 @@ namespace motion {
 
         iTVPRenderMethod *selectD3DRenderMethod(int blendLowNibble,
                                                 unsigned int color,
-                                                bool alphaOpAdd,
-                                                bool alphaTest,
+                                                bool alphaOpAdd, bool alphaTest,
                                                 int opacity) {
             auto *mgr = TVPGetRenderManager();
             if(mgr->IsSoftware()) {
@@ -349,16 +347,16 @@ namespace motion {
                     opacity, false, softwareMethodForD3DBlend(blendLowNibble));
             }
 
-            auto *method = mgr->GetRenderMethod(
-                gpuMethodNameForD3DBlend(blendLowNibble, alphaOpAdd,
-                                         alphaTest));
+            auto *method = mgr->GetRenderMethod(gpuMethodNameForD3DBlend(
+                blendLowNibble, alphaOpAdd, alphaTest));
             if(!method) {
                 return nullptr;
             }
             const int colorId = method->EnumParameterID("color");
             method->SetParameterColor4B(colorId, color);
             if(alphaTest) {
-                const int thresholdId = method->EnumParameterID("alpha_threshold");
+                const int thresholdId =
+                    method->EnumParameterID("alpha_threshold");
                 method->SetParameterOpa(thresholdId, 64);
             }
             return method;
@@ -370,7 +368,8 @@ namespace motion {
                 return false;
             }
             bool hasDrawableMaskTarget = false;
-            for(auto *ancestor = item; ancestor; ancestor = ancestor->parentItem) {
+            for(auto *ancestor = item; ancestor;
+                ancestor = ancestor->parentItem) {
                 ancestor->stencilMaskRef = ref;
                 if(!ancestor->rawFlag16 && !ancestor->skipFlag0 &&
                    ancestor->opacity != 0) {
@@ -390,8 +389,8 @@ namespace motion {
             return hasDrawableMaskTarget;
         }
 
-        int assignStencilRefsLike_0x6ADFBC(
-            std::vector<PreparedRenderItem> &items) {
+        int
+        assignStencilRefsLike_0x6ADFBC(std::vector<PreparedRenderItem> &items) {
             for(auto &item : items) {
                 item.stencilMaskRef = 0;
                 item.stencilWriteRef = 0;
@@ -479,8 +478,7 @@ namespace motion {
             TVPGetRenderManager()->EndStencil();
         }
 
-        bool operateD3DAffine(iTVPRenderMethod *method,
-                              iTVPTexture2D *target,
+        bool operateD3DAffine(iTVPRenderMethod *method, iTVPTexture2D *target,
                               const tTVPRect &targetRect,
                               const PreparedRenderItem &item,
                               iTVPTexture2D *sourceTexture) {
@@ -496,15 +494,13 @@ namespace motion {
             return true;
         }
 
-        bool operateD3DMesh(iTVPRenderMethod *method,
-                            iTVPTexture2D *target,
+        bool operateD3DMesh(iTVPRenderMethod *method, iTVPTexture2D *target,
                             const tTVPRect &targetRect,
                             const PreparedRenderItem &item,
                             iTVPTexture2D *sourceTexture,
                             const std::vector<tTVPPointD> &meshPoints) {
             if(item.meshDivX < 2 || item.meshDivY < 2 ||
-               meshPoints.size() <
-                   static_cast<size_t>(item.meshDivX) *
+               meshPoints.size() < static_cast<size_t>(item.meshDivX) *
                        static_cast<size_t>(item.meshDivY)) {
                 return false;
             }
@@ -526,17 +522,22 @@ namespace motion {
                     const auto &p2 = meshPoints[(y + 1) * item.meshDivX + x];
                     const auto &p3 =
                         meshPoints[(y + 1) * item.meshDivX + x + 1];
-                    std::array<tTVPPointD, 6> dst{{
-                        p0, p1, p2, p1, p2, p3,
-                    }};
-                    std::array<tTVPPointD, 6> src{{
-                        {std::floor(srcW * u0), std::floor(srcH * v0)},
-                        {std::ceil(srcW * u1), std::floor(srcH * v0)},
-                        {std::floor(srcW * u0), std::ceil(srcH * v1)},
-                        {std::ceil(srcW * u1), std::floor(srcH * v0)},
-                        {std::floor(srcW * u0), std::ceil(srcH * v1)},
-                        {std::ceil(srcW * u1), std::ceil(srcH * v1)},
-                    }};
+                    std::array<tTVPPointD, 6> dst{ {
+                        p0,
+                        p1,
+                        p2,
+                        p1,
+                        p2,
+                        p3,
+                    } };
+                    std::array<tTVPPointD, 6> src{ {
+                        { std::floor(srcW * u0), std::floor(srcH * v0) },
+                        { std::ceil(srcW * u1), std::floor(srcH * v0) },
+                        { std::floor(srcW * u0), std::ceil(srcH * v1) },
+                        { std::ceil(srcW * u1), std::floor(srcH * v0) },
+                        { std::floor(srcW * u0), std::ceil(srcH * v1) },
+                        { std::ceil(srcW * u1), std::ceil(srcH * v1) },
+                    } };
                     tRenderTexQuadArray::Element srcTex[] = {
                         tRenderTexQuadArray::Element(sourceTexture, src.data())
                     };
@@ -548,9 +549,9 @@ namespace motion {
             return true;
         }
 
-        bool shouldSkipD3DRenderItemLike_0x6ADFBC(
-            const PreparedRenderItem &item,
-            bool preview) {
+        bool
+        shouldSkipD3DRenderItemLike_0x6ADFBC(const PreparedRenderItem &item,
+                                             bool preview) {
             if((item.blendMode & 0xF) == 6) {
                 return true;
             }
@@ -594,7 +595,8 @@ namespace motion {
 
         tTJSVariant targetVar(resolvedTarget, resolvedTarget);
         tTJSVariant *args[] = { &targetVar };
-        if(TJS_FAILED(sharedAdaptor->captureCanvas(nullptr, 1, args, nullptr))) {
+        if(TJS_FAILED(
+               sharedAdaptor->captureCanvas(nullptr, 1, args, nullptr))) {
             return false;
         }
 
@@ -605,14 +607,12 @@ namespace motion {
 
 
     iTJSDispatch2 *Player::resolveSeparateLayerRenderTarget(
-        SeparateLayerAdaptor *sla,
-        int &canvasWidth,
-        int &canvasHeight) {
+        SeparateLayerAdaptor *sla, int &canvasWidth, int &canvasHeight) {
         canvasWidth = 0;
         canvasHeight = 0;
-        const auto motionPath =
-            _runtime && _runtime->activeMotion ? _runtime->activeMotion->path
-                                               : std::string{};
+        const auto motionPath = _runtime && _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
         auto traceResolveFailure = [&](const char *reason,
                                        const tTJSVariant &target,
                                        iTJSDispatch2 *targetLayerObject) {
@@ -626,13 +626,13 @@ namespace motion {
             detail::logoChainTraceLogf(
                 motionPath, "sla.resolveTarget.fail", "0x6D5948",
                 _clampedEvalTime,
-                "reason={} targetType={} targetObject={} targetObjThis={} targetLayer={} canvas={}x{}",
-                reason ? reason : "<unknown>",
-                static_cast<int>(target.Type()),
+                "reason={} targetType={} targetObject={} targetObjThis={} "
+                "targetLayer={} canvas={}x{}",
+                reason ? reason : "<unknown>", static_cast<int>(target.Type()),
                 static_cast<const void *>(targetObject),
                 static_cast<const void *>(targetObjThis),
-                static_cast<const void *>(targetLayerObject),
-                canvasWidth, canvasHeight);
+                static_cast<const void *>(targetLayerObject), canvasWidth,
+                canvasHeight);
         };
         if(!sla) {
             return nullptr;
@@ -653,19 +653,16 @@ namespace motion {
             return nullptr;
         }
 
-        if(!queryLayerCanvasSize(targetLayerObject, canvasWidth, canvasHeight)) {
+        if(!queryLayerCanvasSize(targetLayerObject, canvasWidth,
+                                 canvasHeight)) {
             traceResolveFailure("no-canvas-size", originalTargetLayer,
                                 targetLayerObject);
             return nullptr;
         }
 
         iTJSDispatch2 *renderTarget = ensurePrivateMotionGLLLike_0x6D5948(
-            *sla,
-            originalOwnerLayer,
-            originalTargetLayer,
-            targetLayerObject,
-            canvasWidth,
-            canvasHeight);
+            *sla, originalOwnerLayer, originalTargetLayer, targetLayerObject,
+            canvasWidth, canvasHeight);
         if(!renderTarget) {
             traceResolveFailure("ensure-private-target-failed",
                                 originalTargetLayer, targetLayerObject);
@@ -689,16 +686,14 @@ namespace motion {
         }
 
         clearPrivateMotionGLLRenderQueueLike_0x6DE738(renderTargetObject);
-        const auto motionPath =
-            _runtime && _runtime->activeMotion ? _runtime->activeMotion->path
-                                               : std::string{};
+        const auto motionPath = _runtime && _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
         detail::logoChainTraceLogf(
-            motionPath, "sla.renderMotionFrame", "0x6DE738",
-            _clampedEvalTime,
+            motionPath, "sla.renderMotionFrame", "0x6DE738", _clampedEvalTime,
             "target={} canvas={}x{} route={}",
-            static_cast<const void *>(renderTargetObject),
-            canvasWidth, canvasHeight,
-            traceFunc ? traceFunc : "0x6DE738");
+            static_cast<const void *>(renderTargetObject), canvasWidth,
+            canvasHeight, traceFunc ? traceFunc : "0x6DE738");
 
         // Player_ResolveSLATarget @ 0x6D5948 owns PrivateMotionGLL sizing;
         // Player_RenderMotionFrame @ 0x6DE738 only emits render commands.
@@ -733,13 +728,12 @@ namespace motion {
                     queueItem.sourceTexture = sourceTexture;
                 }
                 populatePrivateMotionGLLPointsLike_0x6DE738(item, queueItem);
-                appendPrivateMotionGLLRenderItemLike_0x6DE738(renderTargetObject,
-                                                              queueItem);
+                appendPrivateMotionGLLRenderItemLike_0x6DE738(
+                    renderTargetObject, queueItem);
             }
             detail::logoChainTraceLogf(
                 motionPath, "sla.renderMotionFrame.queue", "0x6DE738",
-                _clampedEvalTime,
-                "queuedItems={}",
+                _clampedEvalTime, "queuedItems={}",
                 privateMotionGLLRenderQueueSizeLike_0x6DE738(
                     renderTargetObject));
         }
@@ -750,13 +744,12 @@ namespace motion {
     }
 
     bool Player::renderAccurateSlaLike_0x6C9CA8(
-        SeparateLayerAdaptor *sla,
-        iTJSDispatch2 *targetLayerObject,
-        tjs_int canvasWidth,
+        SeparateLayerAdaptor *sla, iTJSDispatch2 *slaObject,
+        iTJSDispatch2 *targetLayerObject, tjs_int canvasWidth,
         tjs_int canvasHeight) {
-        (void)sla;
-        if(!targetLayerObject || canvasWidth <= 0 || canvasHeight <= 0 ||
-           !_runtime || !_runtime->activeMotion || !_runtime->sourceCacheNative) {
+        if(!sla || !slaObject || !targetLayerObject || canvasWidth <= 0 ||
+           canvasHeight <= 0 || !_runtime || !_runtime->activeMotion ||
+           !_runtime->sourceCacheNative) {
             return false;
         }
 
@@ -769,58 +762,66 @@ namespace motion {
             layerTreeOwner = targetLayerObject;
         }
 
-        auto ensureAccurateSlaItemLayer =
-            [&](PreparedRenderItem &item,
-                tTVPLayerType layerType) -> iTJSDispatch2 * {
-            const tjs_int stateLayerId = item.layerId;
-            if(stateLayerId == 0) {
-                return ensureReusableLayerObject(
-                    item.leafLayer,
-                    layerTreeOwner,
-                    targetLayerObject,
-                    layerType,
-                    false);
-            }
-
-            auto &state = _runtime->renderLayerStates[stateLayerId];
-            if(!state.initialized) {
-                state.layerId = stateLayerId;
-                state.hitThreshold = 256;
-                state.initialized = true;
-                if(item.nodeIndex >= 0 &&
-                   item.nodeIndex < static_cast<int>(_runtime->nodes.size())) {
-                    const auto &node = _runtime->nodes[item.nodeIndex];
-                    state.layerGetter = getLayerGetter(detail::widen(node.layerName));
+        struct AccurateSlaStateScope {
+            SeparateLayerAdaptor *sla = nullptr;
+            explicit AccurateSlaStateScope(SeparateLayerAdaptor *value) :
+                sla(value) {
+                if(sla) {
+                    sla->beginAccurateRenderPassLike_0x6C9CA8();
                 }
             }
-            // libkrkr2.so sub_6C6B48 refreshes Layer.absolute after every
-            // state-layer lookup, so draw order follows the current item list
-            // instead of the layer's original creation order.
-            state.absolute = _runtime->nextLayerAbsolute++;
+            ~AccurateSlaStateScope() {
+                if(sla) {
+                    sla->endAccurateRenderPassLike_0x6C9CA8();
+                }
+            }
+        } stateScope(sla);
 
-            auto *layerObject = ensureAccurateSlaStateLayerLike_0x6C6B48(
-                state.layerObject,
-                layerTreeOwner,
-                targetLayerObject,
-                layerType);
+        struct AccurateSlaItemLayer {
+            iTJSDispatch2 *object = nullptr;
+            bool createdOrChanged = true;
+        };
+
+        auto ensureAccurateSlaItemLayer =
+            [&](PreparedRenderItem &item,
+                tTVPLayerType layerType) -> AccurateSlaItemLayer {
+            const tjs_int stateLayerId = item.layerId;
+            if(stateLayerId == 0) {
+                return { ensureReusableLayerObject(
+                             item.leafLayer, layerTreeOwner, targetLayerObject,
+                             layerType, false),
+                         true };
+            }
+
+            NativeSLAPayloadLike_0x6DCD0C payload;
+            payload.type = static_cast<tjs_int>(layerType);
+            payload.visible = true;
+            payload.key = detail::widen(item.sourceKey);
+            payload.flags = item.blendMode;
+            payload.affine = { item.paintBox[0], item.paintBox[1],
+                               item.paintBox[2], item.paintBox[3],
+                               item.viewport[0], item.viewport[1],
+                               item.viewport[2], item.viewport[3] };
+            bool createdOrChanged = false;
+            tTJSVariant layerVariant = sla->resolveRenderLayerNodeLike_0x6C6B48(
+                static_cast<tjs_uint32>(stateLayerId), payload, slaObject,
+                createdOrChanged);
+
+            auto *layerObject = tryResolveLayerDispatch(layerVariant);
             if(!layerObject) {
-                return nullptr;
+                return {};
             }
 
             item.rawFlag20 = true;
             persistNativeRenderItemFieldLifetimeLike_0x6C4E28(item);
-            setObjectIntProperty(layerObject, TJS_W("absolute"), state.absolute);
-            setObjectIntProperty(layerObject, TJS_W("hitThreshold"),
-                                 state.hitThreshold);
-            state.packedColors = item.packedColors;
-            state.isDirty = true;
-            item.leafLayer = state.layerObject;
-            return layerObject;
+            item.leafLayer = layerVariant;
+            return { layerObject, createdOrChanged };
         };
 
         int renderedItems = 0;
         for(auto *itemPtr : _runtime->preparedRenderItemsTopLevel) {
-            if(!itemPtr || !shouldRenderAccurateSlaItemLike_0x6C9CA8(*itemPtr)) {
+            if(!itemPtr ||
+               !shouldRenderAccurateSlaItemLike_0x6C9CA8(*itemPtr)) {
                 continue;
             }
             auto &item = *itemPtr;
@@ -832,69 +833,71 @@ namespace motion {
                 continue;
             }
 
-            tTJSVariant sourceObject =
-                _runtime->sourceCacheNative->loadRenderSourceByName(
-                    detail::widen(item.sourceKey), item.srcRef,
-                    item.blendMode, item.packedColors,
-                    layerTreeOwner, targetLayerObject);
-            if(sourceObject.Type() != tvtObject ||
-               !sourceObject.AsObjectNoAddRef()) {
-                continue;
-            }
-            auto *sourceLayerObject = sourceObject.AsObjectNoAddRef();
-            auto *sourceLayer = resolveNativeLayer(sourceLayerObject);
-            auto *sourceImage = sourceLayer ? sourceLayer->GetMainImage()
-                                            : nullptr;
-            if(!sourceImage || sourceImage->GetWidth() <= 0 ||
-               sourceImage->GetHeight() <= 0) {
-                continue;
-            }
-
             const int clipWidth = clip.right - clip.left;
             const int clipHeight = clip.bottom - clip.top;
             const auto layerType =
                 accurateSlaLayerTypeLike_0x6C9CA8(item.blendMode);
-            auto *itemLayerObject =
+            const auto itemLayerResult =
                 ensureAccurateSlaItemLayer(item, layerType);
+            auto *itemLayerObject = itemLayerResult.object;
             auto *itemLayer = resolveNativeLayer(itemLayerObject);
-            if(!itemLayerObject || !itemLayer ||
-               !prepareLayerForRender(itemLayerObject, clipWidth, clipHeight,
-                                      0x00000000)) {
+            if(!itemLayerObject || !itemLayer) {
                 continue;
             }
 
-            const tTVPRect sourceRect(
-                0, 0,
-                static_cast<tjs_int>(sourceImage->GetWidth()),
-                static_cast<tjs_int>(sourceImage->GetHeight()));
-            const float offsetX = -0.5f - static_cast<float>(clip.left);
-            const float offsetY = -0.5f - static_cast<float>(clip.top);
-            bool copied = false;
-            if(item.meshType == 0) {
-                const auto localPts =
-                    buildAffineTrianglePoints(item.corners, offsetX, offsetY);
-                itemLayer->AffineCopy(localPts.data(), sourceImage, sourceRect,
-                                      stNearest, true);
-                copied = true;
-            } else if(item.meshType == 1 && item.meshDivX >= 2 &&
-                      item.meshDivY >= 2 && !item.meshPoints.empty()) {
-                auto localMeshPoints =
-                    buildMeshPoints(item.meshPoints, offsetX, offsetY);
-                itemLayer->BezierPatchCopy(
-                    localMeshPoints.data(), item.meshDivX, item.meshDivY,
-                    sourceImage, sourceRect, stNearest, true);
-                copied = true;
-            } else if(item.meshType == 2 && item.meshDivX >= 2 &&
-                      item.meshDivY >= 2 && !item.meshPoints.empty()) {
-                auto localMeshPoints =
-                    buildMeshPoints(item.meshPoints, offsetX, offsetY);
-                itemLayer->MeshCopy(localMeshPoints.data(), item.meshDivX,
-                                    item.meshDivY, sourceImage, sourceRect,
-                                    stNearest, true);
-                copied = true;
-            }
-            if(!copied) {
-                continue;
+            if(itemLayerResult.createdOrChanged) {
+                tTJSVariant sourceObject =
+                    _runtime->sourceCacheNative->loadRenderSourceByName(
+                        detail::widen(item.sourceKey), item.srcRef,
+                        item.blendMode, item.packedColors, layerTreeOwner,
+                        targetLayerObject);
+                if(sourceObject.Type() != tvtObject ||
+                   !sourceObject.AsObjectNoAddRef()) {
+                    continue;
+                }
+                auto *sourceLayerObject = sourceObject.AsObjectNoAddRef();
+                auto *sourceLayer = resolveNativeLayer(sourceLayerObject);
+                auto *sourceImage =
+                    sourceLayer ? sourceLayer->GetMainImage() : nullptr;
+                if(!sourceImage || sourceImage->GetWidth() <= 0 ||
+                   sourceImage->GetHeight() <= 0 ||
+                   !setLayerSizeLike_0x6CE19C(itemLayerObject, clipWidth,
+                                              clipHeight)) {
+                    continue;
+                }
+
+                const tTVPRect sourceRect(
+                    0, 0, static_cast<tjs_int>(sourceImage->GetWidth()),
+                    static_cast<tjs_int>(sourceImage->GetHeight()));
+                const float offsetX = -0.5f - static_cast<float>(clip.left);
+                const float offsetY = -0.5f - static_cast<float>(clip.top);
+                bool copied = false;
+                if(item.meshType == 0) {
+                    const auto localPts = buildAffineTrianglePoints(
+                        item.corners, offsetX, offsetY);
+                    itemLayer->AffineCopy(localPts.data(), sourceImage,
+                                          sourceRect, stNearest, true);
+                    copied = true;
+                } else if(item.meshType == 1 && item.meshDivX >= 2 &&
+                          item.meshDivY >= 2 && !item.meshPoints.empty()) {
+                    auto localMeshPoints =
+                        buildMeshPoints(item.meshPoints, offsetX, offsetY);
+                    itemLayer->BezierPatchCopy(
+                        localMeshPoints.data(), item.meshDivX, item.meshDivY,
+                        sourceImage, sourceRect, stNearest, true);
+                    copied = true;
+                } else if(item.meshType == 2 && item.meshDivX >= 2 &&
+                          item.meshDivY >= 2 && !item.meshPoints.empty()) {
+                    auto localMeshPoints =
+                        buildMeshPoints(item.meshPoints, offsetX, offsetY);
+                    itemLayer->MeshCopy(localMeshPoints.data(), item.meshDivX,
+                                        item.meshDivY, sourceImage, sourceRect,
+                                        stNearest, true);
+                    copied = true;
+                }
+                if(!copied) {
+                    continue;
+                }
             }
 
             itemLayer->SetPosition(clip.left, clip.top);
@@ -909,21 +912,19 @@ namespace motion {
                 "Player::renderAccurateSla_0x6C9CA8.item.afterCopy");
 #endif
             detail::logoChainTraceLogf(
-                motionPath, "sla.accurate.item", "0x6C9CA8",
-                _clampedEvalTime,
-                "nodeIndex={} layerId={} clip=[{},{},{},{}] meshType={} type={} opacity={} source={}",
-                item.nodeIndex, item.layerId,
-                clip.left, clip.top, clip.right, clip.bottom,
-                item.meshType, static_cast<int>(layerType), item.opacity,
-                item.sourceKey);
+                motionPath, "sla.accurate.item", "0x6C9CA8", _clampedEvalTime,
+                "nodeIndex={} layerId={} clip=[{},{},{},{}] meshType={} "
+                "type={} opacity={} source={}",
+                item.nodeIndex, item.layerId, clip.left, clip.top, clip.right,
+                clip.bottom, item.meshType, static_cast<int>(layerType),
+                item.opacity, item.sourceKey);
         }
 
         detail::logoChainTraceLogf(
-            motionPath, "sla.accurate.rendered", "0x6C9CA8",
-            _clampedEvalTime,
+            motionPath, "sla.accurate.rendered", "0x6C9CA8", _clampedEvalTime,
             "targetLayer={} canvas={}x{} renderedItems={}",
-            static_cast<const void *>(targetLayerObject),
-            canvasWidth, canvasHeight, renderedItems);
+            static_cast<const void *>(targetLayerObject), canvasWidth,
+            canvasHeight, renderedItems);
         return true;
     }
 
@@ -933,12 +934,16 @@ namespace motion {
         }
         // Guard against recursion: D3D capture can re-enter drawCompat.
         static bool s_inRenderToD3D = false;
-        if(s_inRenderToD3D) return false;
+        if(s_inRenderToD3D)
+            return false;
         s_inRenderToD3D = true;
-        struct Guard { ~Guard() { s_inRenderToD3D = false; } } guard;
+        struct Guard {
+            ~Guard() { s_inRenderToD3D = false; }
+        } guard;
 
         ensureMotionLoaded();
-        if(!_runtime->activeMotion) return false;
+        if(!_runtime->activeMotion)
+            return false;
         const auto motionPath = _runtime->activeMotion->path;
         detail::logoChainTraceLogf(
             motionPath, "draw.d3d", "0x6D5B90", _clampedEvalTime,
@@ -998,13 +1003,14 @@ namespace motion {
         } stencilGuard{ stencilEnabled };
 
         const auto motionPath = _runtime->activeMotion->path;
-        detail::logoChainTraceLogf(
-            motionPath, "draw.d3d.renderItemsToTexture", "0x6ADFBC",
-            _clampedEvalTime,
-            "target={} targetRect=[0,0,{},{}] items={} preview={} stencilRefs={}",
-            static_cast<const void *>(targetTexture),
-            width, height, _runtime->preparedRenderItems.size(),
-            _preview ? 1 : 0, stencilRefs);
+        detail::logoChainTraceLogf(motionPath, "draw.d3d.renderItemsToTexture",
+                                   "0x6ADFBC", _clampedEvalTime,
+                                   "target={} targetRect=[0,0,{},{}] items={} "
+                                   "preview={} stencilRefs={}",
+                                   static_cast<const void *>(targetTexture),
+                                   width, height,
+                                   _runtime->preparedRenderItems.size(),
+                                   _preview ? 1 : 0, stencilRefs);
 
         for(auto &item : _runtime->preparedRenderItems) {
             if(shouldSkipD3DRenderItemLike_0x6ADFBC(item, _preview)) {
@@ -1025,8 +1031,8 @@ namespace motion {
 
             auto *sourceTexture =
                 _runtime->sourceCacheNative->loadRenderSourceTextureByName(
-                    detail::widen(item.sourceKey), item.srcRef,
-                    item.blendMode, item.packedColors);
+                    detail::widen(item.sourceKey), item.srcRef, item.blendMode,
+                    item.packedColors);
             if(!sourceTexture || sourceTexture->GetWidth() <= 0 ||
                sourceTexture->GetHeight() <= 0) {
                 continue;
@@ -1034,11 +1040,8 @@ namespace motion {
 
             applyD3DStencilState(item, stencilEnabled);
             auto *method = selectD3DRenderMethod(
-                item.blendMode & 0xF,
-                d3dPackedColorWithOpacity(item, opacity),
-                adaptor->getAlphaOpAdd(),
-                item.stencilMaskRef != 0,
-                opacity);
+                item.blendMode & 0xF, d3dPackedColorWithOpacity(item, opacity),
+                adaptor->getAlphaOpAdd(), item.stencilMaskRef != 0, opacity);
             if(!method) {
                 continue;
             }
@@ -1047,9 +1050,8 @@ namespace motion {
                 operateD3DAffine(method, targetTexture, targetRect, item,
                                  sourceTexture);
             } else if(item.meshType == 1) {
-                const auto meshPoints =
-                    tessellateBezierPatch(item.meshPoints, item.meshDivX,
-                                          item.meshDivY, 0.5, 0.5);
+                const auto meshPoints = tessellateBezierPatch(
+                    item.meshPoints, item.meshDivX, item.meshDivY, 0.5, 0.5);
                 operateD3DMesh(method, targetTexture, targetRect, item,
                                sourceTexture, meshPoints);
             } else if(item.meshType == 2) {
@@ -1063,8 +1065,9 @@ namespace motion {
         return true;
     }
 
-    bool Player::renderToCanvasLike_0x6C7440(
-        tTJSVariant *target, bool willCallUpdateLayerAfterDraw) {
+    bool
+    Player::renderToCanvasLike_0x6C7440(tTJSVariant *target,
+                                        bool willCallUpdateLayerAfterDraw) {
         if(!target) {
             return false;
         }
@@ -1081,8 +1084,7 @@ namespace motion {
         }
         if(!resolvedLayerObject) {
             detail::logoChainTraceCheck(
-                motionPath, "draw.renderToCanvas", "0x6C7440",
-                _clampedEvalTime,
+                motionPath, "draw.renderToCanvas", "0x6C7440", _clampedEvalTime,
                 "target variant should resolve to a Layer object",
                 "target did not resolve", false,
                 "Player_renderToCanvas_guess could not resolve target variant");
@@ -1091,7 +1093,8 @@ namespace motion {
 
         int canvasWidth = 0;
         int canvasHeight = 0;
-        if(!queryLayerCanvasSize(resolvedLayerObject, canvasWidth, canvasHeight) &&
+        if(!queryLayerCanvasSize(resolvedLayerObject, canvasWidth,
+                                 canvasHeight) &&
            _runtime->activeMotion) {
             canvasWidth = static_cast<int>(_runtime->activeMotion->width);
             canvasHeight = static_cast<int>(_runtime->activeMotion->height);
@@ -1104,24 +1107,21 @@ namespace motion {
             _needsInternalAssignImages && willCallUpdateLayerAfterDraw;
         detail::logoChainTraceLogf(
             motionPath, "draw.renderToCanvas", "0x6C7440", _clampedEvalTime,
-            "targetLayerCanvas={}x{} willCallUpdateLayerAfterDraw={} needsInternalAssignImages={} useInternalRenderLayer={}",
-            canvasWidth, canvasHeight,
-            willCallUpdateLayerAfterDraw ? 1 : 0,
-            _needsInternalAssignImages ? 1 : 0,
-            useInternalRenderLayer ? 1 : 0);
+            "targetLayerCanvas={}x{} willCallUpdateLayerAfterDraw={} "
+            "needsInternalAssignImages={} useInternalRenderLayer={}",
+            canvasWidth, canvasHeight, willCallUpdateLayerAfterDraw ? 1 : 0,
+            _needsInternalAssignImages ? 1 : 0, useInternalRenderLayer ? 1 : 0);
 
         iTJSDispatch2 *renderLayerObject = resolvedLayerObject;
         if(useInternalRenderLayer) {
             renderLayerObject = ensureReusableLayerObject(
-                _runtime->internalRenderLayer,
-                resolveMainWindowOwnerObject(),
-                resolvedLayerObject,
-                static_cast<tTVPLayerType>(ltAlpha),
+                _runtime->internalRenderLayer, resolveMainWindowOwnerObject(),
+                resolvedLayerObject, static_cast<tTVPLayerType>(ltAlpha),
                 false);
         }
         if(renderLayerObject != resolvedLayerObject) {
-            if(!prepareLayerForRender(renderLayerObject, canvasWidth, canvasHeight,
-                                      0x00000000)) {
+            if(!prepareLayerForRender(renderLayerObject, canvasWidth,
+                                      canvasHeight, 0x00000000)) {
                 return false;
             }
         } else if(auto *targetLayer = resolveNativeLayer(resolvedLayerObject)) {
@@ -1166,8 +1166,9 @@ namespace motion {
 
         int canvasWidth = 0;
         int canvasHeight = 0;
-        if(!queryLayerCanvasSize(resolvedLayerObject, canvasWidth, canvasHeight) &&
-            _runtime->activeMotion) {
+        if(!queryLayerCanvasSize(resolvedLayerObject, canvasWidth,
+                                 canvasHeight) &&
+           _runtime->activeMotion) {
             canvasWidth = static_cast<int>(_runtime->activeMotion->width);
             canvasHeight = static_cast<int>(_runtime->activeMotion->height);
         }
@@ -1176,7 +1177,8 @@ namespace motion {
         }
         detail::logoChainTraceLogf(
             motionPath, "draw.layer", "0x6C7440/0x6CE7D8", _clampedEvalTime,
-            "targetLayerCanvas={}x{} skipUpdate={} needsInternalAssignImages={}",
+            "targetLayerCanvas={}x{} skipUpdate={} "
+            "needsInternalAssignImages={}",
             canvasWidth, canvasHeight, skipUpdate ? 1 : 0,
             _needsInternalAssignImages ? 1 : 0);
 
@@ -1204,8 +1206,8 @@ namespace motion {
                 layer->Update(false);
                 detail::logoChainTraceLogf(
                     motionPath, "post.layer", "0x6CE7D8", _clampedEvalTime,
-                    "targetLayer.Update(false) size={}x{}",
-                    layer->GetWidth(), layer->GetHeight());
+                    "targetLayer.Update(false) size={}x{}", layer->GetWidth(),
+                    layer->GetHeight());
                 if(detail::logoSnapshotMarkEnabledForPath(motionPath) &&
                    motionPath.find("m2logo.mtn") != std::string::npos &&
                    _clampedEvalTime >= 30.0 && _clampedEvalTime <= 50.0) {
@@ -1256,10 +1258,11 @@ namespace motion {
                 renderTarget = targetLayerObject;
             }
         } else {
-            renderTarget =
-                resolveSeparateLayerRenderTarget(sla, canvasWidth, canvasHeight);
+            renderTarget = resolveSeparateLayerRenderTarget(sla, canvasWidth,
+                                                            canvasHeight);
             if(!targetLayerObject) {
-                targetLayerObject = tryResolveLayerDispatch(sla->getTargetLayer());
+                targetLayerObject =
+                    tryResolveLayerDispatch(sla->getTargetLayer());
             }
         }
         if(!renderTarget) {
@@ -1271,20 +1274,68 @@ namespace motion {
         detail::logoChainTraceLogf(
             motionPath, "draw.sla", "0x6D5658", _clampedEvalTime,
             "ownerLayer={} targetCanvas={}x{} accurate={} route={}",
-            static_cast<const void *>(ownerLayer),
-            canvasWidth, canvasHeight,
+            static_cast<const void *>(ownerLayer), canvasWidth, canvasHeight,
             accurateSla ? 1 : 0,
-            accurateSla
-                ? "0x6C9CA8 -> 0x6CE938"
-                : "Player_RenderMotionFrame -> Layer_UpdateRect");
+            accurateSla ? "0x6C9CA8 -> 0x6CE938"
+                        : "Player_RenderMotionFrame -> Layer_UpdateRect");
         detail::logoChainTraceLogf(
-            motionPath, "sla.resolveTarget", "0x6D5948",
-            _clampedEvalTime,
-            "targetLayer={} privateTarget={} absolute={} canvas={}x{}",
+            motionPath, "sla.resolveTarget", "0x6D5948", _clampedEvalTime,
+            "targetLayer={} privateTarget={} absolute={} canvas={}x{} "
+            "targetName={} targetType={} targetFace={} targetChildren={} "
+            "targetParent={} targetParentType={} "
+            "privateType={} privateFace={} privateParent={} "
+            "privateParentType={}",
             static_cast<const void *>(targetLayerObject),
-            static_cast<const void *>(renderTarget),
-            sla->getAbsolute() ? 1 : 0,
-            canvasWidth, canvasHeight);
+            static_cast<const void *>(renderTarget), sla->getAbsolute(),
+            canvasWidth, canvasHeight,
+            resolveNativeLayer(targetLayerObject)
+                ? resolveNativeLayer(targetLayerObject)->GetName().AsStdString()
+                : std::string("<not-layer>"),
+            resolveNativeLayer(targetLayerObject)
+                ? static_cast<int>(
+                      resolveNativeLayer(targetLayerObject)->GetType())
+                : -1,
+            resolveNativeLayer(targetLayerObject)
+                ? static_cast<int>(
+                      resolveNativeLayer(targetLayerObject)->GetFace())
+                : -1,
+            resolveNativeLayer(targetLayerObject)
+                ? static_cast<int>(
+                      resolveNativeLayer(targetLayerObject)->GetCount())
+                : -1,
+            resolveNativeLayer(targetLayerObject)
+                ? static_cast<const void *>(
+                      resolveNativeLayer(targetLayerObject)->GetParent())
+                : nullptr,
+            resolveNativeLayer(targetLayerObject) &&
+                    resolveNativeLayer(targetLayerObject)->GetParent()
+                ? static_cast<int>(resolveNativeLayer(targetLayerObject)
+                                       ->GetParent()
+                                       ->GetType())
+                : -1,
+            resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                ? static_cast<int>(
+                      resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                          ->GetType())
+                : -1,
+            resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                ? static_cast<int>(
+                      resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                          ->GetFace())
+                : -1,
+            resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                ? static_cast<const void *>(
+                      resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                          ->GetParent())
+                : nullptr,
+            resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget) &&
+                    resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                        ->GetParent()
+                ? static_cast<int>(
+                      resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)
+                          ->GetParent()
+                          ->GetType())
+                : -1);
 
         prepareRenderItems();
         applyPreparedRenderItemTranslateOffsets();
@@ -1294,8 +1345,9 @@ namespace motion {
             Player *player = nullptr;
             iTJSDispatch2 *target = nullptr;
             bool active = false;
-            AccurateSlaRenderTraceScope(Player *p, iTJSDispatch2 *t, bool enabled)
-                : player(p), target(t), active(enabled) {
+            AccurateSlaRenderTraceScope(Player *p, iTJSDispatch2 *t,
+                                        bool enabled) :
+                player(p), target(t), active(enabled) {
                 if(active) {
                     detail::motionTraceBeginAccurateSlaRender(player, target);
                 }
@@ -1305,8 +1357,7 @@ namespace motion {
                     detail::motionTraceEndAccurateSlaRender(player, target);
                 }
             }
-        } accurateSlaRenderTrace{
-            this, renderTarget, accurateSla};
+        } accurateSlaRenderTrace{ this, renderTarget, accurateSla };
 #endif
 
         if(accurateSla) {
@@ -1314,24 +1365,22 @@ namespace motion {
             detail::MotionTraceRenderExecuteScope renderTrace(
                 this, targetLayerObject, false);
 #endif
-            if(!renderAccurateSlaLike_0x6C9CA8(
-                   sla, targetLayerObject, canvasWidth, canvasHeight)) {
+            if(!renderAccurateSlaLike_0x6C9CA8(sla, slaObject,
+                                               targetLayerObject, canvasWidth,
+                                               canvasHeight)) {
                 detail::logoChainTraceSummary(
                     motionPath, "renderToSeparateLayerAdaptor",
-                    _clampedEvalTime,
-                    "fail=renderAccurateSlaLike_0x6C9CA8");
+                    _clampedEvalTime, "fail=renderAccurateSlaLike_0x6C9CA8");
                 return false;
             }
             detail::logoChainTraceLogf(
-                motionPath, "sla.accurate.begin", "0x6C9CA8",
-                _clampedEvalTime,
+                motionPath, "sla.accurate.begin", "0x6C9CA8", _clampedEvalTime,
                 "target={} canvas={}x{}",
-                static_cast<const void *>(targetLayerObject),
-                canvasWidth, canvasHeight);
+                static_cast<const void *>(targetLayerObject), canvasWidth,
+                canvasHeight);
             updateAccurateSLAAfterDraw(targetLayerObject);
             detail::logoChainTraceLogf(
-                motionPath, "sla.accurate.end", "0x6CE938",
-                _clampedEvalTime,
+                motionPath, "sla.accurate.end", "0x6CE938", _clampedEvalTime,
                 "target={}", static_cast<const void *>(targetLayerObject));
 #if defined(KRKR2_WASMTIME_HEADLESS)
             renderTrace.setResult(true);
@@ -1343,7 +1392,8 @@ namespace motion {
                 "fail=renderMotionFrameToTarget");
             return false;
         } else if(auto *renderLayer =
-                      resolvePrivateMotionGLLNativeLike_0x6DE24C(renderTarget)) {
+                      resolvePrivateMotionGLLNativeLike_0x6DE24C(
+                          renderTarget)) {
             renderLayer->Update(false);
             detail::logoChainTraceLogf(
                 motionPath, "sla.updateRect", "0x800F4C", _clampedEvalTime,
@@ -1355,10 +1405,12 @@ namespace motion {
                 motionPath, "sla.updateRect", "0x800F4C", _clampedEvalTime,
                 "renderTarget should expose a native layer for Update(false)",
                 "renderTarget native layer missing", false,
-                "Player_RenderMotionFrame finished but SLA target lacked a native layer");
+                "Player_RenderMotionFrame finished but SLA target lacked a "
+                "native layer");
         }
 
-        iTJSDispatch2 *lastCanvasObject = ownerLayer ? ownerLayer : renderTarget;
+        iTJSDispatch2 *lastCanvasObject =
+            ownerLayer ? ownerLayer : renderTarget;
         _runtime->lastCanvas = tTJSVariant(lastCanvasObject, lastCanvasObject);
         detail::logoChainTraceSummary(
             motionPath, "renderToSeparateLayerAdaptor", _clampedEvalTime,
@@ -1376,27 +1428,27 @@ namespace motion {
         detail::motionTraceRenderImageCheckpoint(
             this, rawProbeLayerObject, "updateLayerAfterDraw_pre",
             "Player::updateLayerAfterDraw_0x6CE7D8.enter.after-target-resolve");
-        detail::motionTraceLayerRawProbe(
-            this, rawProbeLayerObject, "updateLayerAfterDraw_0x6CE7D8.enter");
+        detail::motionTraceLayerRawProbe(this, rawProbeLayerObject,
+                                         "updateLayerAfterDraw_0x6CE7D8.enter");
         struct UpdateLayerAfterDrawTraceLeave {
             Player *player;
             iTJSDispatch2 *layerObject;
             ~UpdateLayerAfterDrawTraceLeave() {
                 detail::motionTraceRenderImageCheckpoint(
                     player, layerObject, "updateLayerAfterDraw_post",
-                    "Player::updateLayerAfterDraw_0x6CE7D8.leave.before-return");
+                    "Player::updateLayerAfterDraw_0x6CE7D8.leave.before-"
+                    "return");
                 detail::motionTraceLayerRawProbe(
-                    player, layerObject,
-                    "updateLayerAfterDraw_0x6CE7D8.leave");
+                    player, layerObject, "updateLayerAfterDraw_0x6CE7D8.leave");
             }
-        } updateLayerAfterDrawTraceLeave{this, rawProbeLayerObject};
+        } updateLayerAfterDrawTraceLeave{ this, rawProbeLayerObject };
 #endif
         if(!_needsInternalAssignImages) {
             return true;
         }
-        const auto motionPath =
-            _runtime && _runtime->activeMotion ? _runtime->activeMotion->path
-                                               : std::string{};
+        const auto motionPath = _runtime && _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
 
         _needsInternalAssignImages = false;
         if(!target || !_runtime) {
@@ -1405,8 +1457,8 @@ namespace motion {
 
         iTJSDispatch2 *renderLayerObject =
             _runtime->internalRenderLayer.Type() == tvtObject
-                ? _runtime->internalRenderLayer.AsObjectNoAddRef()
-                : nullptr;
+            ? _runtime->internalRenderLayer.AsObjectNoAddRef()
+            : nullptr;
         if(!renderLayerObject) {
             return false;
         }
@@ -1426,17 +1478,14 @@ namespace motion {
             }
 #endif
             detail::logoChainTraceCheck(
-                motionPath, "post.assignImages", "0x6CE7D8",
-                _clampedEvalTime,
+                motionPath, "post.assignImages", "0x6CE7D8", _clampedEvalTime,
                 "internal render layer assignImages(original target variant)",
-                ok ? "assignImages(target)" : "assignImages(failed)",
-                ok,
+                ok ? "assignImages(target)" : "assignImages(failed)", ok,
                 "sub_6CE7D8 failed to assign internal render layer to target");
             return ok;
         } catch(...) {
             detail::logoChainTraceCheck(
-                motionPath, "post.assignImages", "0x6CE7D8",
-                _clampedEvalTime,
+                motionPath, "post.assignImages", "0x6CE7D8", _clampedEvalTime,
                 "internal render layer assignImages(original target variant)",
                 "assignImages(threw)", false,
                 "sub_6CE7D8 threw while assigning internal render layer");
@@ -1456,23 +1505,23 @@ namespace motion {
         if(!targetLayerObject) {
             return false;
         }
-        const auto motionPath =
-            _runtime && _runtime->activeMotion ? _runtime->activeMotion->path
-                                               : std::string{};
+        const auto motionPath = _runtime && _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
 
         if(!_needsInternalAssignImages) {
-            detail::logoChainTraceLogf(
-                motionPath, "post.sla.accurate", "0x6CE938",
-                _clampedEvalTime, "needsInternalAssignImages=0");
+            detail::logoChainTraceLogf(motionPath, "post.sla.accurate",
+                                       "0x6CE938", _clampedEvalTime,
+                                       "needsInternalAssignImages=0");
             return true;
         }
 
         int canvasWidth = 0;
         int canvasHeight = 0;
-        if(!queryLayerCanvasSize(targetLayerObject, canvasWidth, canvasHeight)) {
+        if(!queryLayerCanvasSize(targetLayerObject, canvasWidth,
+                                 canvasHeight)) {
             detail::logoChainTraceCheck(
-                motionPath, "post.sla.accurate", "0x6CE938",
-                _clampedEvalTime,
+                motionPath, "post.sla.accurate", "0x6CE938", _clampedEvalTime,
                 "target layer width/height should be readable before piledCopy",
                 "target-size=0", false,
                 "sub_6CE938 failed to query target Layer width/height");
@@ -1480,9 +1529,8 @@ namespace motion {
         }
 
         tTJSVariant ownerStorage;
-        iTJSDispatch2 *layerTreeOwner =
-            resolveLayerWindowObjectLike_0x6CE19C(targetLayerObject,
-                                                  ownerStorage);
+        iTJSDispatch2 *layerTreeOwner = resolveLayerWindowObjectLike_0x6CE19C(
+            targetLayerObject, ownerStorage);
         if(!layerTreeOwner) {
             layerTreeOwner = resolveMainWindowOwnerObject();
         }
@@ -1507,21 +1555,17 @@ namespace motion {
                 internalLayerObject, targetLayerObject, canvasWidth,
                 canvasHeight);
             detail::logoChainTraceCheck(
-                motionPath, "post.sla.accurate", "0x6CE938",
-                _clampedEvalTime,
-                fmt::format(
-                    "internalLayer.piledCopy(0,0,target,0,0,{},{})",
-                    canvasWidth, canvasHeight),
+                motionPath, "post.sla.accurate", "0x6CE938", _clampedEvalTime,
+                fmt::format("internalLayer.piledCopy(0,0,target,0,0,{},{})",
+                            canvasWidth, canvasHeight),
                 ok ? "piledCopy" : "piledCopy-failed", ok,
                 "sub_6CE938 accurate SLA post-copy diverged");
             return ok;
         } catch(...) {
             detail::logoChainTraceCheck(
-                motionPath, "post.sla.accurate", "0x6CE938",
-                _clampedEvalTime,
-                "internalLayer.piledCopy should not throw",
-                "piledCopy-threw", false,
-                "sub_6CE938 threw while copying target into player+696");
+                motionPath, "post.sla.accurate", "0x6CE938", _clampedEvalTime,
+                "internalLayer.piledCopy should not throw", "piledCopy-threw",
+                false, "sub_6CE938 threw while copying target into player+696");
             return false;
         }
     }

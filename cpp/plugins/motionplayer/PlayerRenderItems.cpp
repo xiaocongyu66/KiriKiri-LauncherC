@@ -8,8 +8,8 @@ using namespace motion::internal;
 
 namespace {
 
-    inline std::array<std::uint32_t, 4> copyPackedColorsFromBytes(
-        const uint8_t (&colorBytes)[16]) {
+    inline std::array<std::uint32_t, 4>
+    copyPackedColorsFromBytes(const uint8_t (&colorBytes)[16]) {
         std::array<std::uint32_t, 4> packedColors{};
         std::memcpy(packedColors.data(), colorBytes,
                     sizeof(std::uint32_t) * packedColors.size());
@@ -39,9 +39,9 @@ namespace motion {
             _boundsMaxY = 0.0;
             return;
         }
-        const auto motionPath =
-            _runtime && _runtime->activeMotion ? _runtime->activeMotion->path
-                                               : std::string{};
+        const auto motionPath = _runtime && _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
 
         _boundsMinX = 1e308;
         _boundsMinY = 1e308;
@@ -62,10 +62,14 @@ namespace motion {
                 haveBounds = true;
                 return;
             }
-            if(minX < _boundsMinX) _boundsMinX = minX;
-            if(minY < _boundsMinY) _boundsMinY = minY;
-            if(maxX > _boundsMaxX) _boundsMaxX = maxX;
-            if(maxY > _boundsMaxY) _boundsMaxY = maxY;
+            if(minX < _boundsMinX)
+                _boundsMinX = minX;
+            if(minY < _boundsMinY)
+                _boundsMinY = minY;
+            if(maxX > _boundsMaxX)
+                _boundsMaxX = maxX;
+            if(maxY > _boundsMaxY)
+                _boundsMaxY = maxY;
         };
 
         for(auto &node : _runtime->nodes) {
@@ -90,8 +94,7 @@ namespace motion {
             // (0x6C3F08). Port's simplified structure doesn't model those
             // yet; hasSource is the current placeholder for "this node
             // has its own geometry to contribute to the bbox".
-            const int visBitmaskCalc =
-                _completionType ? 0x1449 : 0x1441;
+            const int visBitmaskCalc = _completionType ? 0x1449 : 0x1441;
             if(((1 << node.nodeType) & visBitmaskCalc) == 0 ||
                !node.renderTreeFlag200) {
                 continue;
@@ -112,10 +115,14 @@ namespace motion {
                     haveNodeBounds = true;
                     return;
                 }
-                if(x < minX) minX = x;
-                if(y < minY) minY = y;
-                if(x > maxX) maxX = x;
-                if(y > maxY) maxY = y;
+                if(x < minX)
+                    minX = x;
+                if(y < minY)
+                    minY = y;
+                if(x > maxX)
+                    maxX = x;
+                if(y > maxY)
+                    maxY = y;
             };
 
             if(!node.meshControlPoints.empty()) {
@@ -150,10 +157,10 @@ namespace motion {
             mergeBounds(node.bounds[0], node.bounds[1], node.bounds[2],
                         node.bounds[3]);
             if(detail::logoChainTraceEnabled(_runtime->activeMotion)) {
-                const std::array<float, 4> actualBounds = {
-                    node.bounds[0], node.bounds[1], node.bounds[2],
-                    node.bounds[3]
-                };
+                const std::array<float, 4> actualBounds = { node.bounds[0],
+                                                            node.bounds[1],
+                                                            node.bounds[2],
+                                                            node.bounds[3] };
                 bool ok = true;
                 for(size_t bi = 0; bi < expectedBounds.size(); ++bi) {
                     if(std::fabs(expectedBounds[bi] - actualBounds[bi]) >
@@ -163,22 +170,20 @@ namespace motion {
                     }
                 }
                 detail::logoChainTraceCheck(
-                    motionPath, "calcBounds.node", "0x6C3D04",
-                    _clampedEvalTime,
-                    fmt::format(
-                        "from=minmax({:.3f},{:.3f},{:.3f},{:.3f}) exp=[{:.3f},{:.3f},{:.3f},{:.3f}]",
-                        minX, minY, maxX, maxY, expectedBounds[0],
-                        expectedBounds[1], expectedBounds[2],
-                        expectedBounds[3]),
-                    fmt::format(
-                        "nodeIndex={} label={} act=[{:.3f},{:.3f},{:.3f},{:.3f}]",
-                        node.index,
-                        node.layerName.empty() ? std::string("<root>")
-                                               : node.layerName,
-                        actualBounds[0], actualBounds[1], actualBounds[2],
-                        actualBounds[3]),
-                    ok,
-                    "Player_calcBounds produced an unexpected node AABB");
+                    motionPath, "calcBounds.node", "0x6C3D04", _clampedEvalTime,
+                    fmt::format("from=minmax({:.3f},{:.3f},{:.3f},{:.3f}) "
+                                "exp=[{:.3f},{:.3f},{:.3f},{:.3f}]",
+                                minX, minY, maxX, maxY, expectedBounds[0],
+                                expectedBounds[1], expectedBounds[2],
+                                expectedBounds[3]),
+                    fmt::format("nodeIndex={} label={} "
+                                "act=[{:.3f},{:.3f},{:.3f},{:.3f}]",
+                                node.index,
+                                node.layerName.empty() ? std::string("<root>")
+                                                       : node.layerName,
+                                actualBounds[0], actualBounds[1],
+                                actualBounds[2], actualBounds[3]),
+                    ok, "Player_calcBounds produced an unexpected node AABB");
             }
         }
 
@@ -239,6 +244,24 @@ namespace motion {
         const int bitmask = _runtime->isEmoteMode ? 5193 : 5185;
         const auto &dam = _runtime->drawAffineMatrix;
         std::unordered_set<int> requiredGroupNodeIndices;
+        // SDL3 ref: child motion nodes live in the child player's own nodeList;
+        // merged child preparedRenderItems keep foreign nodeIndex values and
+        // must not be indexed through this player's nodes[] vector.
+        const auto isLocalPreparedItem =
+            [runtime = _runtime.get()](
+                const detail::PlayerRuntime::PreparedRenderItem &entry)
+            -> bool {
+            return entry.nativeLifetimeOwner == nullptr ||
+                entry.nativeLifetimeOwner == runtime;
+        };
+        const auto tryGetLocalNode =
+            [&nodes](int nodeIndex) -> const detail::MotionNode * {
+            if(nodeIndex < 0 ||
+               static_cast<size_t>(nodeIndex) >= nodes.size()) {
+                return nullptr;
+            }
+            return &nodes[static_cast<size_t>(nodeIndex)];
+        };
 
         auto appendChildEntriesAtCurrentNode = [&](Player *child,
                                                    bool nodePriorDraw) {
@@ -247,7 +270,10 @@ namespace motion {
             }
             child->_renderItemInheritedFlag18 =
                 _renderItemInheritedFlag18 || nodePriorDraw;
+            const auto savedChildDrawAffine = child->_runtime->drawAffineMatrix;
+            child->_runtime->drawAffineMatrix = dam;
             child->prepareRenderItems(inheritedFlag18 || (_priorDraw != 0.0));
+            child->_runtime->drawAffineMatrix = savedChildDrawAffine;
             auto &childEntries = child->_runtime->preparedRenderItems;
             if(detail::logoSnapshotMarkEnabledForPath(motionPath) &&
                motionPath.find("m2logo.mtn") != std::string::npos &&
@@ -255,7 +281,10 @@ namespace motion {
                 const auto *activeClip = child->selectActiveClip();
                 std::fprintf(
                     stderr,
-                    "SNAPCHILD phase=prepare frame=%.3f childActiveMotion=%s childMotionKey=%s childClip=%s childNodesBuilt=%d childNodeCount=%zu childPreparedItemCount=%zu firstSource=%s\n",
+                    "SNAPCHILD phase=prepare frame=%.3f childActiveMotion=%s "
+                    "childMotionKey=%s childClip=%s childNodesBuilt=%d "
+                    "childNodeCount=%zu childPreparedItemCount=%zu "
+                    "firstSource=%s\n",
                     _clampedEvalTime,
                     child->_runtime->activeMotion
                         ? child->_runtime->activeMotion->path.c_str()
@@ -264,7 +293,8 @@ namespace motion {
                     activeClip ? activeClip->label.c_str() : "<none>",
                     child->_runtime->nodes.size() > 1 ? 1 : 0,
                     child->_runtime->nodes.size(), childEntries.size(),
-                    childEntries.empty() || childEntries.front().sourceKey.empty()
+                    childEntries.empty() ||
+                            childEntries.front().sourceKey.empty()
                         ? "<none>"
                         : childEntries.front().sourceKey.c_str());
             }
@@ -278,14 +308,19 @@ namespace motion {
             entries.insert(entries.end(),
                            std::make_move_iterator(childEntries.begin()),
                            std::make_move_iterator(childEntries.end()));
-            detail::logoChainTraceLogf(
-                motionPath, "prepare.childMerge", "0x6C2334/0x6D4F00",
-                _clampedEvalTime,
-                "childMotionPath={} appendedAtNode={} parentTotalAfterInsert={}",
-                child->_runtime->activeMotion
-                    ? child->_runtime->activeMotion->path
-                    : std::string("<none>"),
-                childEntries.size(), entries.size());
+            LOGGER->debug(
+                "appendPreparedRenderItems: merged {} child render items "
+                "(foreign nodeIndex space; SDL3 ref: child motion renders in "
+                "own emotemotion context)",
+                childEntries.size());
+            detail::logoChainTraceLogf(motionPath, "prepare.childMerge",
+                                       "0x6C2334/0x6D4F00", _clampedEvalTime,
+                                       "childMotionPath={} appendedAtNode={} "
+                                       "parentTotalAfterInsert={}",
+                                       child->_runtime->activeMotion
+                                           ? child->_runtime->activeMotion->path
+                                           : std::string("<none>"),
+                                       childEntries.size(), entries.size());
             childEntries.clear();
         };
 
@@ -296,9 +331,9 @@ namespace motion {
                          dam[3] * static_cast<double>(y) + dam[5] };
         };
 
-        constexpr std::array<float, 4> kInvalidPreparedPaintBox = {
-            1.0f, 1.0f, -1.0f, -1.0f
-        };
+        constexpr std::array<float, 4> kInvalidPreparedPaintBox = { 1.0f, 1.0f,
+                                                                    -1.0f,
+                                                                    -1.0f };
 
         auto restoreNativeFieldLifetime =
             [&](detail::PlayerRuntime::PreparedRenderItem &entry) {
@@ -332,15 +367,20 @@ namespace motion {
                     entry.paintBox = { fx, fy, fx, fy };
                     return;
                 }
-                if(fx < entry.paintBox[0]) entry.paintBox[0] = fx;
-                if(fy < entry.paintBox[1]) entry.paintBox[1] = fy;
-                if(fx > entry.paintBox[2]) entry.paintBox[2] = fx;
-                if(fy > entry.paintBox[3]) entry.paintBox[3] = fy;
+                if(fx < entry.paintBox[0])
+                    entry.paintBox[0] = fx;
+                if(fy < entry.paintBox[1])
+                    entry.paintBox[1] = fy;
+                if(fx > entry.paintBox[2])
+                    entry.paintBox[2] = fx;
+                if(fy > entry.paintBox[3])
+                    entry.paintBox[3] = fy;
             };
 
         for(size_t i = 0; i < nodes.size(); ++i) {
             auto &node = _runtime->nodes[i];
-            if(!node.accumulated.active) continue;
+            if(!node.accumulated.active)
+                continue;
             if(!node.forceVisible && (((1 << node.nodeType) & bitmask) == 0)) {
                 if(detail::logoSnapshotMarkEnabledForPath(motionPath) &&
                    motionPath.find("m2logo.mtn") != std::string::npos &&
@@ -348,7 +388,10 @@ namespace motion {
                    (node.index == 18 || node.index == 19)) {
                     std::fprintf(
                         stderr,
-                        "SNAPPREPCAND frame=%.3f nodeIndex=%d label=%s phase=maskReject forceVisible=%d nodeType=%d bitmask=0x%x hasSource=%d currentSrc=%s drawFlag=%d visibleAncestorIndex=%d\n",
+                        "SNAPPREPCAND frame=%.3f nodeIndex=%d label=%s "
+                        "phase=maskReject forceVisible=%d nodeType=%d "
+                        "bitmask=0x%x hasSource=%d currentSrc=%s drawFlag=%d "
+                        "visibleAncestorIndex=%d\n",
                         _clampedEvalTime, node.index,
                         node.layerName.empty() ? "<none>"
                                                : node.layerName.c_str(),
@@ -361,24 +404,27 @@ namespace motion {
                 }
                 continue;
             }
-            if(!node.hasSource || node.interpolatedCache.src.empty()) continue;
+            if(!node.hasSource || node.interpolatedCache.src.empty())
+                continue;
 
             if(detail::logoSnapshotMarkEnabledForPath(motionPath) &&
                motionPath.find("m2logo.mtn") != std::string::npos &&
                _clampedEvalTime >= 43.0 && _clampedEvalTime <= 50.0 &&
                (node.index == 18 || node.index == 19)) {
-                std::fprintf(
-                    stderr,
-                    "SNAPPREPCAND frame=%.3f nodeIndex=%d label=%s phase=accept forceVisible=%d nodeType=%d bitmask=0x%x hasSource=%d currentSrc=%s drawFlag=%d visibleAncestorIndex=%d\n",
-                    _clampedEvalTime, node.index,
-                    node.layerName.empty() ? "<none>"
-                                           : node.layerName.c_str(),
-                    node.forceVisible, node.nodeType, bitmask,
-                    node.hasSource ? 1 : 0,
-                    node.interpolatedCache.src.empty()
-                        ? "<none>"
-                        : node.interpolatedCache.src.c_str(),
-                    node.drawFlag ? 1 : 0, node.visibleAncestorIndex);
+                std::fprintf(stderr,
+                             "SNAPPREPCAND frame=%.3f nodeIndex=%d label=%s "
+                             "phase=accept forceVisible=%d nodeType=%d "
+                             "bitmask=0x%x hasSource=%d currentSrc=%s "
+                             "drawFlag=%d visibleAncestorIndex=%d\n",
+                             _clampedEvalTime, node.index,
+                             node.layerName.empty() ? "<none>"
+                                                    : node.layerName.c_str(),
+                             node.forceVisible, node.nodeType, bitmask,
+                             node.hasSource ? 1 : 0,
+                             node.interpolatedCache.src.empty()
+                                 ? "<none>"
+                                 : node.interpolatedCache.src.c_str(),
+                             node.drawFlag ? 1 : 0, node.visibleAncestorIndex);
             }
 
             // libkrkr2.so sub_6C2334 (0x6C2334):
@@ -394,8 +440,8 @@ namespace motion {
             for(int ancestorIndex =
                     (node.visibleAncestorIndex >= 0 &&
                      node.visibleAncestorIndex < static_cast<int>(nodes.size()))
-                        ? nodes[node.visibleAncestorIndex].visibleAncestorIndex
-                        : -1;
+                    ? nodes[node.visibleAncestorIndex].visibleAncestorIndex
+                    : -1;
                 ancestorIndex >= 0 &&
                 ancestorIndex < static_cast<int>(nodes.size());) {
                 const auto &ancestor = nodes[ancestorIndex];
@@ -414,11 +460,12 @@ namespace motion {
 
         for(size_t i = 0; i < nodes.size(); ++i) {
             const auto &node = nodes[i];
-            if(!node.accumulated.active) continue;
+            if(!node.accumulated.active)
+                continue;
             if(!_preview) {
                 if(node.nodeType == 3) {
-                    appendChildEntriesAtCurrentNode(
-                        node.getChildPlayer(), node.priorDraw != 0);
+                    appendChildEntriesAtCurrentNode(node.getChildPlayer(),
+                                                    node.priorDraw != 0);
                 } else if(node.nodeType == 4) {
                     const int particleCount = node.getParticleCount();
                     for(int pi = 0; pi < particleCount; ++pi) {
@@ -432,15 +479,14 @@ namespace motion {
             const bool needsGroupEntry =
                 requiredGroupNodeIndices.find(static_cast<int>(i)) !=
                 requiredGroupNodeIndices.end();
-            const bool syntheticParentOnly =
-                needsGroupEntry && !hasOwnSource && !node.forceVisible &&
-                (((1 << node.nodeType) & bitmask) == 0);
-            if(!needsGroupEntry &&
-               !node.forceVisible &&
+            const bool syntheticParentOnly = needsGroupEntry && !hasOwnSource &&
+                !node.forceVisible && (((1 << node.nodeType) & bitmask) == 0);
+            if(!needsGroupEntry && !node.forceVisible &&
                (((1 << node.nodeType) & bitmask) == 0)) {
                 continue;
             }
-            if(!hasOwnSource && !needsGroupEntry) continue;
+            if(!hasOwnSource && !needsGroupEntry)
+                continue;
 
             detail::PlayerRuntime::PreparedRenderItem entry;
             entry.nodeIndex = static_cast<int>(i);
@@ -458,9 +504,8 @@ namespace motion {
             // top-level build uses arg4=0, so render-item draw flag becomes
             // node+1960 ? 1 : node+1961. node+1961 is the post-build
             // stencilComposite mask-layer reference flag.
-            entry.drawFlag =
-                node.drawFlag || node.stencilCompositeMaskReferenced ||
-                needsGroupEntry;
+            entry.drawFlag = node.drawFlag ||
+                node.stencilCompositeMaskReferenced || needsGroupEntry;
             entry.rawFlag16 = node.renderTreeFlag201;
             entry.skipFlag0 =
                 (((_preview ? 1097 : 1089) & (1 << node.nodeType)) == 0);
@@ -530,8 +575,9 @@ namespace motion {
                 entry.meshPoints.resize(node.meshControlPoints.size());
                 for(size_t pi = 0; pi + 1 < node.meshControlPoints.size();
                     pi += 2) {
-                    const auto pt = transformPoint(node.meshControlPoints[pi],
-                                                   node.meshControlPoints[pi + 1]);
+                    const auto pt =
+                        transformPoint(node.meshControlPoints[pi],
+                                       node.meshControlPoints[pi + 1]);
                     entry.meshPoints[pi] = static_cast<float>(pt.x);
                     entry.meshPoints[pi + 1] = static_cast<float>(pt.y);
                     updatePaintBox(entry, pt.x, pt.y, !havePaintBox);
@@ -539,21 +585,22 @@ namespace motion {
                 }
             }
 
-            if(!havePaintBox && hasOwnSource && node.bounds[2] >= node.bounds[0] &&
+            if(!havePaintBox && hasOwnSource &&
+               node.bounds[2] >= node.bounds[0] &&
                node.bounds[3] >= node.bounds[1]) {
                 const auto p0 = transformPoint(node.bounds[0], node.bounds[1]);
                 const auto p1 = transformPoint(node.bounds[2], node.bounds[1]);
                 const auto p2 = transformPoint(node.bounds[2], node.bounds[3]);
                 const auto p3 = transformPoint(node.bounds[0], node.bounds[3]);
                 entry.paintBox = {
-                    static_cast<float>(std::floor(std::min(
-                        std::min(p0.x, p1.x), std::min(p2.x, p3.x)))),
-                    static_cast<float>(std::floor(std::min(
-                        std::min(p0.y, p1.y), std::min(p2.y, p3.y)))),
-                    static_cast<float>(std::ceil(std::max(
-                        std::max(p0.x, p1.x), std::max(p2.x, p3.x)))),
-                    static_cast<float>(std::ceil(std::max(
-                        std::max(p0.y, p1.y), std::max(p2.y, p3.y))))
+                    static_cast<float>(std::floor(
+                        std::min(std::min(p0.x, p1.x), std::min(p2.x, p3.x)))),
+                    static_cast<float>(std::floor(
+                        std::min(std::min(p0.y, p1.y), std::min(p2.y, p3.y)))),
+                    static_cast<float>(std::ceil(
+                        std::max(std::max(p0.x, p1.x), std::max(p2.x, p3.x)))),
+                    static_cast<float>(std::ceil(
+                        std::max(std::max(p0.y, p1.y), std::max(p2.y, p3.y))))
                 };
                 havePaintBox = true;
             }
@@ -581,23 +628,23 @@ namespace motion {
                 const auto &clipNode = nodes[node.parentClipIndex];
                 if(clipNode.shapeAABB[2] >= clipNode.shapeAABB[0] &&
                    clipNode.shapeAABB[3] >= clipNode.shapeAABB[1]) {
-                    const auto p0 =
-                        transformPoint(clipNode.shapeAABB[0], clipNode.shapeAABB[1]);
-                    const auto p1 =
-                        transformPoint(clipNode.shapeAABB[2], clipNode.shapeAABB[1]);
-                    const auto p2 =
-                        transformPoint(clipNode.shapeAABB[2], clipNode.shapeAABB[3]);
-                    const auto p3 =
-                        transformPoint(clipNode.shapeAABB[0], clipNode.shapeAABB[3]);
+                    const auto p0 = transformPoint(clipNode.shapeAABB[0],
+                                                   clipNode.shapeAABB[1]);
+                    const auto p1 = transformPoint(clipNode.shapeAABB[2],
+                                                   clipNode.shapeAABB[1]);
+                    const auto p2 = transformPoint(clipNode.shapeAABB[2],
+                                                   clipNode.shapeAABB[3]);
+                    const auto p3 = transformPoint(clipNode.shapeAABB[0],
+                                                   clipNode.shapeAABB[3]);
                     entry.viewport = {
-                        static_cast<float>(std::min(
-                            std::min(p0.x, p1.x), std::min(p2.x, p3.x))),
-                        static_cast<float>(std::min(
-                            std::min(p0.y, p1.y), std::min(p2.y, p3.y))),
-                        static_cast<float>(std::max(
-                            std::max(p0.x, p1.x), std::max(p2.x, p3.x))),
-                        static_cast<float>(std::max(
-                            std::max(p0.y, p1.y), std::max(p2.y, p3.y)))
+                        static_cast<float>(std::min(std::min(p0.x, p1.x),
+                                                    std::min(p2.x, p3.x))),
+                        static_cast<float>(std::min(std::min(p0.y, p1.y),
+                                                    std::min(p2.y, p3.y))),
+                        static_cast<float>(std::max(std::max(p0.x, p1.x),
+                                                    std::max(p2.x, p3.x))),
+                        static_cast<float>(std::max(std::max(p0.y, p1.y),
+                                                    std::max(p2.y, p3.y)))
                     };
                     entry.hasViewport = true;
                 }
@@ -606,61 +653,59 @@ namespace motion {
             if(detail::logoChainTraceEnabled(_runtime->activeMotion)) {
                 const auto motionPath = _runtime->activeMotion->path;
                 const std::array<float, 8> expectedCorners = {
-                    static_cast<float>(dam[0] *
-                                           static_cast<double>(node.vertices[0]) +
-                                       dam[2] *
-                                           static_cast<double>(node.vertices[1]) +
-                                       dam[4]),
-                    static_cast<float>(dam[1] *
-                                           static_cast<double>(node.vertices[0]) +
-                                       dam[3] *
-                                           static_cast<double>(node.vertices[1]) +
-                                       dam[5]),
-                    static_cast<float>(dam[0] *
-                                           static_cast<double>(node.vertices[2]) +
-                                       dam[2] *
-                                           static_cast<double>(node.vertices[3]) +
-                                       dam[4]),
-                    static_cast<float>(dam[1] *
-                                           static_cast<double>(node.vertices[2]) +
-                                       dam[3] *
-                                           static_cast<double>(node.vertices[3]) +
-                                       dam[5]),
-                    static_cast<float>(dam[0] *
-                                           static_cast<double>(node.vertices[4]) +
-                                       dam[2] *
-                                           static_cast<double>(node.vertices[5]) +
-                                       dam[4]),
-                    static_cast<float>(dam[1] *
-                                           static_cast<double>(node.vertices[4]) +
-                                       dam[3] *
-                                           static_cast<double>(node.vertices[5]) +
-                                       dam[5]),
-                    static_cast<float>(dam[0] *
-                                           static_cast<double>(node.vertices[6]) +
-                                       dam[2] *
-                                           static_cast<double>(node.vertices[7]) +
-                                       dam[4]),
-                    static_cast<float>(dam[1] *
-                                           static_cast<double>(node.vertices[6]) +
-                                       dam[3] *
-                                           static_cast<double>(node.vertices[7]) +
-                                       dam[5])
+                    static_cast<float>(
+                        dam[0] * static_cast<double>(node.vertices[0]) +
+                        dam[2] * static_cast<double>(node.vertices[1]) +
+                        dam[4]),
+                    static_cast<float>(
+                        dam[1] * static_cast<double>(node.vertices[0]) +
+                        dam[3] * static_cast<double>(node.vertices[1]) +
+                        dam[5]),
+                    static_cast<float>(
+                        dam[0] * static_cast<double>(node.vertices[2]) +
+                        dam[2] * static_cast<double>(node.vertices[3]) +
+                        dam[4]),
+                    static_cast<float>(
+                        dam[1] * static_cast<double>(node.vertices[2]) +
+                        dam[3] * static_cast<double>(node.vertices[3]) +
+                        dam[5]),
+                    static_cast<float>(
+                        dam[0] * static_cast<double>(node.vertices[4]) +
+                        dam[2] * static_cast<double>(node.vertices[5]) +
+                        dam[4]),
+                    static_cast<float>(
+                        dam[1] * static_cast<double>(node.vertices[4]) +
+                        dam[3] * static_cast<double>(node.vertices[5]) +
+                        dam[5]),
+                    static_cast<float>(
+                        dam[0] * static_cast<double>(node.vertices[6]) +
+                        dam[2] * static_cast<double>(node.vertices[7]) +
+                        dam[4]),
+                    static_cast<float>(
+                        dam[1] * static_cast<double>(node.vertices[6]) +
+                        dam[3] * static_cast<double>(node.vertices[7]) + dam[5])
                 };
-                const auto effectiveColor = unpackPackedRgba(entry.packedColors[0]);
+                const auto effectiveColor =
+                    unpackPackedRgba(entry.packedColors[0]);
                 detail::logoChainTraceLogf(
                     motionPath, "prepare.item", "0x6C2334", _clampedEvalTime,
-                    "nodeIndex={} src={} blend={} opacity={} packedColor=[0x{:08x},0x{:08x},0x{:08x},0x{:08x}] effectiveColor=[{},{},{},{}] meshType={} meshDiv=({},{}) sortKey={:.3f} coordinateMode={} objTriPriority={} layerId=({}, {}) nodeDrawFlag={} maskRef={} itemDrawFlag={} visibleAncestorIndex={} slotDone={} frameType={} stencilBase={} stencilType={}",
+                    "nodeIndex={} src={} blend={} opacity={} "
+                    "packedColor=[0x{:08x},0x{:08x},0x{:08x},0x{:08x}] "
+                    "effectiveColor=[{},{},{},{}] meshType={} meshDiv=({},{}) "
+                    "sortKey={:.3f} coordinateMode={} objTriPriority={} "
+                    "layerId=({}, {}) nodeDrawFlag={} maskRef={} "
+                    "itemDrawFlag={} visibleAncestorIndex={} slotDone={} "
+                    "frameType={} stencilBase={} stencilType={}",
                     entry.nodeIndex,
                     entry.sourceKey.empty() ? std::string("<none>")
                                             : entry.sourceKey,
                     entry.blendMode, entry.opacity, entry.packedColors[0],
                     entry.packedColors[1], entry.packedColors[2],
-                    entry.packedColors[3], effectiveColor[0],
-                    effectiveColor[1], effectiveColor[2], effectiveColor[3],
-                    entry.meshType, entry.meshDivX, entry.meshDivY,
-                    entry.sortKey, entry.coordinateMode, entry.objTriPriority,
-                    entry.layerId, entry.layerId2, node.drawFlag ? 1 : 0,
+                    entry.packedColors[3], effectiveColor[0], effectiveColor[1],
+                    effectiveColor[2], effectiveColor[3], entry.meshType,
+                    entry.meshDivX, entry.meshDivY, entry.sortKey,
+                    entry.coordinateMode, entry.objTriPriority, entry.layerId,
+                    entry.layerId2, node.drawFlag ? 1 : 0,
                     node.stencilCompositeMaskReferenced ? 1 : 0,
                     entry.drawFlag ? 1 : 0, entry.visibleAncestorIndex,
                     node.activeSlot().done ? 1 : 0, node.currentFrameType,
@@ -677,42 +722,46 @@ namespace motion {
                     }
                 }
                 detail::logoChainTraceCheck(
-                    motionPath, "prepare.corners", "0x6C2334",
-                    _clampedEvalTime,
+                    motionPath, "prepare.corners", "0x6C2334", _clampedEvalTime,
+                    fmt::format("drawAffine*vertices "
+                                "exp=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}"
+                                ",{:.3f},{:.3f}]",
+                                expectedCorners[0], expectedCorners[1],
+                                expectedCorners[2], expectedCorners[3],
+                                expectedCorners[4], expectedCorners[5],
+                                expectedCorners[6], expectedCorners[7]),
                     fmt::format(
-                        "drawAffine*vertices exp=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}]",
-                        expectedCorners[0], expectedCorners[1],
-                        expectedCorners[2], expectedCorners[3],
-                        expectedCorners[4], expectedCorners[5],
-                        expectedCorners[6], expectedCorners[7]),
-                    fmt::format(
-                        "nodeIndex={} act=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}]",
+                        "nodeIndex={} "
+                        "act=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},"
+                        "{:.3f}]",
                         entry.nodeIndex, entry.corners[0], entry.corners[1],
                         entry.corners[2], entry.corners[3], entry.corners[4],
                         entry.corners[5], entry.corners[6], entry.corners[7]),
                     cornersOk,
-                    "PreparedRenderItem corners diverged from drawAffineMatrix * node.vertices");
+                    "PreparedRenderItem corners diverged from drawAffineMatrix "
+                    "* node.vertices");
                 detail::logoChainTraceCheck(
                     motionPath, "prepare.paintBox", "0x6C2334",
                     _clampedEvalTime,
-                    fmt::format(
-                        "paintBox from transformed geometry exp=[{:.3f},{:.3f},{:.3f},{:.3f}]",
-                        entry.paintBox[0], entry.paintBox[1],
-                        entry.paintBox[2], entry.paintBox[3]),
+                    fmt::format("paintBox from transformed geometry "
+                                "exp=[{:.3f},{:.3f},{:.3f},{:.3f}]",
+                                entry.paintBox[0], entry.paintBox[1],
+                                entry.paintBox[2], entry.paintBox[3]),
                     fmt::format(
                         "nodeIndex={} act=[{:.3f},{:.3f},{:.3f},{:.3f}]",
                         entry.nodeIndex, entry.paintBox[0], entry.paintBox[1],
                         entry.paintBox[2], entry.paintBox[3]),
                     true,
-                    "PreparedRenderItem paintBox diverged from transformed geometry");
+                    "PreparedRenderItem paintBox diverged from transformed "
+                    "geometry");
                 detail::logoChainTraceCheck(
                     motionPath, "prepare.viewport", "0x6C2334",
                     _clampedEvalTime,
                     entry.hasViewport
-                        ? fmt::format(
-                              "parent shapeAABB chain exp=[{:.3f},{:.3f},{:.3f},{:.3f}]",
-                              entry.viewport[0], entry.viewport[1],
-                              entry.viewport[2], entry.viewport[3])
+                        ? fmt::format("parent shapeAABB chain "
+                                      "exp=[{:.3f},{:.3f},{:.3f},{:.3f}]",
+                                      entry.viewport[0], entry.viewport[1],
+                                      entry.viewport[2], entry.viewport[3])
                         : std::string(
                               "parent shapeAABB chain exp=<invalid default>"),
                     entry.hasViewport
@@ -724,7 +773,8 @@ namespace motion {
                         : fmt::format("nodeIndex={} act=<invalid default>",
                                       entry.nodeIndex),
                     true,
-                    "PreparedRenderItem viewport propagation diverged from parent clip chain");
+                    "PreparedRenderItem viewport propagation diverged from "
+                    "parent clip chain");
             }
 
             if(detail::logoSnapshotMarkEnabledForPath(motionPath) &&
@@ -735,9 +785,15 @@ namespace motion {
                 (entry.nodeIndex >= 20 && entry.nodeIndex <= 29))) {
                 std::fprintf(
                     stderr,
-                    "SNAPPREP frame=%.3f nodeIndex=%d source=%s hasOwnSource=%d groupOnly=%d rawFlags=[%d,%d,%d,%d] priorDraw=%d inherited18=%d sortKey=%.3f coordinateMode=%d objTriPriority=%d visibleAncestorIndex=%d drawFlag=%d opacity=%d paintBox=[%.1f,%.1f,%.1f,%.1f] viewport=%s\n",
+                    "SNAPPREP frame=%.3f nodeIndex=%d source=%s "
+                    "hasOwnSource=%d groupOnly=%d rawFlags=[%d,%d,%d,%d] "
+                    "priorDraw=%d inherited18=%d sortKey=%.3f "
+                    "coordinateMode=%d objTriPriority=%d "
+                    "visibleAncestorIndex=%d drawFlag=%d opacity=%d "
+                    "paintBox=[%.1f,%.1f,%.1f,%.1f] viewport=%s\n",
                     _clampedEvalTime, entry.nodeIndex,
-                    entry.sourceKey.empty() ? "<none>" : entry.sourceKey.c_str(),
+                    entry.sourceKey.empty() ? "<none>"
+                                            : entry.sourceKey.c_str(),
                     entry.hasOwnSource ? 1 : 0, entry.groupOnly ? 1 : 0,
                     entry.rawFlag16 ? 1 : 0, entry.skipFlag0 ? 1 : 0,
                     entry.skipFlag1 ? 0 : 1, entry.drawFlag ? 1 : 0,
@@ -770,7 +826,9 @@ namespace motion {
         std::unordered_map<int, size_t> entryIndexByNode;
         entryIndexByNode.reserve(entries.size());
         for(size_t i = 0; i < entries.size(); ++i) {
-            entryIndexByNode.emplace(entries[i].nodeIndex, i);
+            if(isLocalPreparedItem(entries[i])) {
+                entryIndexByNode.emplace(entries[i].nodeIndex, i);
+            }
         }
 
         auto unionPaintBox =
@@ -796,6 +854,9 @@ namespace motion {
             };
 
         for(const auto &childEntry : entries) {
+            if(!isLocalPreparedItem(childEntry)) {
+                continue;
+            }
             for(int ancestorIndex = childEntry.visibleAncestorIndex;
                 ancestorIndex >= 0;) {
                 const auto parentIt = entryIndexByNode.find(ancestorIndex);
@@ -803,9 +864,17 @@ namespace motion {
                     break;
                 }
                 auto &parentEntry = entries[parentIt->second];
-                const auto &ancestorNode = nodes[parentEntry.nodeIndex];
+                if(!isLocalPreparedItem(parentEntry)) {
+                    break;
+                }
+                const detail::MotionNode *ancestorNode =
+                    tryGetLocalNode(parentEntry.nodeIndex);
+                if(!ancestorNode) {
+                    break;
+                }
                 unionPaintBox(parentEntry, childEntry);
-                const int nextAncestorIndex = ancestorNode.visibleAncestorIndex;
+                const int nextAncestorIndex =
+                    ancestorNode->visibleAncestorIndex;
                 if(nextAncestorIndex == ancestorIndex) {
                     break;
                 }
@@ -828,9 +897,27 @@ namespace motion {
         const bool savedInheritedFlag18 = _renderItemInheritedFlag18;
         _renderItemInheritedFlag18 = inheritedFlag18;
         _runtime->preparedRenderItems.clear();
-        const auto motionPath =
-            _runtime->activeMotion ? _runtime->activeMotion->path
-                                   : std::string{};
+        const auto motionPath = _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
+        // Merged child-player items carry nodeIndex into the child's nodes[]
+        // vector. Never dereference those indices against this player's
+        // nodes[].
+        const auto isLocalPreparedItem =
+            [runtime = _runtime.get()](
+                const detail::PlayerRuntime::PreparedRenderItem &entry)
+            -> bool {
+            return entry.nativeLifetimeOwner == nullptr ||
+                entry.nativeLifetimeOwner == runtime;
+        };
+        const auto tryGetLocalNode =
+            [this](int nodeIndex) -> const detail::MotionNode * {
+            if(!_runtime || nodeIndex < 0 ||
+               static_cast<size_t>(nodeIndex) >= _runtime->nodes.size()) {
+                return nullptr;
+            }
+            return &_runtime->nodes[static_cast<size_t>(nodeIndex)];
+        };
 
 #if defined(KRKR2_WASMTIME_HEADLESS)
         detail::motionTraceRenderBuildItemsEnter(this);
@@ -853,11 +940,13 @@ namespace motion {
             std::ostringstream beforeSort;
             std::ostringstream afterSort;
             for(size_t i = 0; i < beforeSortKeys.size(); ++i) {
-                if(i) beforeSort << ",";
+                if(i)
+                    beforeSort << ",";
                 beforeSort << beforeSortKeys[i];
             }
             for(size_t i = 0; i < _runtime->preparedRenderItems.size(); ++i) {
-                if(i) afterSort << ",";
+                if(i)
+                    afterSort << ",";
                 afterSort << _runtime->preparedRenderItems[i].sortKey;
             }
             detail::logoChainTraceLogf(
@@ -874,7 +963,9 @@ namespace motion {
         for(auto &item : _runtime->preparedRenderItems) {
             item.parentItem = nullptr;
             item.childItems.clear();
-            entryPtrByNode.emplace(item.nodeIndex, &item);
+            if(isLocalPreparedItem(item)) {
+                entryPtrByNode.emplace(item.nodeIndex, &item);
+            }
         }
         for(auto &item : _runtime->preparedRenderItems) {
             if(item.selfSeedChildList) {
@@ -903,7 +994,8 @@ namespace motion {
         // preview mode, otherwise their child vector is spliced into the
         // parent's child vector.
         for(auto &parentItem : _runtime->preparedRenderItems) {
-            if(!parentItem.selfSeedChildList) {
+            if(!parentItem.selfSeedChildList ||
+               !isLocalPreparedItem(parentItem)) {
                 continue;
             }
             const auto parentNodeIndex = parentItem.nodeIndex;
@@ -914,14 +1006,23 @@ namespace motion {
                 if(candidate.visibleAncestorIndex != parentNodeIndex) {
                     continue;
                 }
-                const auto &candidateNode =
-                    _runtime->nodes[static_cast<size_t>(candidate.nodeIndex)];
-                if(candidateNode.nodeType == 0) {
+                if(!isLocalPreparedItem(candidate)) {
+                    continue;
+                }
+                const detail::MotionNode *candidateNode =
+                    tryGetLocalNode(candidate.nodeIndex);
+                if(!candidateNode) {
+                    LOGGER->warn("prepareRenderItems: skip composite candidate "
+                                 "nodeIndex={} (nodes.size={})",
+                                 candidate.nodeIndex, _runtime->nodes.size());
+                    continue;
+                }
+                if(candidateNode->nodeType == 0) {
                     candidate.parentItem = &parentItem;
                     parentItem.childItems.push_back(&candidate);
                     continue;
                 }
-                if(candidateNode.nodeType != 3) {
+                if(candidateNode->nodeType != 3) {
                     continue;
                 }
                 if(_preview) {
@@ -949,12 +1050,15 @@ namespace motion {
         // writes above remain authoritative for their covered cases. See
         // analysis/RenderPipeline_Path_A_ImplRef.md §7.3.
         for(auto &entry : _runtime->preparedRenderItems) {
-            if(entry.parentItem != nullptr) {
+            if(entry.parentItem != nullptr || !isLocalPreparedItem(entry)) {
                 continue;
             }
-            const auto &entryNode =
-                _runtime->nodes[static_cast<size_t>(entry.nodeIndex)];
-            if(entryNode.nodeType != 3) {
+            const detail::MotionNode *entryNode =
+                tryGetLocalNode(entry.nodeIndex);
+            if(!entryNode) {
+                continue;
+            }
+            if(entryNode->nodeType != 3) {
                 continue;
             }
             const int va = entry.visibleAncestorIndex;
@@ -983,7 +1087,10 @@ namespace motion {
                 }
                 std::fprintf(
                     stderr,
-                    "SNAPPREPORDER frame=%.3f order=%zu nodeIndex=%d source=%s groupOnly=%d topLevel=%d groupList=%d selfSeed=%d sortKey=%.3f visibleAncestorIndex=%d parentNodeIndex=%d childCount=%zu coordinateMode=%d objTriPriority=%d\n",
+                    "SNAPPREPORDER frame=%.3f order=%zu nodeIndex=%d source=%s "
+                    "groupOnly=%d topLevel=%d groupList=%d selfSeed=%d "
+                    "sortKey=%.3f visibleAncestorIndex=%d parentNodeIndex=%d "
+                    "childCount=%zu coordinateMode=%d objTriPriority=%d\n",
                     _clampedEvalTime, i, item.nodeIndex,
                     item.sourceKey.empty() ? "<none>" : item.sourceKey.c_str(),
                     item.groupOnly ? 1 : 0, item.topLevelList ? 1 : 0,
@@ -1018,9 +1125,9 @@ namespace motion {
         // Root position is already baked into node state during updateLayers.
         const double ofsX = static_cast<double>(_cameraOffsetX);
         const double ofsY = static_cast<double>(_cameraOffsetY);
-        const auto motionPath =
-            _runtime->activeMotion ? _runtime->activeMotion->path
-                                   : std::string{};
+        const auto motionPath = _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
         for(auto &entry : _runtime->preparedRenderItems) {
             const auto beforeCorners = entry.corners;
             const auto beforePaintBox = entry.paintBox;
@@ -1061,9 +1168,9 @@ namespace motion {
                 for(size_t ci = 0; ci < entry.corners.size(); ci += 2) {
                     if(std::fabs((entry.corners[ci] - beforeCorners[ci]) -
                                  static_cast<float>(ofsX)) > 0.01f ||
-                       std::fabs((entry.corners[ci + 1] -
-                                  beforeCorners[ci + 1]) -
-                                 static_cast<float>(ofsY)) > 0.01f) {
+                       std::fabs(
+                           (entry.corners[ci + 1] - beforeCorners[ci + 1]) -
+                           static_cast<float>(ofsY)) > 0.01f) {
                         ok = false;
                         break;
                     }
@@ -1097,11 +1204,14 @@ namespace motion {
                 detail::logoChainTraceCheck(
                     motionPath, "prepare.translate", "0x6D5264",
                     _clampedEvalTime,
+                    fmt::format("cameraOffset=({:.3f},{:.3f}) applied to "
+                                "corners/paintBox/viewport/mesh",
+                                ofsX, ofsY),
                     fmt::format(
-                        "cameraOffset=({:.3f},{:.3f}) applied to corners/paintBox/viewport/mesh",
-                        ofsX, ofsY),
-                    fmt::format(
-                        "nodeIndex={} beforeCorner0=({:.3f},{:.3f}) afterCorner0=({:.3f},{:.3f}) beforePaintBox=[{:.3f},{:.3f},{:.3f},{:.3f}] afterPaintBox=[{:.3f},{:.3f},{:.3f},{:.3f}]",
+                        "nodeIndex={} beforeCorner0=({:.3f},{:.3f}) "
+                        "afterCorner0=({:.3f},{:.3f}) "
+                        "beforePaintBox=[{:.3f},{:.3f},{:.3f},{:.3f}] "
+                        "afterPaintBox=[{:.3f},{:.3f},{:.3f},{:.3f}]",
                         entry.nodeIndex, beforeCorners[0], beforeCorners[1],
                         entry.corners[0], entry.corners[1], beforePaintBox[0],
                         beforePaintBox[1], beforePaintBox[2], beforePaintBox[3],

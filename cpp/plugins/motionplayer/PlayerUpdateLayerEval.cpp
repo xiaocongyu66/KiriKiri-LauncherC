@@ -6,31 +6,45 @@
 namespace motion::internal {
 
     namespace {
-        FrameContentState frameStateFromClipSlot(
-            const detail::MotionNode::ClipSlot &slot,
-            bool visible,
-            int frameType = 0) {
+        FrameContentState
+        frameStateFromClipSlot(const detail::MotionNode::ClipSlot &slot,
+                               bool visible, int frameType = 0) {
             FrameContentState state;
             state.visible = visible && !slot.done;
             state.frameType = slot.frameIndex >= 0 ? slot.frameType : frameType;
             state.src = slot.src;
             state.srcList = slot.srcList;
-            state.x = slot.x; state.y = slot.y; state.z = slot.z;
-            state.ox = slot.ox; state.oy = slot.oy;
-            state.width = slot.width; state.height = slot.height;
-            state.opacity = slot.opacity; state.angle = slot.angle;
-            state.scaleX = slot.scaleX; state.scaleY = slot.scaleY;
-            state.slantX = slot.slantX; state.slantY = slot.slantY;
-            state.flipX = slot.flipX; state.flipY = slot.flipY;
+            state.x = slot.x;
+            state.y = slot.y;
+            state.z = slot.z;
+            state.ox = slot.ox;
+            state.oy = slot.oy;
+            state.width = slot.width;
+            state.height = slot.height;
+            state.opacity = slot.opacity;
+            state.angle = slot.angle;
+            state.scaleX = slot.scaleX;
+            state.scaleY = slot.scaleY;
+            state.slantX = slot.slantX;
+            state.slantY = slot.slantY;
+            state.flipX = slot.flipX;
+            state.flipY = slot.flipY;
             state.blendMode = slot.blendMode;
             state.packedColors = slot.packedColors;
-            state.ccc.x = slot.ccc.x; state.ccc.y = slot.ccc.y;
-            state.acc.x = slot.acc.x; state.acc.y = slot.acc.y;
-            state.zcc.x = slot.zcc.x; state.zcc.y = slot.zcc.y;
-            state.scc.x = slot.scc.x; state.scc.y = slot.scc.y;
-            state.occ.x = slot.occ.x; state.occ.y = slot.occ.y;
-            state.cc.x = slot.cc.x; state.cc.y = slot.cc.y;
-            state.cp.x = slot.cp.x; state.cp.y = slot.cp.y;
+            state.ccc.x = slot.ccc.x;
+            state.ccc.y = slot.ccc.y;
+            state.acc.x = slot.acc.x;
+            state.acc.y = slot.acc.y;
+            state.zcc.x = slot.zcc.x;
+            state.zcc.y = slot.zcc.y;
+            state.scc.x = slot.scc.x;
+            state.scc.y = slot.scc.y;
+            state.occ.x = slot.occ.x;
+            state.occ.y = slot.occ.y;
+            state.cc.x = slot.cc.x;
+            state.cc.y = slot.cc.y;
+            state.cp.x = slot.cp.x;
+            state.cp.y = slot.cp.y;
             state.cp.t = slot.cp.t;
             state.clipStartTime = slot.clipStartTime;
             state.motionDt = slot.motionDt;
@@ -40,10 +54,14 @@ namespace motion::internal {
             state.motionTimeOffset = slot.motionTimeOffset;
             state.motionDtgt = slot.motionDtgt;
             state.prtTrigger = slot.prtTrigger;
-            state.prtFmin = slot.prtFmin; state.prtF = slot.prtF;
-            state.prtVmin = slot.prtVmin; state.prtV = slot.prtV;
-            state.prtAmin = slot.prtAmin; state.prtA = slot.prtA;
-            state.prtZmin = slot.prtZmin; state.prtZ = slot.prtZ;
+            state.prtFmin = slot.prtFmin;
+            state.prtF = slot.prtF;
+            state.prtVmin = slot.prtVmin;
+            state.prtV = slot.prtV;
+            state.prtAmin = slot.prtAmin;
+            state.prtA = slot.prtA;
+            state.prtZmin = slot.prtZmin;
+            state.prtZ = slot.prtZ;
             state.prtRange = slot.prtRange;
             state.hasTransformOrder = slot.hasTransformOrder;
             std::copy(slot.transformOrder, slot.transformOrder + 4,
@@ -53,9 +71,9 @@ namespace motion::internal {
             return state;
         }
 
-        void populateInterpolatedCacheFromState(
-            detail::MotionNode &node,
-            const FrameContentState &state) {
+        void
+        populateInterpolatedCacheFromState(detail::MotionNode &node,
+                                           const FrameContentState &state) {
             node.interpolatedCache.src = state.src;
             node.interpolatedCache.srcList = state.srcList;
             node.interpolatedCache.width = state.width;
@@ -76,7 +94,7 @@ namespace motion::internal {
             node.interpolatedCache.blendMode = state.blendMode;
             node.interpolatedCache.packedColors = state.packedColors;
             node.interpolatedCache.hasTransformOrder = state.hasTransformOrder;
-            if (state.hasTransformOrder) {
+            if(state.hasTransformOrder) {
                 std::copy(std::begin(state.transformOrder),
                           std::end(state.transformOrder),
                           node.interpolatedCache.transformOrder);
@@ -106,10 +124,9 @@ namespace motion::internal {
             copyPackedColorsToBytes(node.colorBytes, state.packedColors);
         }
 
-        void writeTimelineStateLike_0x699AE4(
-            detail::MotionNode &node,
-            const FrameContentState &state,
-            bool dirtyArg) {
+        void writeTimelineStateLike_0x699AE4(detail::MotionNode &node,
+                                             const FrameContentState &state,
+                                             bool dirtyArg) {
             // Player_evaluateTimeline (0x699AE4) updates the node+1507+
             // payload, but leaves node+1504/+1505/+1506
             // (dirty/active/visible) to Player_updateLayers.
@@ -119,19 +136,17 @@ namespace motion::internal {
             populateInterpolatedCacheFromState(node, state);
         }
 
-        void markNodePayloadDirtyFromState(
-            detail::MotionNode &node,
-            const FrameContentState &state) {
-            if (!state.debugEvaluated) {
+        void markNodePayloadDirtyFromState(detail::MotionNode &node,
+                                           const FrameContentState &state) {
+            if(!state.debugEvaluated) {
                 return;
             }
-            const bool payloadChanged =
-                !node.hasLastActivePayload ||
+            const bool payloadChanged = !node.hasLastActivePayload ||
                 node.lastActiveFrameIndex != state.debugActiveIndex ||
                 node.lastActiveSrc != state.src ||
                 node.lastActiveMotionFlags != state.motionFlags ||
                 node.lastActiveMotionDtgt != state.motionDtgt;
-            if (payloadChanged) {
+            if(payloadChanged) {
                 node.flags |= 0x01;
             }
             node.hasLastActivePayload = true;
@@ -150,7 +165,7 @@ namespace motion::internal {
         }
 
         struct NodeTransformOrder {
-            int order[4] = {0, 1, 2, 3};
+            int order[4] = { 0, 1, 2, 3 };
             bool has = false;
         };
 
@@ -158,7 +173,8 @@ namespace motion::internal {
             const std::shared_ptr<const PSB::PSBDictionary> &nodeDict) {
             NodeTransformOrder out;
             if(auto toList = psbDictionaryList(nodeDict, "transformOrder")) {
-                for(int i = 0; i < 4 && i < static_cast<int>(toList->size()); ++i) {
+                for(int i = 0; i < 4 && i < static_cast<int>(toList->size());
+                    ++i) {
                     if(auto v = psbNumberValue((*toList)[i])) {
                         out.order[i] = static_cast<int>(*v);
                     }
@@ -183,8 +199,7 @@ namespace motion::internal {
 
         bool populateClipSlotFromFrameLike_0x6926B4(
             detail::MotionNode &node,
-            const std::shared_ptr<PSB::PSBList> &frames,
-            int frameIndex,
+            const std::shared_ptr<PSB::PSBList> &frames, int frameIndex,
             const NodeTransformOrder &transformOrder,
             detail::MotionNode::ClipSlot &slot,
             FrameContentState *outState = nullptr) {
@@ -243,17 +258,18 @@ namespace motion::internal {
             return true;
         }
 
-        int initialFrameIndexForTime(
-            const std::shared_ptr<PSB::PSBList> &frames,
-            double currentTime) {
+        int
+        initialFrameIndexForTime(const std::shared_ptr<PSB::PSBList> &frames,
+                                 double currentTime) {
             if(!frames || frames->size() == 0) {
                 return -1;
             }
 
             int selected = 0;
             for(size_t index = 0; index < frames->size(); ++index) {
-                const auto frame = std::dynamic_pointer_cast<PSB::PSBDictionary>(
-                    (*frames)[static_cast<int>(index)]);
+                const auto frame =
+                    std::dynamic_pointer_cast<PSB::PSBDictionary>(
+                        (*frames)[static_cast<int>(index)]);
                 if(!frame) {
                     continue;
                 }
@@ -267,15 +283,14 @@ namespace motion::internal {
             }
 
             if(frames->size() > 1) {
-                selected = std::min(
-                    selected, static_cast<int>(frames->size()) - 2);
+                selected =
+                    std::min(selected, static_cast<int>(frames->size()) - 2);
             }
             return std::max(selected, 0);
         }
 
-        double frameSelectionTimeLike_0x6B7E44(
-            const detail::MotionNode &node,
-            double currentTime) {
+        double frameSelectionTimeLike_0x6B7E44(const detail::MotionNode &node,
+                                               double currentTime) {
             // sub_6B64AC/sub_6B7E44 read node+8->value when the node is
             // parameterized; otherwise they use the Player timeline time.
             if(node.parameterizeIndex >= 0 && node.parameterEntry != nullptr) {
@@ -286,8 +301,7 @@ namespace motion::internal {
 
         bool initializeNodeTimelineSlotsLike_0x6B64AC(
             detail::MotionNode &node,
-            const std::shared_ptr<PSB::PSBList> &frames,
-            double currentTime,
+            const std::shared_ptr<PSB::PSBList> &frames, double currentTime,
             const NodeTransformOrder &transformOrder) {
             if(!frames || frames->size() == 0) {
                 resetClipSlot(node.slots[0]);
@@ -299,7 +313,8 @@ namespace motion::internal {
 
             const double selectionTime =
                 frameSelectionTimeLike_0x6B7E44(node, currentTime);
-            const int activeIndex = initialFrameIndexForTime(frames, selectionTime);
+            const int activeIndex =
+                initialFrameIndexForTime(frames, selectionTime);
             node.activeSlotIndex = 0;
             populateClipSlotFromFrameLike_0x6926B4(
                 node, frames, activeIndex, transformOrder, node.slots[0]);
@@ -310,9 +325,9 @@ namespace motion::internal {
             return true;
         }
 
-        FrameContentState frameStateFromNodeSlots(
-            const detail::MotionNode &node,
-            double currentTime) {
+        FrameContentState
+        frameStateFromNodeSlots(const detail::MotionNode &node,
+                                double currentTime) {
             const auto &active = node.activeSlot();
             const auto &other = node.otherSlot();
             FrameContentState state =
@@ -340,18 +355,19 @@ namespace motion::internal {
             }
 
             if(active.crossfading && other.frameIndex >= 0) {
-                const double duration = other.clipStartTime - active.clipStartTime;
+                const double duration =
+                    other.clipStartTime - active.clipStartTime;
                 if(duration > 0.0) {
                     state.debugInterpT = std::clamp(
-                        (currentTime - active.clipStartTime) / duration,
-                        0.0, 1.0);
+                        (currentTime - active.clipStartTime) / duration, 0.0,
+                        1.0);
                     state.debugInterpolated =
                         state.debugInterpT > 0.0 && !other.done;
                 }
             }
             return state;
         }
-    }
+    } // namespace
 
     MOTIONPLAYER_NOINLINE FrameContentState
     advanceNodeFrameSelectionLike_0x6926B4(detail::MotionNode &node,
@@ -369,13 +385,13 @@ namespace motion::internal {
             readNodeTransformOrder(node.psbNode);
         const double selectionTime =
             frameSelectionTimeLike_0x6B7E44(node, currentTime);
-        if(node.activeSlot().frameIndex < 0 && node.otherSlot().frameIndex < 0) {
-            initializeNodeTimelineSlotsLike_0x6B64AC(
-                node, frames, currentTime, transformOrder);
+        if(node.activeSlot().frameIndex < 0 &&
+           node.otherSlot().frameIndex < 0) {
+            initializeNodeTimelineSlotsLike_0x6B64AC(node, frames, currentTime,
+                                                     transformOrder);
         }
 
-        const int lastForwardFrameIndex =
-            static_cast<int>(frames->size()) - 2;
+        const int lastForwardFrameIndex = static_cast<int>(frames->size()) - 2;
         while(node.otherSlot().frameIndex >= 0 &&
               node.activeSlot().frameIndex < lastForwardFrameIndex &&
               selectionTime >= node.otherSlot().clipStartTime) {
@@ -408,8 +424,7 @@ namespace motion::internal {
     }
 
     MOTIONPLAYER_NOINLINE bool
-    evaluateTimelineLike_0x699AE4(detail::MotionNode &node,
-                                  bool dirtyArg,
+    evaluateTimelineLike_0x699AE4(detail::MotionNode &node, bool dirtyArg,
                                   double currentTime) {
         const bool dirty = dirtyArg || node.flags != 0;
         auto &active = node.activeSlot();
@@ -441,8 +456,7 @@ namespace motion::internal {
             : 0.0;
         ratio = std::clamp(ratio, 0.0, 1.0);
 
-        const bool ratioChanged =
-            !node.hasTimelineEvalRatio ||
+        const bool ratioChanged = !node.hasTimelineEvalRatio ||
             std::fabs(node.timelineEvalRatio - ratio) > 1.0e-12;
         if(!dirty && !ratioChanged) {
             return false;
@@ -453,8 +467,8 @@ namespace motion::internal {
         FrameContentState state =
             frameStateFromClipSlot(active, true, node.currentFrameType);
         if(ratio > 0.0) {
-            FrameContentState next =
-                frameStateFromClipSlot(other, !other.done, node.currentFrameType);
+            FrameContentState next = frameStateFromClipSlot(
+                other, !other.done, node.currentFrameType);
             if(next.src.empty()) {
                 next.src = state.src;
             }
@@ -466,7 +480,7 @@ namespace motion::internal {
         writeTimelineStateLike_0x699AE4(node, state, true);
         return true;
     }
-}
+} // namespace motion::internal
 
 namespace motion {
     // Phase 1: Camera velocity, root evaluation, variable interpolation
@@ -478,22 +492,22 @@ namespace motion {
         // Writes node+1584 (delta.dirty) and node+1592/+1600/+1608 (delta pos).
         {
             auto &rootNode = nodes[0];
-            if (_cameraVelocityX != 0.0) {
+            if(_cameraVelocityX != 0.0) {
                 rootNode.delta.dirty = true;
                 rootNode.delta.posX += _frameLastTime * _cameraVelocityX;
             }
-            if (_cameraVelocityY != 0.0) {
+            if(_cameraVelocityY != 0.0) {
                 rootNode.delta.dirty = true;
                 rootNode.delta.posY += _frameLastTime * _cameraVelocityY;
             }
-            if (_cameraVelocityZ != 0.0) {
+            if(_cameraVelocityZ != 0.0) {
                 rootNode.delta.dirty = true;
                 rootNode.delta.posZ += _frameLastTime * _cameraVelocityZ;
             }
             // Camera friction (0x6BB3E0..0x6BB428)
-            if (_cameraDamping != 1.0 && _frameLastTime > 0.0) {
-                const double dampFactor = std::pow(_cameraDamping,
-                                                    _frameLastTime / 60.0);
+            if(_cameraDamping != 1.0 && _frameLastTime > 0.0) {
+                const double dampFactor =
+                    std::pow(_cameraDamping, _frameLastTime / 60.0);
                 _cameraVelocityX *= dampFactor;
                 _cameraVelocityY *= dampFactor;
                 _cameraVelocityZ *= dampFactor;
@@ -501,7 +515,7 @@ namespace motion {
         }
 
         // Step 1: Save previous positions for delta calculation
-        for (auto &n : nodes) {
+        for(auto &n : nodes) {
             n.prevPosX = n.accumulated.posX;
             n.prevPosY = n.accumulated.posY;
             n.prevPosZ = n.accumulated.posZ;
@@ -512,7 +526,7 @@ namespace motion {
         {
             FrameContentState rootState;
             const bool syntheticRoot = !root.psbNode;
-            if (root.psbNode) {
+            if(root.psbNode) {
                 rootState = evaluateLayerContent(root.psbNode, currentTime,
                                                  root.nodeType);
             } else {
@@ -522,8 +536,7 @@ namespace motion {
                 root.delta.flipX = _rootFlipX;
                 rootState.visible = root.delta.visibleOverride;
                 rootState.opacity = std::clamp(
-                    static_cast<double>(root.delta.opacity) / 255.0,
-                    0.0, 1.0);
+                    static_cast<double>(root.delta.opacity) / 255.0, 0.0, 1.0);
                 rootState.x = root.delta.posX;
                 rootState.y = root.delta.posY;
                 rootState.z = root.delta.posZ;
@@ -542,7 +555,7 @@ namespace motion {
             populateTransformStateFromFrameState(root.localState, rootState);
             root.localState.dirty = root.delta.dirty;
 
-            if (!syntheticRoot) {
+            if(!syntheticRoot) {
                 const bool deltaDirty = root.delta.dirty;
                 const double deltaPosX = root.delta.posX;
                 const double deltaPosY = root.delta.posY;
@@ -580,8 +593,9 @@ namespace motion {
             root.interpolatedCache.blendMode = rootState.blendMode;
             root.interpolatedCache.packedColors = rootState.packedColors;
             copyPackedColorsToBytes(root.colorBytes, rootState.packedColors);
-            root.interpolatedCache.hasTransformOrder = rootState.hasTransformOrder;
-            if (rootState.hasTransformOrder) {
+            root.interpolatedCache.hasTransformOrder =
+                rootState.hasTransformOrder;
+            if(rootState.hasTransformOrder) {
                 std::copy(std::begin(rootState.transformOrder),
                           std::end(rootState.transformOrder),
                           root.interpolatedCache.transformOrder);
@@ -600,7 +614,7 @@ namespace motion {
 
             // Step 3: Build root local 2x2 matrix via sub_699940
             // Reuse applyLocalTransform logic but on raw 2x2
-            Affine2x3 rootAffine = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+            Affine2x3 rootAffine = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
             applyLocalTransform(rootAffine, root);
             root.accumulated.m11 = rootAffine[0];
             root.accumulated.m21 = rootAffine[1];
@@ -616,26 +630,28 @@ namespace motion {
         // sub_6C4668 binding: resolves variable name to a source entry in
         // player+264 map, then updates child Player timeline parameters for
         // nodeType=3 and nodeType=4 nodes. In our architecture, variable values
-        // are stored in _variableValues and exposed via getVariable()/setVariable()
-        // TJS API. The binding to child Players happens implicitly when child
-        // Players re-evaluate their timelines.
-        if (_runtime->activeMotion) {
+        // are stored in _variableValues and exposed via
+        // getVariable()/setVariable() TJS API. The binding to child Players
+        // happens implicitly when child Players re-evaluate their timelines.
+        if(_runtime->activeMotion) {
             const auto &varFrames = _runtime->activeMotion->variableFrames;
-            for (const auto &[label, frames] : varFrames) {
-                if (frames.empty()) continue;
+            for(const auto &[label, frames] : varFrames) {
+                if(frames.empty())
+                    continue;
                 // User-set value takes precedence
-                if (_variableValues.find(label) != _variableValues.end()) continue;
+                if(_variableValues.find(label) != _variableValues.end())
+                    continue;
                 // Default: use first frame value
                 writeEvalResultValueLike_0x6C4668(label, 0,
                                                   frames.front().value);
             }
             // Aligned to sub_6C4668: refresh parameter entries directly. This
-            // intentionally does not call public setVariable() on child players.
-            for (const auto &[label, value] : _variableValues) {
+            // intentionally does not call public setVariable() on child
+            // players.
+            for(const auto &[label, value] : _variableValues) {
                 bindParameterValueLike_0x6C4668(label, 0, value);
             }
         }
-
     }
 
     // Phase 2: Main node evaluation loop (non-root nodes)
@@ -644,81 +660,76 @@ namespace motion {
         const std::string motionPath = _runtime->activeMotion
             ? _runtime->activeMotion->path
             : std::string();
-        for (size_t i = 1; i < nodes.size(); ++i) {
+        for(size_t i = 1; i < nodes.size(); ++i) {
             auto &node = nodes[i];
 
             const int origParentIdx = node.parentIndex;
             int parentIdx = node.parentIndex;
             int walkSteps = 0;
-            while (parentIdx > 0 && parentIdx < static_cast<int>(nodes.size())) {
-                if ((nodes[parentIdx].inheritFlags & 0x00400000) == 0) {
+            while(parentIdx > 0 && parentIdx < static_cast<int>(nodes.size())) {
+                if((nodes[parentIdx].inheritFlags & 0x00400000) == 0) {
                     break;
                 }
                 parentIdx = nodes[parentIdx].parentIndex;
                 ++walkSteps;
             }
-            if (parentIdx < 0 || parentIdx >= static_cast<int>(nodes.size())) {
+            if(parentIdx < 0 || parentIdx >= static_cast<int>(nodes.size())) {
                 parentIdx = 0;
             }
             const auto &parent = nodes[parentIdx];
 
-            if (detail::logoChainTraceEnabled(_runtime->activeMotion)) {
+            if(detail::logoChainTraceEnabled(_runtime->activeMotion)) {
                 const auto &parentNode = nodes[parentIdx];
                 detail::logoChainTraceLogf(
                     motionPath, "updateLayers.phase2.parent_lookup", "0x6BB598",
                     currentTime,
-                    "nodeIndex={} label={} type={} inheritFlags=0x{:x} origParentIdx={} resolvedParentIdx={} parentLabel={} parentType={} parentInheritFlags=0x{:x} walkSteps={} independentLayerInherit={}",
+                    "nodeIndex={} label={} type={} inheritFlags=0x{:x} "
+                    "origParentIdx={} resolvedParentIdx={} parentLabel={} "
+                    "parentType={} parentInheritFlags=0x{:x} walkSteps={} "
+                    "independentLayerInherit={}",
                     node.index,
                     node.layerName.empty() ? std::string("<root>")
                                            : node.layerName,
-                    node.nodeType,
-                    static_cast<unsigned>(node.inheritFlags),
-                    origParentIdx,
-                    parentIdx,
+                    node.nodeType, static_cast<unsigned>(node.inheritFlags),
+                    origParentIdx, parentIdx,
                     parentNode.layerName.empty() ? std::string("<root>")
                                                  : parentNode.layerName,
                     parentNode.nodeType,
-                    static_cast<unsigned>(parentNode.inheritFlags),
-                    walkSteps,
+                    static_cast<unsigned>(parentNode.inheritFlags), walkSteps,
                     _independentLayerInherit ? 1 : 0);
             }
 
-            auto state = advanceNodeFrameSelectionLike_0x6926B4(node,
-                                                                 currentTime);
-            if (detail::logoChainTraceEnabled(_runtime->activeMotion)
-                && state.debugEvaluated) {
+            auto state =
+                advanceNodeFrameSelectionLike_0x6926B4(node, currentTime);
+            if(detail::logoChainTraceEnabled(_runtime->activeMotion) &&
+               state.debugEvaluated) {
                 detail::logoChainTraceLogf(
-                    motionPath, "updateLayers.phase2.framesel",
-                    "0x6926B4", currentTime,
-                    "nodeIndex={} label={} type={} activeIndex={} nextIndex={} frameA[time={:.3f},type={},invisible={},src={},opacity={:.6f},scale=({:.6f},{:.6f})] frameB[time={:.3f},type={},invisible={},src={},opacity={:.6f},scale=({:.6f},{:.6f})] t={:.6f} interpolated={} final[src={},opacity={:.6f},scale=({:.6f},{:.6f})]",
+                    motionPath, "updateLayers.phase2.framesel", "0x6926B4",
+                    currentTime,
+                    "nodeIndex={} label={} type={} activeIndex={} nextIndex={} "
+                    "frameA[time={:.3f},type={},invisible={},src={},opacity={:."
+                    "6f},scale=({:.6f},{:.6f})] "
+                    "frameB[time={:.3f},type={},invisible={},src={},opacity={:."
+                    "6f},scale=({:.6f},{:.6f})] t={:.6f} interpolated={} "
+                    "final[src={},opacity={:.6f},scale=({:.6f},{:.6f})]",
                     node.index,
                     node.layerName.empty() ? std::string("<root>")
                                            : node.layerName,
-                    node.nodeType,
-                    state.debugActiveIndex,
-                    state.debugNextIndex,
-                    state.debugFrameATime,
-                    state.debugFrameAType,
+                    node.nodeType, state.debugActiveIndex, state.debugNextIndex,
+                    state.debugFrameATime, state.debugFrameAType,
                     state.debugFrameAInvisible ? 1 : 0,
                     state.debugFrameASrc.empty() ? std::string("<none>")
-                                                : state.debugFrameASrc,
-                    state.debugFrameAOpacity,
-                    state.debugFrameAScaleX,
-                    state.debugFrameAScaleY,
-                    state.debugFrameBTime,
-                    state.debugFrameBType,
-                    state.debugFrameBInvisible ? 1 : 0,
+                                                 : state.debugFrameASrc,
+                    state.debugFrameAOpacity, state.debugFrameAScaleX,
+                    state.debugFrameAScaleY, state.debugFrameBTime,
+                    state.debugFrameBType, state.debugFrameBInvisible ? 1 : 0,
                     state.debugFrameBSrc.empty() ? std::string("<none>")
-                                                : state.debugFrameBSrc,
-                    state.debugFrameBOpacity,
-                    state.debugFrameBScaleX,
-                    state.debugFrameBScaleY,
-                    state.debugInterpT,
+                                                 : state.debugFrameBSrc,
+                    state.debugFrameBOpacity, state.debugFrameBScaleX,
+                    state.debugFrameBScaleY, state.debugInterpT,
                     state.debugInterpolated ? 1 : 0,
                     state.src.empty() ? std::string("<none>") : state.src,
-                    state.opacity,
-                    state.scaleX,
-                    state.scaleY);
+                    state.opacity, state.scaleX, state.scaleY);
             }
 
             const bool forceDirty = false;
@@ -733,28 +744,29 @@ namespace motion {
 
             node.timelineParameterOverride = false;
             node.timelineParameterValue = 0.0;
-            if (node.parameterizeIndex >= 0) {
-                auto *parameterEntry = resolveNodeParameterEntry(*_runtime, node);
-                if (parameterEntry != nullptr && parameterEntry->mode != 0) {
+            if(node.parameterizeIndex >= 0) {
+                auto *parameterEntry =
+                    resolveNodeParameterEntry(*_runtime, node);
+                if(parameterEntry != nullptr && parameterEntry->mode != 0) {
                     node.timelineParameterOverride = true;
                     node.timelineParameterValue = parameterEntry->value;
                 }
             }
 
-            if (!evaluateTimelineLike_0x699AE4(
-                    node, timelineDirtyArg, currentTime)) {
+            if(!evaluateTimelineLike_0x699AE4(node, timelineDirtyArg,
+                                              currentTime)) {
                 continue;
             }
 
-            refreshSourceGeometryFromSourceName(
-                node, _runtime->activeMotion, node.interpolatedCache.src);
+            refreshSourceGeometryFromSourceName(node, _runtime->activeMotion,
+                                                node.interpolatedCache.src);
 
             // Player_updateLayers clears node+1584 after evaluateTimeline but
             // keeps the active/visible override bytes intact.
             neutralizeDeltaTransformOverrides(node.delta);
             node.delta.dirty = false;
 
-            if (node.activeSlot().done) {
+            if(node.activeSlot().done) {
                 node.accumulated = parent.accumulated;
                 const bool copiedDirty = node.accumulated.dirty;
                 node.accumulated.active = false;
@@ -768,7 +780,7 @@ namespace motion {
                 continue;
             }
 
-            if (node.activeSlot().hasSync) {
+            if(node.activeSlot().hasSync) {
                 node.accumulated.dirty = parent.accumulated.dirty;
                 node.accumulated.active = parent.accumulated.active;
                 node.accumulated.visible = parent.accumulated.visible;
@@ -818,7 +830,7 @@ namespace motion {
             node.accumulated.posZ += node.delta.posZ;
             node.accumulated.angle += node.delta.angle;
 
-            if (parent.meshType != 0) {
+            if(parent.meshType != 0) {
                 sub_69AE74_meshDeform(parent, node);
             }
 
@@ -826,19 +838,19 @@ namespace motion {
                 const double localX = node.accumulated.posX;
                 const double localY = node.accumulated.posY;
                 const double localZ = node.accumulated.posZ;
-                if (parent.coordinateMode != 0) {
-                    const double worldX = parent.accumulated.m11 * localX
-                        + parent.accumulated.m12 * localZ;
-                    const double worldZ = parent.accumulated.m21 * localX
-                        + parent.accumulated.m22 * localZ;
+                if(parent.coordinateMode != 0) {
+                    const double worldX = parent.accumulated.m11 * localX +
+                        parent.accumulated.m12 * localZ;
+                    const double worldZ = parent.accumulated.m21 * localX +
+                        parent.accumulated.m22 * localZ;
                     node.accumulated.posX = worldX + parent.accumulated.posX;
                     node.accumulated.posY = localY + parent.accumulated.posY;
                     node.accumulated.posZ = worldZ + parent.accumulated.posZ;
                 } else {
-                    const double worldX = parent.accumulated.m11 * localX
-                        + parent.accumulated.m12 * localY;
-                    const double worldY = parent.accumulated.m21 * localX
-                        + parent.accumulated.m22 * localY;
+                    const double worldX = parent.accumulated.m11 * localX +
+                        parent.accumulated.m12 * localY;
+                    const double worldY = parent.accumulated.m21 * localX +
+                        parent.accumulated.m22 * localY;
                     node.accumulated.posX = worldX + parent.accumulated.posX;
                     node.accumulated.posY = worldY + parent.accumulated.posY;
                     node.accumulated.posZ = localZ + parent.accumulated.posZ;
@@ -849,37 +861,32 @@ namespace motion {
 
             {
                 const int v46 = node.inheritFlags;
-                if ((v46 & 0x400) != 0) {
-                    node.accumulated.opacity =
-                        parent.accumulated.opacity * node.accumulated.opacity / 255;
-                } else if (!_independentLayerInherit) {
+                if((v46 & 0x400) != 0) {
+                    node.accumulated.opacity = parent.accumulated.opacity *
+                        node.accumulated.opacity / 255;
+                } else if(!_independentLayerInherit) {
                     const auto &rootNode = nodes[0];
-                    node.accumulated.opacity =
-                        rootNode.accumulated.opacity
-                        * node.accumulated.opacity / 255;
+                    node.accumulated.opacity = rootNode.accumulated.opacity *
+                        node.accumulated.opacity / 255;
                 }
             }
 
             const int flags = node.inheritFlags;
-            if ((~flags & 0x1FC) == 0) {
-                Affine2x3 localAffine = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+            if((~flags & 0x1FC) == 0) {
+                Affine2x3 localAffine = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
                 applyLocalTransform(localAffine, node);
                 const double lm11 = localAffine[0];
                 const double lm21 = localAffine[1];
                 const double lm12 = localAffine[2];
                 const double lm22 = localAffine[3];
-                node.accumulated.m11 =
-                    parent.accumulated.m11 * lm11
-                    + parent.accumulated.m12 * lm21;
-                node.accumulated.m21 =
-                    parent.accumulated.m21 * lm11
-                    + parent.accumulated.m22 * lm21;
-                node.accumulated.m12 =
-                    parent.accumulated.m11 * lm12
-                    + parent.accumulated.m12 * lm22;
-                node.accumulated.m22 =
-                    parent.accumulated.m21 * lm12
-                    + parent.accumulated.m22 * lm22;
+                node.accumulated.m11 = parent.accumulated.m11 * lm11 +
+                    parent.accumulated.m12 * lm21;
+                node.accumulated.m21 = parent.accumulated.m21 * lm11 +
+                    parent.accumulated.m22 * lm21;
+                node.accumulated.m12 = parent.accumulated.m11 * lm12 +
+                    parent.accumulated.m12 * lm22;
+                node.accumulated.m22 = parent.accumulated.m21 * lm12 +
+                    parent.accumulated.m22 * lm22;
                 node.accumulated.flipX ^= parent.accumulated.flipX;
                 node.accumulated.flipY ^= parent.accumulated.flipY;
                 node.accumulated.angle += parent.accumulated.angle;
@@ -888,23 +895,23 @@ namespace motion {
                 node.accumulated.slantX += parent.accumulated.slantX;
                 node.accumulated.slantY += parent.accumulated.slantY;
             } else {
-                if (flags & 0x004)
+                if(flags & 0x004)
                     node.accumulated.flipX ^= parent.accumulated.flipX;
-                if (flags & 0x008)
+                if(flags & 0x008)
                     node.accumulated.flipY ^= parent.accumulated.flipY;
-                if (flags & 0x010)
+                if(flags & 0x010)
                     node.accumulated.angle += parent.accumulated.angle;
-                if (flags & 0x020)
+                if(flags & 0x020)
                     node.accumulated.scaleX *= parent.accumulated.scaleX;
-                if (flags & 0x040)
+                if(flags & 0x040)
                     node.accumulated.scaleY *= parent.accumulated.scaleY;
-                if (flags & 0x080)
+                if(flags & 0x080)
                     node.accumulated.slantX += parent.accumulated.slantX;
-                if (flags & 0x100)
+                if(flags & 0x100)
                     node.accumulated.slantY += parent.accumulated.slantY;
 
-                if (_independentLayerInherit) {
-                    Affine2x3 localAffine = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+                if(_independentLayerInherit) {
+                    Affine2x3 localAffine = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
                     applyLocalTransform(localAffine, node);
                     node.accumulated.m11 = localAffine[0];
                     node.accumulated.m21 = localAffine[1];
@@ -912,88 +919,84 @@ namespace motion {
                     node.accumulated.m22 = localAffine[3];
                 } else {
                     const auto &rootNode = nodes[0];
-                    if (flags & 0x004)
+                    if(flags & 0x004)
                         node.accumulated.flipX ^= rootNode.accumulated.flipX;
-                    if (flags & 0x008)
+                    if(flags & 0x008)
                         node.accumulated.flipY ^= rootNode.accumulated.flipY;
-                    if (flags & 0x010)
+                    if(flags & 0x010)
                         node.accumulated.angle -= rootNode.accumulated.angle;
-                    if (flags & 0x020)
+                    if(flags & 0x020)
                         node.accumulated.scaleX /= rootNode.accumulated.scaleX;
-                    if (flags & 0x040)
+                    if(flags & 0x040)
                         node.accumulated.scaleY /= rootNode.accumulated.scaleY;
-                    if (flags & 0x080)
+                    if(flags & 0x080)
                         node.accumulated.slantX -= rootNode.accumulated.slantX;
-                    if (flags & 0x100)
+                    if(flags & 0x100)
                         node.accumulated.slantY -= rootNode.accumulated.slantY;
 
-                    Affine2x3 localAffine = {1.0, 0.0, 0.0, 1.0, 0.0, 0.0};
+                    Affine2x3 localAffine = { 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
                     applyLocalTransform(localAffine, node);
 
-                    if (flags & 0x004)
+                    if(flags & 0x004)
                         node.accumulated.flipX ^= rootNode.accumulated.flipX;
-                    if (flags & 0x008)
+                    if(flags & 0x008)
                         node.accumulated.flipY ^= rootNode.accumulated.flipY;
-                    if (flags & 0x010)
+                    if(flags & 0x010)
                         node.accumulated.angle += rootNode.accumulated.angle;
-                    if (flags & 0x020)
+                    if(flags & 0x020)
                         node.accumulated.scaleX *= rootNode.accumulated.scaleX;
-                    if (flags & 0x040)
+                    if(flags & 0x040)
                         node.accumulated.scaleY *= rootNode.accumulated.scaleY;
-                    if (flags & 0x080)
+                    if(flags & 0x080)
                         node.accumulated.slantX += rootNode.accumulated.slantX;
-                    if (flags & 0x100)
+                    if(flags & 0x100)
                         node.accumulated.slantY += rootNode.accumulated.slantY;
 
                     const double lm11 = localAffine[0];
                     const double lm21 = localAffine[1];
                     const double lm12 = localAffine[2];
                     const double lm22 = localAffine[3];
-                    node.accumulated.m11 =
-                        rootNode.accumulated.m11 * lm11
-                        + rootNode.accumulated.m12 * lm21;
-                    node.accumulated.m21 =
-                        rootNode.accumulated.m21 * lm11
-                        + rootNode.accumulated.m22 * lm21;
-                    node.accumulated.m12 =
-                        rootNode.accumulated.m11 * lm12
-                        + rootNode.accumulated.m12 * lm22;
-                    node.accumulated.m22 =
-                        rootNode.accumulated.m21 * lm12
-                        + rootNode.accumulated.m22 * lm22;
+                    node.accumulated.m11 = rootNode.accumulated.m11 * lm11 +
+                        rootNode.accumulated.m12 * lm21;
+                    node.accumulated.m21 = rootNode.accumulated.m21 * lm11 +
+                        rootNode.accumulated.m22 * lm21;
+                    node.accumulated.m12 = rootNode.accumulated.m11 * lm12 +
+                        rootNode.accumulated.m12 * lm22;
+                    node.accumulated.m22 = rootNode.accumulated.m21 * lm12 +
+                        rootNode.accumulated.m22 * lm22;
                 }
             }
 
-            if (detail::logoChainTraceEnabled(_runtime->activeMotion)) {
+            if(detail::logoChainTraceEnabled(_runtime->activeMotion)) {
                 detail::logoChainTraceLogf(
                     motionPath, "updateLayers.phase2.accum_final", "0x6BBB6C",
                     currentTime,
-                    "nodeIndex={} label={} type={} parentIdx={} parentLabel={} state[visible={},evaluated={},opacity={:.3f},scale=({:.3f},{:.3f}),localPos=({:.3f},{:.3f},{:.3f})] parentAccum[pos=({:.3f},{:.3f},{:.3f}),m=({:.3f},{:.3f},{:.3f},{:.3f}),opacity={},visible={}] accum[pos=({:.3f},{:.3f},{:.3f}),m=({:.3f},{:.3f},{:.3f},{:.3f}),scale=({:.3f},{:.3f}),opacity={},visible={},active={}]",
+                    "nodeIndex={} label={} type={} parentIdx={} parentLabel={} "
+                    "state[visible={},evaluated={},opacity={:.3f},scale=({:.3f}"
+                    ",{:.3f}),localPos=({:.3f},{:.3f},{:.3f})] "
+                    "parentAccum[pos=({:.3f},{:.3f},{:.3f}),m=({:.3f},{:.3f},{:"
+                    ".3f},{:.3f}),opacity={},visible={}] "
+                    "accum[pos=({:.3f},{:.3f},{:.3f}),m=({:.3f},{:.3f},{:.3f},{"
+                    ":.3f}),scale=({:.3f},{:.3f}),opacity={},visible={},active="
+                    "{}]",
                     node.index,
                     node.layerName.empty() ? std::string("<root>")
                                            : node.layerName,
-                    node.nodeType,
-                    parentIdx,
+                    node.nodeType, parentIdx,
                     parent.layerName.empty() ? std::string("<root>")
                                              : parent.layerName,
-                    state.visible ? 1 : 0,
-                    state.debugEvaluated ? 1 : 0,
-                    state.opacity,
-                    state.scaleX, state.scaleY,
-                    state.x, state.y, state.z,
-                    parent.accumulated.posX, parent.accumulated.posY,
-                    parent.accumulated.posZ,
-                    parent.accumulated.m11, parent.accumulated.m21,
-                    parent.accumulated.m12, parent.accumulated.m22,
-                    parent.accumulated.opacity,
-                    parent.accumulated.visible ? 1 : 0,
-                    node.accumulated.posX, node.accumulated.posY,
-                    node.accumulated.posZ,
+                    state.visible ? 1 : 0, state.debugEvaluated ? 1 : 0,
+                    state.opacity, state.scaleX, state.scaleY, state.x, state.y,
+                    state.z, parent.accumulated.posX, parent.accumulated.posY,
+                    parent.accumulated.posZ, parent.accumulated.m11,
+                    parent.accumulated.m21, parent.accumulated.m12,
+                    parent.accumulated.m22, parent.accumulated.opacity,
+                    parent.accumulated.visible ? 1 : 0, node.accumulated.posX,
+                    node.accumulated.posY, node.accumulated.posZ,
                     node.accumulated.m11, node.accumulated.m21,
                     node.accumulated.m12, node.accumulated.m22,
                     node.accumulated.scaleX, node.accumulated.scaleY,
-                    node.accumulated.opacity,
-                    node.accumulated.visible ? 1 : 0,
+                    node.accumulated.opacity, node.accumulated.visible ? 1 : 0,
                     node.accumulated.active ? 1 : 0);
             }
         }

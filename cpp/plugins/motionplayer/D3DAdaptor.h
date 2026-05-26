@@ -51,7 +51,8 @@ namespace motion {
                                 tTJSVariant **param, iTJSDispatch2 *objthis);
 
         // Static callback wrapper for NCB registration
-        static tjs_error captureCanvasStatic(tTJSVariant *result, tjs_int numparams,
+        static tjs_error captureCanvasStatic(tTJSVariant *result,
+                                             tjs_int numparams,
                                              tTJSVariant **param,
                                              D3DAdaptor *nativeInstance);
 
@@ -71,11 +72,8 @@ namespace motion {
         bool copyTargetTextureRowsForCaptureLike_0x6AD92C(std::uint8_t *dst,
                                                           tjs_int dstPitch);
 
-        void initializeLike_0x6ADB10(const tTJSVariant &window,
-                                     int width,
-                                     int height,
-                                     int centerX,
-                                     int centerY);
+        void initializeLike_0x6ADB10(const tTJSVariant &window, int width,
+                                     int height, int centerX, int centerY);
 
         void clearBuffer();
 

@@ -2,6 +2,8 @@
 // Created by LiDon on 2025/9/15.
 //
 
+#include <vector>
+
 #include "ResourceManager.h"
 #include "tjsDictionary.h"
 
@@ -11,6 +13,7 @@
 #include <spdlog/spdlog.h>
 
 #include "RuntimeSupport.h"
+#include "StorageIntf.h"
 
 #define LOGGER spdlog::get("plugin")
 
@@ -22,9 +25,10 @@ namespace {
                        });
         return value;
     }
-}
+} // namespace
 
-motion::ResourceManager::ResourceManager() : _state(std::make_shared<State>()) {}
+motion::ResourceManager::ResourceManager() :
+    _state(std::make_shared<State>()) {}
 
 motion::ResourceManager::ResourceManager(iTJSDispatch2 *kag,
                                          tjs_int cacheSize) :
@@ -35,21 +39,19 @@ motion::ResourceManager::ResourceManager(iTJSDispatch2 *kag,
     // The encrypted keybinder.tjs accesses .ShortCutInitialPadKeyMap on the
     // window object. If undefined, it crashes with "Invalid object context".
     if(kag) {
-        const tjs_char *padKeys[] = {
-            TJS_W("ShortCutInitialPadKeyMap"),
-            TJS_W("ShortCutInitialGamePadKeyMap"),
-            TJS_W("_proceedingKeyList"),
-            nullptr
-        };
+        const tjs_char *padKeys[] = { TJS_W("ShortCutInitialPadKeyMap"),
+                                      TJS_W("ShortCutInitialGamePadKeyMap"),
+                                      TJS_W("_proceedingKeyList"), nullptr };
         for(int i = 0; padKeys[i]; ++i) {
             tTJSVariant existing;
-            if(TJS_FAILED(kag->PropGet(0, padKeys[i], nullptr, &existing, kag)) ||
+            if(TJS_FAILED(
+                   kag->PropGet(0, padKeys[i], nullptr, &existing, kag)) ||
                existing.Type() == tvtVoid) {
                 iTJSDispatch2 *dict = TJSCreateDictionaryObject();
                 if(dict) {
                     tTJSVariant v(dict, dict);
-                    kag->PropSet(TJS_MEMBERENSURE, padKeys[i], nullptr,
-                                 &v, kag);
+                    kag->PropSet(TJS_MEMBERENSURE, padKeys[i], nullptr, &v,
+                                 kag);
                     dict->Release();
                 }
             }
@@ -94,6 +96,15 @@ tTJSVariant motion::ResourceManager::load(ttstr path) const {
     if(loaded.Type() != tvtVoid && _state) {
         const auto key = rawPath;
         _state->loadedModules[key] = loaded;
+        // SDL3 ref: cache key uses TVPGetPlacedPath(trimPath).
+        ttstr trimmed = path;
+        if(path.StartsWith(TJS_W("lzfs://./"))) {
+            trimmed = path.SubString(9, path.GetLen() - 9);
+        }
+        const ttstr placed = TVPGetPlacedPath(trimmed);
+        if(!placed.IsEmpty()) {
+            _state->loadedModules[placed.AsStdString()] = loaded;
+        }
         _state->lastLoadedPath = key;
         _state->lastLoadedModule = loaded;
     }
@@ -146,8 +157,87 @@ tTJSVariant motion::ResourceManager::findLoaded(ttstr path) const {
     return it != _state->loadedModules.end() ? it->second : tTJSVariant{};
 }
 
+tTJSVariant motion::ResourceManager::findLoadedModule(ttstr path) const {
+    if(!_state || path.IsEmpty()) {
+        return {};
+    }
+
+    const auto tryKey = [this](const std::string &key) -> tTJSVariant {
+        if(key.empty()) {
+            return {};
+        }
+        const auto it = _state->loadedModules.find(key);
+        return it != _state->loadedModules.end() ? it->second : tTJSVariant{};
+    };
+
+    if(auto loaded = tryKey(path.AsStdString()); loaded.Type() == tvtObject) {
+        return loaded;
+    }
+
+    ttstr trimmed = path;
+    if(path.StartsWith(TJS_W("lzfs://./"))) {
+        trimmed = path.SubString(9, path.GetLen() - 9);
+    }
+    if(auto loaded = tryKey(trimmed.AsStdString());
+       loaded.Type() == tvtObject) {
+        return loaded;
+    }
+
+    const ttstr placed = TVPGetPlacedPath(trimmed);
+    if(!placed.IsEmpty()) {
+        if(auto loaded = tryKey(placed.AsStdString());
+           loaded.Type() == tvtObject) {
+            return loaded;
+        }
+    }
+
+    for(const auto &candidate : detail::buildMotionLookupCandidates(path)) {
+        if(auto loaded = tryKey(candidate.AsStdString());
+           loaded.Type() == tvtObject) {
+            return loaded;
+        }
+        const ttstr candidatePlaced = TVPGetPlacedPath(candidate);
+        if(!candidatePlaced.IsEmpty()) {
+            if(auto loaded = tryKey(candidatePlaced.AsStdString());
+               loaded.Type() == tvtObject) {
+                return loaded;
+            }
+        }
+    }
+
+    LOGGER->warn("ResourceManager::findLoadedModule({}): cache miss "
+                 "(SDL3 ref: GetPlayerByName returns nullptr)",
+                 path.AsStdString());
+    return {};
+}
+
 tTJSVariant motion::ResourceManager::findSource(ttstr path) const {
-    return findLoaded(path);
+    return findLoadedModule(path);
+}
+
+std::size_t motion::ResourceManager::uniqueCachedModuleCount() const {
+    return uniqueCachedModules().size();
+}
+
+std::vector<motion::ResourceManager::CachedModuleEntry>
+motion::ResourceManager::uniqueCachedModules() const {
+    std::vector<CachedModuleEntry> result;
+    if(!_state) {
+        return result;
+    }
+
+    std::unordered_set<iTJSDispatch2 *> seen;
+    for(const auto &[key, module] : _state->loadedModules) {
+        if(module.Type() != tvtObject) {
+            continue;
+        }
+        iTJSDispatch2 *obj = module.AsObjectNoAddRef();
+        if(!obj || !seen.insert(obj).second) {
+            continue;
+        }
+        result.push_back({ key, module });
+    }
+    return result;
 }
 
 tjs_int motion::ResourceManager::requireLayerId() {

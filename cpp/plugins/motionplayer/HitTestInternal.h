@@ -25,8 +25,8 @@ namespace motion::detail {
         return hit;
     }
 
-    inline HitData makeRectHitData(double left, double top,
-                                   double right, double bottom,
+    inline HitData makeRectHitData(double left, double top, double right,
+                                   double bottom,
                                    std::int32_t typeOverride = 2) {
         HitData hit{};
         hit.type = typeOverride;
@@ -37,10 +37,8 @@ namespace motion::detail {
         return hit;
     }
 
-    inline HitData makeQuadHitData(double x0, double y0,
-                                   double x1, double y1,
-                                   double x2, double y2,
-                                   double x3, double y3,
+    inline HitData makeQuadHitData(double x0, double y0, double x1, double y1,
+                                   double x2, double y2, double x3, double y3,
                                    std::int32_t typeOverride = 3) {
         HitData hit{};
         hit.type = typeOverride;
@@ -77,13 +75,12 @@ namespace motion::detail {
                 const double y2 = hit.values[12];
                 const double x3 = hit.values[13];
                 const double y3 = hit.values[14];
-                const auto cross = [](double ax, double ay, double bx, double by,
-                                      double px, double py) {
+                const auto cross = [](double ax, double ay, double bx,
+                                      double by, double px, double py) {
                     return (bx - ax) * (py - ay) - (by - ay) * (px - ax);
                 };
-                const double winding = cross(x0, y0, x1, y1, x2, y2) >= 0.0
-                    ? 1.0
-                    : -1.0;
+                const double winding =
+                    cross(x0, y0, x1, y1, x2, y2) >= 0.0 ? 1.0 : -1.0;
                 return winding * cross(x0, y0, x1, y1, x, y) >= 0.0 &&
                     winding * cross(x1, y1, x2, y2, x, y) >= 0.0 &&
                     winding * cross(x2, y2, x3, y3, x, y) >= 0.0 &&

@@ -121,7 +121,7 @@ namespace motion::detail {
         std::string label;
         std::string owner;
         bool loop = false;
-        double loopTime = -1.0;   // from PSB; >=0 means loop restart point
+        double loopTime = -1.0; // from PSB; >=0 means loop restart point
         double totalFrames = 0.0;
         // Primary layer storage — PSB array order, duplicates preserved.
         // Aligned to libkrkr2.so Player_buildNodeTree (0x6B51F0) reading
@@ -140,11 +140,12 @@ namespace motion::detail {
         int flags = 0;
         bool playing = false;
         bool loop = false;
-        double loopTime = -1.0;   // from PSB; >=0 means loop, <0 means stop at end
+        double loopTime =
+            -1.0; // from PSB; >=0 means loop, <0 means stop at end
         double totalFrames = 0.0;
         double currentTime = 0.0;
         double blendRatio = 1.0;
-        bool wasPlaying = false;  // for edge detection in dispatchEvents
+        bool wasPlaying = false; // for edge detection in dispatchEvents
         bool controlInitialized = false;
         double controlLastAppliedTime = 0.0;
         std::vector<int> controlFrameCursor;
@@ -175,11 +176,15 @@ namespace motion::detail {
         std::unordered_map<std::string, bool> loopTimelines;
         std::unordered_map<std::string, double> timelineLoopTimes;
         std::unordered_map<std::string, double> timelineTotalFrames;
-        std::unordered_map<std::string, std::pair<double, double>> variableRanges;
-        std::unordered_map<std::string, std::vector<VariableFrameInfo>> variableFrames;
-        std::unordered_map<std::string, VariableControllerBinding> controllerBindings;
+        std::unordered_map<std::string, std::pair<double, double>>
+            variableRanges;
+        std::unordered_map<std::string, std::vector<VariableFrameInfo>>
+            variableFrames;
+        std::unordered_map<std::string, VariableControllerBinding>
+            controllerBindings;
         std::unordered_set<std::string> instantVariableLabels;
-        std::unordered_map<std::string, SelectorControlBinding> selectorControls;
+        std::unordered_map<std::string, SelectorControlBinding>
+            selectorControls;
         std::vector<FixedControllerOutputBinding> fixedControllerOutputs;
         std::vector<ClampControlBinding> clampControls;
         std::vector<std::string> mirrorVariableMatchList;
@@ -221,7 +226,8 @@ namespace motion::detail {
     };
 
     struct PlayerRuntime {
-        std::unordered_map<std::string, std::shared_ptr<MotionSnapshot>> motionsByKey;
+        std::unordered_map<std::string, std::shared_ptr<MotionSnapshot>>
+            motionsByKey;
         // Aligned to libkrkr2.so player+656: SourceCache object variant.
         motion::SourceCache *sourceCacheNative = nullptr;
         tTJSVariant sourceCacheObject;
@@ -240,12 +246,12 @@ namespace motion::detail {
             tjs_int hitThreshold = 256;
             tTJSVariant layerObject;
             tTJSVariant layerGetter;
-            std::array<float, 4> clipRect{0.f, 0.f, 0.f, 0.f};
-            std::array<float, 4> worldRect{0.f, 0.f, 0.f, 0.f};
-            std::array<float, 4> localRect{0.f, 0.f, 0.f, 0.f};
-            std::array<std::uint32_t, 4> packedColors{
-                0xFF808080u, 0xFF808080u, 0xFF808080u, 0xFF808080u
-            };
+            std::array<float, 4> clipRect{ 0.f, 0.f, 0.f, 0.f };
+            std::array<float, 4> worldRect{ 0.f, 0.f, 0.f, 0.f };
+            std::array<float, 4> localRect{ 0.f, 0.f, 0.f, 0.f };
+            std::array<std::uint32_t, 4> packedColors{ 0xFF808080u, 0xFF808080u,
+                                                       0xFF808080u,
+                                                       0xFF808080u };
         };
         std::unordered_map<tjs_int, LayerRenderState> renderLayerStates;
         std::vector<tTJSVariant> backgrounds;
@@ -258,8 +264,7 @@ namespace motion::detail {
         tTJSVariant internalRenderLayer;
         // Reusable work layer for sub_6C4E28-style per-item local clipping.
         tTJSVariant scratchWorkLayer;
-        std::array<double, 6> drawAffineMatrix{ 1.0, 0.0, 0.0,
-                                                1.0, 0.0, 0.0 };
+        std::array<double, 6> drawAffineMatrix{ 1.0, 0.0, 0.0, 1.0, 0.0, 0.0 };
         tjs_int nextLayerId = 1;
         tjs_int clearColor = 0;
         tjs_int width = 0;
@@ -298,17 +303,23 @@ namespace motion::detail {
         // +216..228 are not blanket-cleared every frame.
         struct NativeRenderItemFields {
             bool rawFlag16 = false; // original item +16 = node+201
-            bool skipFlag0 = false; // original render item +17 (0x6C2334 / 0x6C7440)
-            bool skipFlag1 = false; // original render item +18 (0x6C2334 / 0x6C7440)
-            bool drawFlag = false;  // original render item +19
-            bool rawFlag20 = false; // original item +20, set by sub_6C4E28 requireLayerId path
-            bool rawFlag21 = false; // original item +21, drawable clip valid after sub_6C4E28
+            bool skipFlag0 =
+                false; // original render item +17 (0x6C2334 / 0x6C7440)
+            bool skipFlag1 =
+                false; // original render item +18 (0x6C2334 / 0x6C7440)
+            bool drawFlag = false; // original render item +19
+            bool rawFlag20 = false; // original item +20, set by sub_6C4E28
+                                    // requireLayerId path
+            bool rawFlag21 = false; // original item +21, drawable clip valid
+                                    // after sub_6C4E28
             std::uint8_t stencilMaskRef = 0; // original item +22
             std::uint8_t stencilWriteRef = 0; // original item +23
-            std::array<float, 4> paintBox{0.f, 0.f, 0.f, 0.f}; // item+184..196
-            std::array<float, 4> viewport{1.f, 1.f, -1.f, -1.f}; // item+200..212
-            std::array<int, 4> clipRect{0, 0, 0, 0}; // item+216..228
-            std::array<int, 4> dirtyRect{0, 0, 0, 0};
+            std::array<float, 4> paintBox{ 0.f, 0.f, 0.f,
+                                           0.f }; // item+184..196
+            std::array<float, 4> viewport{ 1.f, 1.f, -1.f,
+                                           -1.f }; // item+200..212
+            std::array<int, 4> clipRect{ 0, 0, 0, 0 }; // item+216..228
+            std::array<int, 4> dirtyRect{ 0, 0, 0, 0 };
             int opacity = 255; // item+232
             // item+244 in libkrkr2.so sub_6C2334 @ 0x6C2A90 — stencil/composite
             // flags copied from node.stencilType; consumed by sub_6C7440 alpha
@@ -319,8 +330,8 @@ namespace motion::detail {
         struct RenderItemNativeFieldLifetime {
             bool rawFlag20 = false;
             bool rawFlag21 = false;
-            std::array<int, 4> clipRect{0, 0, 0, 0};
-            std::array<int, 4> dirtyRect{0, 0, 0, 0};
+            std::array<int, 4> clipRect{ 0, 0, 0, 0 };
+            std::array<int, 4> dirtyRect{ 0, 0, 0, 0 };
             std::array<float, 8> localCorners{};
             std::vector<float> localMeshPoints;
         };
@@ -341,9 +352,9 @@ namespace motion::detail {
             tTJSVariant contextVariant; // original item +248 (player+1012 copy)
             std::array<float, 8> corners{};
             std::array<float, 8> localCorners{};
-            std::array<std::uint32_t, 4> packedColors{
-                0xFF808080u, 0xFF808080u, 0xFF808080u, 0xFF808080u
-            };
+            std::array<std::uint32_t, 4> packedColors{ 0xFF808080u, 0xFF808080u,
+                                                       0xFF808080u,
+                                                       0xFF808080u };
             bool hasViewport = false;
             int coordinateMode = 0;
             int objTriPriority = 0;
@@ -355,16 +366,18 @@ namespace motion::detail {
             std::vector<float> localMeshPoints;
             int layerId = 0;
             int layerId2 = 0;
-            PreparedRenderItem *parentItem = nullptr; // semantic mapping of item +264
-            std::vector<PreparedRenderItem *> childItems; // semantic mapping of item +24
-            tTJSVariant leafLayer;      // item+304 variant
-            tTJSVariant composedLayer;  // item+324 variant
-            std::array<int, 4> builtRect{0, 0, 0, 0};
+            PreparedRenderItem *parentItem =
+                nullptr; // semantic mapping of item +264
+            std::vector<PreparedRenderItem *>
+                childItems; // semantic mapping of item +24
+            tTJSVariant leafLayer; // item+304 variant
+            tTJSVariant composedLayer; // item+324 variant
+            std::array<int, 4> builtRect{ 0, 0, 0, 0 };
             bool leafBuilt = false;
             bool composedBuilt = false;
             bool executedDirect = false;
         };
-        std::vector<PreparedRenderItem> preparedRenderItems;  // player+936/944
+        std::vector<PreparedRenderItem> preparedRenderItems; // player+936/944
         // Native-shaped a2/a3 split passed through sub_6C2334 -> sub_6C4E28
         // -> sub_6C7440. Both lists point directly into preparedRenderItems.
         std::vector<PreparedRenderItem *> preparedRenderItemsTopLevel;
@@ -377,7 +390,8 @@ namespace motion::detail {
         // (0x6B365C), not per-node storage; node+8 resolves into
         // parameterEntries via MotionNode::parameterizeIndex.
         struct PerNodeEvalData {
-            double padding[5] = {};   // offsets 0-39 (unused in our current scope)
+            double
+                padding[5] = {}; // offsets 0-39 (unused in our current scope)
             double evalTime = 0.0;
             int dirtyFlag = 0;
         };
@@ -395,7 +409,8 @@ namespace motion::detail {
     ttstr widen(const std::string &value);
 
     std::vector<ttstr> buildMotionLookupCandidates(const ttstr &name);
-    bool resolveExistingPath(const std::vector<ttstr> &candidates, ttstr &resolved);
+    bool resolveExistingPath(const std::vector<ttstr> &candidates,
+                             ttstr &resolved);
     void appendEmbeddedSourceCandidates(const MotionSnapshot &snapshot,
                                         const std::string &source,
                                         std::vector<ttstr> &candidates);
@@ -404,21 +419,23 @@ namespace motion::detail {
                                                        tjs_int decryptSeed);
     tTJSVariant loadPSBVariant(const ttstr &path, tjs_int decryptSeed);
 
-    void registerModuleSnapshot(const tTJSVariant &module,
-                                const std::shared_ptr<MotionSnapshot> &snapshot);
-    std::shared_ptr<MotionSnapshot> lookupModuleSnapshot(const tTJSVariant &module);
+    void
+    registerModuleSnapshot(const tTJSVariant &module,
+                           const std::shared_ptr<MotionSnapshot> &snapshot);
+    std::shared_ptr<MotionSnapshot>
+    lookupModuleSnapshot(const tTJSVariant &module);
 
     tTJSVariant makeArray(const std::vector<tTJSVariant> &items);
     tTJSVariant makeDictionary(
         const std::vector<std::pair<std::string, tTJSVariant>> &entries);
-    std::vector<tTJSVariant> stringsToVariants(
-        const std::vector<std::string> &values);
+    std::vector<tTJSVariant>
+    stringsToVariants(const std::vector<std::string> &values);
 
-    void primeTimelineStates(std::unordered_map<std::string, TimelineState> &states,
-                             const MotionSnapshot &snapshot);
+    void
+    primeTimelineStates(std::unordered_map<std::string, TimelineState> &states,
+                        const MotionSnapshot &snapshot);
     void stepTimelines(std::unordered_map<std::string, TimelineState> &states,
-                       double dt,
-                       std::vector<MotionEvent> *events = nullptr);
+                       double dt, std::vector<MotionEvent> *events = nullptr);
 
     bool logoChainTraceEnabled();
     bool logoChainTraceEnabledForPath(const std::string &motionPath);
@@ -426,31 +443,22 @@ namespace motion::detail {
     bool logoSnapshotMarkEnabled();
     bool logoSnapshotMarkEnabledForPath(const std::string &motionPath);
     void resetLogoChainTraceSession(const std::string &motionPath);
-    void logoChainTraceLog(const std::string &motionPath,
-                           const char *stage,
-                           const char *func,
-                           double frameTime,
+    void logoChainTraceLog(const std::string &motionPath, const char *stage,
+                           const char *func, double frameTime,
                            const std::string &message);
-    void logoChainTraceCheck(const std::string &motionPath,
-                             const char *stage,
-                             const char *func,
-                             double frameTime,
+    void logoChainTraceCheck(const std::string &motionPath, const char *stage,
+                             const char *func, double frameTime,
                              const std::string &expected,
-                             const std::string &actual,
-                             bool ok,
+                             const std::string &actual, bool ok,
                              const std::string &likelyRootCause = {});
-    void logoChainTraceSummary(const std::string &motionPath,
-                               const char *func,
-                               double frameTime,
-                               const std::string &note = {});
+    void logoChainTraceSummary(const std::string &motionPath, const char *func,
+                               double frameTime, const std::string &note = {});
 
     template <typename... Args>
-    inline void logoChainTraceLogf(const std::string &motionPath,
-                                   const char *stage,
-                                   const char *func,
-                                   double frameTime,
-                                   fmt::format_string<Args...> format,
-                                   Args &&...args) {
+    inline void
+    logoChainTraceLogf(const std::string &motionPath, const char *stage,
+                       const char *func, double frameTime,
+                       fmt::format_string<Args...> format, Args &&...args) {
         if(!logoChainTraceEnabledForPath(motionPath)) {
             return;
         }
@@ -459,9 +467,9 @@ namespace motion::detail {
     }
 
     // Scan PSB layer tree for action/sync events between prevTime and newTime.
-    // Aligned to libkrkr2.so: updateLayers queues events during tree evaluation.
-    void scanLayerActions(const MotionSnapshot &snapshot,
-                          double prevTime, double newTime,
-                          std::vector<MotionEvent> &events);
+    // Aligned to libkrkr2.so: updateLayers queues events during tree
+    // evaluation.
+    void scanLayerActions(const MotionSnapshot &snapshot, double prevTime,
+                          double newTime, std::vector<MotionEvent> &events);
 
 } // namespace motion::detail

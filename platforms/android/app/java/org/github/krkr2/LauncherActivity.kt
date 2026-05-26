@@ -9,13 +9,13 @@ import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -62,6 +62,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -85,6 +86,8 @@ import kotlinx.coroutines.withContext
 import java.io.File
 
 class LauncherActivity : AppCompatActivity() {
+    private var refreshHome: (() -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -96,6 +99,7 @@ class LauncherActivity : AppCompatActivity() {
                     onLaunchGame = { game -> startGame(game.gameDir, game.title) },
                     onLaunchOriginal = { startOriginal() },
                     onRequestPermission = { requestStoragePermission() },
+                    onRegisterRefresh = { refreshHome = it },
                 )
             }
         }
@@ -104,6 +108,7 @@ class LauncherActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        refreshHome?.invoke()
     }
 
     private fun startGame(gameDir: String, title: String) {
@@ -123,6 +128,14 @@ class LauncherActivity : AppCompatActivity() {
     private fun startOriginal() {
         val intent = Intent(this, MainActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        val root = LauncherPrefs.getGameRoot(this)
+        intent.putExtra(MainActivity.EXTRA_GAME_DIR, root)
+        LauncherPrefs.getCustomLaunchFile(this, root)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { path ->
+                val f = File(path)
+                if (f.isFile && f.canRead()) intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
+            }
         startActivity(intent)
     }
 
@@ -145,6 +158,7 @@ private fun LauncherScreen(
     onLaunchGame: (GameEntry) -> Unit,
     onLaunchOriginal: () -> Unit,
     onRequestPermission: () -> Unit,
+    onRegisterRefresh: ((() -> Unit)?) -> Unit,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -165,6 +179,7 @@ private fun LauncherScreen(
         val normalized = path.trim().ifBlank { LauncherPrefs.DEFAULT_GAME_ROOT }
         rootPath = normalized
         editPath = normalized
+        selectedGame = null
         LauncherPrefs.setGameRoot(context, normalized)
         loading = true
         scope.launch {
@@ -180,6 +195,26 @@ private fun LauncherScreen(
                 GameCache.save(context, fresh)
             }
         }
+    }
+
+    fun refreshFromPrefs() {
+        val newLang = LauncherPrefs.getLanguage(context)
+        val newRoot = LauncherPrefs.getGameRoot(context)
+        lang = newLang
+        if (newRoot != rootPath) {
+            rescan(newRoot)
+        } else {
+            rootPath = newRoot
+            editPath = newRoot
+            if (games.isEmpty() && !loading) {
+                rescan(newRoot)
+            }
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onRegisterRefresh { refreshFromPrefs() }
+        onDispose { onRegisterRefresh(null) }
     }
 
     LaunchedEffect(rootPath) {
@@ -209,10 +244,12 @@ private fun LauncherScreen(
 
     BoxWithConstraints {
         val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
-        val compactLandscape = landscape && maxHeight < 520.dp
-        val contentPadding = if (compactLandscape) 8.dp else 16.dp
-        val contentGap = if (compactLandscape) 8.dp else 16.dp
-        val wideLayout = landscape || maxWidth >= 600.dp
+        val compactHeight = maxHeight < 520.dp
+        val compactWidth = maxWidth < 600.dp
+        val compactHome = compactWidth || compactHeight
+        val expandedLayout = maxWidth >= 840.dp || (landscape && maxWidth >= 600.dp)
+        val contentPadding = if (compactHome) 8.dp else 16.dp
+        val contentGap = if (compactHome) 8.dp else 16.dp
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -221,7 +258,7 @@ private fun LauncherScreen(
                         Column {
                             Text(text.appName)
                             Text(
-                                if (loading) text.scanning else "${games.size} games",
+                                if (loading) text.scanning else "${games.size} ${text.running}",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
@@ -235,24 +272,35 @@ private fun LauncherScreen(
                 )
             },
             bottomBar = {
-                if (!wideLayout) {
+                if (!expandedLayout) {
                     NavigationBar {
-                        NavigationBarItem(selected = currentDest == LauncherDest.Library, onClick = { currentDest = LauncherDest.Library }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
-                        NavigationBarItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
-                        NavigationBarItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text("Tools") })
+                        NavigationBarItem(selected = currentDest == LauncherDest.Library, onClick = { currentDest = LauncherDest.Library }, icon = { Icon(Icons.Default.Home, null) }, label = { Text(text.home) })
+                        NavigationBarItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text(text.settings) })
+                        NavigationBarItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text(text.tools) })
                     }
                 }
             },
         ) { padding ->
-            if (wideLayout) {
+            if (expandedLayout) {
                 Row(Modifier.fillMaxSize().padding(padding)) {
                     NavigationRail {
-                        NavigationRailItem(selected = currentDest == LauncherDest.Library, onClick = { currentDest = LauncherDest.Library }, icon = { Icon(Icons.Default.Home, null) }, label = { Text("Home") })
-                        NavigationRailItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text("Settings") })
-                        NavigationRailItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text("Tools") })
+                        NavigationRailItem(selected = currentDest == LauncherDest.Library, onClick = { currentDest = LauncherDest.Library }, icon = { Icon(Icons.Default.Home, null) }, label = { Text(text.home) })
+                        NavigationRailItem(selected = currentDest == LauncherDest.Settings, onClick = { currentDest = LauncherDest.Settings; onOpenSettings() }, icon = { Icon(Icons.Default.Settings, null) }, label = { Text(text.settings) })
+                        NavigationRailItem(selected = currentDest == LauncherDest.Tools, onClick = { currentDest = LauncherDest.Tools; onOpenDiagnostics() }, icon = { Icon(Icons.Default.Info, null) }, label = { Text(text.tools) })
                     }
                     Column(Modifier.weight(1f).fillMaxSize().padding(contentPadding), verticalArrangement = Arrangement.spacedBy(contentGap)) {
-                        LauncherHero(rootPath, editPath, { editPath = it }, { rescan(editPath) }, onRequestPermission, onLaunchOriginal, scanProgressPath, loading, games.size, onOpenSettings, onOpenDiagnostics, text)
+                        LauncherHero(
+                            rootPath = rootPath,
+                            editPath = editPath,
+                            onEditPathChange = { editPath = it },
+                            onRescan = { rescan(editPath) },
+                            onOpenPermission = onRequestPermission,
+                            scanProgressPath = scanProgressPath,
+                            loading = loading,
+                            gamesCount = games.size,
+                            text = text,
+                            compact = compactHome,
+                        )
                         Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(contentGap)) {
                             Box(Modifier.weight(1.2f).fillMaxHeight()) { GameGrid(games, true, { selectedGame = it }, onLaunchGame, loading, text) }
                             Box(Modifier.weight(0.8f).fillMaxHeight()) {
@@ -265,13 +313,26 @@ private fun LauncherScreen(
                 }
             } else {
                 Column(Modifier.fillMaxSize().padding(padding).padding(contentPadding), verticalArrangement = Arrangement.spacedBy(contentGap)) {
-                    LauncherHero(rootPath, editPath, { editPath = it }, { rescan(editPath) }, onRequestPermission, onLaunchOriginal, scanProgressPath, loading, games.size, onOpenSettings, onOpenDiagnostics, text)
-                    GameGrid(games, false, { selectedGame = it }, onLaunchGame, loading, text)
+                    LauncherHero(
+                        rootPath = rootPath,
+                        editPath = editPath,
+                        onEditPathChange = { editPath = it },
+                        onRescan = { rescan(editPath) },
+                        onOpenPermission = onRequestPermission,
+                        scanProgressPath = scanProgressPath,
+                        loading = loading,
+                        gamesCount = games.size,
+                        text = text,
+                        compact = compactHome,
+                    )
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        GameGrid(games, false, { selectedGame = it }, onLaunchGame, loading, text)
+                    }
                 }
             }
         }
 
-        if (selectedGame != null && !wideLayout) {
+        if (selectedGame != null && !expandedLayout) {
             val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
             ModalBottomSheet(onDismissRequest = { selectedGame = null }, sheetState = sheetState) {
                 val game = selectedGame!!
@@ -288,24 +349,19 @@ private fun LauncherHero(
     onEditPathChange: (String) -> Unit,
     onRescan: () -> Unit,
     onOpenPermission: () -> Unit,
-    onLaunchOriginal: () -> Unit,
     scanProgressPath: String,
     loading: Boolean,
     gamesCount: Int,
-    onOpenSettings: () -> Unit,
-    onOpenDiagnostics: () -> Unit,
     text: LauncherStrings.Texts,
+    compact: Boolean,
 ) {
     ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-        Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().padding(if (compact) 8.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
             Text(text.gameRootPath, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             androidx.compose.material3.OutlinedTextField(value = editPath, onValueChange = onEditPathChange, modifier = Modifier.fillMaxWidth(), label = { Text(text.gameRootPath) }, singleLine = true)
             Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 ElevatedAssistChip(onClick = onRescan, label = { Text(text.refresh) }, leadingIcon = { Icon(Icons.Default.Refresh, null) })
                 ElevatedAssistChip(onClick = onOpenPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
-                ElevatedAssistChip(onClick = onLaunchOriginal, label = { Text(text.launchOriginal) }, leadingIcon = { Icon(Icons.Default.PlayArrow, null) })
-                ElevatedAssistChip(onClick = onOpenDiagnostics, label = { Text(text.diagnostics) }, leadingIcon = { Icon(Icons.Default.Info, null) })
-                ElevatedAssistChip(onClick = onOpenSettings, label = { Text(text.settings) }, leadingIcon = { Icon(Icons.Default.Settings, null) })
             }
             if (loading) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -313,9 +369,9 @@ private fun LauncherHero(
                     Text(if (scanProgressPath.isBlank()) text.scanning else scanProgressPath, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             } else {
-                Text("$gamesCount games found", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("$gamesCount ${text.running}", color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Text(rootPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(rootPath, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -370,8 +426,8 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit)
                 Text(game.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(game.gameDir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = onLaunch) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text("Play") }
-                    TextButton(onClick = onClick) { Icon(Icons.Default.Info, null); Spacer(Modifier.width(4.dp)); Text("Info") }
+                    TextButton(onClick = onLaunch) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(4.dp)); Text(text.play) }
+                    TextButton(onClick = onClick) { Icon(Icons.Default.Info, null); Spacer(Modifier.width(4.dp)); Text(text.info) }
                 }
             }
         }

@@ -61,23 +61,26 @@ namespace motion {
         nativeInstance->_runtime->drawAffineMatrix = matrix;
         const auto motionPath =
             nativeInstance->_runtime && nativeInstance->_runtime->activeMotion
-                ? nativeInstance->_runtime->activeMotion->path
-                : std::string{};
-        const bool isIdentity =
-            matrix[0] == 1.0 && matrix[1] == 0.0 && matrix[2] == 0.0 &&
-            matrix[3] == 1.0 && matrix[4] == 0.0 && matrix[5] == 0.0;
+            ? nativeInstance->_runtime->activeMotion->path
+            : std::string{};
+        const bool isIdentity = matrix[0] == 1.0 && matrix[1] == 0.0 &&
+            matrix[2] == 0.0 && matrix[3] == 1.0 && matrix[4] == 0.0 &&
+            matrix[5] == 0.0;
         detail::logoChainTraceLogf(
             motionPath, "setDrawAffine", "0x6D4F14",
             nativeInstance->_clampedEvalTime,
-            "numparams={} matrix=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}] nonIdentityFlag={} routeSource={}",
+            "numparams={} matrix=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}] "
+            "nonIdentityFlag={} routeSource={}",
             numparams, matrix[0], matrix[1], matrix[2], matrix[3], matrix[4],
             matrix[5], isIdentity ? 0 : 1,
-            (numparams >= 6) ? "six-params"
-                             : ((numparams == 1) ? "matrix-object" : "invalid"));
+            (numparams >= 6)
+                ? "six-params"
+                : ((numparams == 1) ? "matrix-object" : "invalid"));
         return TJS_S_OK;
     }
 
-    tjs_error Player::captureCanvasCompat(tTJSVariant *result, tjs_int numparams,
+    tjs_error Player::captureCanvasCompat(tTJSVariant *result,
+                                          tjs_int numparams,
                                           tTJSVariant **param,
                                           Player *nativeInstance) {
         if(result) {
@@ -115,12 +118,12 @@ namespace motion {
     // wrapper; TJS result/numparams/objthis are intentionally not part of this
     // boundary.
     void Player::drawCompat(tTJSVariant *arg) {
-        const auto motionPath =
-            _runtime && _runtime->activeMotion
-                ? _runtime->activeMotion->path
-                : std::string{};
-        iTJSDispatch2 *paramObj =
-            (arg && arg->Type() == tvtObject) ? arg->AsObjectNoAddRef() : nullptr;
+        const auto motionPath = _runtime && _runtime->activeMotion
+            ? _runtime->activeMotion->path
+            : std::string{};
+        iTJSDispatch2 *paramObj = (arg && arg->Type() == tvtObject)
+            ? arg->AsObjectNoAddRef()
+            : nullptr;
 #if defined(KRKR2_WASMTIME_HEADLESS)
         detail::MotionTraceRenderDrawScope renderTrace(this, arg, paramObj);
 #endif
@@ -129,27 +132,24 @@ namespace motion {
                 return;
             }
             detail::logoChainTraceLogf(
-                motionPath, "drawCompat.matrix", "0x6D5FB8",
-                _clampedEvalTime,
-                "route={} drawAffine=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}] cameraOffset=({:.3f},{:.3f}) sampleExpectedYuzu=[1,0,0,1,960,540]",
-                route ? route : "",
-                _runtime->drawAffineMatrix[0],
-                _runtime->drawAffineMatrix[1],
-                _runtime->drawAffineMatrix[2],
-                _runtime->drawAffineMatrix[3],
-                _runtime->drawAffineMatrix[4],
-                _runtime->drawAffineMatrix[5],
-                _cameraOffsetX, _cameraOffsetY);
+                motionPath, "drawCompat.matrix", "0x6D5FB8", _clampedEvalTime,
+                "route={} "
+                "drawAffine=[{:.3f},{:.3f},{:.3f},{:.3f},{:.3f},{:.3f}] "
+                "cameraOffset=({:.3f},{:.3f}) "
+                "sampleExpectedYuzu=[1,0,0,1,960,540]",
+                route ? route : "", _runtime->drawAffineMatrix[0],
+                _runtime->drawAffineMatrix[1], _runtime->drawAffineMatrix[2],
+                _runtime->drawAffineMatrix[3], _runtime->drawAffineMatrix[4],
+                _runtime->drawAffineMatrix[5], _cameraOffsetX, _cameraOffsetY);
         };
 
         if(!paramObj) {
 #if defined(KRKR2_WASMTIME_HEADLESS)
             renderTrace.setRoute("no_target");
 #endif
-            detail::logoChainTraceLogf(
-                motionPath, "drawCompat.dispatch", "0x6D5FB8",
-                _clampedEvalTime,
-                "route=no-param");
+            detail::logoChainTraceLogf(motionPath, "drawCompat.dispatch",
+                                       "0x6D5FB8", _clampedEvalTime,
+                                       "route=no-param");
             return;
         }
 
@@ -157,7 +157,8 @@ namespace motion {
         // D3DAdaptor classID). If so, set _d3dDrawMode and render immediately.
         {
             auto *d3dAdaptor =
-                ncbInstanceAdaptor<D3DAdaptor>::GetNativeInstance(paramObj, false);
+                ncbInstanceAdaptor<D3DAdaptor>::GetNativeInstance(paramObj,
+                                                                  false);
             if(d3dAdaptor) {
 #if defined(KRKR2_WASMTIME_HEADLESS)
                 renderTrace.recordTargetCheckD3D(true);
@@ -165,8 +166,7 @@ namespace motion {
 #endif
                 detail::logoChainTraceCheck(
                     motionPath, "drawCompat.dispatch", "0x6D5FB8",
-                    _clampedEvalTime,
-                    "D3DAdaptor -> Player_drawD3D",
+                    _clampedEvalTime, "D3DAdaptor -> Player_drawD3D",
                     "D3DAdaptor -> Player_drawD3D", true,
                     "drawCompat D3D routing mismatch");
                 logDrawMatrix("d3d");
@@ -195,8 +195,7 @@ namespace motion {
 #endif
                 detail::logoChainTraceCheck(
                     motionPath, "drawCompat.dispatch", "0x6D5FB8",
-                    _clampedEvalTime,
-                    "SeparateLayerAdaptor -> Player_DrawSLA",
+                    _clampedEvalTime, "SeparateLayerAdaptor -> Player_DrawSLA",
                     "SeparateLayerAdaptor -> Player_DrawSLA", true,
                     "drawCompat SLA routing mismatch");
                 logDrawMatrix("sla");
@@ -217,10 +216,9 @@ namespace motion {
 #if defined(KRKR2_WASMTIME_HEADLESS)
             renderTrace.setRoute("no_motion");
 #endif
-            detail::logoChainTraceLogf(
-                motionPath, "drawCompat.dispatch", "0x6D5FB8",
-                _clampedEvalTime,
-                "route=no-motion");
+            detail::logoChainTraceLogf(motionPath, "drawCompat.dispatch",
+                                       "0x6D5FB8", _clampedEvalTime,
+                                       "route=no-motion");
             return;
         }
 
@@ -233,8 +231,7 @@ namespace motion {
             renderTrace.setRoute("prepare_empty");
 #endif
             detail::logoChainTraceCheck(
-                motionPath, "drawCompat.dispatch", "0x6D5FB8",
-                _clampedEvalTime,
+                motionPath, "drawCompat.dispatch", "0x6D5FB8", _clampedEvalTime,
                 "prepareRenderItems should produce a render list",
                 "prepareRenderItems returned false", false,
                 "drawCompat ordinary path stopped before renderToCanvas");
@@ -250,11 +247,10 @@ namespace motion {
             renderTrace.setRoute(ok ? "shared_d3d_after_prepare" : "failed");
 #endif
             detail::logoChainTraceCheck(
-                motionPath, "drawCompat.dispatch", "0x6D5FB8",
-                _clampedEvalTime,
+                motionPath, "drawCompat.dispatch", "0x6D5FB8", _clampedEvalTime,
                 "prepareRenderItems -> shared D3D render path",
-                ok ? "shared_d3d" : "shared_d3d_failed",
-                ok, "drawCompat shared D3D path failed");
+                ok ? "shared_d3d" : "shared_d3d_failed", ok,
+                "drawCompat shared D3D path failed");
             logDrawMatrix(ok ? "shared_d3d" : "shared_d3d_failed");
             return;
         }
@@ -265,33 +261,29 @@ namespace motion {
 #endif
         tTJSVariant targetCopy;
         targetCopy = *arg;
-        const bool rendered =
-            renderToCanvasLike_0x6C7440(&targetCopy, true);
+        const bool rendered = renderToCanvasLike_0x6C7440(&targetCopy, true);
 #if defined(KRKR2_WASMTIME_HEADLESS)
         renderTrace.recordRenderToCanvas(rendered);
 #endif
         const bool internalAssignRequested =
             rendered && _needsInternalAssignImages;
-        const bool updated =
-            rendered && updateLayerAfterDrawLike_0x6CE7D8(arg);
+        const bool updated = rendered && updateLayerAfterDrawLike_0x6CE7D8(arg);
 #if defined(KRKR2_WASMTIME_HEADLESS)
         if(rendered) {
-            renderTrace.recordUpdateLayerAfterDraw(
-                internalAssignRequested, updated);
+            renderTrace.recordUpdateLayerAfterDraw(internalAssignRequested,
+                                                   updated);
         }
 #endif
         const bool ok = rendered && updated;
 #if defined(KRKR2_WASMTIME_HEADLESS)
-        renderTrace.setRoute(ok
-            ? "ordinary_layer"
-            : "failed");
+        renderTrace.setRoute(ok ? "ordinary_layer" : "failed");
 #endif
         detail::logoChainTraceCheck(
-            motionPath, "drawCompat.dispatch", "0x6D5FB8",
-            _clampedEvalTime,
-            "prepareRenderItems -> applyTranslateOffset -> renderToCanvas(copy(target)) -> updateLayerAfterDraw(target)",
-            ok ? "render_to_canvas" : "render_to_canvas_failed",
-            ok, "drawCompat ordinary render path failed");
+            motionPath, "drawCompat.dispatch", "0x6D5FB8", _clampedEvalTime,
+            "prepareRenderItems -> applyTranslateOffset -> "
+            "renderToCanvas(copy(target)) -> updateLayerAfterDraw(target)",
+            ok ? "render_to_canvas" : "render_to_canvas_failed", ok,
+            "drawCompat ordinary render path failed");
         logDrawMatrix(ok ? "render_to_canvas" : "render_to_canvas_failed");
     }
 

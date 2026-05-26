@@ -20,8 +20,8 @@ namespace {
         value.Clear();
     }
 
-    tTJSVariant separateLayerOwnerLike_0x6C69D4(
-        const tTJSVariant &targetLayer) {
+    tTJSVariant
+    separateLayerOwnerLike_0x6C69D4(const tTJSVariant &targetLayer) {
         tTJSVariant targetCopy(targetLayer);
         tTJSVariant owner;
         if(targetCopy.Type() != tvtObject || !targetCopy.AsObjectNoAddRef()) {
@@ -41,7 +41,8 @@ namespace {
         tTJSNI_BaseLayer *layer = nullptr;
         if(TJS_FAILED(layerObject->NativeInstanceSupport(
                TJS_NIS_GETINSTANCE, tTJSNC_Layer::ClassID,
-               reinterpret_cast<iTJSNativeInstance **>(&layer))) || !layer) {
+               reinterpret_cast<iTJSNativeInstance **>(&layer))) ||
+           !layer) {
             return nullptr;
         }
         return layer;
@@ -52,13 +53,13 @@ namespace {
             return nullptr;
         }
 
-        if(auto *adaptor =
-               ncbInstanceAdaptor<motion::SeparateLayerAdaptor>::GetNativeInstance(
-                   value.AsObjectNoAddRef(), false)) {
+        if(auto *adaptor = ncbInstanceAdaptor<motion::SeparateLayerAdaptor>::
+               GetNativeInstance(value.AsObjectNoAddRef(), false)) {
             if(auto *privateTarget = adaptor->getPrivateRenderTargetObject()) {
                 return privateTarget;
             }
-            if(auto *target = tryResolveLayerDispatch(adaptor->getTargetLayer())) {
+            if(auto *target =
+                   tryResolveLayerDispatch(adaptor->getTargetLayer())) {
                 return target;
             }
             return adaptor->getOwner();
@@ -68,15 +69,14 @@ namespace {
     }
 
     bool getIntegerPropertyLike_0x6AC410(iTJSDispatch2 *object,
-                                         const tjs_char *name,
-                                         tjs_int &out) {
+                                         const tjs_char *name, tjs_int &out) {
         out = 0;
         if(!object) {
             return false;
         }
         tTJSVariant value;
-        const tjs_error hr = object->PropGet(TJS_MEMBERMUSTEXIST, name, nullptr,
-                                             &value, object);
+        const tjs_error hr =
+            object->PropGet(TJS_MEMBERMUSTEXIST, name, nullptr, &value, object);
         if(TJS_FAILED(hr)) {
             return false;
         }
@@ -85,8 +85,7 @@ namespace {
     }
 
     void setIntegerPropertyLike_0x6AC410(iTJSDispatch2 *object,
-                                         const tjs_char *name,
-                                         tjs_int value) {
+                                         const tjs_char *name, tjs_int value) {
         if(!object) {
             return;
         }
@@ -94,8 +93,7 @@ namespace {
         object->PropSet(TJS_MEMBERENSURE, name, nullptr, &variant, object);
     }
 
-    void callSetSizeLike_0x6AC410(iTJSDispatch2 *object,
-                                  tjs_int width,
+    void callSetSizeLike_0x6AC410(iTJSDispatch2 *object, tjs_int width,
                                   tjs_int height) {
         if(!object) {
             return;
@@ -118,9 +116,9 @@ namespace {
                          target);
     }
 
-    iTJSDispatch2 *createLayerNodeObjectLike_0x6C6B48(
-        iTJSDispatch2 *ownerObject,
-        const tTJSVariant &targetLayer) {
+    iTJSDispatch2 *
+    createLayerNodeObjectLike_0x6C6B48(iTJSDispatch2 *ownerObject,
+                                       const tTJSVariant &targetLayer) {
         if(!ownerObject) {
             return nullptr;
         }
@@ -151,9 +149,8 @@ namespace {
 namespace motion {
 
     NativeSLAPayloadLike_0x6DCD0C
-    NativeSLAPayloadLike_0x6DCD0C::fromLayerVariant(
-        const tTJSVariant &layer,
-        tjs_uint32 ordinal) {
+    NativeSLAPayloadLike_0x6DCD0C::fromLayerVariant(const tTJSVariant &layer,
+                                                    tjs_uint32 ordinal) {
         NativeSLAPayloadLike_0x6DCD0C payload;
         payload.layerVariant = layer;
         payload.flags = static_cast<tjs_int>(ordinal);
@@ -162,7 +159,8 @@ namespace motion {
             if(getIntegerPropertyLike_0x6AC410(object, TJS_W("type"), value)) {
                 payload.type = value;
             }
-            if(getIntegerPropertyLike_0x6AC410(object, TJS_W("visible"), value)) {
+            if(getIntegerPropertyLike_0x6AC410(object, TJS_W("visible"),
+                                               value)) {
                 payload.visible = value != 0;
             }
             if(getIntegerPropertyLike_0x6AC410(object, TJS_W("left"), value)) {
@@ -174,7 +172,8 @@ namespace motion {
             if(getIntegerPropertyLike_0x6AC410(object, TJS_W("width"), value)) {
                 payload.affine[2] = static_cast<float>(value);
             }
-            if(getIntegerPropertyLike_0x6AC410(object, TJS_W("height"), value)) {
+            if(getIntegerPropertyLike_0x6AC410(object, TJS_W("height"),
+                                               value)) {
                 payload.affine[3] = static_cast<float>(value);
             }
         }
@@ -184,10 +183,9 @@ namespace motion {
     bool NativeSLAPayloadLike_0x6DCD0C::compatibleWithLike_0x6DCB2C(
         const NativeSLAPayloadLike_0x6DCD0C &other) const {
         return type == other.type && visible == other.visible &&
-               key == other.key && flags == other.flags &&
-               affine == other.affine && vertices == other.vertices &&
-               uvs == other.uvs && color == other.color &&
-               origin == other.origin;
+            key == other.key && flags == other.flags &&
+            affine == other.affine && vertices == other.vertices &&
+            uvs == other.uvs && color == other.color && origin == other.origin;
     }
 
     NativeSLAOrderedMapLike_0x6C6B48::~NativeSLAOrderedMapLike_0x6C6B48() {
@@ -229,9 +227,9 @@ namespace motion {
         _nodes.swap(other._nodes);
     }
 
-    SeparateLayerAdaptor::SeparateLayerAdaptor(tTJSVariant targetLayer)
-        : _owner(separateLayerOwnerLike_0x6C69D4(targetLayer)),
-          _targetLayer(targetLayer) {}
+    SeparateLayerAdaptor::SeparateLayerAdaptor(tTJSVariant targetLayer) :
+        _owner(separateLayerOwnerLike_0x6C69D4(targetLayer)),
+        _targetLayer(targetLayer) {}
 
     SeparateLayerAdaptor::~SeparateLayerAdaptor() {
         clearPrivateRenderState();
@@ -247,19 +245,18 @@ namespace motion {
 
     iTJSDispatch2 *SeparateLayerAdaptor::getPrivateRenderTargetObject() const {
         return _privateTarget.Type() == tvtObject
-                   ? _privateTarget.AsObjectNoAddRef()
-                   : nullptr;
+            ? _privateTarget.AsObjectNoAddRef()
+            : nullptr;
     }
 
     void SeparateLayerAdaptor::trackManagedTargetLike_0x6AC410(
-        const tTJSVariant &target,
-        tjs_uint32 ordinal) {
+        const tTJSVariant &target, tjs_uint32 ordinal) {
         if(target.Type() != tvtObject || !target.AsObjectNoAddRef()) {
             return;
         }
         auto &node = _managedTargets.ensure(ordinal);
-        node.payload = NativeSLAPayloadLike_0x6DCD0C::fromLayerVariant(
-            target, ordinal);
+        node.payload =
+            NativeSLAPayloadLike_0x6DCD0C::fromLayerVariant(target, ordinal);
     }
 
     void SeparateLayerAdaptor::clearPrivateRenderState() {
@@ -280,18 +277,32 @@ namespace motion {
 
     void SeparateLayerAdaptor::clear() { clearPrivateRenderState(); }
 
+    void SeparateLayerAdaptor::beginAccurateRenderPassLike_0x6C9CA8() {
+        _managedTargets.swapWith(_assignTargets);
+        _managedTargets.clear(true);
+        _assignSequence = 0;
+    }
+
+    tTJSVariant SeparateLayerAdaptor::resolveRenderLayerNodeLike_0x6C6B48(
+        tjs_uint32 ordinal, const NativeSLAPayloadLike_0x6DCD0C &sourcePayload,
+        iTJSDispatch2 *objthis, bool &createdOrChanged) {
+        return resolveLayerNodeLike_0x6C6B48(ordinal, sourcePayload, objthis,
+                                             createdOrChanged);
+    }
+
+    void SeparateLayerAdaptor::endAccurateRenderPassLike_0x6C9CA8() {
+        _assignTargets.clear(true);
+    }
+
     tjs_error SeparateLayerAdaptor::getLayerTreeOwnerInterfaceCompat(
-        tTJSVariant *result,
-        tjs_int,
-        tTJSVariant **,
-        iTJSDispatch2 *objthis) {
+        tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *objthis) {
         if(result) {
             result->Clear();
         }
 
         auto *nativeInstance =
-            ncbInstanceAdaptor<SeparateLayerAdaptor>::GetNativeInstance(
-                objthis, true);
+            ncbInstanceAdaptor<SeparateLayerAdaptor>::GetNativeInstance(objthis,
+                                                                        true);
         if(!nativeInstance || !result) {
             return nativeInstance ? TJS_S_OK : TJS_E_INVALIDOBJECT;
         }
@@ -308,36 +319,31 @@ namespace motion {
 
         iTJSDispatch2 *ownerObjThis =
             ownerClosure.ObjThis ? ownerClosure.ObjThis : ownerClosure.Object;
-        return ownerClosure.Object->PropGet(
-            0, TJS_W("layerTreeOwnerInterface"), nullptr, result,
-            ownerObjThis);
+        return ownerClosure.Object->PropGet(0, TJS_W("layerTreeOwnerInterface"),
+                                            nullptr, result, ownerObjThis);
     }
 
     tTJSVariant SeparateLayerAdaptor::resolveLayerNodeLike_0x6C6B48(
-        tjs_uint32 ordinal,
-        const NativeSLAPayloadLike_0x6DCD0C &sourcePayload,
-        iTJSDispatch2 *objthis,
-        bool &createdOrChanged) {
+        tjs_uint32 ordinal, const NativeSLAPayloadLike_0x6DCD0C &sourcePayload,
+        iTJSDispatch2 *objthis, bool &createdOrChanged) {
         createdOrChanged = true;
         auto &active = _managedTargets.ensure(ordinal);
         active.payload = sourcePayload;
         active.payload.layerVariant.Clear();
 
         auto retired = _assignTargets.find(ordinal);
-        if(retired != _assignTargets.end() &&
-           sourcePayload.compatibleWithLike_0x6DCB2C(
-               retired->second.payload)) {
-            active.payload.layerVariant =
-                retired->second.payload.layerVariant;
-            createdOrChanged = false;
+        if(retired != _assignTargets.end()) {
+            // libkrkr2.so sub_6C6B48 reuses the previous ordinal's Layer
+            // variant, but sub_6DCB2C always returns 1 in the shipped binary,
+            // so the caller still refreshes the layer image every pass.
+            active.payload.layerVariant = retired->second.payload.layerVariant;
             _assignTargets.erase(retired);
         }
 
         if(active.payload.layerVariant.Type() != tvtObject ||
            !active.payload.layerVariant.AsObjectNoAddRef()) {
             if(iTJSDispatch2 *created =
-                   createLayerNodeObjectLike_0x6C6B48(objthis,
-                                                      _targetLayer)) {
+                   createLayerNodeObjectLike_0x6C6B48(objthis, _targetLayer)) {
                 active.payload.layerVariant = tTJSVariant(created, created);
                 created->Release();
             }
@@ -349,16 +355,14 @@ namespace motion {
                 object, TJS_W("absolute"),
                 static_cast<tjs_int>(_absolute + _assignSequence));
             ++_assignSequence;
-            setIntegerPropertyLike_0x6AC410(object, TJS_W("hitThreshold"),
-                                            256);
+            setIntegerPropertyLike_0x6AC410(object, TJS_W("hitThreshold"), 256);
         }
 
         return active.payload.layerVariant;
     }
 
     tjs_error SeparateLayerAdaptor::assignFromAdaptorLike_0x6AC410(
-        const SeparateLayerAdaptor &source,
-        iTJSDispatch2 *objthis) {
+        const SeparateLayerAdaptor &source, iTJSDispatch2 *objthis) {
         // sub_6AC410 first swaps the destination's two native list slots
         // (+64/+72 and +112/+120), then walks the source +64/+72 list.
         _managedTargets.swapWith(_assignTargets);
@@ -401,8 +405,8 @@ namespace motion {
             tjs_int type = 0;
             tjs_int left = 0;
             tjs_int top = 0;
-            getIntegerPropertyLike_0x6AC410(sourceLayerObject, TJS_W("absolute"),
-                                            absolute);
+            getIntegerPropertyLike_0x6AC410(sourceLayerObject,
+                                            TJS_W("absolute"), absolute);
             getIntegerPropertyLike_0x6AC410(sourceLayerObject, TJS_W("visible"),
                                             visible);
             getIntegerPropertyLike_0x6AC410(sourceLayerObject, TJS_W("opacity"),
@@ -440,7 +444,8 @@ namespace motion {
         }
 
         auto *nativeInstance =
-            ncbInstanceAdaptor<SeparateLayerAdaptor>::GetNativeInstance(objthis, true);
+            ncbInstanceAdaptor<SeparateLayerAdaptor>::GetNativeInstance(objthis,
+                                                                        true);
         if(!nativeInstance) {
             return TJS_E_INVALIDOBJECT;
         }

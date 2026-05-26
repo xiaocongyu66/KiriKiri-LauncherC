@@ -9,11 +9,13 @@ using namespace motion::internal;
 namespace motion {
     // Aligned to libkrkr2.so Player_playImpl (0x6B21E8):
     // Called from sub_6BE0C0 at 0x6BE46C with flags = motionFlags | v12.
-    // flags: PlayFlagForce(1)=force reload, PlayFlagStealth(16)=set stealth fields only.
+    // flags: PlayFlagForce(1)=force reload, PlayFlagStealth(16)=set stealth
+    // fields only.
     void Player::onFindMotion(ttstr name, int flags) {
         // PlayFlagStealth (0x10): store as stealth motion, don't load
-        // Binary: if ((flags & 0x10) && !player->project) { player->motionKey = name; return; }
-        if ((flags & PlayFlagStealth) && _project.Type() == tvtVoid) {
+        // Binary: if ((flags & 0x10) && !player->project) { player->motionKey =
+        // name; return; }
+        if((flags & PlayFlagStealth) && _project.Type() == tvtVoid) {
             _stealthMotion = name;
             return;
         }
@@ -27,8 +29,9 @@ namespace motion {
         }
 
         // PlayFlagForce (0x01): force reload even if same motion is loaded.
-        if ((flags & PlayFlagForce) && _motionKey == name) {
-            _motionKey = ttstr();  // clear to bypass same-motion guard in findMotion
+        if((flags & PlayFlagForce) && _motionKey == name) {
+            _motionKey =
+                ttstr(); // clear to bypass same-motion guard in findMotion
         }
 
         // Aligned to libkrkr2.so Player_playImpl (0x6B2284):
@@ -48,15 +51,15 @@ namespace motion {
             snapshot.reset();
         } else {
             if(_project.Type() == tvtObject) {
-                if(const auto projectSnapshot = detail::lookupModuleSnapshot(_project)) {
+                if(const auto projectSnapshot =
+                       detail::lookupModuleSnapshot(_project)) {
                     if(projectSnapshot->clipIndexByLabel.find(motionRaw) !=
                        projectSnapshot->clipIndexByLabel.end()) {
                         snapshot = projectSnapshot;
                     }
                 }
             }
-            if(!charaRaw.empty() &&
-               !snapshot &&
+            if(!charaRaw.empty() && !snapshot &&
                motionRaw.find('/') == std::string::npos &&
                motionRaw.find('\\') == std::string::npos) {
                 const auto fullPath =
@@ -64,12 +67,13 @@ namespace motion {
                 snapshot =
                     resolveMotion(*_runtime, fullPath, &_resourceManagerNative);
                 if(snapshot) {
-                    cacheMotion(*_runtime, motionRaw,
-                                detail::narrow(fullPath), snapshot);
+                    cacheMotion(*_runtime, motionRaw, detail::narrow(fullPath),
+                                snapshot);
                 }
             }
             if(!snapshot) {
-                snapshot = resolveMotion(*_runtime, name, &_resourceManagerNative);
+                snapshot =
+                    resolveMotion(*_runtime, name, &_resourceManagerNative);
             }
         }
         if(snapshot) {
@@ -77,8 +81,7 @@ namespace motion {
             _motionKey = name;
             _project = snapshot->moduleValue;
             syncVariableKeysFromActiveMotion();
-            initNonEmoteMotionLike_0x6B365C(
-                static_cast<std::uint32_t>(flags));
+            initNonEmoteMotionLike_0x6B365C(static_cast<std::uint32_t>(flags));
         }
 
         // After loading, prime timelines and start playback.
@@ -88,16 +91,17 @@ namespace motion {
         //   auto-start every primary clip
         // - Player_playTimeline (0x672F70) starts the requested label only
         //   when it exists
-        if (_runtime->activeMotion && _runtime->timelines.empty()) {
+        if(_runtime->activeMotion && _runtime->timelines.empty()) {
             detail::primeTimelineStates(_runtime->timelines,
                                         *_runtime->activeMotion);
         }
 
-        if (_runtime->activeMotion && !_runtime->timelines.empty()) {
+        if(_runtime->activeMotion && !_runtime->timelines.empty()) {
             const auto requestedKey = detail::narrow(name);
             bool startedRequested = false;
             if(!requestedKey.empty() &&
-               _runtime->timelines.find(requestedKey) != _runtime->timelines.end()) {
+               _runtime->timelines.find(requestedKey) !=
+                   _runtime->timelines.end()) {
                 playTimeline(name, flags & ~PlayFlagStealth);
                 startedRequested = true;
             }
@@ -107,9 +111,9 @@ namespace motion {
                 _runtime->playingTimelineLabels.clear();
                 const auto &primary =
                     !_runtime->activeMotion->mainTimelineLabels.empty()
-                        ? _runtime->activeMotion->mainTimelineLabels
-                        : _runtime->activeMotion->diffTimelineLabels;
-                for (const auto &timelineLabel : primary) {
+                    ? _runtime->activeMotion->mainTimelineLabels
+                    : _runtime->activeMotion->diffTimelineLabels;
+                for(const auto &timelineLabel : primary) {
                     auto &state = _runtime->timelines[timelineLabel];
                     state.flags = flags & ~PlayFlagStealth;
                     state.playing = true;
@@ -120,7 +124,8 @@ namespace motion {
                     state.controlTrackValues.clear();
                     state.controlTrackAnimators.clear();
                     _runtime->playingTimelineLabels.push_back(timelineLabel);
-                    if (state.totalFrames > maxTF) maxTF = state.totalFrames;
+                    if(state.totalFrames > maxTF)
+                        maxTF = state.totalFrames;
                 }
                 _cachedTotalFrames = maxTF;
                 _allplaying = !_runtime->playingTimelineLabels.empty();
@@ -128,7 +133,7 @@ namespace motion {
         }
 
         // Handle pending stealth motion (0x6B226C..0x6B2280)
-        if (!_stealthMotion.IsEmpty()) {
+        if(!_stealthMotion.IsEmpty()) {
             _stealthChara = _chara;
             // stealthMotion is consumed — binary nulls it after use
             _stealthMotion = ttstr();
@@ -154,8 +159,8 @@ namespace motion {
         }
 
         const auto &root = _runtime->activeMotion->root;
-        const auto variableList = std::dynamic_pointer_cast<PSB::PSBList>(
-            (*root)["variable"]);
+        const auto variableList =
+            std::dynamic_pointer_cast<PSB::PSBList>((*root)["variable"]);
         if(!variableList) {
             return;
         }
@@ -170,8 +175,8 @@ namespace motion {
             detail::VariableLabelEntry entry;
 
             if(const auto scopeVal = (*entryDic)["scope"]) {
-                if(const auto scopeStr = std::dynamic_pointer_cast<
-                       PSB::PSBString>(scopeVal)) {
+                if(const auto scopeStr =
+                       std::dynamic_pointer_cast<PSB::PSBString>(scopeVal)) {
                     const auto &scope = scopeStr->value;
                     auto sep = scope.find("::");
                     size_t sepLen = 2;
@@ -185,8 +190,8 @@ namespace motion {
                 }
             }
             if(const auto labelVal = (*entryDic)["label"]) {
-                if(const auto labelStr = std::dynamic_pointer_cast<
-                       PSB::PSBString>(labelVal)) {
+                if(const auto labelStr =
+                       std::dynamic_pointer_cast<PSB::PSBString>(labelVal)) {
                     entry.label = detail::widen(labelStr->value);
                 }
             }
@@ -208,7 +213,8 @@ namespace motion {
         detail::resetNodeTreeKeepRootLike_0x6B56F8(*_runtime);
     }
 
-    void Player::inheritChildPlayerStateLike_0x6B3C78(detail::MotionNode &node) {
+    void
+    Player::inheritChildPlayerStateLike_0x6B3C78(detail::MotionNode &node) {
         if(auto *child = node.getChildPlayer()) {
             child->_resourceManagerNative = _resourceManagerNative;
             child->_tjsRandomGenerator = _tjsRandomGenerator;
@@ -243,31 +249,32 @@ namespace motion {
         resetNodeTreeForBuildLike_0x6B56F8();
 
         std::string clipLabel;
-        const auto *clip =
-            _runtime->activeClip != nullptr ? _runtime->activeClip
-                                            : selectActiveClip();
+        const auto *clip = _runtime->activeClip != nullptr
+            ? _runtime->activeClip
+            : selectActiveClip();
         if(clip != nullptr) {
             clipLabel = clip->label;
         }
 
         if(_runtime->activeMotion &&
-           detail::logoSnapshotMarkEnabledForPath(_runtime->activeMotion->path) &&
-           _runtime->activeMotion->path.find("m2logo.mtn") != std::string::npos) {
-            std::fprintf(
-                stderr,
-                "SNAPCLIP motion=%s motionKey=%s clipLabel=%s playing=%s clipCount=%zu\n",
-                _runtime->activeMotion->path.c_str(),
-                detail::narrow(_motionKey).c_str(),
-                clipLabel.empty() ? "<none>" : clipLabel.c_str(),
-                _runtime->playingTimelineLabels.empty()
-                    ? "<none>"
-                    : _runtime->playingTimelineLabels.front().c_str(),
-                _runtime->activeMotion->clipList.size());
+           detail::logoSnapshotMarkEnabledForPath(
+               _runtime->activeMotion->path) &&
+           _runtime->activeMotion->path.find("m2logo.mtn") !=
+               std::string::npos) {
+            std::fprintf(stderr,
+                         "SNAPCLIP motion=%s motionKey=%s clipLabel=%s "
+                         "playing=%s clipCount=%zu\n",
+                         _runtime->activeMotion->path.c_str(),
+                         detail::narrow(_motionKey).c_str(),
+                         clipLabel.empty() ? "<none>" : clipLabel.c_str(),
+                         _runtime->playingTimelineLabels.empty()
+                             ? "<none>"
+                             : _runtime->playingTimelineLabels.front().c_str(),
+                         _runtime->activeMotion->clipList.size());
         }
 
-        detail::buildNodeTree(
-            *_runtime, *_runtime->activeMotion, clipLabel, &_resourceManagerNative, this,
-            _completionType);
+        detail::buildNodeTree(*_runtime, *_runtime->activeMotion, clipLabel,
+                              &_resourceManagerNative, this, _completionType);
 
         if(!_runtime->nodes.empty()) {
             auto &root = _runtime->nodes[0];
@@ -288,22 +295,25 @@ namespace motion {
                 motionPath, "buildNodeTree", "0x6B51F0", _clampedEvalTime,
                 "clipLabel={} rootLayers={} nodeCount={}",
                 clipLabel.empty() ? std::string("<root>") : clipLabel,
-                _runtime->activeMotion->layerList.size(), _runtime->nodes.size());
+                _runtime->activeMotion->layerList.size(),
+                _runtime->nodes.size());
             for(const auto &node : _runtime->nodes) {
-                const bool hasStencilTypeKey =
-                    node.psbNode && static_cast<bool>((*node.psbNode)["stencilType"]);
+                const bool hasStencilTypeKey = node.psbNode &&
+                    static_cast<bool>((*node.psbNode)["stencilType"]);
                 detail::logoChainTraceLogf(
                     motionPath, "buildNodeTree.node", "0x6B51F0",
                     _clampedEvalTime,
-                    "nodeIndex={} label={} type={} parent={} hasSource={} meshType={} inheritFlags=0x{:x} parameterizeIndex={} objTriPriority={} parentClipIndex={} stencilType={} hasStencilTypeKey={}",
+                    "nodeIndex={} label={} type={} parent={} hasSource={} "
+                    "meshType={} inheritFlags=0x{:x} parameterizeIndex={} "
+                    "objTriPriority={} parentClipIndex={} stencilType={} "
+                    "hasStencilTypeKey={}",
                     node.index,
                     node.layerName.empty() ? std::string("<root>")
                                            : node.layerName,
                     node.nodeType, node.parentIndex, node.hasSource ? 1 : 0,
                     node.meshType, node.inheritFlags, node.parameterizeIndex,
-                    node.objTriPriority,
-                    node.parentClipIndex,
-                    node.stencilType, hasStencilTypeKey ? 1 : 0);
+                    node.objTriPriority, node.parentClipIndex, node.stencilType,
+                    hasStencilTypeKey ? 1 : 0);
             }
         }
     }

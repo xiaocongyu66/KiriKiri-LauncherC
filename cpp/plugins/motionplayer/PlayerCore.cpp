@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <stdexcept>
 
 #include "PlayerInternal.h"
 #include "SourceCache.h"
@@ -14,18 +15,17 @@ using namespace motion::internal;
 namespace {
     std::string lowerAscii(std::string value) {
         for(char &ch : value) {
-            ch = static_cast<char>(
-                std::tolower(static_cast<unsigned char>(ch)));
+            ch =
+                static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
         }
         return value;
     }
 
     std::uint32_t swapPackedRbLike_0x6CD710(std::uint32_t packedColor) {
-        return (packedColor & 0xFF00FF00u) |
-            ((packedColor >> 16) & 0xFFu) |
+        return (packedColor & 0xFF00FF00u) | ((packedColor >> 16) & 0xFFu) |
             ((packedColor & 0xFFu) << 16);
     }
-}
+} // namespace
 
 namespace motion {
 
@@ -147,17 +147,13 @@ namespace motion {
     }
 
     void Player::setColorWeight(tjs_int v) {
-        _colorWeightPacked = swapPackedRbLike_0x6CD710(
-            static_cast<std::uint32_t>(v));
+        _colorWeightPacked =
+            swapPackedRbLike_0x6CD710(static_cast<std::uint32_t>(v));
     }
 
-    tjs_int Player::getMaskMode() const {
-        return _maskMode;
-    }
+    tjs_int Player::getMaskMode() const { return _maskMode; }
 
-    void Player::setMaskMode(tjs_int v) {
-        _maskMode = v;
-    }
+    void Player::setMaskMode(tjs_int v) { _maskMode = v; }
 
     void Player::setIndependentLayerInherit(bool v) {
         if(_independentLayerInherit == v) {
@@ -177,19 +173,18 @@ namespace motion {
 
     Player::Player(ResourceManager rm, Player *parentPlayer) :
         _runtime(detail::makePlayerRuntime()),
-        _resourceManagerNative(std::move(rm)),
-        _parentPlayer(parentPlayer) {
-        LOGGER->info("Motion.Player constructor called");
+        _resourceManagerNative(std::move(rm)), _parentPlayer(parentPlayer) {
+        LOGGER->debug("Motion.Player constructor called");
         using ResourceManagerAdaptor = ncbInstanceAdaptor<ResourceManager>;
-        if(auto *dispatch =
-               ResourceManagerAdaptor::CreateAdaptor(
-                   new ResourceManager(_resourceManagerNative))) {
+        if(auto *dispatch = ResourceManagerAdaptor::CreateAdaptor(
+               new ResourceManager(_resourceManagerNative))) {
             _resourceManager = tTJSVariant(dispatch, dispatch);
             dispatch->Release();
         }
         // Aligned to libkrkr2.so SourceCache constructor/owner lifetime
         // (0x6A78F4): Player stores a TJS SourceCache object and calls through
-        // that dispatch for source resolution rather than owning a map directly.
+        // that dispatch for source resolution rather than owning a map
+        // directly.
         using SourceCacheAdaptor = ncbInstanceAdaptor<SourceCache>;
         auto *sourceCache = new SourceCache();
         sourceCache->bindRuntime(_runtime.get(), &_resourceManagerNative);
@@ -204,10 +199,9 @@ namespace motion {
         // Aligned to sub_6A88CC (0x6A8988): create TJS Math.RandomGenerator
         // and store at player+992. Child Players inherit via sub_6CED30.
         try {
-            TVPExecuteExpression(
-                TJS_W("new Math.RandomGenerator()"),
-                &_tjsRandomGenerator);
-        } catch (...) {
+            TVPExecuteExpression(TJS_W("new Math.RandomGenerator()"),
+                                 &_tjsRandomGenerator);
+        } catch(...) {
             LOGGER->warn("Player: failed to create Math.RandomGenerator");
         }
     }
@@ -237,13 +231,15 @@ namespace motion {
             for(const auto &node : _runtime->nodes) {
                 if(auto *child = node.getChildPlayer()) {
                     if(child->getAllplaying()) {
-                        if(detail::logoChainTraceEnabled(_runtime->activeMotion) &&
+                        if(detail::logoChainTraceEnabled(
+                               _runtime->activeMotion) &&
                            traceCount < 80) {
                             ++traceCount;
                             detail::logoChainTraceLogf(
                                 _runtime->activeMotion->path, "getAllplaying",
                                 "0x6CCE34", _clampedEvalTime,
-                                "value=1 reason=child nodeIndex={} localPlaying={} labels={}",
+                                "value=1 reason=child nodeIndex={} "
+                                "localPlaying={} labels={}",
                                 node.index, _allplaying ? 1 : 0,
                                 _runtime->playingTimelineLabels.size());
                         }
@@ -258,44 +254,45 @@ namespace motion {
             detail::logoChainTraceLogf(
                 _runtime->activeMotion->path, "getAllplaying", "0x6CCE34",
                 _clampedEvalTime, "value={} reason=local labels={}",
-                _allplaying ? 1 : 0,
-                _runtime->playingTimelineLabels.size());
+                _allplaying ? 1 : 0, _runtime->playingTimelineLabels.size());
         }
         return _allplaying;
     }
 
-    // Aligned to libkrkr2.so Player_getRootX (0x6D98A8) / Player_setRootX (0x6CD028):
-    //   sub_6CD028: if (root.delta.posX != v) { root.delta.posX = v; root.delta.dirty = 1; }
-    //   — writes node+1592 (delta.posX) and sets node+1584 (delta.dirty).
+    // Aligned to libkrkr2.so Player_getRootX (0x6D98A8) / Player_setRootX
+    // (0x6CD028):
+    //   sub_6CD028: if (root.delta.posX != v) { root.delta.posX = v;
+    //   root.delta.dirty = 1; } — writes node+1592 (delta.posX) and sets
+    //   node+1584 (delta.dirty).
     double Player::getX() const {
-        if (_runtime && !_runtime->nodes.empty())
+        if(_runtime && !_runtime->nodes.empty())
             return _runtime->nodes[0].delta.posX;
         return _hasPendingRootPos ? _pendingRootX : 0.0;
     }
     void Player::setX(double v) {
         _pendingRootX = v;
         _hasPendingRootPos = true;
-        if (_runtime && !_runtime->nodes.empty()) {
+        if(_runtime && !_runtime->nodes.empty()) {
             auto &root = _runtime->nodes[0];
-            if (root.delta.posX != v) {
+            if(root.delta.posX != v) {
                 root.delta.posX = v;
                 root.delta.dirty = true;
             }
         }
     }
-    // Aligned to libkrkr2.so Player_getRootY (0x6D98B4) / Player_setRootY (0x6CD048):
-    // same shape as setRootX but at node+1600 (delta.posY).
+    // Aligned to libkrkr2.so Player_getRootY (0x6D98B4) / Player_setRootY
+    // (0x6CD048): same shape as setRootX but at node+1600 (delta.posY).
     double Player::getY() const {
-        if (_runtime && !_runtime->nodes.empty())
+        if(_runtime && !_runtime->nodes.empty())
             return _runtime->nodes[0].delta.posY;
         return _hasPendingRootPos ? _pendingRootY : 0.0;
     }
     void Player::setY(double v) {
         _pendingRootY = v;
         _hasPendingRootPos = true;
-        if (_runtime && !_runtime->nodes.empty()) {
+        if(_runtime && !_runtime->nodes.empty()) {
             auto &root = _runtime->nodes[0];
-            if (root.delta.posY != v) {
+            if(root.delta.posY != v) {
                 root.delta.posY = v;
                 root.delta.dirty = true;
             }
@@ -303,10 +300,11 @@ namespace motion {
     }
 
     // Aligned to libkrkr2.so EmoteObject_init (sub_67DBAC):
-    // Sets activeMotion directly from a pre-loaded snapshot, bypassing file I/O.
-    // Used by EmotePlayer.setModule() to bridge loaded PSB data into the Player pipeline.
-    void Player::loadFromSnapshot(
-        std::shared_ptr<detail::MotionSnapshot> snapshot) {
+    // Sets activeMotion directly from a pre-loaded snapshot, bypassing file
+    // I/O. Used by EmotePlayer.setModule() to bridge loaded PSB data into the
+    // Player pipeline.
+    void
+    Player::loadFromSnapshot(std::shared_ptr<detail::MotionSnapshot> snapshot) {
         _runtime->activeMotion.reset();
         _runtime->timelines.clear();
         _runtime->playingTimelineLabels.clear();
@@ -325,6 +323,47 @@ namespace motion {
             activateMotion(*_runtime, snapshot, &_resourceManagerNative);
             syncVariableKeysFromActiveMotion();
         }
+    }
+
+    void Player::bindMotionModuleKey(ttstr storageKey) {
+        // SDL3 reference: sdl3/emoteplayerclass.cpp set_motionKey()
+        //   _currentfile = _resourceManager->GetPlayerByName(motionKey);
+        // Does NOT start playback — that is play()'s job.
+        const auto loaded = _resourceManagerNative.findLoadedModule(storageKey);
+        if(loaded.Type() != tvtObject) {
+            LOGGER->warn(
+                "Player::bindMotionModuleKey({}): module not in "
+                "ResourceManager cache; call ResourceManager.load() first",
+                storageKey.AsStdString());
+            return;
+        }
+
+        _project = loaded;
+        if(const auto snapshot = detail::lookupModuleSnapshot(loaded)) {
+            loadFromSnapshot(snapshot);
+            LOGGER->debug(
+                "Player::bindMotionModuleKey({}): bound snapshot path={}",
+                storageKey.AsStdString(), snapshot->path);
+            return;
+        }
+
+        // Fallback: resolve via file path (decompiled libkrkr2.so path).
+        if(const auto snapshot =
+               resolveMotion(*_runtime, storageKey, &_resourceManagerNative)) {
+            activateMotion(*_runtime, snapshot, &_resourceManagerNative);
+            syncVariableKeysFromActiveMotion();
+            LOGGER->debug(
+                "Player::bindMotionModuleKey({}): resolved snapshot path={}",
+                storageKey.AsStdString(), snapshot->path);
+            return;
+        }
+
+        LOGGER->error(
+            "Player::bindMotionModuleKey({}): loaded object has no motion "
+            "snapshot",
+            storageKey.AsStdString());
+        throw std::runtime_error(
+            "motionplayer: motionKey module has no parseable motion snapshot");
     }
 
     double Player::getActiveMotionWidth() const {
@@ -364,8 +403,10 @@ namespace motion {
     tjs_error Player::setMotionCompat(tTJSVariant *result, tjs_int numparams,
                                       tTJSVariant **param,
                                       iTJSDispatch2 *objthis) {
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
-        if(!self) return TJS_E_INVALIDOBJECT;
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        if(!self)
+            return TJS_E_INVALIDOBJECT;
 
         ttstr motionValue;
         if(numparams > 0 && param[0] && param[0]->Type() != tvtVoid) {
@@ -378,14 +419,13 @@ namespace motion {
 
         // Build dict {chara, motion} and call objthis.onFindMotion(dict)
         // Aligned to libkrkr2.so Player_loadMotion_guess (0x6B0F10)
-        tTJSVariant dictVar = detail::makeDictionary({
-            {"chara", tTJSVariant(self->_chara)},
-            {"motion", tTJSVariant(motionValue)}
-        });
+        tTJSVariant dictVar =
+            detail::makeDictionary({ { "chara", tTJSVariant(self->_chara) },
+                                     { "motion", tTJSVariant(motionValue) } });
         tTJSVariant onFindResult;
         tTJSVariant *args[] = { &dictVar };
-        tjs_error hr = objthis->FuncCall(0, TJS_W("onFindMotion"),
-                                          nullptr, &onFindResult, 1, args, objthis);
+        tjs_error hr = objthis->FuncCall(0, TJS_W("onFindMotion"), nullptr,
+                                         &onFindResult, 1, args, objthis);
 
         // Read back (possibly modified) chara and motion from result
         if(TJS_SUCCEEDED(hr) && onFindResult.Type() == tvtObject) {
@@ -393,13 +433,15 @@ namespace motion {
             if(resObj) {
                 tTJSVariant charaVal, motionVal;
                 if(TJS_SUCCEEDED(resObj->PropGet(TJS_MEMBERMUSTEXIST,
-                    TJS_W("chara"), nullptr, &charaVal, resObj))
-                    && charaVal.Type() != tvtVoid) {
+                                                 TJS_W("chara"), nullptr,
+                                                 &charaVal, resObj)) &&
+                   charaVal.Type() != tvtVoid) {
                     self->_chara = ttstr(charaVal);
                 }
                 if(TJS_SUCCEEDED(resObj->PropGet(TJS_MEMBERMUSTEXIST,
-                    TJS_W("motion"), nullptr, &motionVal, resObj))
-                    && motionVal.Type() != tvtVoid) {
+                                                 TJS_W("motion"), nullptr,
+                                                 &motionVal, resObj)) &&
+                   motionVal.Type() != tvtVoid) {
                     motionValue = ttstr(motionVal);
                 }
             }
@@ -422,11 +464,14 @@ namespace motion {
 
     tjs_error Player::getMotionCompat(tTJSVariant *result, tjs_int,
                                       tTJSVariant **, iTJSDispatch2 *objthis) {
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
-        if(!self) return TJS_E_INVALIDOBJECT;
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        if(!self)
+            return TJS_E_INVALIDOBJECT;
         // Player_getMotion_ncb @ 0x6D9544 returns native player+976.
         // _motionKey is the local mirror of that getter-visible slot.
-        if(result) *result = tTJSVariant(self->_motionKey);
+        if(result)
+            *result = tTJSVariant(self->_motionKey);
         return TJS_S_OK;
     }
 
@@ -450,8 +495,8 @@ namespace motion {
         }
 
         if(motionKeyLooksLikeStorage) {
-            if(const auto snapshot =
-                   resolveMotion(*_runtime, _motionKey, &_resourceManagerNative)) {
+            if(const auto snapshot = resolveMotion(*_runtime, _motionKey,
+                                                   &_resourceManagerNative)) {
                 activateMotion(*_runtime, snapshot, &_resourceManagerNative);
                 syncVariableKeysFromActiveMotion();
                 return true;
@@ -518,18 +563,17 @@ namespace motion {
                 }
             } else {
                 parseParameterListLike_0x6B202C((*motionObject)["parameter"]);
-                if(auto numeric =
-                       std::dynamic_pointer_cast<PSB::PSBNumber>(
-                           parameterizeValue)) {
+                if(auto numeric = std::dynamic_pointer_cast<PSB::PSBNumber>(
+                       parameterizeValue)) {
                     int index = 0;
                     switch(numeric->numberType) {
                         case PSB::PSBNumberType::Float:
-                            index = static_cast<int>(
-                                numeric->getValue<float>());
+                            index =
+                                static_cast<int>(numeric->getValue<float>());
                             break;
                         case PSB::PSBNumberType::Double:
-                            index = static_cast<int>(
-                                numeric->getValue<double>());
+                            index =
+                                static_cast<int>(numeric->getValue<double>());
                             break;
                         case PSB::PSBNumberType::Int:
                             index = numeric->getValue<int>();
@@ -581,19 +625,19 @@ namespace motion {
             return;
         }
 
-        const auto removeRuntimeState =
-            [this](const std::string &label) {
-                if(label.empty()) {
-                    return;
-                }
-                _variableAnimators.erase(label);
-                eraseControllerAnimatorStateLike_0x671228(label);
-                _variableValues.erase(label);
-                _evalResultValues.erase(label);
-                removeEvalResultSlotLike_Reset(label);
-            };
+        const auto removeRuntimeState = [this](const std::string &label) {
+            if(label.empty()) {
+                return;
+            }
+            _variableAnimators.erase(label);
+            eraseControllerAnimatorStateLike_0x671228(label);
+            _variableValues.erase(label);
+            _evalResultValues.erase(label);
+            removeEvalResultSlotLike_Reset(label);
+        };
 
-        for(const auto &[selectorLabel, binding] : activeMotion->selectorControls) {
+        for(const auto &[selectorLabel, binding] :
+            activeMotion->selectorControls) {
             removeRuntimeState(selectorLabel);
             for(const auto &option : binding.options) {
                 removeRuntimeState(option.label);
@@ -605,22 +649,24 @@ namespace motion {
 
             // Aligned to libkrkr2.so sub_670D1C:
             // selector-enabled path resets each selector controller and
-            // immediately applies sub_6680B0(..., index=0, transition=0, ease=0).
+            // immediately applies sub_6680B0(..., index=0, transition=0,
+            // ease=0).
             setVariable(detail::widen(selectorLabel), 0.0, 0.0, 0.0);
         }
 
         _emoteDirty = true;
     }
 
-    const detail::TimelineState *Player::primaryTimelineStateLike_0x66F80C() const {
+    const detail::TimelineState *
+    Player::primaryTimelineStateLike_0x66F80C() const {
         if(!_runtime->activeMotion) {
             return nullptr;
         }
 
         const auto &primaryLabels =
             !_runtime->activeMotion->mainTimelineLabels.empty()
-                ? _runtime->activeMotion->mainTimelineLabels
-                : _runtime->activeMotion->diffTimelineLabels;
+            ? _runtime->activeMotion->mainTimelineLabels
+            : _runtime->activeMotion->diffTimelineLabels;
         for(const auto &label : primaryLabels) {
             if(const auto it = _runtime->timelines.find(label);
                it != _runtime->timelines.end()) {
@@ -629,7 +675,8 @@ namespace motion {
         }
 
         if(!_motionKey.IsEmpty()) {
-            if(const auto it = _runtime->timelines.find(detail::narrow(_motionKey));
+            if(const auto it =
+                   _runtime->timelines.find(detail::narrow(_motionKey));
                it != _runtime->timelines.end()) {
                 return &it->second;
             }
@@ -643,8 +690,8 @@ namespace motion {
     void Player::resetControllerStateLike_0x66EB8C() {
         // Aligned to libkrkr2.so sub_66EB8C:
         // the binary performs a broad controller/reset sweep after wrapper-side
-        // setMirror(). Keep the local reset focused on runtime controller state,
-        // eval sinks, and root-node dirty propagation.
+        // setMirror(). Keep the local reset focused on runtime controller
+        // state, eval sinks, and root-node dirty propagation.
         _variableAnimators.clear();
         clearControllerAnimatorStateLike_0x671228();
         _evalResultValues.clear();
@@ -676,16 +723,17 @@ namespace motion {
         const auto &motion = *_runtime->activeMotion;
         const auto selectByLabel =
             [&motion](const std::string &label) -> const detail::MotionClip * {
-                if(label.empty()) {
-                    return nullptr;
-                }
-                const auto it = motion.clipIndexByLabel.find(label);
-                if(it == motion.clipIndexByLabel.end()) return nullptr;
-                const int idx = it->second;
-                if(idx < 0 || idx >= static_cast<int>(motion.clipList.size()))
-                    return nullptr;
-                return &motion.clipList[idx];
-            };
+            if(label.empty()) {
+                return nullptr;
+            }
+            const auto it = motion.clipIndexByLabel.find(label);
+            if(it == motion.clipIndexByLabel.end())
+                return nullptr;
+            const int idx = it->second;
+            if(idx < 0 || idx >= static_cast<int>(motion.clipList.size()))
+                return nullptr;
+            return &motion.clipList[idx];
+        };
 
         // Aligned to libkrkr2.so Player_playImpl (0x6B2284):
         // the requested motion/timeline label is stored on the player before
@@ -705,10 +753,9 @@ namespace motion {
             }
         }
 
-        const auto &primaryLabels =
-            !motion.mainTimelineLabels.empty()
-                ? motion.mainTimelineLabels
-                : motion.diffTimelineLabels;
+        const auto &primaryLabels = !motion.mainTimelineLabels.empty()
+            ? motion.mainTimelineLabels
+            : motion.diffTimelineLabels;
         for(const auto &label : primaryLabels) {
             if(const auto *clip = selectByLabel(label)) {
                 return clip;
@@ -783,9 +830,10 @@ namespace motion {
             sawTimeline = true;
             anyPlaying = anyPlaying || state.playing;
             if(state.totalFrames > 0.0) {
-                progress = std::max(
-                    progress,
-                    std::clamp(state.currentTime / state.totalFrames, 0.0, 1.0));
+                progress =
+                    std::max(progress,
+                             std::clamp(state.currentTime / state.totalFrames,
+                                        0.0, 1.0));
             } else if(!state.playing) {
                 progress = std::max(progress, 1.0);
             }
@@ -804,19 +852,21 @@ namespace motion {
     // Aligned to libkrkr2.so sub_6BA7B8 at 0x6BA7B8:
     // 1. sub_A0F5E0(v9, a1+992) — read TJS dispatch from player+992
     // 2. FuncCall(obj, 0, L"random", ...) — call "random" method
-    // 3. Convert result variant to double (case 2→real, case 4→int→double, case 5→raw)
+    // 3. Convert result variant to double (case 2→real, case 4→int→double, case
+    // 5→raw)
     //
-    // player+992 is initialized once via "new Math.RandomGenerator()" (sub_6A88CC at 0x6A8988).
-    // Child Players inherit the same object from parent (sub_6CED30 at 0x6CED30: a1+992 = a2).
+    // player+992 is initialized once via "new Math.RandomGenerator()"
+    // (sub_6A88CC at 0x6A8988). Child Players inherit the same object from
+    // parent (sub_6CED30 at 0x6CED30: a1+992 = a2).
     double Player::random() {
-        if (_tjsRandomGenerator.Type() == tvtObject) {
+        if(_tjsRandomGenerator.Type() == tvtObject) {
             iTJSDispatch2 *obj = _tjsRandomGenerator.AsObjectNoAddRef();
-            if (obj) {
+            if(obj) {
                 tTJSVariant result;
                 static tjs_uint32 hint = 0;
-                tjs_error hr = obj->FuncCall(0, TJS_W("random"), &hint,
-                                             &result, 0, nullptr, obj);
-                if (TJS_SUCCEEDED(hr))
+                tjs_error hr = obj->FuncCall(0, TJS_W("random"), &hint, &result,
+                                             0, nullptr, obj);
+                if(TJS_SUCCEEDED(hr))
                     return static_cast<double>(result);
             }
         }
@@ -825,15 +875,17 @@ namespace motion {
 
     // Aligned to libkrkr2.so sub_6709AC at 0x6709AC:
     // initPhysics(min, max, amp, freq1, freq2) creates a Spring physics object
-    // at player+1128 (1564 bytes, sub_670AFC). Stores params at player+1136..1152.
-    // The Spring physics system drives emote hair/bust/parts oscillation.
-    // Full spring simulation not yet implemented for web port — store params only.
+    // at player+1128 (1564 bytes, sub_670AFC). Stores params at
+    // player+1136..1152. The Spring physics system drives emote hair/bust/parts
+    // oscillation. Full spring simulation not yet implemented for web port —
+    // store params only.
     void Player::initPhysics() {
-        // Parameters come from NCB: initPhysics(min, max, amp, freq1, freq2)
-        // In the NCB binding this is a raw callback. The actual parameters
-        // are parsed by the NCB wrapper. Since we store the scale values
-        // (hairScale/partsScale/bustScale) and these physics params would
-        // drive them, we log but accept the call.
+        // SDL3 ref: sdl3/emoteplayerclass.cpp initPhysics() is TODO.
+        // libkrkr2.so stores spring params at player+1136..1152.
+        // Metadata/rule object may arrive via EmotePlayer.initPhysics(rule).
+        LOGGER->info(
+            "Player::initPhysics(): spring simulator not fully reversed; "
+            "accepting call (SDL3 ref: TODO, metadata via setMetadata)");
         // player+1128 = physics object (not created)
         // player+1136..1152 = min, max, amplitude, freq1, freq2
     }
@@ -845,7 +897,8 @@ namespace motion {
         if(_runtime->activeMotion) {
             for(const auto &label : _runtime->activeMotion->variableLabels) {
                 seenVariables.insert(label);
-                variables.emplace_back(label, getVariable(detail::widen(label)));
+                variables.emplace_back(label,
+                                       getVariable(detail::widen(label)));
             }
         }
         for(const auto &[label, value] : _variableValues) {
@@ -923,7 +976,8 @@ namespace motion {
             const auto count = getObjectCount(value);
             for(tjs_int index = 0; index < count; ++index) {
                 tTJSVariant item;
-                if(!getArrayItem(value, index, item) || item.Type() != tvtObject ||
+                if(!getArrayItem(value, index, item) ||
+                   item.Type() != tvtObject ||
                    item.AsObjectNoAddRef() == nullptr) {
                     continue;
                 }
@@ -956,13 +1010,15 @@ namespace motion {
                 }
 
                 tTJSVariant currentTimeValue;
-                if(getObjectProperty(item, TJS_W("currentTime"), currentTimeValue) &&
+                if(getObjectProperty(item, TJS_W("currentTime"),
+                                     currentTimeValue) &&
                    currentTimeValue.Type() != tvtVoid) {
                     it->second.currentTime = currentTimeValue.AsReal();
                 }
 
                 tTJSVariant blendRatioValue;
-                if(getObjectProperty(item, TJS_W("blendRatio"), blendRatioValue) &&
+                if(getObjectProperty(item, TJS_W("blendRatio"),
+                                     blendRatioValue) &&
                    blendRatioValue.Type() != tvtVoid) {
                     it->second.blendRatio = blendRatioValue.AsReal();
                 }
@@ -974,7 +1030,8 @@ namespace motion {
                 detail::primeTimelineStates(_runtime->timelines,
                                             *_runtime->activeMotion);
             }
-            const auto &primary = !_runtime->activeMotion->mainTimelineLabels.empty()
+            const auto &primary =
+                !_runtime->activeMotion->mainTimelineLabels.empty()
                 ? _runtime->activeMotion->mainTimelineLabels
                 : _runtime->activeMotion->diffTimelineLabels;
             for(const auto &label : primary) {
@@ -1063,9 +1120,10 @@ namespace motion {
     // sub_681F30: player+1200 = a2
     void Player::setBustScale(double s) { _bustScale = s; }
 
-    // Aligned to D3DEmotePlayer_startWind (0x530680) -> Player_startWind (0x6709AC):
-    // normalize amplitude, optionally destroy/rebuild wind simulator state, then
-    // store min/max/amplitude/freq and reset the active counter.
+    // Aligned to D3DEmotePlayer_startWind (0x530680) -> Player_startWind
+    // (0x6709AC): normalize amplitude, optionally destroy/rebuild wind
+    // simulator state, then store min/max/amplitude/freq and reset the active
+    // counter.
     void Player::startWind(double minAngle, double maxAngle, double amplitude,
                            double freqX, double freqY) {
         const double absAmplitude = std::abs(amplitude);
@@ -1092,12 +1150,10 @@ namespace motion {
         _windState.amplitude = absAmplitude;
         _windState.freqX = freqX;
         _windState.freqY = freqY;
-        const double direction = _windState.prevPhase > _windState.phase
-            ? -1.0
-            : 1.0;
-        const double ratio = _emoteMeshDivisionRatio != 0.0
-            ? _emoteMeshDivisionRatio
-            : 1.0;
+        const double direction =
+            _windState.prevPhase > _windState.phase ? -1.0 : 1.0;
+        const double ratio =
+            _emoteMeshDivisionRatio != 0.0 ? _emoteMeshDivisionRatio : 1.0;
         _windState.scaledAmplitude = direction * (absAmplitude / ratio);
         _windState.counter = 0;
         _emoteDirty = true;
@@ -1134,11 +1190,32 @@ namespace motion {
         _emoteDirty = true;
     }
 
+    tTJSVariant Player::getOuterForce(ttstr label) {
+        const auto key = lowerAscii(detail::narrow(label));
+        const OuterForceState *target = nullptr;
+        if(key == "bust") {
+            target = &_bustOuterForce;
+        } else if(key == "h") {
+            target = &_hairOuterForce;
+        } else if(key == "parts") {
+            target = &_partsOuterForce;
+        } else {
+            return tTJSVariant();
+        }
+
+        return detail::makeDictionary({
+            { "x", target->x },
+            { "y", target->y },
+        });
+    }
+
     // Aligned to libkrkr2.so sub_681EF8 at 0x681EF8:
     // Stores translate (x,y) to runtime+144/148 (cameraOffsetX/Y).
-    // The full 6-param matrix version is handled by setDrawAffineTranslateMatrixCompat.
+    // The full 6-param matrix version is handled by
+    // setDrawAffineTranslateMatrixCompat.
     void Player::setDrawAffineTranslateMatrix(tTJSVariant) {
-        // Single-param variant: compat handler does the real work via NCB_METHOD_RAW
+        // Single-param variant: compat handler does the real work via
+        // NCB_METHOD_RAW
     }
 
     tTJSVariant Player::getCameraOffset() { return _cameraPosition; }
@@ -1164,8 +1241,9 @@ namespace motion {
     void Player::debugPrint() {
         LOGGER->info("motionKey={}, motions={}, sources={}, timelines={}",
                      _motionKey.AsStdString(), _runtime->motionsByKey.size(),
-                     _runtime->sourceCacheNative ? _runtime->sourceCacheNative->size()
-                                                 : 0,
+                     _runtime->sourceCacheNative
+                         ? _runtime->sourceCacheNative->size()
+                         : 0,
                      _runtime->timelines.size());
     }
 

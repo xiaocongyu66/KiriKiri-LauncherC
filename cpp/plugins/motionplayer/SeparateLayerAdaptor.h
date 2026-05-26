@@ -24,9 +24,8 @@ namespace motion {
         std::array<float, 8> color{};
         std::array<float, 2> origin{};
 
-        static NativeSLAPayloadLike_0x6DCD0C fromLayerVariant(
-            const tTJSVariant &layer,
-            tjs_uint32 ordinal);
+        static NativeSLAPayloadLike_0x6DCD0C
+        fromLayerVariant(const tTJSVariant &layer, tjs_uint32 ordinal);
         bool compatibleWithLike_0x6DCB2C(
             const NativeSLAPayloadLike_0x6DCD0C &other) const;
     };
@@ -46,8 +45,7 @@ namespace motion {
         ~NativeSLAOrderedMapLike_0x6C6B48();
 
         NativeSLAOrderedMapLike_0x6C6B48(
-            const NativeSLAOrderedMapLike_0x6C6B48 &) =
-            delete;
+            const NativeSLAOrderedMapLike_0x6C6B48 &) = delete;
         NativeSLAOrderedMapLike_0x6C6B48 &
         operator=(const NativeSLAOrderedMapLike_0x6C6B48 &) = delete;
 
@@ -75,63 +73,67 @@ namespace motion {
         explicit SeparateLayerAdaptor(tTJSVariant targetLayer = {});
         ~SeparateLayerAdaptor();
 
-        static tjs_error factory(SeparateLayerAdaptor **result, tjs_int numparams,
-                                 tTJSVariant **param, iTJSDispatch2 *objthis) {
+        static tjs_error factory(SeparateLayerAdaptor **result,
+                                 tjs_int numparams, tTJSVariant **param,
+                                 iTJSDispatch2 *objthis) {
             tTJSVariant targetLayer;
             if(numparams > 0 && param[0]) {
                 targetLayer = *param[0];
             }
-            if(result) *result = new SeparateLayerAdaptor(targetLayer);
+            if(result)
+                *result = new SeparateLayerAdaptor(targetLayer);
             return TJS_S_OK;
         }
 
         iTJSDispatch2 *getOwner() const {
-            return _owner.Type() == tvtObject ? _owner.AsObjectNoAddRef() : nullptr;
+            return _owner.Type() == tvtObject ? _owner.AsObjectNoAddRef()
+                                              : nullptr;
         }
 
-        const tTJSVariant &getOwnerVariant() const {
-            return _owner;
-        }
+        const tTJSVariant &getOwnerVariant() const { return _owner; }
 
-        // Aligned to libkrkr2.so SeparateLayerAdaptor_ncb_registerMembers (0x6ABFAC)
-        bool getAbsolute() const { return _absolute; }
-        void setAbsolute(bool v) { _absolute = v; }
+        // Aligned to libkrkr2.so SeparateLayerAdaptor_ncb_registerMembers
+        // (0x6ABFAC)
+        tjs_int getAbsolute() const { return _absolute; }
+        void setAbsolute(tjs_int v) { _absolute = v; }
         tTJSVariant getTargetLayer() const { return _targetLayer; }
         void setTargetLayer(tTJSVariant v) { _targetLayer = v; }
 
         tTJSVariant getPrivateRenderTarget() const;
         iTJSDispatch2 *getPrivateRenderTargetObject() const;
         void clear();
+        void beginAccurateRenderPassLike_0x6C9CA8();
+        tTJSVariant resolveRenderLayerNodeLike_0x6C6B48(
+            tjs_uint32 ordinal,
+            const NativeSLAPayloadLike_0x6DCD0C &sourcePayload,
+            iTJSDispatch2 *objthis, bool &createdOrChanged);
+        void endAccurateRenderPassLike_0x6C9CA8();
         static tjs_error assignCompat(tTJSVariant *result, tjs_int numparams,
                                       tTJSVariant **param,
                                       iTJSDispatch2 *objthis);
-        static tjs_error getLayerTreeOwnerInterfaceCompat(
-            tTJSVariant *result,
-            tjs_int numparams,
-            tTJSVariant **param,
-            iTJSDispatch2 *objthis);
+        static tjs_error
+        getLayerTreeOwnerInterfaceCompat(tTJSVariant *result, tjs_int numparams,
+                                         tTJSVariant **param,
+                                         iTJSDispatch2 *objthis);
 
     private:
         friend iTJSDispatch2 *ensurePrivateMotionGLLLike_0x6D5948(
-            SeparateLayerAdaptor &sla,
-            const tTJSVariant &ownerVariant,
+            SeparateLayerAdaptor &sla, const tTJSVariant &ownerVariant,
             const tTJSVariant &targetLayerVariant,
-            iTJSDispatch2 *targetLayerObject,
-            int canvasWidth,
+            iTJSDispatch2 *targetLayerObject, int canvasWidth,
             int canvasHeight);
 
         void trackManagedTargetLike_0x6AC410(const tTJSVariant &target,
                                              tjs_uint32 ordinal);
         void clearPrivateRenderState();
         void clearNativeListsForDtor();
-        tjs_error assignFromAdaptorLike_0x6AC410(
-            const SeparateLayerAdaptor &source,
-            iTJSDispatch2 *objthis);
+        tjs_error
+        assignFromAdaptorLike_0x6AC410(const SeparateLayerAdaptor &source,
+                                       iTJSDispatch2 *objthis);
         tTJSVariant resolveLayerNodeLike_0x6C6B48(
             tjs_uint32 ordinal,
             const NativeSLAPayloadLike_0x6DCD0C &sourcePayload,
-            iTJSDispatch2 *objthis,
-            bool &createdOrChanged);
+            iTJSDispatch2 *objthis, bool &createdOrChanged);
 
         // Native SeparateLayerAdaptor layout from libkrkr2.so:
         // +0 owner variant, +20 targetLayer variant, +40 private target
@@ -142,7 +144,7 @@ namespace motion {
         tTJSVariant _privateTarget;
         NativeSLAOrderedMapLike_0x6C6B48 _managedTargets;
         NativeSLAOrderedMapLike_0x6C6B48 _assignTargets;
-        tjs_uint32 _absolute = 0;
-        tjs_uint32 _assignSequence = 0;
+        tjs_int _absolute = 0;
+        tjs_int _assignSequence = 0;
     };
 } // namespace motion

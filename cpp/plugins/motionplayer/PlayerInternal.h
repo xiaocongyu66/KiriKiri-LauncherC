@@ -39,7 +39,7 @@
 #define STUB_WARN(name) LOGGER->warn("Player::" #name "() stub called")
 
 namespace motion {
-namespace internal {
+    namespace internal {
 
 
         // Return true if a source path is a motion cross-reference
@@ -63,9 +63,9 @@ namespace internal {
         //   RLE run:  count = (marker & 0x7F) + 3, repeat 4 bytes
         //   Literal:  count = marker + 1, copy count*4 bytes
         //   (0x696D00-0x696D98 in libkrkr2.so)
-        inline std::vector<std::uint8_t> decompressPsbRL(
-            const std::vector<std::uint8_t> &compressed,
-            size_t elementCount, int align = 4) {
+        inline std::vector<std::uint8_t>
+        decompressPsbRL(const std::vector<std::uint8_t> &compressed,
+                        size_t elementCount, int align = 4) {
             const size_t outputSize = elementCount * static_cast<size_t>(align);
             std::vector<std::uint8_t> output(outputSize, 0);
 
@@ -79,7 +79,8 @@ namespace internal {
                 if(marker & 0x80) {
                     // RLE run: repeat `align` bytes (count) times
                     const size_t count = (marker & 0x7F) + 3;
-                    if(src + align > srcEnd) break;
+                    if(src + align > srcEnd)
+                        break;
                     for(size_t i = 0; i < count && dst + align <= dstEnd; i++) {
                         std::memcpy(dst, src, align);
                         dst += align;
@@ -87,10 +88,12 @@ namespace internal {
                     src += align;
                 } else {
                     // Literal: copy (marker+1)*align bytes verbatim
-                    const size_t count = (marker + 1) * static_cast<size_t>(align);
-                    if(src + count > srcEnd) break;
-                    const size_t n = std::min(count,
-                        static_cast<size_t>(dstEnd - dst));
+                    const size_t count =
+                        (marker + 1) * static_cast<size_t>(align);
+                    if(src + count > srcEnd)
+                        break;
+                    const size_t n =
+                        std::min(count, static_cast<size_t>(dstEnd - dst));
                     std::memcpy(dst, src, n);
                     src += count;
                     dst += n;
@@ -100,13 +103,9 @@ namespace internal {
         }
 
         inline bool decodePsbPixelResource(
-            const detail::MotionSnapshot &snapshot,
-            const std::string &iconPath,
-            const PSB::PSBResource &pixelResource,
-            int width,
-            int height,
-            bool isRLCompressed,
-            std::vector<std::uint8_t> &decodedOut,
+            const detail::MotionSnapshot &snapshot, const std::string &iconPath,
+            const PSB::PSBResource &pixelResource, int width, int height,
+            bool isRLCompressed, std::vector<std::uint8_t> &decodedOut,
             bool *outDecodedIsBgra = nullptr) {
             decodedOut.clear();
             if(outDecodedIsBgra) {
@@ -127,12 +126,12 @@ namespace internal {
             if(hasPalette) {
                 std::vector<std::uint8_t> indexBuffer;
                 if(isRLCompressed) {
-                    indexBuffer = decompressPsbRL(pixelResource.data,
-                                                  pixelCount, 1);
+                    indexBuffer =
+                        decompressPsbRL(pixelResource.data, pixelCount, 1);
                 } else {
                     indexBuffer.resize(pixelCount, 0);
-                    const size_t copyCount = std::min(pixelCount,
-                                                      pixelResource.data.size());
+                    const size_t copyCount =
+                        std::min(pixelCount, pixelResource.data.size());
                     std::memcpy(indexBuffer.data(), pixelResource.data.data(),
                                 copyCount);
                 }
@@ -179,11 +178,13 @@ namespace internal {
             const auto fileName =
                 slash == std::string::npos ? value : value.substr(slash + 1);
             const auto dot = fileName.find_last_of('.');
-            return dot == std::string::npos ? fileName : fileName.substr(0, dot);
+            return dot == std::string::npos ? fileName
+                                            : fileName.substr(0, dot);
         }
 
         inline std::shared_ptr<detail::MotionSnapshot>
-        cacheMotion(detail::PlayerRuntime &runtime, const std::string &requestKey,
+        cacheMotion(detail::PlayerRuntime &runtime,
+                    const std::string &requestKey,
                     const std::string &resolvedKey,
                     const std::shared_ptr<detail::MotionSnapshot> &snapshot) {
             if(!snapshot) {
@@ -230,7 +231,8 @@ namespace internal {
             runtime.isEmoteMode = false;
             if(snapshot && snapshot->root) {
                 auto typeVal = (*snapshot->root)["type"];
-                if(auto num = std::dynamic_pointer_cast<PSB::PSBNumber>(typeVal)) {
+                if(auto num =
+                       std::dynamic_pointer_cast<PSB::PSBNumber>(typeVal)) {
                     runtime.isEmoteMode = (num->getValue<int>() == 1);
                 }
             }
@@ -266,14 +268,16 @@ namespace internal {
                 const auto snapshot = detail::loadMotionSnapshot(
                     resolved, ResourceManager::getEmotePSBDecryptSeed());
                 if(snapshot) {
-                    return cacheMotion(runtime, requestKey, resolvedKey, snapshot);
+                    return cacheMotion(runtime, requestKey, resolvedKey,
+                                       snapshot);
                 }
             }
 
             if(resourceManager != nullptr) {
                 for(const auto &candidate : candidates) {
                     const auto loaded = resourceManager->load(candidate);
-                    if(const auto snapshot = detail::lookupModuleSnapshot(loaded)) {
+                    if(const auto snapshot =
+                           detail::lookupModuleSnapshot(loaded)) {
                         return cacheMotion(runtime, requestKey,
                                            detail::narrow(candidate), snapshot);
                     }
@@ -304,8 +308,9 @@ namespace internal {
             return &runtime.defaultParameterEntry;
         }
 
-        inline std::vector<ttstr> buildSourceCandidates(
-            const detail::PlayerRuntime &runtime, const ttstr &name) {
+        inline std::vector<ttstr>
+        buildSourceCandidates(const detail::PlayerRuntime &runtime,
+                              const ttstr &name) {
             std::vector<ttstr> candidates;
             if(name.IsEmpty()) {
                 return candidates;
@@ -319,7 +324,8 @@ namespace internal {
 
             const auto baseDir = TVPExtractStoragePath(
                 detail::widen(runtime.activeMotion->path));
-            for(const auto &candidate : runtime.activeMotion->sourceCandidates) {
+            for(const auto &candidate :
+                runtime.activeMotion->sourceCandidates) {
                 if(candidate == requestKey ||
                    basenameWithoutExtension(candidate) == requestKey) {
                     candidates.emplace_back(detail::widen(candidate));
@@ -328,7 +334,8 @@ namespace internal {
                     if(!baseDir.IsEmpty() &&
                        candidate.find('/') == std::string::npos &&
                        candidate.find('\\') == std::string::npos) {
-                        candidates.emplace_back(baseDir + detail::widen(candidate));
+                        candidates.emplace_back(baseDir +
+                                                detail::widen(candidate));
                     }
                 }
             }
@@ -364,7 +371,8 @@ namespace internal {
             if(idx < 0) {
                 return nullptr;
             }
-            if(static_cast<size_t>(idx) >= runtime.playingTimelineLabels.size()) {
+            if(static_cast<size_t>(idx) >=
+               runtime.playingTimelineLabels.size()) {
                 return nullptr;
             }
             const auto it =
@@ -372,10 +380,12 @@ namespace internal {
             return it != runtime.timelines.end() ? &it->second : nullptr;
         }
 
-        inline bool getObjectProperty(const tTJSVariant &object, const tjs_char *name,
-                               tTJSVariant &result) {
+        inline bool getObjectProperty(const tTJSVariant &object,
+                                      const tjs_char *name,
+                                      tTJSVariant &result) {
             result.Clear();
-            if(object.Type() != tvtObject || object.AsObjectNoAddRef() == nullptr) {
+            if(object.Type() != tvtObject ||
+               object.AsObjectNoAddRef() == nullptr) {
                 return false;
             }
             const auto closure = object.AsObjectClosureNoAddRef();
@@ -383,8 +393,8 @@ namespace internal {
                 closure.Object ? closure.Object : object.AsObjectNoAddRef();
             iTJSDispatch2 *objthis =
                 closure.ObjThis ? closure.ObjThis : dispatch;
-            return TJS_SUCCEEDED(dispatch->PropGet(
-                0, name, nullptr, &result, objthis));
+            return TJS_SUCCEEDED(
+                dispatch->PropGet(0, name, nullptr, &result, objthis));
         }
 
         inline tjs_int getObjectCount(const tTJSVariant &object) {
@@ -395,9 +405,10 @@ namespace internal {
         }
 
         inline bool tryGetLayerObject(const tTJSVariant &value,
-                               tTJSNI_BaseLayer *&layer) {
+                                      tTJSNI_BaseLayer *&layer) {
             layer = nullptr;
-            if(value.Type() != tvtObject || value.AsObjectNoAddRef() == nullptr) {
+            if(value.Type() != tvtObject ||
+               value.AsObjectNoAddRef() == nullptr) {
                 return false;
             }
 
@@ -427,8 +438,10 @@ namespace internal {
         // instance. Do not chase ObjThis, SeparateLayerAdaptor owner, or TJS
         // properties here; Player_ResolveSLATarget @ 0x6D5948 only applies
         // this coercion to SLA+20 targetLayer.
-        inline iTJSDispatch2 *tryResolveLayerDispatch(const tTJSVariant &value) {
-            if(value.Type() != tvtObject || value.AsObjectNoAddRef() == nullptr) {
+        inline iTJSDispatch2 *
+        tryResolveLayerDispatch(const tTJSVariant &value) {
+            if(value.Type() != tvtObject ||
+               value.AsObjectNoAddRef() == nullptr) {
                 return nullptr;
             }
 
@@ -444,14 +457,16 @@ namespace internal {
             return nullptr;
         }
 
-        inline iTJSDispatch2 *tryResolveSeparateAdaptorOwner(const tTJSVariant &value) {
+        inline iTJSDispatch2 *
+        tryResolveSeparateAdaptorOwner(const tTJSVariant &value) {
             return tryResolveLayerDispatch(value);
         }
 
         inline bool getArrayItem(const tTJSVariant &object, tjs_int index,
-                          tTJSVariant &result) {
+                                 tTJSVariant &result) {
             result.Clear();
-            if(object.Type() != tvtObject || object.AsObjectNoAddRef() == nullptr) {
+            if(object.Type() != tvtObject ||
+               object.AsObjectNoAddRef() == nullptr) {
                 return false;
             }
             return TJS_SUCCEEDED(object.AsObjectNoAddRef()->PropGetByNum(
@@ -463,14 +478,13 @@ namespace internal {
 
             tjs_error FuncCall(tjs_uint32, const tjs_char *, tjs_uint32 *,
                                tTJSVariant *result, tjs_int numparams,
-                               tTJSVariant **param,
-                               iTJSDispatch2 *) override {
+                               tTJSVariant **param, iTJSDispatch2 *) override {
                 if(numparams < 3) {
                     return TJS_E_BADPARAMCOUNT;
                 }
 
-                const tjs_uint32 flags = static_cast<tjs_uint32>(
-                    param[1]->AsInteger());
+                const tjs_uint32 flags =
+                    static_cast<tjs_uint32>(param[1]->AsInteger());
                 if(flags & TJS_HIDDENMEMBER) {
                     if(result) {
                         *result = static_cast<tjs_int>(1);
@@ -488,10 +502,11 @@ namespace internal {
 
         // Bezier curve control points for easing.
         // Aligned to libkrkr2.so sub_69A754: PSB stores "x" and "y" arrays
-        // in the curve data dict. Each array has 3*N+1 entries (N cubic segments).
+        // in the curve data dict. Each array has 3*N+1 entries (N cubic
+        // segments).
         struct BezierCurve {
-            std::vector<double> x;  // time control points
-            std::vector<double> y;  // value control points
+            std::vector<double> x; // time control points
+            std::vector<double> y; // value control points
             bool empty() const { return x.empty(); }
         };
 
@@ -499,52 +514,54 @@ namespace internal {
         // PSB "cp" key stores nested structure: x, y, t arrays + s[] segments.
         // Each segment has x, y, p sub-arrays for cubic spline interpolation.
         struct SplineSegment {
-            std::vector<double> x;  // breakpoints
-            std::vector<double> y;  // values
-            std::vector<double> p;  // spline parameters
+            std::vector<double> x; // breakpoints
+            std::vector<double> y; // values
+            std::vector<double> p; // spline parameters
         };
         struct ControlPointCurve {
-            std::vector<double> x;  // main bezier X control points (3N+1)
-            std::vector<double> y;  // main bezier Y control points (3N+1)
-            std::vector<double> t;  // time knot points
-            std::vector<SplineSegment> s;  // per-segment spline data
+            std::vector<double> x; // main bezier X control points (3N+1)
+            std::vector<double> y; // main bezier Y control points (3N+1)
+            std::vector<double> t; // time knot points
+            std::vector<SplineSegment> s; // per-segment spline data
             bool empty() const { return t.empty(); }
         };
 
         struct FrameContentState {
             bool visible = false;
-            int frameType = 0;        // frame["type"] from sub_6926B4: 0/2/3
+            int frameType = 0; // frame["type"] from sub_6926B4: 0/2/3
             std::string src;
-            std::vector<std::string> srcList;  // For particle nodes: array of "chara/motion" paths
+            std::vector<std::string>
+                srcList; // For particle nodes: array of "chara/motion" paths
             double x = 0.0;
             double y = 0.0;
             double z = 0.0;
-            double ox = 0.0;          // mask 0x1: position offset X
-            double oy = 0.0;          // mask 0x1: position offset Y
-            double width = 0.0;       // "zx" from PSB: display width in pixels
-            double height = 0.0;      // "zy" from PSB: display height in pixels
-            double opacity = 1.0;     // mask 0x400: 0.0-1.0 (from "opa" uint8 0-255)
-            double angle = 0.0;       // mask 0x10: rotation degrees
-            double scaleX = 1.0;      // mask 0x20: zoom X ("z")
-            double scaleY = 1.0;      // mask 0x40: zoom Y ("zy" in clip context)
-            double slantX = 0.0;      // mask 0x80: slant X ("s")
-            double slantY = 0.0;      // mask 0x100: slant Y ("sy")
-            bool flipX = false;       // mask 0x4: "fx"
-            bool flipY = false;       // mask 0x8: "fy"
-            int blendMode = 16;       // mask 0x20000: "bm"/"b" (default 16)
+            double ox = 0.0; // mask 0x1: position offset X
+            double oy = 0.0; // mask 0x1: position offset Y
+            double width = 0.0; // "zx" from PSB: display width in pixels
+            double height = 0.0; // "zy" from PSB: display height in pixels
+            double opacity =
+                1.0; // mask 0x400: 0.0-1.0 (from "opa" uint8 0-255)
+            double angle = 0.0; // mask 0x10: rotation degrees
+            double scaleX = 1.0; // mask 0x20: zoom X ("z")
+            double scaleY = 1.0; // mask 0x40: zoom Y ("zy" in clip context)
+            double slantX = 0.0; // mask 0x80: slant X ("s")
+            double slantY = 0.0; // mask 0x100: slant Y ("sy")
+            bool flipX = false; // mask 0x4: "fx"
+            bool flipY = false; // mask 0x8: "fy"
+            int blendMode = 16; // mask 0x20000: "bm"/"b" (default 16)
             // Aligned to sub_692AB0 (0x692F4C..0x693428):
             // clip+72..84 stores four packed RGBA DWORDs. Default is
             // vdupq_n_s32(0xFF808080), not four scalar channels.
-            std::array<std::uint32_t, 4> packedColors{
-                0xFF808080u, 0xFF808080u, 0xFF808080u, 0xFF808080u
-            };
-            BezierCurve ccc;          // mask 0x800: color curve control
-            BezierCurve acc;          // mask 0x1000: angle curve control
-            BezierCurve zcc;          // mask 0x2000: zoom curve control
-            BezierCurve scc;          // mask 0x4000: slant curve control
-            BezierCurve occ;          // mask 0x8000: opacity curve control
-            BezierCurve cc;           // position curve (slot+296, "cc" PSB key)
-            ControlPointCurve cp;     // rotation spline (slot+268, "cp" PSB key)
+            std::array<std::uint32_t, 4> packedColors{ 0xFF808080u, 0xFF808080u,
+                                                       0xFF808080u,
+                                                       0xFF808080u };
+            BezierCurve ccc; // mask 0x800: color curve control
+            BezierCurve acc; // mask 0x1000: angle curve control
+            BezierCurve zcc; // mask 0x2000: zoom curve control
+            BezierCurve scc; // mask 0x4000: slant curve control
+            BezierCurve occ; // mask 0x8000: opacity curve control
+            BezierCurve cc; // position curve (slot+296, "cc" PSB key)
+            ControlPointCurve cp; // rotation spline (slot+268, "cp" PSB key)
             // === Subsystem data (mask 0x80000+) ===
             // mask 0x80000: motion sub-object (sub_692AB0 at 0x6938CC)
             int motionMask = 0;
@@ -552,7 +569,8 @@ namespace internal {
             int motionDt = 0;
             bool motionDocmpl = false;
             double motionDofst = 0.0;
-            std::string motionDtgt;    // mask 0x80000, sub-mask 0x10: target node name
+            std::string
+                motionDtgt; // mask 0x80000, sub-mask 0x10: target node name
             double motionTimeOffset = 0.0;
             // mask 0x100000: particle sub-object (sub_692AB0 at 0x693C64)
             int prtTrigger = 0;
@@ -576,10 +594,10 @@ namespace internal {
             // mask 0x8000000: feedback sub-object (sub_692AB0 at 0x694130)
             double feedbackTimespan = 0.0;
             // Transform order (default [0,1,2,3] = Flip,Angle,Zoom,Slant)
-            int transformOrder[4] = {0, 1, 2, 3};
+            int transformOrder[4] = { 0, 1, 2, 3 };
             bool hasTransformOrder = false;
-            std::string action;       // "content.action" from PSB frameList
-            bool hasSync = false;     // "content.sync" from PSB frameList
+            std::string action; // "content.action" from PSB frameList
+            bool hasSync = false; // "content.sync" from PSB frameList
             // Clip slot timing — slot+328 in libkrkr2.so (frame start time)
             double clipStartTime = 0.0;
             // Gated diagnostics for frame selection vs dual-slot interpolation.
@@ -616,7 +634,8 @@ namespace internal {
                         return static_cast<double>(number->getValue<int>());
                     case PSB::PSBNumberType::Long:
                     default:
-                        return static_cast<double>(number->getValue<tjs_int64>());
+                        return static_cast<double>(
+                            number->getValue<tjs_int64>());
                 }
             }
             if(auto boolean = std::dynamic_pointer_cast<PSB::PSBBool>(value)) {
@@ -625,18 +644,18 @@ namespace internal {
             return std::nullopt;
         }
 
-        inline std::optional<double>
-        psbDictionaryNumber(const std::shared_ptr<const PSB::PSBDictionary> &dic,
-                            const char *key) {
+        inline std::optional<double> psbDictionaryNumber(
+            const std::shared_ptr<const PSB::PSBDictionary> &dic,
+            const char *key) {
             if(!dic) {
                 return std::nullopt;
             }
             return psbNumberValue((*dic)[key]);
         }
 
-        inline std::string
-        psbDictionaryString(const std::shared_ptr<const PSB::PSBDictionary> &dic,
-                            const char *key) {
+        inline std::string psbDictionaryString(
+            const std::shared_ptr<const PSB::PSBDictionary> &dic,
+            const char *key) {
             if(!dic) {
                 return {};
             }
@@ -656,21 +675,25 @@ namespace internal {
             return std::dynamic_pointer_cast<PSB::PSBList>((*dic)[key]);
         }
 
-        // Parse a BezierCurve from a PSB dict that has "x" and "y" list children.
-        // Aligned to libkrkr2.so sub_69A754 (0x69A754): reads curve_data["x"]
-        // and curve_data["y"] as arrays of doubles.
-        inline BezierCurve parseBezierCurve(
-            const std::shared_ptr<const PSB::PSBDictionary> &dic) {
+        // Parse a BezierCurve from a PSB dict that has "x" and "y" list
+        // children. Aligned to libkrkr2.so sub_69A754 (0x69A754): reads
+        // curve_data["x"] and curve_data["y"] as arrays of doubles.
+        inline BezierCurve
+        parseBezierCurve(const std::shared_ptr<const PSB::PSBDictionary> &dic) {
             BezierCurve curve;
-            if(!dic) return curve;
+            if(!dic)
+                return curve;
             auto xList = std::dynamic_pointer_cast<PSB::PSBList>((*dic)["x"]);
             auto yList = std::dynamic_pointer_cast<PSB::PSBList>((*dic)["y"]);
-            if(!xList || !yList) return curve;
+            if(!xList || !yList)
+                return curve;
             for(int i = 0; i < static_cast<int>(xList->size()); i++) {
-                if(auto v = psbNumberValue((*xList)[i])) curve.x.push_back(*v);
+                if(auto v = psbNumberValue((*xList)[i]))
+                    curve.x.push_back(*v);
             }
             for(int i = 0; i < static_cast<int>(yList->size()); i++) {
-                if(auto v = psbNumberValue((*yList)[i])) curve.y.push_back(*v);
+                if(auto v = psbNumberValue((*yList)[i]))
+                    curve.y.push_back(*v);
             }
             return curve;
         }
@@ -683,128 +706,177 @@ namespace internal {
         //   - If t >= x[last]: return y[last]
         //   - Find segment where x[i] >= t (step 3)
         //   - B(t) = (1-t)³P0 + 3(1-t)²tP1 + 3(1-t)t²P2 + t³P3
-        template<typename CurveT>
+        template <typename CurveT>
         inline double evaluateBezierCurve(const CurveT &curve, double t) {
-            if(curve.x.size() < 2 || curve.y.size() < 2) return t;
-            if(curve.x.size() != curve.y.size()) return t;
+            if(curve.x.size() < 2 || curve.y.size() < 2)
+                return t;
+            if(curve.x.size() != curve.y.size())
+                return t;
             const size_t n = curve.x.size();
-            if(curve.x[0] >= t) return curve.y[0];
-            if(curve.x[n-1] <= t) return curve.y[n-1];
+            if(curve.x[0] >= t)
+                return curve.y[0];
+            if(curve.x[n - 1] <= t)
+                return curve.y[n - 1];
             // Find segment (step 3, aligned to sub_69A754 at 0x69A960)
             size_t i = 0;
-            while(i < n && curve.x[i] < t) i += 3;
-            if(i < 3 || i >= n) return t;
+            while(i < n && curve.x[i] < t)
+                i += 3;
+            if(i < 3 || i >= n)
+                return t;
             // Cubic bezier: P0=y[i-3], P1=y[i-2], P2=y[i-1], P3=y[i]
-            const double p0 = curve.y[i-3];
-            const double p1 = curve.y[i-2];
-            const double p2 = curve.y[i-1];
+            const double p0 = curve.y[i - 3];
+            const double p1 = curve.y[i - 2];
+            const double p2 = curve.y[i - 1];
             const double p3 = curve.y[i];
             const double u = 1.0 - t;
-            return u*u*u*p0 + 3.0*u*u*t*p1 + 3.0*u*t*t*p2 + t*t*t*p3;
+            return u * u * u * p0 + 3.0 * u * u * t * p1 +
+                3.0 * u * t * t * p2 + t * t * t * p3;
         }
 
         // sub_698454 equivalent: evaluate control point curve for rotation.
         // Returns 2D point (cos/sin pair) for rotation interpolation.
-        inline void evaluateControlPointCurve(
-            double outXY[2], const ControlPointCurve &cp, double inputT) {
-            if (cp.t.size() < 2 || cp.x.size() < 4 || cp.y.size() < 4) return;
-            // Step 1: find segment in t[] where t[i+1] >= inputT (0x698720..0x698744)
+        inline void evaluateControlPointCurve(double outXY[2],
+                                              const ControlPointCurve &cp,
+                                              double inputT) {
+            if(cp.t.size() < 2 || cp.x.size() < 4 || cp.y.size() < 4)
+                return;
+            // Step 1: find segment in t[] where t[i+1] >= inputT
+            // (0x698720..0x698744)
             int segIdx = 0;
             int mainIdx = 0;
-            for (size_t i = 1; i < cp.t.size(); ++i) {
+            for(size_t i = 1; i < cp.t.size(); ++i) {
                 mainIdx += 3;
-                if (cp.t[i] >= inputT) { segIdx = static_cast<int>(i) - 1; break; }
+                if(cp.t[i] >= inputT) {
+                    segIdx = static_cast<int>(i) - 1;
+                    break;
+                }
                 segIdx = static_cast<int>(i) - 1;
             }
-            if (segIdx < 0 || segIdx >= static_cast<int>(cp.s.size())) return;
+            if(segIdx < 0 || segIdx >= static_cast<int>(cp.s.size()))
+                return;
             // Knot values (0x69875C..0x69878C)
             double tStart = cp.t[segIdx];
-            double tEnd = (segIdx + 1 < static_cast<int>(cp.t.size())) ? cp.t[segIdx + 1] : tStart;
-            double localT = (tEnd != tStart) ? (inputT - tStart) / (tEnd - tStart) : 0.0;
-            // Step 2: evaluate segment spline to get bezier parameter (0x6989D8..0x698B38)
+            double tEnd = (segIdx + 1 < static_cast<int>(cp.t.size()))
+                ? cp.t[segIdx + 1]
+                : tStart;
+            double localT =
+                (tEnd != tStart) ? (inputT - tStart) / (tEnd - tStart) : 0.0;
+            // Step 2: evaluate segment spline to get bezier parameter
+            // (0x6989D8..0x698B38)
             double param = localT;
             const auto &seg = cp.s[segIdx];
-            if (!seg.x.empty() && seg.x.size() == seg.y.size()) {
+            if(!seg.x.empty() && seg.x.size() == seg.y.size()) {
                 double sx0 = seg.x[0];
-                if (sx0 >= localT) {
+                if(sx0 >= localT) {
                     param = seg.y[0];
-                } else if (seg.x.back() <= localT) {
+                } else if(seg.x.back() <= localT) {
                     param = seg.y.back();
                 } else {
                     // Find sub-segment (step 1, 0x698A18..0x698A38)
                     int subIdx = 0;
-                    for (size_t i = 1; i < seg.x.size(); ++i) {
-                        if (seg.x[i] >= localT) { subIdx = static_cast<int>(i) - 1; break; }
+                    for(size_t i = 1; i < seg.x.size(); ++i) {
+                        if(seg.x[i] >= localT) {
+                            subIdx = static_cast<int>(i) - 1;
+                            break;
+                        }
                         subIdx = static_cast<int>(i) - 1;
                     }
-                    if (subIdx >= 0 && subIdx + 1 < static_cast<int>(seg.x.size()) &&
-                        subIdx + 1 < static_cast<int>(seg.y.size())) {
+                    if(subIdx >= 0 &&
+                       subIdx + 1 < static_cast<int>(seg.x.size()) &&
+                       subIdx + 1 < static_cast<int>(seg.y.size())) {
                         double x0 = seg.x[subIdx], x1 = seg.x[subIdx + 1];
                         double y0 = seg.y[subIdx], y1 = seg.y[subIdx + 1];
                         double dx = x1 - x0;
-                        if (dx != 0.0) {
+                        if(dx != 0.0) {
                             double u = (localT - x0) / dx;
-                            double p0 = (subIdx < static_cast<int>(seg.p.size())) ? seg.p[subIdx] : 0.0;
-                            double p1 = (subIdx + 1 < static_cast<int>(seg.p.size())) ? seg.p[subIdx + 1] : 0.0;
+                            double p0 =
+                                (subIdx < static_cast<int>(seg.p.size()))
+                                ? seg.p[subIdx]
+                                : 0.0;
+                            double p1 =
+                                (subIdx + 1 < static_cast<int>(seg.p.size()))
+                                ? seg.p[subIdx + 1]
+                                : 0.0;
                             // Cubic spline formula (0x698AF0..0x698B38)
-                            param = dx * dx * ((u*u*u - u) * p1 + ((1-u)*(1-u)*(1-u) - (1-u)) * p0) / 6.0
-                                  + u * y1 + (1 - u) * y0;
+                            param = dx * dx *
+                                    ((u * u * u - u) * p1 +
+                                     ((1 - u) * (1 - u) * (1 - u) - (1 - u)) *
+                                         p0) /
+                                    6.0 +
+                                u * y1 + (1 - u) * y0;
                         }
                     }
                 }
             }
-            // Step 3: evaluate main cubic bezier with 'param' (0x698BF0..0x698D0C)
-            if (mainIdx >= 3 && mainIdx < static_cast<int>(cp.x.size()) &&
-                mainIdx < static_cast<int>(cp.y.size())) {
-                double px0 = cp.x[mainIdx-3], py0 = cp.y[mainIdx-3];
-                double px1 = cp.x[mainIdx-2], py1 = cp.y[mainIdx-2];
-                double px2 = cp.x[mainIdx-1], py2 = cp.y[mainIdx-1];
-                double px3 = cp.x[mainIdx],   py3 = cp.y[mainIdx];
+            // Step 3: evaluate main cubic bezier with 'param'
+            // (0x698BF0..0x698D0C)
+            if(mainIdx >= 3 && mainIdx < static_cast<int>(cp.x.size()) &&
+               mainIdx < static_cast<int>(cp.y.size())) {
+                double px0 = cp.x[mainIdx - 3], py0 = cp.y[mainIdx - 3];
+                double px1 = cp.x[mainIdx - 2], py1 = cp.y[mainIdx - 2];
+                double px2 = cp.x[mainIdx - 1], py2 = cp.y[mainIdx - 1];
+                double px3 = cp.x[mainIdx], py3 = cp.y[mainIdx];
                 double u = 1.0 - param;
-                outXY[0] = u*u*u*px0 + 3*u*u*param*px1 + 3*u*param*param*px2 + param*param*param*px3;
-                outXY[1] = u*u*u*py0 + 3*u*u*param*py1 + 3*u*param*param*py2 + param*param*param*py3;
+                outXY[0] = u * u * u * px0 + 3 * u * u * param * px1 +
+                    3 * u * param * param * px2 + param * param * param * px3;
+                outXY[1] = u * u * u * py0 + 3 * u * u * param * py1 +
+                    3 * u * param * param * py2 + param * param * param * py3;
             }
         }
 
-        // sub_69A4D4 equivalent: position interpolation with optional easing + rotation.
-        // Uses ccc for easing (slot+168) and cp for rotation (slot+268).
+        // sub_69A4D4 equivalent: position interpolation with optional easing +
+        // rotation. Uses ccc for easing (slot+168) and cp for rotation
+        // (slot+268).
         inline void interpolatePosition69A4D4(
-            const BezierCurve &easingCurve,         // ccc (slot+168)
-            const double dstPos[3],                 // other slot [x,y,z]
-            const double srcPos[3],                 // current slot [x,y,z]
-            double outPos[3],                       // output
+            const BezierCurve &easingCurve, // ccc (slot+168)
+            const double dstPos[3], // other slot [x,y,z]
+            const double srcPos[3], // current slot [x,y,z]
+            double outPos[3], // output
             int coordinateMode,
             const ControlPointCurve &rotationCurve, // cp (slot+268)
             double t) {
             // Skip if positions identical (0x69A52C..0x69A558)
-            if (srcPos[0]==dstPos[0] && srcPos[1]==dstPos[1] && srcPos[2]==dstPos[2]) {
-                outPos[0]=srcPos[0]; outPos[1]=srcPos[1]; outPos[2]=srcPos[2];
+            if(srcPos[0] == dstPos[0] && srcPos[1] == dstPos[1] &&
+               srcPos[2] == dstPos[2]) {
+                outPos[0] = srcPos[0];
+                outPos[1] = srcPos[1];
+                outPos[2] = srcPos[2];
                 return;
             }
             // Apply easing (0x69A55C..0x69A56C)
-            double et = !easingCurve.empty() ? evaluateBezierCurve(easingCurve, t) : t;
-            if (rotationCurve.empty()) {
+            double et =
+                !easingCurve.empty() ? evaluateBezierCurve(easingCurve, t) : t;
+            if(rotationCurve.empty()) {
                 // Linear path (0x69A600..0x69A6F8)
-                for (int i = 0; i < 3; ++i)
-                    outPos[i] = (srcPos[i]!=dstPos[i]) ? srcPos[i]*(1-et)+dstPos[i]*et : srcPos[i];
+                for(int i = 0; i < 3; ++i)
+                    outPos[i] = (srcPos[i] != dstPos[i])
+                        ? srcPos[i] * (1 - et) + dstPos[i] * et
+                        : srcPos[i];
                 return;
             }
-            // Rotation path via sub_698454 (0x69A588..0x69A5CC / 0x69A680..0x69A6F0)
-            double rot[2] = {1.0, 0.0};
+            // Rotation path via sub_698454 (0x69A588..0x69A5CC /
+            // 0x69A680..0x69A6F0)
+            double rot[2] = { 1.0, 0.0 };
             evaluateControlPointCurve(rot, rotationCurve, et);
             double cosA = rot[0], sinA = rot[1];
-            if (coordinateMode == 0) {
-                double dx = dstPos[0]-srcPos[0], dy = dstPos[1]-srcPos[1];
-                outPos[0] = srcPos[0] + dx*cosA - dy*sinA;
-                outPos[1] = srcPos[1] + dx*sinA + dy*cosA;
-                outPos[2] = (srcPos[2]!=dstPos[2]) ? srcPos[2]*(1-et)+dstPos[2]*et : srcPos[2];
-            } else if (coordinateMode == 1) {
-                double dx = dstPos[0]-srcPos[0], dz = dstPos[2]-srcPos[2];
-                outPos[0] = srcPos[0] + dx*cosA - dz*sinA;
-                outPos[1] = (srcPos[1]!=dstPos[1]) ? srcPos[1]*(1-et)+dstPos[1]*et : srcPos[1];
-                outPos[2] = srcPos[2] + dz*cosA + dx*sinA;
+            if(coordinateMode == 0) {
+                double dx = dstPos[0] - srcPos[0], dy = dstPos[1] - srcPos[1];
+                outPos[0] = srcPos[0] + dx * cosA - dy * sinA;
+                outPos[1] = srcPos[1] + dx * sinA + dy * cosA;
+                outPos[2] = (srcPos[2] != dstPos[2])
+                    ? srcPos[2] * (1 - et) + dstPos[2] * et
+                    : srcPos[2];
+            } else if(coordinateMode == 1) {
+                double dx = dstPos[0] - srcPos[0], dz = dstPos[2] - srcPos[2];
+                outPos[0] = srcPos[0] + dx * cosA - dz * sinA;
+                outPos[1] = (srcPos[1] != dstPos[1])
+                    ? srcPos[1] * (1 - et) + dstPos[1] * et
+                    : srcPos[1];
+                outPos[2] = srcPos[2] + dz * cosA + dx * sinA;
             } else {
-                outPos[0]=srcPos[0]; outPos[1]=srcPos[1]; outPos[2]=srcPos[2];
+                outPos[0] = srcPos[0];
+                outPos[1] = srcPos[1];
+                outPos[2] = srcPos[2];
             }
         }
 
@@ -817,36 +889,39 @@ namespace internal {
             return std::dynamic_pointer_cast<PSB::PSBDictionary>((*dic)[key]);
         }
 
-        inline void mergeFrameContent(const std::shared_ptr<PSB::PSBDictionary> &content,
-                               FrameContentState &state,
-                               int nodeType) {
+        inline void
+        mergeFrameContent(const std::shared_ptr<PSB::PSBDictionary> &content,
+                          FrameContentState &state, int nodeType) {
             if(!content) {
                 return;
             }
 
             // Aligned to libkrkr2.so sub_692AB0 (0x692AB0):
-            // the clip slot is already reset to defaults by sub_69260C/ParsedFrame,
-            // then this routine applies only the fields selected by mask bits.
+            // the clip slot is already reset to defaults by
+            // sub_69260C/ParsedFrame, then this routine applies only the fields
+            // selected by mask bits.
             const int mask = static_cast<int>(
                 psbDictionaryNumber(content, "mask").value_or(0));
 
-            // sub_692AB0 gates the "src"/"icon" lookup on ((1 << nodeType) & 0x1849).
-            // This covers the initial source-handle block only; ox/oy/coord are handled
-            // below by their own mask bits.
-            const bool sourceGateEnabled =
-                nodeType >= 0 && nodeType < 63 &&
+            // sub_692AB0 gates the "src"/"icon" lookup on ((1 << nodeType) &
+            // 0x1849). This covers the initial source-handle block only;
+            // ox/oy/coord are handled below by their own mask bits.
+            const bool sourceGateEnabled = nodeType >= 0 && nodeType < 63 &&
                 ((((std::uint64_t)1) << static_cast<unsigned>(nodeType)) &
                  0x1849u) != 0;
             if(sourceGateEnabled) {
-                if(const auto src = psbDictionaryString(content, "src"); !src.empty()) {
+                if(const auto src = psbDictionaryString(content, "src");
+                   !src.empty()) {
                     state.src = src;
                 } else if(auto srcList = psbDictionaryList(content, "src")) {
                     for(size_t si = 0; si < srcList->size(); ++si) {
-                        if(auto s = std::dynamic_pointer_cast<PSB::PSBString>((*srcList)[si])) {
+                        if(auto s = std::dynamic_pointer_cast<PSB::PSBString>(
+                               (*srcList)[si])) {
                             state.srcList.push_back(s->value);
                         }
                     }
-                    if(!state.srcList.empty()) state.src = state.srcList[0];
+                    if(!state.srcList.empty())
+                        state.src = state.srcList[0];
                 }
             }
 
@@ -859,7 +934,8 @@ namespace internal {
             }
 
             // mask & 0x2: coord[x,y,z] (sub_692AB0 at 0x692E14).
-            // Binary fetches content["coord"] then reads indices 0/1/2 via sub_6695BC.
+            // Binary fetches content["coord"] then reads indices 0/1/2 via
+            // sub_6695BC.
             if(mask & 0x2) {
                 if(const auto coord = psbDictionaryList(content, "coord")) {
                     if(coord->size() > 0) {
@@ -874,10 +950,14 @@ namespace internal {
                         if(const auto value = psbNumberValue((*coord)[2]))
                             state.z = *value;
                     }
-                } else if(auto coordDict = psbDictionaryValue(content, "coord")) {
-                    if(auto value = psbDictionaryNumber(coordDict, "0")) state.x = *value;
-                    if(auto value = psbDictionaryNumber(coordDict, "1")) state.y = *value;
-                    if(auto value = psbDictionaryNumber(coordDict, "2")) state.z = *value;
+                } else if(auto coordDict =
+                              psbDictionaryValue(content, "coord")) {
+                    if(auto value = psbDictionaryNumber(coordDict, "0"))
+                        state.x = *value;
+                    if(auto value = psbDictionaryNumber(coordDict, "1"))
+                        state.y = *value;
+                    if(auto value = psbDictionaryNumber(coordDict, "2"))
+                        state.z = *value;
                 }
             }
 
@@ -921,7 +1001,8 @@ namespace internal {
 
             // mask & 0x80: slantX ("sx") / mask & 0x100: slantY ("sy")
             // Aligned to sub_692AB0 at 0x69306C.
-            // 0x14D869A: bytes 73 00 78 00 00 00 = UTF-16LE "sx" (IDA showed "s")
+            // 0x14D869A: bytes 73 00 78 00 00 00 = UTF-16LE "sx" (IDA showed
+            // "s")
             if(mask & 0x180) {
                 if(mask & 0x80) {
                     if(const auto s = psbDictionaryNumber(content, "sx"))
@@ -971,38 +1052,46 @@ namespace internal {
 
             // "cc" position curve (sub_692AB0 at 0x693580, slot+296)
             // Used by sub_69A4D4 to ease position interpolation t value.
-            // Check done AFTER per-property curves, gated by slot+25 (crossfading)
-            // and slot+22 (flipX) at 0x6932B8..0x6932C4.
+            // Check done AFTER per-property curves, gated by slot+25
+            // (crossfading) and slot+22 (flipX) at 0x6932B8..0x6932C4.
             if(auto ccDict = psbDictionaryValue(content, "cc"))
                 state.cc = parseBezierCurve(ccDict);
 
             // "cp" rotation control points (sub_692AB0 at 0x6932D8, slot+268)
-            // Used by sub_698454 for spline rotation interpolation in sub_69A4D4.
+            // Used by sub_698454 for spline rotation interpolation in
+            // sub_69A4D4.
             if(auto cpDict = psbDictionaryValue(content, "cp")) {
                 auto cpxList = psbDictionaryList(cpDict, "x");
                 auto cpyList = psbDictionaryList(cpDict, "y");
                 auto cptList = psbDictionaryList(cpDict, "t");
                 auto cpsList = psbDictionaryList(cpDict, "s");
-                if (cpxList && cpyList && cptList) {
-                    for (size_t ci = 0; ci < cpxList->size(); ++ci)
-                        if (auto v = psbNumberValue((*cpxList)[ci])) state.cp.x.push_back(*v);
-                    for (size_t ci = 0; ci < cpyList->size(); ++ci)
-                        if (auto v = psbNumberValue((*cpyList)[ci])) state.cp.y.push_back(*v);
-                    for (size_t ci = 0; ci < cptList->size(); ++ci)
-                        if (auto v = psbNumberValue((*cptList)[ci])) state.cp.t.push_back(*v);
-                    if (cpsList) {
-                        for (size_t ci = 0; ci < cpsList->size(); ++ci) {
+                if(cpxList && cpyList && cptList) {
+                    for(size_t ci = 0; ci < cpxList->size(); ++ci)
+                        if(auto v = psbNumberValue((*cpxList)[ci]))
+                            state.cp.x.push_back(*v);
+                    for(size_t ci = 0; ci < cpyList->size(); ++ci)
+                        if(auto v = psbNumberValue((*cpyList)[ci]))
+                            state.cp.y.push_back(*v);
+                    for(size_t ci = 0; ci < cptList->size(); ++ci)
+                        if(auto v = psbNumberValue((*cptList)[ci]))
+                            state.cp.t.push_back(*v);
+                    if(cpsList) {
+                        for(size_t ci = 0; ci < cpsList->size(); ++ci) {
                             SplineSegment seg;
-                            if (auto segDict = std::dynamic_pointer_cast<PSB::PSBDictionary>((*cpsList)[ci])) {
-                                if (auto sx = psbDictionaryList(segDict, "x"))
-                                    for (size_t si = 0; si < sx->size(); ++si)
-                                        if (auto v = psbNumberValue((*sx)[si])) seg.x.push_back(*v);
-                                if (auto sy = psbDictionaryList(segDict, "y"))
-                                    for (size_t si = 0; si < sy->size(); ++si)
-                                        if (auto v = psbNumberValue((*sy)[si])) seg.y.push_back(*v);
-                                if (auto sp = psbDictionaryList(segDict, "p"))
-                                    for (size_t si = 0; si < sp->size(); ++si)
-                                        if (auto v = psbNumberValue((*sp)[si])) seg.p.push_back(*v);
+                            if(auto segDict = std::dynamic_pointer_cast<
+                                   PSB::PSBDictionary>((*cpsList)[ci])) {
+                                if(auto sx = psbDictionaryList(segDict, "x"))
+                                    for(size_t si = 0; si < sx->size(); ++si)
+                                        if(auto v = psbNumberValue((*sx)[si]))
+                                            seg.x.push_back(*v);
+                                if(auto sy = psbDictionaryList(segDict, "y"))
+                                    for(size_t si = 0; si < sy->size(); ++si)
+                                        if(auto v = psbNumberValue((*sy)[si]))
+                                            seg.y.push_back(*v);
+                                if(auto sp = psbDictionaryList(segDict, "p"))
+                                    for(size_t si = 0; si < sp->size(); ++si)
+                                        if(auto v = psbNumberValue((*sp)[si]))
+                                            seg.p.push_back(*v);
                             }
                             state.cp.s.push_back(std::move(seg));
                         }
@@ -1016,12 +1105,14 @@ namespace internal {
                 if(auto colorDict = psbDictionaryValue(content, "color")) {
                     for(int ci = 0; ci < 4; ++ci) {
                         const auto key = std::to_string(ci);
-                        if(auto value = psbDictionaryNumber(colorDict, key.c_str())) {
-                            state.packedColors[ci] =
-                                static_cast<std::uint32_t>(static_cast<std::int64_t>(*value));
+                        if(auto value =
+                               psbDictionaryNumber(colorDict, key.c_str())) {
+                            state.packedColors[ci] = static_cast<std::uint32_t>(
+                                static_cast<std::int64_t>(*value));
                         }
                     }
-                } else if(auto colorVal = psbDictionaryNumber(content, "color")) {
+                } else if(auto colorVal =
+                              psbDictionaryNumber(content, "color")) {
                     // Scalar color is broadcast to all four packed slots.
                     const auto packed = static_cast<std::uint32_t>(
                         static_cast<std::int64_t>(*colorVal));
@@ -1056,10 +1147,12 @@ namespace internal {
                         if(auto v = psbDictionaryNumber(md, "dofst"))
                             state.motionDofst = *v;
                     }
-                    // dtgt (mm & 0x10): target node name string (sub_692AB0 at 0x693A48)
+                    // dtgt (mm & 0x10): target node name string (sub_692AB0 at
+                    // 0x693A48)
                     if(mm & 0x10) {
                         auto v = psbDictionaryString(md, "dtgt");
-                        if(!v.empty()) state.motionDtgt = v;
+                        if(!v.empty())
+                            state.motionDtgt = v;
                     }
                     if(auto v = psbDictionaryNumber(md, "timeOffset"))
                         state.motionTimeOffset = *v;
@@ -1143,9 +1236,10 @@ namespace internal {
                 }
             }
 
-            // action/sync: not mask-gated (separate mechanism via mask & 0x40000
-            // in sub_6926B4 at 0x6928EC)
-            if(const auto act = psbDictionaryString(content, "action"); !act.empty()) {
+            // action/sync: not mask-gated (separate mechanism via mask &
+            // 0x40000 in sub_6926B4 at 0x6928EC)
+            if(const auto act = psbDictionaryString(content, "action");
+               !act.empty()) {
                 state.action = act;
             }
             if(const auto sync = psbDictionaryNumber(content, "sync")) {
@@ -1155,22 +1249,26 @@ namespace internal {
 
         // Parse a single PSB frame entry: read time, type, content.
         // Aligned to libkrkr2.so sub_6926B4 (0x6926B4):
-        //   - Reads frame["time"] (double), frame["type"] (int: 0=invisible, 2=static, 3=interpolate)
-        //   - Reads frame["content"]["mask"] and calls sub_692AB0 to populate slot properties
+        //   - Reads frame["time"] (double), frame["type"] (int: 0=invisible,
+        //   2=static, 3=interpolate)
+        //   - Reads frame["content"]["mask"] and calls sub_692AB0 to populate
+        //   slot properties
         //   - Reads frame["content"]["act"] (action string, mask & 0x40000)
         struct ParsedFrame {
             double time = 0.0;
-            int type = 0;        // 0=invisible, 2=static, 3=interpolate
-            bool invisible = true;  // type==0
+            int type = 0; // 0=invisible, 2=static, 3=interpolate
+            bool invisible = true; // type==0
             bool interpolate = false; // type==3
-            FrameContentState slot;  // populated by sub_692AB0 (mergeFrameContent)
+            FrameContentState
+                slot; // populated by sub_692AB0 (mergeFrameContent)
         };
 
         inline ParsedFrame
         parseFrame(const std::shared_ptr<PSB::PSBDictionary> &frame,
                    int nodeType) {
             ParsedFrame result;
-            if(!frame) return result;
+            if(!frame)
+                return result;
             result.time = psbDictionaryNumber(frame, "time").value_or(0.0);
             result.type = static_cast<int>(
                 psbDictionaryNumber(frame, "type").value_or(0.0));
@@ -1178,7 +1276,8 @@ namespace internal {
             result.interpolate = (result.type == 3);
             result.slot.frameType = result.type;
             if(!result.invisible) {
-                // sub_6926B4 at 0x692838: read content dict, then call sub_692AB0
+                // sub_6926B4 at 0x692838: read content dict, then call
+                // sub_692AB0
                 if(const auto content = psbDictionaryValue(frame, "content")) {
                     mergeFrameContent(content, result.slot, nodeType);
                 }
@@ -1199,12 +1298,12 @@ namespace internal {
         // Aligned to libkrkr2.so sub_699AE4 (0x699AE4):
         //   - Takes slotA (active frame) and slotB (next frame)
         //   - Interpolation ratio t ∈ [0,1]
-        //   - Applies bezier curve easing per property (ccc, acc, zcc, scc, occ)
+        //   - Applies bezier curve easing per property (ccc, acc, zcc, scc,
+        //   occ)
         //   - Returns interpolated result
         inline FrameContentState
         interpolateSlots(const FrameContentState &slotA,
-                         const FrameContentState &slotB,
-                         int coordinateMode,
+                         const FrameContentState &slotB, int coordinateMode,
                          double t) {
             FrameContentState state = slotA;
 
@@ -1217,17 +1316,16 @@ namespace internal {
             // through sub_69A754 bezier evaluation before interpolation.
 
             // acc: eases angle (sub_699AE4 at 0x699DE8)
-            const double t_acc = !state.acc.empty()
-                ? evaluateBezierCurve(state.acc, t) : t;
+            const double t_acc =
+                !state.acc.empty() ? evaluateBezierCurve(state.acc, t) : t;
 
             // Player_evaluateTimeline @ 0x699AE4 calls sub_69A4D4 for
             // position, using the active slot ccc/cp blocks.
             const double srcPos[3] = { state.x, state.y, state.z };
             const double dstPos[3] = { slotB.x, slotB.y, slotB.z };
             double outPos[3] = {};
-            interpolatePosition69A4D4(
-                state.ccc, dstPos, srcPos, outPos,
-                coordinateMode, state.cp, t);
+            interpolatePosition69A4D4(state.ccc, dstPos, srcPos, outPos,
+                                      coordinateMode, state.cp, t);
             state.x = outPos[0];
             state.y = outPos[1];
             state.z = outPos[2];
@@ -1260,27 +1358,31 @@ namespace internal {
             double nxtAngle = slotB.angle;
             if(curAngle != nxtAngle) {
                 if(curAngle >= nxtAngle) {
-                    if(curAngle - nxtAngle > 180.0) nxtAngle += 360.0;
+                    if(curAngle - nxtAngle > 180.0)
+                        nxtAngle += 360.0;
                 } else {
-                    if(nxtAngle - curAngle > 180.0) nxtAngle -= 360.0;
+                    if(nxtAngle - curAngle > 180.0)
+                        nxtAngle -= 360.0;
                 }
                 double interpAngle = lerp(curAngle, nxtAngle, t_acc);
-                if(interpAngle < 0.0) interpAngle += 360.0;
-                else if(interpAngle >= 360.0) interpAngle -= 360.0;
+                if(interpAngle < 0.0)
+                    interpAngle += 360.0;
+                else if(interpAngle >= 360.0)
+                    interpAngle -= 360.0;
                 state.angle = interpAngle;
             }
 
             // ScaleX/scaleY — uses zcc-eased t (sub_699AE4 at 0x699E4C)
-            const double t_zcc = !state.zcc.empty()
-                ? evaluateBezierCurve(state.zcc, t) : t;
+            const double t_zcc =
+                !state.zcc.empty() ? evaluateBezierCurve(state.zcc, t) : t;
             if(state.scaleX != slotB.scaleX)
                 state.scaleX = lerp(state.scaleX, slotB.scaleX, t_zcc);
             if(state.scaleY != slotB.scaleY)
                 state.scaleY = lerp(state.scaleY, slotB.scaleY, t_zcc);
 
             // SlantX/slantY — uses scc-eased t (sub_699AE4 at 0x699EFC)
-            const double t_scc = !state.scc.empty()
-                ? evaluateBezierCurve(state.scc, t) : t;
+            const double t_scc =
+                !state.scc.empty() ? evaluateBezierCurve(state.scc, t) : t;
             if(state.slantX != slotB.slantX)
                 state.slantX = lerp(state.slantX, slotB.slantX, t_scc);
             if(state.slantY != slotB.slantY)
@@ -1306,24 +1408,26 @@ namespace internal {
         // Evaluate layer content at a given time.
         // Orchestrator that calls:
         //   1. parseFrame (sub_6926B4) — parse each frame in frameList
-        //   2. mergeFrameContent (sub_692AB0) — read mask-gated properties (called by parseFrame)
+        //   2. mergeFrameContent (sub_692AB0) — read mask-gated properties
+        //   (called by parseFrame)
         //   3. interpolateSlots (sub_699AE4) — dual-slot interpolation
-        inline FrameContentState
-        evaluateLayerContent(const std::shared_ptr<const PSB::PSBDictionary> &layer,
-                             double time,
-                             int nodeType) {
+        inline FrameContentState evaluateLayerContent(
+            const std::shared_ptr<const PSB::PSBDictionary> &layer, double time,
+            int nodeType) {
             FrameContentState state;
             const auto frames = psbDictionaryList(layer, "frameList");
             if(!frames || frames->size() == 0) {
                 return state;
             }
 
-            // Read transformOrder from layer dict (stored at node+84..96 in libkrkr2.so).
-            // sub_699940 uses this to determine the order of Flip/Angle/Zoom/Slant.
+            // Read transformOrder from layer dict (stored at node+84..96 in
+            // libkrkr2.so). sub_699940 uses this to determine the order of
+            // Flip/Angle/Zoom/Slant.
             if(auto toList = psbDictionaryList(
                    std::const_pointer_cast<PSB::PSBDictionary>(layer),
                    "transformOrder")) {
-                for(int i = 0; i < 4 && i < static_cast<int>(toList->size()); i++) {
+                for(int i = 0; i < 4 && i < static_cast<int>(toList->size());
+                    i++) {
                     if(auto v = psbNumberValue((*toList)[i]))
                         state.transformOrder[i] = static_cast<int>(*v);
                 }
@@ -1333,22 +1437,28 @@ namespace internal {
             // Step 1: Find active frame (last frame with time <= time)
             int activeIndex = -1;
             for(size_t index = 0; index < frames->size(); ++index) {
-                const auto frame = std::dynamic_pointer_cast<PSB::PSBDictionary>(
-                    (*frames)[static_cast<int>(index)]);
-                if(!frame) continue;
+                const auto frame =
+                    std::dynamic_pointer_cast<PSB::PSBDictionary>(
+                        (*frames)[static_cast<int>(index)]);
+                if(!frame)
+                    continue;
                 const double frameTime =
                     psbDictionaryNumber(frame, "time").value_or(0.0);
-                if(frameTime > time) break;
+                if(frameTime > time)
+                    break;
                 activeIndex = static_cast<int>(index);
             }
 
-            if(activeIndex < 0) return state;
+            if(activeIndex < 0)
+                return state;
             state.debugEvaluated = true;
             state.debugActiveIndex = activeIndex;
 
-            const auto activeFrame = std::dynamic_pointer_cast<PSB::PSBDictionary>(
-                (*frames)[activeIndex]);
-            if(!activeFrame) return state;
+            const auto activeFrame =
+                std::dynamic_pointer_cast<PSB::PSBDictionary>(
+                    (*frames)[activeIndex]);
+            if(!activeFrame)
+                return state;
 
             // Step 2: Parse active frame via sub_6926B4
             ParsedFrame frameA = parseFrame(activeFrame, nodeType);
@@ -1367,12 +1477,13 @@ namespace internal {
             }
 
             // Preserve transformOrder from layer dict
-            int savedTO[4]; bool savedHasTO = state.hasTransformOrder;
+            int savedTO[4];
+            bool savedHasTO = state.hasTransformOrder;
             std::copy(std::begin(state.transformOrder),
                       std::end(state.transformOrder), savedTO);
             state = frameA.slot;
             state.visible = true;
-            state.clipStartTime = frameA.time;  // slot+328: frame start time
+            state.clipStartTime = frameA.time; // slot+328: frame start time
             state.debugEvaluated = true;
             state.debugActiveIndex = activeIndex;
             state.debugFrameATime = frameA.time;
@@ -1395,13 +1506,15 @@ namespace internal {
             // type=3: interpolate with next frame's slot
             const int nextIndex = activeIndex + 1;
             if(nextIndex >= static_cast<int>(frames->size())) {
-                return state;  // no next frame, just use slot A
+                return state; // no next frame, just use slot A
             }
             state.debugNextIndex = nextIndex;
 
-            const auto nextFrame = std::dynamic_pointer_cast<PSB::PSBDictionary>(
-                (*frames)[nextIndex]);
-            if(!nextFrame) return state;
+            const auto nextFrame =
+                std::dynamic_pointer_cast<PSB::PSBDictionary>(
+                    (*frames)[nextIndex]);
+            if(!nextFrame)
+                return state;
 
             // Step 3: Parse next frame via sub_6926B4
             ParsedFrame frameB = parseFrame(nextFrame, nodeType);
@@ -1413,18 +1526,20 @@ namespace internal {
             state.debugFrameBScaleY = frameB.slot.scaleY;
             state.debugFrameBSrc = frameB.slot.src;
             // Inherit src from slot A if slot B doesn't set one
-            if(frameB.slot.src.empty()) frameB.slot.src = state.src;
+            if(frameB.slot.src.empty())
+                frameB.slot.src = state.src;
 
             // Compute interpolation ratio
             const double duration = frameB.time - frameA.time;
-            if(duration <= 0.0) return state;
+            if(duration <= 0.0)
+                return state;
 
-            const double t = std::clamp(
-                (time - frameA.time) / duration, 0.0, 1.0);
+            const double t =
+                std::clamp((time - frameA.time) / duration, 0.0, 1.0);
             state.debugInterpT = t;
 
             if(t <= 0.0 || frameB.invisible) {
-                return state;  // at exact start or next is invisible
+                return state; // at exact start or next is invisible
             }
 
             // Step 4: Interpolate via sub_699AE4
@@ -1459,17 +1574,16 @@ namespace internal {
         }
 
         // Phase-2 frame selection is split to match libkrkr2.so:
-        // sub_6926B4/sub_692AB0 advance PSB frameList data into node clip slots,
-        // then Player_evaluateTimeline (0x699AE4) consumes those slots and writes
-        // node runtime state. These are intentionally non-inline in
+        // sub_6926B4/sub_692AB0 advance PSB frameList data into node clip
+        // slots, then Player_evaluateTimeline (0x699AE4) consumes those slots
+        // and writes node runtime state. These are intentionally non-inline in
         // PlayerUpdateLayers.cpp so native LLDB can hook the 0x699AE4 boundary.
         FrameContentState
         advanceNodeFrameSelectionLike_0x6926B4(detail::MotionNode &node,
                                                double currentTime);
 
         bool evaluateTimelineLike_0x699AE4(detail::MotionNode &node,
-                                           bool dirtyArg,
-                                           double currentTime);
+                                           bool dirtyArg, double currentTime);
 
 
         // -----------------------------------------------------------------
@@ -1477,18 +1591,22 @@ namespace internal {
         // -----------------------------------------------------------------
 
         // Navigate a PSB dictionary tree by a slash-separated path.
-        inline std::shared_ptr<const PSB::PSBDictionary> navigatePSBPath(
-            const std::shared_ptr<const PSB::PSBDictionary> &root,
-            const std::string &path) {
-            if(!root || path.empty()) return nullptr;
+        inline std::shared_ptr<const PSB::PSBDictionary>
+        navigatePSBPath(const std::shared_ptr<const PSB::PSBDictionary> &root,
+                        const std::string &path) {
+            if(!root || path.empty())
+                return nullptr;
             auto node = root;
             std::istringstream pathStream(path);
             std::string segment;
             while(std::getline(pathStream, segment, '/')) {
-                if(segment.empty() || !node) continue;
-                auto child = std::dynamic_pointer_cast<const PSB::PSBDictionary>(
-                    (*node)[segment]);
-                if(!child) return nullptr;
+                if(segment.empty() || !node)
+                    continue;
+                auto child =
+                    std::dynamic_pointer_cast<const PSB::PSBDictionary>(
+                        (*node)[segment]);
+                if(!child)
+                    return nullptr;
                 node = child;
             }
             return node;
@@ -1497,18 +1615,17 @@ namespace internal {
         // Find a PSB resource node by source name. The motion layer `src`
         // field uses paths like "src/title/bg" and the PSB tree stores
         // resources under "source/title/icon/bg/pixel".
-        // Aligned to libkrkr2.so sub_6948E8: navigates source/<group>/icon/<name>.
-        // Also reads originX/originY from the icon node (image anchor point,
-        // used in sub_6BC4F0: origin = pos - matrix × (originX, originY)).
-        // If the resource is RL-compressed or palettized, decodes into
-        // decompressedOut. Palettized output matches libkrkr2.so's BGRA path.
+        // Aligned to libkrkr2.so sub_6948E8: navigates
+        // source/<group>/icon/<name>. Also reads originX/originY from the icon
+        // node (image anchor point, used in sub_6BC4F0: origin = pos - matrix ×
+        // (originX, originY)). If the resource is RL-compressed or palettized,
+        // decodes into decompressedOut. Palettized output matches libkrkr2.so's
+        // BGRA path.
         inline const PSB::PSBResource *findPSBResourceBySourceName(
-            const detail::MotionSnapshot &snapshot,
-            const std::string &source,
+            const detail::MotionSnapshot &snapshot, const std::string &source,
             int &outWidth, int &outHeight,
-            std::vector<std::uint8_t> &decompressedOut,
-            double &outOriginX, double &outOriginY,
-            bool *outDecodedIsBgra = nullptr) {
+            std::vector<std::uint8_t> &decompressedOut, double &outOriginX,
+            double &outOriginY, bool *outDecodedIsBgra = nullptr) {
             outWidth = 0;
             outHeight = 0;
             outOriginX = 0.0;
@@ -1532,8 +1649,7 @@ namespace internal {
                     const auto group = afterSrc.substr(0, slash);
                     const auto name = afterSrc.substr(slash + 1);
                     // Navigate: source/<group>/icon/<name>
-                    const auto iconPath =
-                        "source/" + group + "/icon/" + name;
+                    const auto iconPath = "source/" + group + "/icon/" + name;
                     auto iconNode = navigatePSBPath(snapshot.root, iconPath);
                     if(iconNode) {
                         // Read width/height from the icon node
@@ -1543,12 +1659,12 @@ namespace internal {
                             outHeight = static_cast<int>(*h);
                         if(outWidth <= 0) {
                             if(auto tw = psbDictionaryNumber(iconNode,
-                                             "truncated_width"))
+                                                             "truncated_width"))
                                 outWidth = static_cast<int>(*tw);
                         }
                         if(outHeight <= 0) {
-                            if(auto th = psbDictionaryNumber(iconNode,
-                                             "truncated_height"))
+                            if(auto th = psbDictionaryNumber(
+                                   iconNode, "truncated_height"))
                                 outHeight = static_cast<int>(*th);
                         }
                         // Read origin (anchor point) from icon node
@@ -1559,16 +1675,12 @@ namespace internal {
                         if(auto oy = psbDictionaryNumber(iconNode, "originY"))
                             outOriginY = *oy;
 
-                        const auto iconLeft =
-                            static_cast<int>(
-                                psbDictionaryNumber(iconNode, "left")
-                                    .value_or(0.0));
-                        const auto iconTop =
-                            static_cast<int>(
-                                psbDictionaryNumber(iconNode, "top")
-                                    .value_or(0.0));
-                        const auto texturePath =
-                            "source/" + group + "/texture";
+                        const auto iconLeft = static_cast<int>(
+                            psbDictionaryNumber(iconNode, "left")
+                                .value_or(0.0));
+                        const auto iconTop = static_cast<int>(
+                            psbDictionaryNumber(iconNode, "top").value_or(0.0));
+                        const auto texturePath = "source/" + group + "/texture";
                         auto textureNode =
                             navigatePSBPath(snapshot.root, texturePath);
                         if(textureNode && outWidth > 0 && outHeight > 0) {
@@ -1609,14 +1721,12 @@ namespace internal {
                                                         "compress");
                                 decodePsbPixelResource(
                                     snapshot, texturePath,
-                                    *textureResIt->second,
-                                    textureWidth, textureHeight,
-                                    textureCompress == "RL",
+                                    *textureResIt->second, textureWidth,
+                                    textureHeight, textureCompress == "RL",
                                     texturePixels, &texturePixelsAreBgra);
-                                const auto &pixelData =
-                                    texturePixels.empty()
-                                        ? textureResIt->second->data
-                                        : texturePixels;
+                                const auto &pixelData = texturePixels.empty()
+                                    ? textureResIt->second->data
+                                    : texturePixels;
                                 const size_t requiredSize =
                                     static_cast<size_t>(textureWidth) *
                                     static_cast<size_t>(textureHeight) * 4u;
@@ -1634,12 +1744,12 @@ namespace internal {
                                                      textureWidth) +
                                              static_cast<size_t>(iconLeft)) *
                                             4u;
-                                        std::memcpy(
-                                            decompressedOut.data() +
-                                                static_cast<size_t>(y) *
-                                                    targetStride,
-                                            pixelData.data() + sourceOffset,
-                                            targetStride);
+                                        std::memcpy(decompressedOut.data() +
+                                                        static_cast<size_t>(y) *
+                                                            targetStride,
+                                                    pixelData.data() +
+                                                        sourceOffset,
+                                                    targetStride);
                                     }
                                     if(outDecodedIsBgra) {
                                         *outDecodedIsBgra =
@@ -1651,18 +1761,19 @@ namespace internal {
                             }
                         }
 
-                        // Fallback: older local assets may carry per-icon pixels.
+                        // Fallback: older local assets may carry per-icon
+                        // pixels.
                         const auto pixelPath = iconPath + "/pixel";
                         auto resIt = snapshot.resourcesByPath.find(pixelPath);
                         if(resIt != snapshot.resourcesByPath.end() &&
-                           !resIt->second->data.empty() &&
-                           outWidth > 0 && outHeight > 0) {
+                           !resIt->second->data.empty() && outWidth > 0 &&
+                           outHeight > 0) {
                             auto compressStr =
                                 psbDictionaryString(iconNode, "compress");
                             decodePsbPixelResource(
-                                snapshot, iconPath, *resIt->second,
-                                outWidth, outHeight, compressStr == "RL",
-                                decompressedOut, outDecodedIsBgra);
+                                snapshot, iconPath, *resIt->second, outWidth,
+                                outHeight, compressStr == "RL", decompressedOut,
+                                outDecodedIsBgra);
                             return resIt->second.get();
                         }
                     }
@@ -1673,7 +1784,8 @@ namespace internal {
             // ending with /<baseName>/pixel.
             const auto lastSlash = source.rfind('/');
             const auto baseName = (lastSlash != std::string::npos)
-                ? source.substr(lastSlash + 1) : source;
+                ? source.substr(lastSlash + 1)
+                : source;
 
             for(const auto &[resPath, resource] : snapshot.resourcesByPath) {
                 const auto targetSuffix = "/" + baseName + "/pixel";
@@ -1691,21 +1803,21 @@ namespace internal {
                             if(auto h = psbDictionaryNumber(node, "height"))
                                 outHeight = static_cast<int>(*h);
                             if(outWidth <= 0) {
-                                if(auto tw = psbDictionaryNumber(node,
-                                                 "truncated_width"))
+                                if(auto tw = psbDictionaryNumber(
+                                       node, "truncated_width"))
                                     outWidth = static_cast<int>(*tw);
                             }
                             if(outHeight <= 0) {
-                                if(auto th = psbDictionaryNumber(node,
-                                                 "truncated_height"))
+                                if(auto th = psbDictionaryNumber(
+                                       node, "truncated_height"))
                                     outHeight = static_cast<int>(*th);
                             }
                             auto compressStr =
                                 psbDictionaryString(node, "compress");
                             if(outWidth > 0 && outHeight > 0) {
                                 decodePsbPixelResource(
-                                    snapshot, parentPath, *resource,
-                                    outWidth, outHeight, compressStr == "RL",
+                                    snapshot, parentPath, *resource, outWidth,
+                                    outHeight, compressStr == "RL",
                                     decompressedOut, outDecodedIsBgra);
                             }
                         }
@@ -1726,10 +1838,9 @@ namespace internal {
         // width*height*4 — only data.size()/4 pixels are valid, the rest
         // should be zero (transparent). RGB order is swapped to BGRA for
         // TJS layers (TVPReverseRGB in libkrkr2.so).
-        inline bool loadPSBResourceToLayer(
-            tTJSNI_BaseLayer *layer,
-            const PSB::PSBResource &resource,
-            int width, int height) {
+        inline bool loadPSBResourceToLayer(tTJSNI_BaseLayer *layer,
+                                           const PSB::PSBResource &resource,
+                                           int width, int height) {
             if(!layer || width <= 0 || height <= 0 || resource.data.empty()) {
                 return false;
             }
@@ -1760,7 +1871,8 @@ namespace internal {
             for(size_t i = 0; i < pixelCount; ++i) {
                 const size_t px = i % static_cast<size_t>(width);
                 const size_t py = i / static_cast<size_t>(width);
-                if(py >= totalRows) break;
+                if(py >= totalRows)
+                    break;
                 auto *dst = dstPixels + pitch * py + px * 4;
                 dst[0] = src[i * 4 + 2]; // B ← src R
                 dst[1] = src[i * 4 + 1]; // G ← src G
@@ -1770,5 +1882,5 @@ namespace internal {
             return true;
         }
 
-} // namespace internal
+    } // namespace internal
 } // namespace motion

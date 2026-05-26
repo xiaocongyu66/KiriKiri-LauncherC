@@ -22,8 +22,8 @@ namespace {
         std::string suffix;
     };
 
-    ParameterLabelParts splitParameterLabelLike_0x6D0BF4(
-        const std::string &label) {
+    ParameterLabelParts
+    splitParameterLabelLike_0x6D0BF4(const std::string &label) {
         ParameterLabelParts parts;
         parts.full = label;
         const auto scopePos = label.rfind("::");
@@ -47,8 +47,7 @@ namespace {
     }
 
     double normalizeParameterValueLike_0x6B1718(
-        const motion::detail::MotionParameterEntry &entry,
-        double rawValue) {
+        const motion::detail::MotionParameterEntry &entry, double rawValue) {
         const double range = entry.rangeEnd - entry.rangeBegin;
         if(range == 0.0 || entry.rangeScale == 0.0) {
             return 0.0;
@@ -64,9 +63,7 @@ namespace {
 
     void bindParameterEntriesLike_0x6C4668(
         std::vector<motion::detail::MotionParameterEntry> &entries,
-        const ParameterLabelParts &parts,
-        int mode,
-        double rawValue) {
+        const ParameterLabelParts &parts, int mode, double rawValue) {
         for(auto &entry : entries) {
             if(!parameterIdMatchesLabelLike_0x6D0BF4(entry, parts)) {
                 continue;
@@ -98,8 +95,7 @@ namespace {
     }
 
     std::optional<double> parameterDictionaryNumberLike_0x6B1718(
-        const std::shared_ptr<const PSB::PSBDictionary> &dic,
-        const char *key) {
+        const std::shared_ptr<const PSB::PSBDictionary> &dic, const char *key) {
         if(!dic) {
             return std::nullopt;
         }
@@ -107,8 +103,7 @@ namespace {
     }
 
     std::string parameterDictionaryStringLike_0x6B1718(
-        const std::shared_ptr<const PSB::PSBDictionary> &dic,
-        const char *key) {
+        const std::shared_ptr<const PSB::PSBDictionary> &dic, const char *key) {
         if(!dic) {
             return {};
         }
@@ -119,12 +114,12 @@ namespace {
     }
 
     bool parameterDictionaryBoolLike_0x6B1718(
-        const std::shared_ptr<const PSB::PSBDictionary> &dic,
-        const char *key) {
+        const std::shared_ptr<const PSB::PSBDictionary> &dic, const char *key) {
         if(!dic) {
             return false;
         }
-        if(auto boolean = std::dynamic_pointer_cast<PSB::PSBBool>((*dic)[key])) {
+        if(auto boolean =
+               std::dynamic_pointer_cast<PSB::PSBBool>((*dic)[key])) {
             return boolean->value;
         }
         if(auto number = parameterPsbNumberLike_0x6B1718((*dic)[key])) {
@@ -149,9 +144,8 @@ namespace motion {
         }
 
         const auto &matchList = _runtime->activeMotion->mirrorVariableMatchList;
-        const bool matched =
-            std::find(matchList.begin(), matchList.end(), label) !=
-            matchList.end();
+        const bool matched = std::find(matchList.begin(), matchList.end(),
+                                       label) != matchList.end();
         if(matched) {
             _mirrorPositiveCache.insert(label);
         } else {
@@ -160,13 +154,14 @@ namespace motion {
         return matched;
     }
 
-    double &Player::ensureEvalResultSlotLike_0x686944(const std::string &label) {
+    double &
+    Player::ensureEvalResultSlotLike_0x686944(const std::string &label) {
         if(const auto it = _evalResultListIndex.find(label);
            it != _evalResultListIndex.end()) {
             return it->second->value;
         }
 
-        _evalResultList.push_back(EvalResultEntry{label, 0.0});
+        _evalResultList.push_back(EvalResultEntry{ label, 0.0 });
         auto it = _evalResultList.end();
         --it;
         _evalResultListIndex[label] = it;
@@ -194,9 +189,8 @@ namespace motion {
         entry.rangeBegin =
             parameterDictionaryNumberLike_0x6B1718(dic, "rangeBegin")
                 .value_or(0.0);
-        entry.rangeEnd =
-            parameterDictionaryNumberLike_0x6B1718(dic, "rangeEnd")
-                .value_or(0.0);
+        entry.rangeEnd = parameterDictionaryNumberLike_0x6B1718(dic, "rangeEnd")
+                             .value_or(0.0);
 
         const double range = entry.rangeEnd - entry.rangeBegin;
         double division = 0.0;
@@ -209,9 +203,8 @@ namespace motion {
                 division = 1.0;
             }
         }
-        entry.rangeScale = (range != 0.0 && division > 0.0)
-            ? division / range
-            : 0.0;
+        entry.rangeScale =
+            (range != 0.0 && division > 0.0) ? division / range : 0.0;
         entry.mode = 0;
         entry.value = normalizeParameterValueLike_0x6B1718(
             entry, initialParameterRawValueLike_0x6B1ABC(entry.id));
@@ -231,8 +224,8 @@ namespace motion {
             return false;
         }
 
-        _runtime->parameterEntries.reserve(
-            _runtime->parameterEntries.size() + list->size());
+        _runtime->parameterEntries.reserve(_runtime->parameterEntries.size() +
+                                           list->size());
         for(const auto &item : *list) {
             auto dic = std::dynamic_pointer_cast<PSB::PSBDictionary>(item);
             appendParameterEntryLike_0x6B1718(dic);
@@ -255,8 +248,8 @@ namespace motion {
         }
     }
 
-    double Player::initialParameterRawValueLike_0x6B1ABC(
-        const std::string &id) const {
+    double
+    Player::initialParameterRawValueLike_0x6B1ABC(const std::string &id) const {
         if(id.empty()) {
             return 0.0;
         }
@@ -292,8 +285,7 @@ namespace motion {
     }
 
     void Player::bindParameterValueLike_0x6C4668(const std::string &label,
-                                                 int mode,
-                                                 double value) {
+                                                 int mode, double value) {
         if(!_runtime || label.empty()) {
             return;
         }
@@ -324,8 +316,7 @@ namespace motion {
     }
 
     void Player::writeEvalResultValueLike_0x6C4668(const std::string &label,
-                                                   int mode,
-                                                   double value) {
+                                                   int mode, double value) {
         if(label.empty()) {
             return;
         }
@@ -335,9 +326,10 @@ namespace motion {
         bindParameterValueLike_0x6C4668(label, mode, value);
     }
 
-    void Player::setVariableResolvedWeightLike_0x671228(
-        const std::string &key, double value, double transition,
-        double easeWeight) {
+    void Player::setVariableResolvedWeightLike_0x671228(const std::string &key,
+                                                        double value,
+                                                        double transition,
+                                                        double easeWeight) {
         const auto *activeMotion = _runtime->activeMotion.get();
         const auto bindingIt = activeMotion
             ? activeMotion->controllerBindings.find(key)
@@ -347,16 +339,12 @@ namespace motion {
 
         if(hasBinding) {
             const auto queueControllerStateLikeBinary =
-                [&](const std::string &targetKey,
-                    VariableAnimatorState &state,
-                    double currentValueInput,
-                    double requestedValue,
-                    double requestedTransition,
-                    double requestedEaseWeight) {
+                [&](const std::string &targetKey, VariableAnimatorState &state,
+                    double currentValueInput, double requestedValue,
+                    double requestedTransition, double requestedEaseWeight) {
                     const auto currentValue =
                         static_cast<float>(currentValueInput);
-                    const auto targetValue =
-                        static_cast<float>(requestedValue);
+                    const auto targetValue = static_cast<float>(requestedValue);
                     if(requestedTransition <= 0.0) {
                         state.queue.clear();
                         state.active = false;
@@ -365,8 +353,7 @@ namespace motion {
                         state.targetValue = targetValue;
                         state.progress = 1.0f;
                         state.duration = 0.0f;
-                        state.weight =
-                            static_cast<float>(requestedEaseWeight);
+                        state.weight = static_cast<float>(requestedEaseWeight);
                         writeEvalResultValueLike_0x6C4668(targetKey,
                                                           requestedValue);
                         return;
@@ -392,14 +379,13 @@ namespace motion {
                 };
 
             const auto queueControllerLikeBinary =
-                [&](VariableAnimatorState &state,
-                    double requestedValue,
-                    double requestedTransition,
-                    double requestedEaseWeight) {
+                [&](VariableAnimatorState &state, double requestedValue,
+                    double requestedTransition, double requestedEaseWeight) {
                     queueControllerStateLikeBinary(
                         key, state,
-                        _variableValues.count(key) ? _variableValues[key]
-                                                   : getVariable(detail::widen(key)),
+                        _variableValues.count(key)
+                            ? _variableValues[key]
+                            : getVariable(detail::widen(key)),
                         requestedValue, requestedTransition,
                         requestedEaseWeight);
                 };
@@ -426,39 +412,39 @@ namespace motion {
                         const auto selectorIt =
                             activeMotion->selectorControls.find(key);
                         if(selectorIt != activeMotion->selectorControls.end()) {
-                            const int selectedIndex =
-                                static_cast<int>(value);
+                            const int selectedIndex = static_cast<int>(value);
                             eraseControllerAnimatorStateLike_0x671228(key);
                             writeEvalResultValueLike_0x6C4668(
                                 key, static_cast<double>(selectedIndex));
 
                             const double resolvedEaseWeight = easeWeight;
                             int optionIndex = 0;
-                            for(const auto &option : selectorIt->second.options) {
+                            for(const auto &option :
+                                selectorIt->second.options) {
                                 if(option.label.empty()) {
                                     ++optionIndex;
                                     continue;
                                 }
                                 const double targetValue =
                                     optionIndex == selectedIndex
-                                        ? option.onValue
-                                        : option.offValue;
+                                    ? option.onValue
+                                    : option.offValue;
                                 const auto currentIt =
                                     _evalResultValues.find(option.label);
                                 const double currentValue =
                                     currentIt != _evalResultValues.end()
-                                        ? currentIt->second
-                                        : (_variableValues.count(option.label)
-                                               ? _variableValues[option.label]
-                                               : getVariable(
-                                                     detail::widen(option.label)));
+                                    ? currentIt->second
+                                    : (_variableValues.count(option.label)
+                                           ? _variableValues[option.label]
+                                           : getVariable(
+                                                 detail::widen(option.label)));
                                 const double range =
                                     std::abs(option.onValue - option.offValue);
                                 const double scaledTransition =
                                     transition > 0.0 && range > 0.0000001
-                                        ? std::abs(targetValue - currentValue) /
-                                              range * transition
-                                        : 0.0;
+                                    ? std::abs(targetValue - currentValue) /
+                                        range * transition
+                                    : 0.0;
                                 auto &optionState =
                                     _type8ControllerAnimators[option.label];
                                 queueControllerStateLikeBinary(
@@ -471,9 +457,8 @@ namespace motion {
                             return;
                         }
                     }
-                    auto *bucket =
-                        controllerAnimatorBucketLike_0x671228(
-                            bindingIt->second.type);
+                    auto *bucket = controllerAnimatorBucketLike_0x671228(
+                        bindingIt->second.type);
                     if(!bucket) {
                         _emoteDirty = true;
                         return;
@@ -532,7 +517,8 @@ namespace motion {
             return 0.0;
         }
 
-        if(const auto it = _variableValues.find(key); it != _variableValues.end()) {
+        if(const auto it = _variableValues.find(key);
+           it != _variableValues.end()) {
             return it->second;
         }
 
@@ -557,14 +543,16 @@ namespace motion {
     tjs_int Player::countVariables() {
         ensureMotionLoaded();
         return _runtime->activeMotion
-            ? static_cast<tjs_int>(_runtime->activeMotion->variableLabels.size())
+            ? static_cast<tjs_int>(
+                  _runtime->activeMotion->variableLabels.size())
             : 0;
     }
 
     ttstr Player::getVariableLabelAt(tjs_int idx) {
         ensureMotionLoaded();
         if(!_runtime->activeMotion || idx < 0 ||
-           static_cast<size_t>(idx) >= _runtime->activeMotion->variableLabels.size()) {
+           static_cast<size_t>(idx) >=
+               _runtime->activeMotion->variableLabels.size()) {
             return {};
         }
         return detail::widen(_runtime->activeMotion->variableLabels[idx]);
@@ -624,8 +612,8 @@ namespace motion {
         const auto key = detail::narrow(label);
         if(const auto it = _runtime->activeMotion->variableRanges.find(key);
            it != _runtime->activeMotion->variableRanges.end()) {
-            return detail::makeArray(
-                { tTJSVariant(it->second.first), tTJSVariant(it->second.second) });
+            return detail::makeArray({ tTJSVariant(it->second.first),
+                                       tTJSVariant(it->second.second) });
         }
         return {};
     }
@@ -657,7 +645,8 @@ namespace motion {
     tjs_error Player::setVariableCompatMethod(tTJSVariant *, tjs_int numparams,
                                               tTJSVariant **param,
                                               iTJSDispatch2 *objthis) {
-        auto *self = ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
+        auto *self =
+            ncbInstanceAdaptor<Player>::GetNativeInstance(objthis, true);
         if(!self) {
             return TJS_E_INVALIDOBJECT;
         }
@@ -671,12 +660,10 @@ namespace motion {
         // sub_6C4668. It is not the transition/ease route used by the C++
         // convenience method.
         const auto key = detail::narrow(ttstr(*param[0]));
-        const int mode =
-            (numparams >= 3 && param[2])
-                ? static_cast<int>(param[2]->AsInteger())
-                : 0;
-        self->writeEvalResultValueLike_0x6C4668(key, mode,
-                                                param[1]->AsReal());
+        const int mode = (numparams >= 3 && param[2])
+            ? static_cast<int>(param[2]->AsInteger())
+            : 0;
+        self->writeEvalResultValueLike_0x6C4668(key, mode, param[1]->AsReal());
         self->_emoteDirty = true;
         return TJS_S_OK;
     }

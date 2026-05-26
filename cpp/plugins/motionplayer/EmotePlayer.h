@@ -2,7 +2,8 @@
 // Created by LiDon on 2025/9/15.
 // Aligned to libkrkr2.so D3DEmotePlayer architecture:
 // D3DEmotePlayerNativeInstance(24b) → EmoteObject(40b) → Player(1496b)
-// EmotePlayer is a thin shell that delegates all animation logic to an owned Player.
+// EmotePlayer is a thin shell that delegates all animation logic to an owned
+// Player.
 //
 #pragma once
 
@@ -27,58 +28,77 @@ namespace motion {
         ~EmotePlayer();
 
         // --- Properties ---
-        void setUseD3D(bool v) { _useD3D = v; }
+        void setUseD3D(bool v);
         [[nodiscard]] bool getUseD3D() const { return _useD3D; }
 
         void setCompletionType(int v) { _player.setCompletionType(v); }
-        [[nodiscard]] int getCompletionType() const { return _player.getCompletionType(); }
+        [[nodiscard]] int getCompletionType() const {
+            return _player.getCompletionType();
+        }
 
         void setChara(ttstr v) { _player.setChara(v); }
         [[nodiscard]] ttstr getChara() const { return _player.getChara(); }
 
-        void setMotion(ttstr v) { _player.playMotionLike_0x6B2284(v, 0); }
-        [[nodiscard]] ttstr getMotion() const { return _player.getMotion(); }
+        // SDL3 ref: motion property stores clip label; play() starts playback.
+        void setMotion(ttstr v);
+        [[nodiscard]] ttstr getMotion() const;
 
-        void setMotionKey(ttstr v) { _player.setMotionKey(v); }
-        [[nodiscard]] ttstr getMotionKey() const { return _player.getMotionKey(); }
+        void setMotionKey(ttstr v);
+        [[nodiscard]] ttstr getMotionKey() const { return _storageKey; }
 
         void setMaskMode(tjs_int v) { _player.setMaskMode(v); }
-        [[nodiscard]] tjs_int getMaskMode() const { return _player.getMaskMode(); }
+        [[nodiscard]] tjs_int getMaskMode() const {
+            return _player.getMaskMode();
+        }
 
         void setOutline(ttstr v) { _player.setOutline(v); }
         [[nodiscard]] ttstr getOutline() const { return _player.getOutline(); }
 
         void setPriorDraw(double v) { _player.setPriorDraw(v); }
-        [[nodiscard]] double getPriorDraw() const { return _player.getPriorDraw(); }
+        [[nodiscard]] double getPriorDraw() const {
+            return _player.getPriorDraw();
+        }
 
         void setFrameLastTime(double v) { _player.setFrameLastTime(v); }
-        [[nodiscard]] double getFrameLastTime() const { return _player.getFrameLastTime(); }
+        [[nodiscard]] double getFrameLastTime() const {
+            return _player.getFrameLastTime();
+        }
 
         void setFrameLoopTime(double v) { _player.setFrameLoopTime(v); }
-        [[nodiscard]] double getFrameLoopTime() const { return _player.getFrameLoopTime(); }
+        [[nodiscard]] double getFrameLoopTime() const {
+            return _player.getFrameLoopTime();
+        }
 
         void setLoopTime(double v) { _player.setLoopTime(v); }
-        [[nodiscard]] double getLoopTime() const { return _player.getLoopTime(); }
+        [[nodiscard]] double getLoopTime() const {
+            return _player.getLoopTime();
+        }
 
-        void setProcessedMeshVerticesNum(int v) { _player.setProcessedMeshVerticesNum(v); }
-        [[nodiscard]] int getProcessedMeshVerticesNum() const { return _player.getProcessedMeshVerticesNum(); }
+        void setProcessedMeshVerticesNum(int v) {
+            _player.setProcessedMeshVerticesNum(v);
+        }
+        [[nodiscard]] int getProcessedMeshVerticesNum() const {
+            return _player.getProcessedMeshVerticesNum();
+        }
 
         void setSmoothing(bool v) { _smoothing = v; }
         [[nodiscard]] bool getSmoothing() const { return _smoothing; }
 
         void setMeshDivisionRatio(double v);
-        [[nodiscard]] double getMeshDivisionRatio() const { return _meshDivisionRatio; }
+        [[nodiscard]] double getMeshDivisionRatio() const {
+            return _meshDivisionRatio;
+        }
 
         void setQueuing(bool v) { _queuing = v; }
         [[nodiscard]] bool getQueuing() const { return _queuing; }
 
-        void setHairScale(double v) { _hairScale = v; }
+        void setHairScale(double v);
         [[nodiscard]] double getHairScale() const { return _hairScale; }
 
-        void setPartsScale(double v) { _partsScale = v; }
+        void setPartsScale(double v);
         [[nodiscard]] double getPartsScale() const { return _partsScale; }
 
-        void setBustScale(double v) { _bustScale = v; }
+        void setBustScale(double v);
         [[nodiscard]] double getBustScale() const { return _bustScale; }
 
         void setBodyScale(double v) { _bodyScale = v; }
@@ -113,13 +133,15 @@ namespace motion {
         void create();
         void load(tTJSVariant data);
         tTJSVariant clone();
+        tTJSVariant serialize();
+        void unserialize(tTJSVariant data);
         void show();
         void hide();
         void assignState();
-        void initPhysics();
+        void initPhysics(tTJSVariant rule = tTJSVariant());
 
-        void setRot(double rot, double transition = 0.0,
-                    double ease = 0.0);
+        void setRot(double rot, double transition = 0.0, double ease = 0.0);
+        void setRotate(double rot, double transition = 0.0, double ease = 0.0);
         static tjs_error setRotCompat(tTJSVariant *result, tjs_int numparams,
                                       tTJSVariant **param,
                                       iTJSDispatch2 *objthis);
@@ -130,8 +152,7 @@ namespace motion {
         static tjs_error setCoordCompat(tTJSVariant *result, tjs_int numparams,
                                         tTJSVariant **param,
                                         iTJSDispatch2 *objthis);
-        void setScale(double s, double transition = 0.0,
-                      double ease = 0.0);
+        void setScale(double s, double transition = 0.0, double ease = 0.0);
         static tjs_error setScaleCompat(tTJSVariant *result, tjs_int numparams,
                                         tTJSVariant **param,
                                         iTJSDispatch2 *objthis);
@@ -157,6 +178,7 @@ namespace motion {
                                            tTJSVariant **param,
                                            iTJSDispatch2 *objthis);
         double getVariable(ttstr label);
+        tTJSVariant getVariableFrameList(ttstr label);
 
         void startWind(double minAngle, double maxAngle, double amplitude,
                        double freqX = 0.0, double freqY = 0.0);
@@ -170,22 +192,27 @@ namespace motion {
 
         tjs_int countMainTimelines();
         ttstr getMainTimelineLabelAt(tjs_int idx);
+        tTJSVariant getMainTimelineLabelList();
         tjs_int countDiffTimelines();
         ttstr getDiffTimelineLabelAt(tjs_int idx);
+        tTJSVariant getDiffTimelineLabelList();
         tjs_int countPlayingTimelines();
         ttstr getPlayingTimelineLabelAt(tjs_int idx);
         tjs_int getPlayingTimelineFlagsAt(tjs_int idx);
 
         bool isLoopTimeline(ttstr label);
+        bool getLoopTimeline(ttstr label);
         tjs_int getTimelineTotalFrameCount(ttstr label);
         void playTimeline(ttstr label, tjs_int flags);
         bool isTimelinePlaying(ttstr label);
+        bool getTimelinePlaying(ttstr label);
         void stopTimeline(ttstr label);
 
         void setTimelineBlendRatio(ttstr label, double ratio);
         double getTimelineBlendRatio(ttstr label);
         void fadeInTimeline(ttstr label, double duration, tjs_int flags);
         void fadeOutTimeline(ttstr label, double duration, tjs_int flags);
+        tTJSVariant getPlayingTimelineInfoList();
 
         void setTimeline(ttstr label, bool loop);
 
@@ -196,6 +223,7 @@ namespace motion {
             iTJSDispatch2 *objthis);
 
         void skip();
+        void skipToSync();
         void addPlayCallback();
         void pass(double dt);
         void progress(double dt);
@@ -219,12 +247,14 @@ namespace motion {
         const Player &getPlayer() const { return _player; }
 
     private:
-        // Aligned to libkrkr2.so: EmoteObject(40b) owns ResourceManager + Player(1496b).
-        // All animation logic delegates to this Player instance.
+        // Aligned to libkrkr2.so: EmoteObject(40b) owns ResourceManager +
+        // Player(1496b). All animation logic delegates to this Player instance.
         Player _player;
 
         // EmotePlayer-specific state (not on Player)
         tTJSVariant _module;
+        ttstr _storageKey; // motionKey: PSB cache path (SDL3 ref)
+        ttstr _clipLabel; // motion: clip/timeline label (SDL3 ref)
         bool _useD3D = false;
         bool _smoothing = true;
         double _meshDivisionRatio = 1.0;
@@ -240,10 +270,13 @@ namespace motion {
         bool _opengl = false;
         bool _visible = true;
         bool _playCallback = false;
+        // SDL3 ref: isSelfClear — true for motionKey/single-cache draw clear
+        // mode.
+        bool _isSelfClear = true;
 
         // Aligned to libkrkr2.so sub_530260: finalScale = baseScale * userScale
-        float _baseScale = 1.0f;   // +40 in binary D3DEmotePlayer wrapper
-        float _userScale = 1.0f;   // +44 in binary
+        float _baseScale = 1.0f; // +40 in binary D3DEmotePlayer wrapper
+        float _userScale = 1.0f; // +44 in binary
 
         // Cached values for getScale/getRot/getColor
         // Binary getters return hardcoded 1.0/0.0/0 but we track for local use

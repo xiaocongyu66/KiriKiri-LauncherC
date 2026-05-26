@@ -13,16 +13,16 @@ namespace {
                                 double x, double y) {
         motion::detail::HitData hit{};
         hit.type = node.shapeGeomType;
-        for(size_t i = 0; i < std::size(node.shapeVertices) &&
-                          i < hit.values.size();
-            ++i) {
+        for(size_t i = 0;
+            i < std::size(node.shapeVertices) && i < hit.values.size(); ++i) {
             hit.values[i] = node.shapeVertices[i];
         }
         return motion::detail::hitTestHitData(hit, x, y);
     }
 
-    tTJSVariant buildLayerGetterVariant(motion::Player &player,
-                                        const motion::detail::MotionNode &node) {
+    tTJSVariant
+    buildLayerGetterVariant(motion::Player &player,
+                            const motion::detail::MotionNode &node) {
         using LayerGetterAdaptor = ncbInstanceAdaptor<motion::LayerGetter>;
 
         auto *getter = new motion::LayerGetter();
@@ -38,8 +38,8 @@ namespace {
         getter->setZoomX(node.accumulated.scaleX);
         getter->setZoomY(node.accumulated.scaleY);
         getter->setAngleRad(node.accumulated.angle);
-        getter->setAngleDeg(
-            node.accumulated.angle * 180.0 / 3.14159265358979323846);
+        getter->setAngleDeg(node.accumulated.angle * 180.0 /
+                            3.14159265358979323846);
         getter->setSlantX(node.accumulated.slantX);
         getter->setSlantY(node.accumulated.slantY);
         getter->setOriginX(node.originX);
@@ -54,10 +54,14 @@ namespace {
             tTJSVariant(node.accumulated.posY),
         }));
         getter->setVtx(motion::detail::makeArray({
-            tTJSVariant(node.vertices[0]), tTJSVariant(node.vertices[1]),
-            tTJSVariant(node.vertices[2]), tTJSVariant(node.vertices[3]),
-            tTJSVariant(node.vertices[4]), tTJSVariant(node.vertices[5]),
-            tTJSVariant(node.vertices[6]), tTJSVariant(node.vertices[7]),
+            tTJSVariant(node.vertices[0]),
+            tTJSVariant(node.vertices[1]),
+            tTJSVariant(node.vertices[2]),
+            tTJSVariant(node.vertices[3]),
+            tTJSVariant(node.vertices[4]),
+            tTJSVariant(node.vertices[5]),
+            tTJSVariant(node.vertices[6]),
+            tTJSVariant(node.vertices[7]),
         }));
         getter->setColor(motion::detail::makeArray({
             tTJSVariant(static_cast<tjs_int>(node.colorBytes[0])),
@@ -144,7 +148,8 @@ namespace motion {
             return {};
         }
         const auto nodeIndex = it->second;
-        if(nodeIndex < 0 || nodeIndex >= static_cast<int>(_runtime->nodes.size())) {
+        if(nodeIndex < 0 ||
+           nodeIndex >= static_cast<int>(_runtime->nodes.size())) {
             return {};
         }
         const auto &psb = _runtime->nodes[nodeIndex].psbNode;
@@ -162,7 +167,8 @@ namespace motion {
             return {};
         }
         const auto nodeIndex = it->second;
-        if(nodeIndex < 0 || nodeIndex >= static_cast<int>(_runtime->nodes.size())) {
+        if(nodeIndex < 0 ||
+           nodeIndex >= static_cast<int>(_runtime->nodes.size())) {
             return {};
         }
         return buildLayerGetterVariant(*this, _runtime->nodes[nodeIndex]);
@@ -284,7 +290,7 @@ namespace motion {
         const auto &selectors = _runtime->activeMotion->selectorControls;
         return selectors.find(key) != selectors.end() &&
             _runtime->disabledSelectorTargets.find(key) ==
-                _runtime->disabledSelectorTargets.end();
+            _runtime->disabledSelectorTargets.end();
     }
 
     void Player::deactivateSelectorTarget(ttstr name) {

@@ -3,7 +3,8 @@
 // Stub classes for TJS API compatibility
 //
 // Aligned to libkrkr2.so Motion_namespace_ncb_register (0x6D9B08):
-// Includes Point, Circle, Rect, Quad, LayerGetter stubs + SourceCache/ObjSource.
+// Includes Point, Circle, Rect, Quad, LayerGetter stubs +
+// SourceCache/ObjSource.
 //
 #pragma once
 
@@ -40,9 +41,9 @@ namespace motion {
             std::string key;
             std::string resolvedKey;
             int blendMode = 0;
-            std::array<std::uint32_t, 4> packedColors{
-                0xFF808080u, 0xFF808080u, 0xFF808080u, 0xFF808080u
-            };
+            std::array<std::uint32_t, 4> packedColors{ 0xFF808080u, 0xFF808080u,
+                                                       0xFF808080u,
+                                                       0xFF808080u };
             tTJSVariant rawSource;
             tTJSVariant sourceObject;
             std::shared_ptr<tTVPBaseBitmap> backingBitmap;
@@ -58,20 +59,18 @@ namespace motion {
         void setSelfObject(tTJSVariant selfObject);
         void setLayerOwner(tTJSVariant owner, tjs_int layerType);
 
-        tTJSVariant loadSource(tTJSVariant keyOrSource, tTJSVariant currentSource);
+        tTJSVariant loadSource(tTJSVariant keyOrSource,
+                               tTJSVariant currentSource);
         tTJSVariant loadSourceByName(const ttstr &name,
                                      const tTJSVariant &currentSource);
-        tTJSVariant loadRenderSourceByName(
-            const ttstr &name,
-            const tTJSVariant &currentSource,
-            int blendMode,
-            const std::array<std::uint32_t, 4> &packedColors,
-            iTJSDispatch2 *layerTreeOwnerObject,
-            iTJSDispatch2 *parentLayerObject);
+        tTJSVariant
+        loadRenderSourceByName(const ttstr &name,
+                               const tTJSVariant &currentSource, int blendMode,
+                               const std::array<std::uint32_t, 4> &packedColors,
+                               iTJSDispatch2 *layerTreeOwnerObject,
+                               iTJSDispatch2 *parentLayerObject);
         iTVPTexture2D *loadRenderSourceTextureByName(
-            const ttstr &name,
-            const tTJSVariant &currentSource,
-            int blendMode,
+            const ttstr &name, const tTJSVariant &currentSource, int blendMode,
             const std::array<std::uint32_t, 4> &packedColors);
         tTJSVariant findSource(ttstr name);
         void clearCache();
@@ -79,23 +78,20 @@ namespace motion {
         tTJSVariant getBufLayer() const;
         std::size_t size() const;
 
-        const Entry *findEntry(const std::string &key,
-                               int blendMode,
-                               const std::array<std::uint32_t, 4> &packedColors) const;
+        const Entry *
+        findEntry(const std::string &key, int blendMode,
+                  const std::array<std::uint32_t, 4> &packedColors) const;
 
     private:
-        Entry *findEntry(const std::string &key,
-                         int blendMode,
+        Entry *findEntry(const std::string &key, int blendMode,
                          const std::array<std::uint32_t, 4> &packedColors);
         Entry *findEntryByKey(const std::string &key);
         Entry &ensureEntry(const std::string &key,
-                           const std::string &resolvedKey,
-                           int blendMode,
+                           const std::string &resolvedKey, int blendMode,
                            const std::array<std::uint32_t, 4> &packedColors);
-        bool ensureEntryBackingBitmap(Entry &entry,
-                                      const std::string &key,
-                                      int blendMode,
-                                      const std::array<std::uint32_t, 4> &packedColors);
+        bool ensureEntryBackingBitmap(
+            Entry &entry, const std::string &key, int blendMode,
+            const std::array<std::uint32_t, 4> &packedColors);
         void releaseEntryTexture(Entry &entry);
         tTJSVariant loadRawSourceVariant(const ttstr &name,
                                          std::string &resolvedKey) const;
@@ -114,9 +110,7 @@ namespace motion {
     public:
         ObjSource() = default;
         ObjSource(ttstr key, ttstr src, tjs_int blendMode, tTJSVariant color) :
-            _key(std::move(key)),
-            _src(std::move(src)),
-            _blendMode(blendMode),
+            _key(std::move(key)), _src(std::move(src)), _blendMode(blendMode),
             _color(std::move(color)) {}
 
         const ttstr &key() const { return _key; }
