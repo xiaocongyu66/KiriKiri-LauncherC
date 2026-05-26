@@ -348,7 +348,7 @@ private fun LibrarySettings(text: LauncherStrings.Texts, compact: Boolean, pathI
             PrimaryChip(text.saveAndScan, Icons.Default.Save, onSaveAndScan)
             PrimaryChip(text.refresh, Icons.Default.Refresh, onRefresh)
         }
-        Slider(value = scanDepth.toFloat(), onValueChange = { onScanDepthChange(it.toInt().coerceIn(1, 10)) }, valueRange = 1f..10f, steps = 8, onValueChangeFinished = { LauncherPrefs.setScanDepth(LocalContext.current, scanDepth) })
+        Slider(value = scanDepth.toFloat(), onValueChange = { onScanDepthChange(it.toInt().coerceIn(1, 10)) }, valueRange = 1f..10f, steps = 8, onValueChangeFinished = { })
         Text("${text.scanDepth}: $scanDepth/10", color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (statusLine.isNotBlank()) Text(statusLine, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.bodySmall)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
