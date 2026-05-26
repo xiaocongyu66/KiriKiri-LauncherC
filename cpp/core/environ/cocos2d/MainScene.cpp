@@ -925,6 +925,43 @@ public:
             DrawSprite->setPosition(Vec2(0, size.height));
             PrimaryLayerArea->setContentSize(size);
             PrimaryLayerArea->setScale(scale);
+#if defined(__ANDROID__)
+            {
+                // [DIAG 2026-05-26] Final probe: dump the actual cocos2d
+                // sprite/scene coordinates. If contentSize is 0x0, the
+                // sprite is laid out at origin with zero scale and
+                // invisible. If setPosition's y = size.height is 0, the
+                // sprite is at bottom-left corner.
+                static int s_rdsCount = 0;
+                ++s_rdsCount;
+                if(s_rdsCount <= 8 || (s_rdsCount & 0x3F) == 0) {
+                    cocos2d::Size vs = getViewSize();
+                    cocos2d::Vec2 sp = DrawSprite->getPosition();
+                    cocos2d::Size sd = DrawSprite->getContentSize();
+                    cocos2d::Vec2 plp = PrimaryLayerArea->getPosition();
+                    cocos2d::Size pld = PrimaryLayerArea->getContentSize();
+                    cocos2d::Vec2 wp = getPosition();
+                    KR2RenderProbeWriteF(
+                        "WindowLayer::ResetDrawSprite#%d "
+                        "winPos=%.0f,%.0f winSize=%.0f,%.0f "
+                        "viewSize=%.0f,%.0f contSize=%.0f,%.0f "
+                        "scale=%.3f sprPos=%.0f,%.0f sprSize=%.0f,%.0f "
+                        "sprVis=%d sprOpacity=%d "
+                        "plaPos=%.0f,%.0f plaSize=%.0f,%.0f "
+                        "plaVis=%d",
+                        s_rdsCount,
+                        wp.x, wp.y,
+                        getContentSize().width, getContentSize().height,
+                        vs.width, vs.height,
+                        size.width, size.height, scale,
+                        sp.x, sp.y, sd.width, sd.height,
+                        DrawSprite->isVisible() ? 1 : 0,
+                        (int)DrawSprite->getOpacity(),
+                        plp.x, plp.y, pld.width, pld.height,
+                        PrimaryLayerArea->isVisible() ? 1 : 0);
+                }
+            }
+#endif
         }
     }
 
