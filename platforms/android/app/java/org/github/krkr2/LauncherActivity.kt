@@ -151,8 +151,13 @@ private fun LauncherScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var loading by remember { mutableStateOf(true) }
-    var games by remember { mutableStateOf(emptyList<GameEntry>()) }
+    // Seed with cache so the list paints instantly on cold start.
+    // The full scan still runs in the background and replaces the
+    // list when it finishes; the verifier pass also prunes stale
+    // entries (deleted dirs, empty dirs) before the scan completes.
+    val cachedSeed = remember { GameCache.load(context) }
+    var loading by remember { mutableStateOf(cachedSeed.isEmpty()) }
+    var games by remember { mutableStateOf(cachedSeed) }
     var rootPath by remember { mutableStateOf(LauncherPrefs.getGameRoot(context)) }
     var editPath by remember { mutableStateOf(rootPath) }
     var forceLandscape by remember { mutableStateOf(LauncherPrefs.getForceLandscape(context)) }
@@ -167,15 +172,52 @@ private fun LauncherScreen(
         LauncherPrefs.setGameRoot(context, normalized)
         loading = true
         scope.launch {
-            games = withContext(Dispatchers.IO) { GameScanner.scan(File(normalized)) }
+            val fresh = withContext(Dispatchers.IO) { GameScanner.scan(File(normalized)) }
+            games = fresh
             loading = false
+            withContext(Dispatchers.IO) {
+                GameCache.setCachedRoot(context, normalized)
+                GameCache.save(context, fresh)
+            }
         }
     }
 
     LaunchedEffect(rootPath) {
-        loading = true
-        games = withContext(Dispatchers.IO) { GameScanner.scan(File(rootPath)) }
+        // Two-phase load:
+        //   1. Background verify: walk the existing cache and drop any
+        //      entry whose backing directory is gone or empty. Cheap (one
+        //      stat per entry) and lets us prune deleted games before
+        //      the slower full scan finishes.
+        //   2. Full scan: re-walk the root and replace the list. Saves
+        //      back to cache on success.
+        // If the cache is empty (first run, or previous root differed),
+        // we skip phase 1 and show the spinner until phase 2 completes.
+        val cachedRoot = withContext(Dispatchers.IO) { GameCache.getCachedRoot(context) }
+        val haveValidCache = games.isNotEmpty() && cachedRoot == rootPath
+        if (haveValidCache) {
+            // Run verification on a worker; UI keeps showing the cached
+            // list until verification completes, then we show only the
+            // surviving entries before the full rescan replaces them.
+            val verified = withContext(Dispatchers.IO) {
+                games.filter { GameCache.checkEntry(it) == GameCache.EntryStatus.VALID }
+            }
+            if (verified.size != games.size) {
+                games = verified
+                withContext(Dispatchers.IO) { GameCache.save(context, verified) }
+            }
+        } else {
+            loading = true
+        }
+        // Always re-walk the root afterwards so freshly-added games get
+        // picked up. This is the slow path; cache + verifier are what
+        // make the cold-start feel snappy.
+        val fresh = withContext(Dispatchers.IO) { GameScanner.scan(File(rootPath)) }
+        games = fresh
         loading = false
+        withContext(Dispatchers.IO) {
+            GameCache.setCachedRoot(context, rootPath)
+            GameCache.save(context, fresh)
+        }
     }
 
     Scaffold(
