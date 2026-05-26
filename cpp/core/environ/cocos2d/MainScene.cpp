@@ -440,15 +440,18 @@ public:
         DrawSprite = Sprite::create();
         DrawSprite->setAnchorPoint(Vec2(0, 1)); // top-left
 #if defined(__ANDROID__)
-        // [DIAG 2026-05-26] FBO content is bottom-up by GL convention
-        // but cocos2d Sprite UV expects top-down image data. The
-        // krkr layer GPU pipeline renders into an FBO-backed texture
-        // and cocos2d samples it as a normal sprite — without flipY,
-        // the visible 1920×1080 content gets sampled as if mirrored
-        // vertically, but since DrawBuffer is initialized to 0xFF000000
-        // (black) and the rendered content fills only the top region
-        // when Y is wrong, the screen stays black. Try flipY to verify.
-        DrawSprite->setFlippedY(true);
+        // [DIAG 2026-05-26] CANARY TEST — give the sprite a magenta tint
+        // so we can immediately tell on the device whether the sprite is
+        // actually getting drawn at all. If the screen turns magenta /
+        // tinted-pink wherever the sprite should appear, the cocos2d
+        // pipeline works and the bug is in texture content/sampling.
+        // If the screen stays pure black, the sprite is not being drawn
+        // by Director at all (parent visibility, scene tree, GLView swap
+        // chain, etc.).
+        DrawSprite->setColor(cocos2d::Color3B(255, 0, 255));
+        // We tried setFlippedY(true) in the previous build (commit 2ecf534).
+        // If that didn't show anything, the issue isn't a Y inversion.
+        // Keep flipY off in this canary build so the test result is clean.
 #endif
         PrimaryLayerArea = Node::create();
         addChild(PrimaryLayerArea);
