@@ -1473,8 +1473,48 @@ namespace TJS {
                 ++s_scrExCount;
                 if(s_scrExCount <= 64 || (s_scrExCount & 0x3F) == 0) {
                     ttstr msg = e.GetMessage();
-                    KR2_TJS_EX_LOG("[tjs] CAUGHT_SCRIPT_EX #%d msg='%s' catchip=%d",
-                        s_scrExCount, msg.AsStdString().c_str(), (int)catchip);
+                    // Also try to extract the user-thrown value as text:
+                    // games very often `throw "some message"` and the
+                    // payload is in Value, not in Message ('script exception').
+                    ttstr valStr;
+                    try {
+                        tTJSVariant &val = e.GetValue();
+                        switch(val.Type()) {
+                        case tvtString:
+                        case tvtInteger:
+                        case tvtReal:
+                            valStr = ttstr(val);
+                            break;
+                        case tvtObject: {
+                            // Object thrown -- try .message member, fall back
+                            // to type name.
+                            tTJSVariant memVar;
+                            tTJSVariantClosure clo =
+                                val.AsObjectClosureNoAddRef();
+                            if(TJS_SUCCEEDED(clo.PropGet(0,
+                                TJS_W("message"), nullptr, &memVar,
+                                nullptr))) {
+                                valStr = TJS_W("(obj.message=") +
+                                    ttstr(memVar) + TJS_W(")");
+                            } else {
+                                valStr = TJS_W("(object)");
+                            }
+                            break;
+                        }
+                        case tvtVoid:
+                            valStr = TJS_W("(void)");
+                            break;
+                        default:
+                            valStr = TJS_W("(?)");
+                            break;
+                        }
+                    } catch(...) {
+                        valStr = TJS_W("(extract-fail)");
+                    }
+                    KR2_TJS_EX_LOG(
+                        "[tjs] CAUGHT_SCRIPT_EX #%d msg='%s' val='%s' catchip=%d",
+                        s_scrExCount, msg.AsStdString().c_str(),
+                        valStr.AsStdString().c_str(), (int)catchip);
                 }
             }
 #endif
@@ -1493,8 +1533,13 @@ namespace TJS {
                 if(s_scrErrCount <= 64 || (s_scrErrCount & 0x3F) == 0) {
                     ttstr msg = e.GetMessage();
                     ttstr trace = e.GetTrace();
-                    KR2_TJS_EX_LOG("[tjs] CAUGHT_SCRIPT_ERR #%d msg='%s' trace='%s'",
+                    const tjs_char *block = e.GetBlockName();
+                    int line = (int)e.GetSourceLine();
+                    ttstr blockstr = block ? ttstr(block) : ttstr(TJS_W("(?)"));
+                    KR2_TJS_EX_LOG(
+                        "[tjs] CAUGHT_SCRIPT_ERR #%d msg='%s' at='%s:%d' trace='%s'",
                         s_scrErrCount, msg.AsStdString().c_str(),
+                        blockstr.AsStdString().c_str(), line,
                         trace.AsStdString().c_str());
                 }
             }
