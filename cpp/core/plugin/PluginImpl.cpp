@@ -385,6 +385,14 @@ void TVPLoadInternalPlugins() {
     // Storages.setTextEncoding that older KAG titles assume are present
     // without an explicit Plugins.link call. Mirrors krkrsdl3-main.
     ncbAutoRegister::LoadModule(TJS_W("kirikiroid2.dll"));
+
+    // Auto-load every remaining internal plugin module (layerExRaster,
+    // layerExBTOA, layerex_draw, gdiplus, etc.) so KAG scripts that expect
+    // Layer.copyRaster / Layer.copyBottomBlueToTopAlpha / Layer.drawImage
+    // and similar plugin-attached methods to exist on the base class will
+    // find them at startup, without an explicit Plugins.link("xxx.dll").
+    // This mirrors AetherKiri / KrKr2-Next behaviour.
+    ncbAutoRegister::LoadAllModules();
 }
 
 bool TVPLoadInternalPlugin(const ttstr &_name) {
