@@ -7,7 +7,6 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import java.util.UUID
 object LauncherPrefs {
     private const val TAG = "KR2LauncherPrefs"
     private const val PREF = "krkr2_launcher"
@@ -15,7 +14,6 @@ object LauncherPrefs {
     private const val KEY_LAST_GAME = "last_game"
     private const val KEY_LANGUAGE = "language"
     private const val KEY_FORCE_LANDSCAPE = "force_landscape"
-    private const val KEY_KNOWN_GAMES = "known_games"
     // Maximum directory depth GameScanner walks below the configured root
     // before giving up. Deeper trees take quadratically longer, especially
     // when MANAGE_EXTERNAL_STORAGE is granted and the root happens to be
@@ -36,112 +34,52 @@ object LauncherPrefs {
     const val LANG_ZH = "zh"
     const val DEFAULT_GAME_ROOT = "/storage/emulated/0/krkr2pro"
 
-    fun getGameRoot(context: Context): String {
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .getString(KEY_GAME_ROOT, DEFAULT_GAME_ROOT) ?: DEFAULT_GAME_ROOT
-    }
+    fun getGameRoot(context: Context): String = LauncherSettingsDb.getString(context, KEY_GAME_ROOT, DEFAULT_GAME_ROOT)
 
     fun setGameRoot(context: Context, path: String) {
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_GAME_ROOT, path.trim().ifBlank { DEFAULT_GAME_ROOT })
-            .apply()
+        LauncherSettingsDb.setString(context, KEY_GAME_ROOT, path.trim().ifBlank { DEFAULT_GAME_ROOT })
     }
 
-    fun getLanguage(context: Context): String {
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .getString(KEY_LANGUAGE, LANG_EN) ?: LANG_EN
-    }
+    fun getLanguage(context: Context): String = LauncherSettingsDb.getString(context, KEY_LANGUAGE, LANG_EN)
 
     fun setLanguage(context: Context, language: String) {
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_LANGUAGE, if (language == LANG_ZH) LANG_ZH else LANG_EN)
-            .apply()
+        LauncherSettingsDb.setString(context, KEY_LANGUAGE, if (language == LANG_ZH) LANG_ZH else LANG_EN)
     }
 
-    fun getForceLandscape(context: Context): Boolean {
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .getBoolean(KEY_FORCE_LANDSCAPE, true)
-    }
+    fun getForceLandscape(context: Context): Boolean = LauncherSettingsDb.getBoolean(context, KEY_FORCE_LANDSCAPE, true)
 
     fun setForceLandscape(context: Context, enabled: Boolean) {
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putBoolean(KEY_FORCE_LANDSCAPE, enabled)
-            .apply()
+        LauncherSettingsDb.setBoolean(context, KEY_FORCE_LANDSCAPE, enabled)
     }
 
-    fun getScanDepth(context: Context): Int {
-        val raw = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .getInt(KEY_SCAN_DEPTH, SCAN_DEPTH_DEFAULT)
-        return raw.coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)
-    }
+    fun getScanDepth(context: Context): Int = LauncherSettingsDb.getInt(context, KEY_SCAN_DEPTH, SCAN_DEPTH_DEFAULT).coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)
 
     fun setScanDepth(context: Context, depth: Int) {
-        val clamped = depth.coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_SCAN_DEPTH, clamped)
-            .apply()
+        LauncherSettingsDb.setInt(context, KEY_SCAN_DEPTH, depth.coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX))
     }
 
-    fun getSavedAccelerometerRotation(context: Context): Int {
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .getInt(KEY_SAVED_ACCEL_ROTATION, -1)
-    }
+    fun getSavedAccelerometerRotation(context: Context): Int = LauncherSettingsDb.getInt(context, KEY_SAVED_ACCEL_ROTATION, -1)
 
     fun setSavedAccelerometerRotation(context: Context, value: Int) {
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putInt(KEY_SAVED_ACCEL_ROTATION, value)
-            .apply()
+        LauncherSettingsDb.setInt(context, KEY_SAVED_ACCEL_ROTATION, value)
     }
 
-    fun getLastGamePath(context: Context): String? {
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString(KEY_LAST_GAME, null)
-    }
+    fun getLastGamePath(context: Context): String? = LauncherSettingsDb.getString(context, KEY_LAST_GAME, "").takeIf { it.isNotBlank() }
 
     fun setLastGamePath(context: Context, path: String) {
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putString(KEY_LAST_GAME, path)
-            .apply()
+        LauncherSettingsDb.setString(context, KEY_LAST_GAME, path)
     }
 
-    fun ensureGameUuid(context: Context, gameDir: String): String {
-        val stablePath = normalizePath(gameDir)
-        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        val pathKey = "uuid_${keyOf(stablePath)}"
-        val existing = pref.getString(pathKey, null)
-        if (!existing.isNullOrBlank()) return existing
-        val uuid = UUID.randomUUID().toString()
-        pref.edit()
-            .putString(pathKey, uuid)
-            .putString("path_$uuid", stablePath)
-            .putStringSet(KEY_KNOWN_GAMES, pref.getStringSet(KEY_KNOWN_GAMES, emptySet()).orEmpty() + uuid)
-            .apply()
-        return uuid
-    }
+    fun ensureGameUuid(context: Context, gameDir: String): String = GamePrefsDb.ensureGameUuid(context, gameDir)
 
-    fun getGameUuid(context: Context, gameDir: String): String = ensureGameUuid(context, gameDir)
+    fun getGameUuid(context: Context, gameDir: String): String = GamePrefsDb.ensureGameUuid(context, gameDir)
 
-    fun getAlias(context: Context, gameDir: String): String? {
-        val uuid = ensureGameUuid(context, gameDir)
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString("alias_$uuid", null)
-    }
+    fun getAlias(context: Context, gameDir: String): String? = GamePrefsDb.getGamePref(context, gameDir, "alias")
 
-    fun getCustomImagePath(context: Context, gameDir: String): String? {
-        val uuid = ensureGameUuid(context, gameDir)
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE).getString("custom_image_$uuid", null)
-    }
+    fun getCustomImagePath(context: Context, gameDir: String): String? = GamePrefsDb.getGamePref(context, gameDir, "custom_image")
 
     fun setCustomImagePath(context: Context, gameDir: String, imagePath: String) {
-        val uuid = ensureGameUuid(context, gameDir)
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putString("custom_image_$uuid", imagePath.trim())
-            .apply()
+        GamePrefsDb.putGamePref(context, gameDir, "custom_image", imagePath.trim().ifBlank { null })
     }
 
     /**
@@ -150,29 +88,15 @@ object LauncherPrefs {
      * to startup.tjs / start.tjs / data.xp3 / first .xp3 / first .ks under
      * the game directory.
      */
-    fun getCustomLaunchFile(context: Context, gameDir: String): String? {
-        val uuid = ensureGameUuid(context, gameDir)
-        return context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .getString("custom_launch_$uuid", null)
-    }
+    fun getCustomLaunchFile(context: Context, gameDir: String): String? =
+        GamePrefsDb.getGamePref(context, gameDir, "custom_launch")
 
     fun setCustomLaunchFile(context: Context, gameDir: String, path: String) {
-        val uuid = ensureGameUuid(context, gameDir)
-        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        val trimmed = path.trim()
-        if (trimmed.isEmpty()) {
-            pref.edit().remove("custom_launch_$uuid").apply()
-        } else {
-            pref.edit().putString("custom_launch_$uuid", trimmed).apply()
-        }
+        GamePrefsDb.putGamePref(context, gameDir, "custom_launch", path.trim().ifBlank { null })
     }
 
     fun setAlias(context: Context, gameDir: String, alias: String) {
-        val uuid = ensureGameUuid(context, gameDir)
-        context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-            .edit()
-            .putString("alias_$uuid", alias.trim())
-            .apply()
+        GamePrefsDb.putGamePref(context, gameDir, "alias", alias.trim().ifBlank { null })
     }
 
     fun displayName(context: Context, game: GameEntry): String {
@@ -180,81 +104,20 @@ object LauncherPrefs {
     }
 
     fun recordLaunch(context: Context, gameDir: String) {
-        val key = statsKey(context, gameDir)
-        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        ensureGameUuid(context, gameDir)
-        pref.edit()
-            .putInt("launch_count_$key", pref.getInt("launch_count_$key", 0) + 1)
-            .putLong("last_launch_$key", System.currentTimeMillis())
-            .apply()
+        GamePrefsDb.incrementLaunch(context, gameDir)
     }
 
     fun recordPlayTime(context: Context, gameDir: String, millis: Long) {
-        if (millis <= 0L) return
-        val key = statsKey(context, gameDir)
-        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        ensureGameUuid(context, gameDir)
-        pref.edit()
-            .putLong("play_time_$key", pref.getLong("play_time_$key", 0L) + millis)
-            .apply()
+        GamePrefsDb.addPlayTime(context, gameDir, millis)
     }
 
     fun getStats(context: Context, gameDir: String): GameStats {
-        val key = statsKey(context, gameDir)
-        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        return GameStats(
-            uuid = ensureGameUuid(context, gameDir),
-            launchCount = pref.getInt("launch_count_$key", 0),
-            playTimeMillis = pref.getLong("play_time_$key", 0L),
-            lastLaunchMillis = pref.getLong("last_launch_$key", 0L),
-        )
+        return GamePrefsDb.getGameStats(context, gameDir)
     }
 
-    fun exportBackup(context: Context): File {
-        val pref = context.getSharedPreferences(PREF, Context.MODE_PRIVATE)
-        val all = pref.all
-        val timestamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
-        // Write to the app-private external dir first. Android 10+ scoped
-        // storage refuses raw filesystem writes to /storage/emulated/0/...
-        // unless MANAGE_EXTERNAL_STORAGE is granted, which is opt-in. The
-        // app-private location is always writable, survives uninstall scoping
-        // rules, and is reachable from the system Files app under
-        // Android/data/<pkg>/files/backups/.
-        val outDir = File(context.getExternalFilesDir(null) ?: context.filesDir, "backups")
-        if (!outDir.exists()) outDir.mkdirs()
-        val file = File(outDir, "krkr2_launcher_backup_$timestamp.json")
-        val json = buildString {
-            append("{\n")
-            append("  \"exportedAt\": \"").append(timestamp).append("\",\n")
-            append("  \"settings\": {\n")
-            append("    \"gameRoot\": \"").append(escape(getGameRoot(context))).append("\",\n")
-            append("    \"language\": \"").append(escape(getLanguage(context))).append("\",\n")
-            append("    \"forceLandscape\": ").append(getForceLandscape(context)).append("\n")
-            append("  },\n")
-            append("  \"rawPreferences\": {\n")
-            all.entries.forEachIndexed { index, entry ->
-                append("    \"").append(escape(entry.key)).append("\": \"").append(escape(entry.value.toString())).append("\"")
-                if (index != all.size - 1) append(",")
-                append("\n")
-            }
-            append("  }\n")
-            append("}\n")
-        }
-        file.writeText(json)
-        return file
-    }
-
-    private fun statsKey(context: Context, gameDir: String): String {
-        val normalized = normalizePath(gameDir)
-        val uuid = ensureGameUuid(context, normalized)
-        return "${keyOf(normalized)}_$uuid"
-    }
+    fun exportBackup(context: Context): File = LauncherSettingsDb.exportBackup(context)
 
     private fun normalizePath(value: String): String = File(value).absolutePath
-
-    private fun keyOf(value: String): String {
-        return value.lowercase(Locale.ROOT).replace(Regex("[^a-z0-9]+"), "_").trim('_')
-    }
 
     private fun escape(value: String): String {
         return value.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", "\\n")

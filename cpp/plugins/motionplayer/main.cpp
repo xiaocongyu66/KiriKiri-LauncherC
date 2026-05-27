@@ -480,8 +480,19 @@ NCB_REGISTER_CLASS(Motion) {
 // ============================================================
 // Callbacks (must be under motionplayer.dll module)
 // ============================================================
+static bool tjsEquals(const tjs_char *lhs, const tjs_char *rhs) {
+    if (lhs == rhs) return true;
+    if (!lhs || !rhs) return false;
+    while (*lhs && *rhs) {
+        if (*lhs != *rhs) return false;
+        ++lhs;
+        ++rhs;
+    }
+    return *lhs == 0 && *rhs == 0;
+}
 
-static iTJSDispatch2 *ensureGlobalNamespace(iTJSDispatch2 *global, const wchar_t *name) {
+static iTJSDispatch2 *ensureGlobalNamespace(iTJSDispatch2 *global, const tjs_char *name) {
+
     if(!global) {
         return nullptr;
     }
@@ -538,23 +549,24 @@ static void PostRegistCallback() {
     // top-level classes into it.
     iTJSDispatch2 *motion = ensureGlobalNamespace(global, TJS_W("Motion"));
     if(motion) {
-        const wchar_t *names[] = {
+        const tjs_char *names[] = {
             TJS_W("ResourceManager"), TJS_W("EmotePlayer"),
             TJS_W("SeparateLayerAdaptor"), TJS_W("D3DAdaptor"),
             TJS_W("SourceCache"), TJS_W("ObjSource"), TJS_W("Point"),
             TJS_W("Circle"), TJS_W("Rect"), TJS_W("Quad"),
             TJS_W("LayerGetter"), TJS_W("Player")
         };
-        for(const wchar_t *name : names) {
+        for(const tjs_char *name : names) {
             tTJSVariant memberVar;
             if(TJS_SUCCEEDED(global->PropGet(0, name, nullptr, &memberVar, global)) &&
                memberVar.Type() == tvtObject && memberVar.AsObjectNoAddRef() != nullptr) {
-                if(TJS_WCScmp(name, TJS_W("Player")) == 0) {
+                if(tjsEquals(name, TJS_W("Player"))) {
                     ensurePlayerClassUseD3DProbe(memberVar.AsObjectNoAddRef());
                 }
                 motion->PropSet(TJS_MEMBERENSURE, name, nullptr, &memberVar, motion);
             }
         }
+
     }
 
     // Some patch scripts also probe ENV_context. Provide an empty
