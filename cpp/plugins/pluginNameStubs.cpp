@@ -22,6 +22,13 @@
 #include "TextStream.h"
 #include <ctype.h>
 
+// Some headers do not pull in TJS_INTF_METHOD on Android (it is __stdcall
+// on win32 and empty everywhere else); guard the same way layerExBTOA.cpp
+// and layerExAreaAverage.cpp do in this directory.
+#ifndef TJS_INTF_METHOD
+#define TJS_INTF_METHOD
+#endif
+
 // ---------------------------------------------------------------------------
 // Generic dummy stubs (registered via NCB_PRE_REGIST_CALLBACK).
 // Each block defines NCB_MODULE_NAME, declares an empty static callback,
