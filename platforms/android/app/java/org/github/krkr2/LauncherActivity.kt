@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -41,6 +42,9 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ElevatedAssistChip
 import androidx.compose.material3.ElevatedCard
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -58,6 +62,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -122,6 +127,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun startGame(gameDir: String, title: String) {
+        LauncherPrefs.applyGameEngineOverrides(this, gameDir)
         val intent = Intent(this, MainActivity::class.java)
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         intent.putExtra(MainActivity.EXTRA_GAME_DIR, gameDir)
@@ -481,20 +487,171 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit,
 
 @Composable
 private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () -> Unit, text: LauncherStrings.Texts) {
-    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest), modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val context = LocalContext.current
+    var launchFiles by remember(game.gameDir) { mutableStateOf(scanGameLaunchFiles(game.gameDir)) }
+    var launchMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
+    var selectedLaunch by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getCustomLaunchFile(context, game.gameDir).orEmpty()) }
+    var rendererMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
+    var fpsMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
+    var renderer by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "renderer") ?: "") }
+    var fpsLimit by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "fps_limit") ?: "") }
+    var showFps by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "showfps") == "1") }
+    var accurateRender by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "ogl_accurate_render") == "1") }
+
+    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(game.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(game.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(game.gameDir, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
                 IconButton(onClick = onClose) { Icon(Icons.Default.Close, null) }
             }
-            Text(game.gameDir, color = MaterialTheme.colorScheme.onSurfaceVariant)
             game.iconPath?.let { path ->
-                AsyncImage(model = File(path), contentDescription = game.title, modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop)
+                AsyncImage(model = File(path), contentDescription = game.title, modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(18.dp)), contentScale = ContentScale.Crop)
             }
             Text(game.description?.takeIf { it.isNotBlank() } ?: text.noDescription, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+            DetailSection(title = text.launchFile, subtitle = text.launchFileHint) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.weight(1f)) {
+                        ElevatedAssistChip(
+                            onClick = { launchMenuOpen = true },
+                            label = { Text(selectedLaunch.takeIf { it.isNotBlank() }?.let { File(it).name } ?: text.launchFileAuto, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            leadingIcon = { Icon(Icons.Default.FolderOpen, null) },
+                        )
+                        DropdownMenu(expanded = launchMenuOpen, onDismissRequest = { launchMenuOpen = false }) {
+                            DropdownMenuItem(text = { Text(text.launchFileAuto) }, onClick = {
+                                launchMenuOpen = false
+                                selectedLaunch = ""
+                                LauncherPrefs.setCustomLaunchFile(context, game.gameDir, "")
+                            })
+                            launchFiles.forEach { file ->
+                                DropdownMenuItem(text = { Text(file.relativeTo(File(game.gameDir)).invariantSeparatorsPath, maxLines = 1, overflow = TextOverflow.Ellipsis) }, onClick = {
+                                    launchMenuOpen = false
+                                    selectedLaunch = file.absolutePath
+                                    LauncherPrefs.setCustomLaunchFile(context, game.gameDir, file.absolutePath)
+                                })
+                            }
+                        }
+                    }
+                    TextButton(onClick = { launchFiles = scanGameLaunchFiles(game.gameDir) }) { Text(text.refresh) }
+                }
+                if (launchFiles.isEmpty()) {
+                    Text("No xp3/tjs/ks found under this game folder.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+
+            DetailSection(title = text.gameOverride, subtitle = text.gameOverrideHint) {
+                GameSelectSetting(
+                    title = engineCaption(text, "preference_select_renderer"),
+                    value = renderer,
+                    fallback = text.launchFileAuto,
+                    expanded = rendererMenuOpen,
+                    onExpandedChange = { rendererMenuOpen = it },
+                    options = listOf(text.launchFileAuto to "", engineCaption(text, "preference_opengl") to "opengl", engineCaption(text, "preference_software") to "software"),
+                    onSelect = { raw -> renderer = raw; LauncherPrefs.setGameEnginePref(context, game.gameDir, "renderer", raw) },
+                )
+                GameSelectSetting(
+                    title = engineCaption(text, "preference_fps_limit"),
+                    value = fpsLimit,
+                    fallback = text.launchFileAuto,
+                    expanded = fpsMenuOpen,
+                    onExpandedChange = { fpsMenuOpen = it },
+                    options = listOf(text.launchFileAuto to "", "60" to "60", "45" to "45", "30" to "30", "15" to "15"),
+                    onSelect = { raw -> fpsLimit = raw; LauncherPrefs.setGameEnginePref(context, game.gameDir, "fps_limit", raw) },
+                )
+                GameSwitchSetting(engineCaption(text, "preference_show_fps"), showFps) {
+                    showFps = it
+                    LauncherPrefs.setGameEnginePref(context, game.gameDir, "showfps", if (it) "1" else "")
+                }
+                GameSwitchSetting(engineCaption(text, "preference_ogl_accurate_render"), accurateRender) {
+                    accurateRender = it
+                    LauncherPrefs.setGameEnginePref(context, game.gameDir, "ogl_accurate_render", if (it) "1" else "")
+                }
+                TextButton(onClick = {
+                    renderer = ""
+                    fpsLimit = ""
+                    showFps = false
+                    accurateRender = false
+                    LauncherPrefs.clearGameEnginePrefs(context, game.gameDir)
+                }) { Text(text.resetDefaults) }
+            }
+
             FilledTonalButton(onClick = onLaunch, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.PlayArrow, null); Spacer(Modifier.width(8.dp)); Text(text.launch) }
         }
     }
+}
+
+@Composable
+private fun DetailSection(title: String, subtitle: String? = null, content: @Composable () -> Unit) {
+    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            content()
+        }
+    }
+}
+
+@Composable
+private fun GameSelectSetting(
+    title: String,
+    value: String,
+    fallback: String,
+    expanded: Boolean,
+    onExpandedChange: (Boolean) -> Unit,
+    options: List<Pair<String, String>>,
+    onSelect: (String) -> Unit,
+) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box {
+            ElevatedAssistChip(onClick = { onExpandedChange(true) }, label = { Text(options.firstOrNull { it.second == value }?.first ?: value.ifBlank { fallback }) })
+            DropdownMenu(expanded = expanded, onDismissRequest = { onExpandedChange(false) }) {
+                options.forEach { (label, raw) -> DropdownMenuItem(text = { Text(label) }, onClick = { onExpandedChange(false); onSelect(raw) }) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GameSwitchSetting(title: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+private fun scanGameLaunchFiles(gameDir: String): List<File> {
+    val root = File(gameDir)
+    if (!root.isDirectory) return emptyList()
+    val preferred = listOf("startup.tjs", "start.tjs", "data.xp3")
+    return runCatching {
+        root.walkTopDown()
+            .filter { file ->
+                file.isFile && file.extension.lowercase() in setOf("xp3", "tjs", "ks") &&
+                    file.relativeTo(root).invariantSeparatorsPath.count { it == '/' } <= 3
+            }
+            .sortedWith(compareBy<File> { file ->
+                val name = file.name.lowercase()
+                val idx = preferred.indexOf(name)
+                if (idx >= 0) idx else 100 + when (file.extension.lowercase()) {
+                    "xp3" -> 0
+                    "tjs" -> 1
+                    "ks" -> 2
+                    else -> 9
+                }
+            }.thenBy { it.relativeTo(root).invariantSeparatorsPath.lowercase() })
+            .take(80)
+            .toList()
+    }.getOrDefault(emptyList())
+}
+
+private fun engineCaption(text: LauncherStrings.Texts, key: String): String {
+    val lang = if (text.aboutTitle == "关于") LauncherPrefs.LANG_ZH else LauncherPrefs.LANG_EN
+    return KrkrPrefsCaptions.resolve(lang, key)
 }
 
 @Composable

@@ -95,6 +95,30 @@ object LauncherPrefs {
         GamePrefsDb.putGamePref(context, gameDir, "custom_launch", path.trim().ifBlank { null })
     }
 
+
+    private val GAME_ENGINE_KEYS = listOf("renderer", "fps_limit", "showfps", "ogl_accurate_render")
+
+    fun getGameEnginePref(context: Context, gameDir: String, key: String): String? =
+        GamePrefsDb.getGamePref(context, gameDir, "engine_$key")
+
+    fun setGameEnginePref(context: Context, gameDir: String, key: String, value: String?) {
+        GamePrefsDb.putGamePref(context, gameDir, "engine_$key", value?.trim()?.ifBlank { null })
+    }
+
+    fun clearGameEnginePrefs(context: Context, gameDir: String) {
+        GAME_ENGINE_KEYS.forEach { setGameEnginePref(context, gameDir, it, null) }
+    }
+
+    fun applyGameEngineOverrides(context: Context, gameDir: String) {
+        val updates = GAME_ENGINE_KEYS.mapNotNull { key ->
+            getGameEnginePref(context, gameDir, key)?.takeIf { it.isNotBlank() }?.let { key to it }
+        }.toMap()
+        if (updates.isNotEmpty()) {
+            KrkrPrefsStore.update(context, updates)
+            writeLauncherLog(context, "Applied per-game engine overrides for $gameDir: ${updates.keys.joinToString()}")
+        }
+    }
+
     fun setAlias(context: Context, gameDir: String, alias: String) {
         GamePrefsDb.putGamePref(context, gameDir, "alias", alias.trim().ifBlank { null })
     }
