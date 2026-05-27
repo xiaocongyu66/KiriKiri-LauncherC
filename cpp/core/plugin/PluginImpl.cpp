@@ -381,6 +381,10 @@ void TVPLoadInternalPlugins() {
     // as no-op TJS classes. Required by KAG VNs that probe
     // Plugins.CanLoadPlugin("gfxEffect.dll") before constructing gfxFire.
     ncbAutoRegister::LoadModule(TJS_W("gfxEffect.dll"));
+    // kirikiroid2.dll: exposes the global _str_ord helper and
+    // Storages.setTextEncoding that older KAG titles assume are present
+    // without an explicit Plugins.link call. Mirrors krkrsdl3-main.
+    ncbAutoRegister::LoadModule(TJS_W("kirikiroid2.dll"));
 }
 
 bool TVPLoadInternalPlugin(const ttstr &_name) {
