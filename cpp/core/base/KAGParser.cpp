@@ -16,6 +16,13 @@
 #include "DebugIntf.h"
 #include "TextStream.h"
 
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#define KR2_KAG_LOG(...) KR2RenderProbeWriteF(__VA_ARGS__)
+#else
+#define KR2_KAG_LOG(...) ((void)0)
+#endif
+
 namespace TJS {
     ttstr TJSMapGlobalStringMap(const ttstr &string);
 }
@@ -910,6 +917,15 @@ void tTJSNI_KAGParser::Restore(iTJSDispatch2 *dic) {
 //---------------------------------------------------------------------------
 void tTJSNI_KAGParser::LoadScenario(const ttstr &name) {
     // load scenario to buffer
+
+#if defined(__ANDROID__)
+    {
+        static int s_loadScCount = 0;
+        ++s_loadScCount;
+        KR2_KAG_LOG("[kag] LoadScenario #%d name='%s'",
+            s_loadScCount, name.AsStdString().c_str());
+    }
+#endif
 
     BreakConditionAndMacro();
 
