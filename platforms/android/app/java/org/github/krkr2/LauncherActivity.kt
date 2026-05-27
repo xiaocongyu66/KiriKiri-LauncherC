@@ -264,8 +264,8 @@ private fun LauncherScreen(
         val compactWidth = maxWidth < 600.dp
         val compactHome = compactWidth || compactHeight
         val expandedLayout = maxWidth >= 840.dp || (landscape && maxWidth >= 600.dp)
-        val contentPadding = if (compactHome) 8.dp else 16.dp
-        val contentGap = if (compactHome) 8.dp else 16.dp
+        val contentPadding = if (compactHome) 10.dp else 16.dp
+        val contentGap = if (compactHome) 10.dp else 16.dp
         Scaffold(
             snackbarHost = { SnackbarHost(snackbarHostState) },
             topBar = {
@@ -381,8 +381,11 @@ private fun LauncherHero(
     text: LauncherStrings.Texts,
     compact: Boolean,
 ) {
-    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
-            Column(Modifier.fillMaxWidth().padding(if (compact) 8.dp else 12.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 8.dp)) {
+    ElevatedCard(
+        colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+        shape = RoundedCornerShape(if (compact) 18.dp else 24.dp),
+    ) {
+            Column(Modifier.fillMaxWidth().padding(if (compact) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(if (compact) 8.dp else 10.dp)) {
                 Text(text.appName, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     ElevatedAssistChip(onClick = onOpenPermission, label = { Text(text.grantStorage) }, leadingIcon = { Icon(Icons.Default.FolderOpen, null) })
@@ -457,6 +460,7 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit,
     ElevatedCard(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        shape = RoundedCornerShape(20.dp),
     ) {
         Column(Modifier.fillMaxWidth()) {
             Box(
@@ -473,7 +477,7 @@ private fun GameCard(game: GameEntry, onClick: () -> Unit, onLaunch: () -> Unit,
                     Icon(Icons.Default.GridView, null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.align(Alignment.Center))
                 }
             }
-            Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.fillMaxWidth().padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(game.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(game.gameDir, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -498,7 +502,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
     var showFps by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "showfps") == "1") }
     var accurateRender by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "ogl_accurate_render") == "1") }
 
-    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), modifier = Modifier.fillMaxSize()) {
+    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -585,7 +589,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
 
 @Composable
 private fun DetailSection(title: String, subtitle: String? = null, content: @Composable () -> Unit) {
-    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), modifier = Modifier.fillMaxWidth()) {
+    ElevatedCard(colors = CardDefaults.elevatedCardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold)
             if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

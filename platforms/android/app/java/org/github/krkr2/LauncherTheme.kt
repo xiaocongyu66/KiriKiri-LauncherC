@@ -1,7 +1,7 @@
 package org.github.krkr2
 
-import android.app.Activity
 import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -91,10 +91,11 @@ private val LauncherTypography = Typography(
 @Composable
 fun LauncherTheme(content: @Composable () -> Unit) {
     val context = LocalContext.current
+    val darkTheme = isSystemInDarkTheme()
     val scheme = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-        if ((context as? Activity) != null) dynamicDarkColorScheme(context) else StaticDark
+        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
     } else {
-        StaticDark
+        if (darkTheme) StaticDark else StaticLight
     }
     MaterialTheme(
         colorScheme = scheme,

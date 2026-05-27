@@ -250,7 +250,7 @@ private fun SettingsScreen(
 @Composable
 private fun SettingsSideBar(dest: SettingsDest, onSelect: (SettingsDest) -> Unit, text: LauncherStrings.Texts) {
     Column(
-        Modifier.width(96.dp).fillMaxHeight().padding(8.dp),
+        Modifier.width(88.dp).fillMaxHeight().padding(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -266,8 +266,8 @@ private fun SettingsSideBar(dest: SettingsDest, onSelect: (SettingsDest) -> Unit
 private fun SettingsSideChip(current: SettingsDest, item: SettingsDest, onSelect: (SettingsDest) -> Unit, icon: ImageVector, label: String) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable { onSelect(item) },
-        color = if (current == item) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(16.dp),
+        color = if (current == item) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(18.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Icon(icon, null, tint = if (current == item) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -292,7 +292,26 @@ private fun SettingsSelectorBar(dest: SettingsDest, onSelect: (SettingsDest) -> 
 
 @Composable
 private fun SettingsSelectorChip(current: SettingsDest, item: SettingsDest, onSelect: (SettingsDest) -> Unit, icon: ImageVector, label: String) {
-    ElevatedAssistChip(onClick = { onSelect(item) }, label = { Text(label, maxLines = 1) }, leadingIcon = { Icon(icon, null) })
+    val selected = current == item
+    Surface(
+        modifier = Modifier.clickable { onSelect(item) },
+        color = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Row(
+            Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Icon(icon, null, tint = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                label,
+                maxLines = 1,
+                color = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLarge,
+            )
+        }
+    }
 }
 
 @Composable
@@ -338,7 +357,7 @@ private fun SettingsContent(
     onCopy: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(modifier) {
+    Box(modifier.verticalScroll(rememberScrollState())) {
         when (dest) {
             SettingsDest.Library -> LibrarySettings(text, compact, pathInput, onPathChange, scanDepth, onScanDepthChange, statusLine, onSaveAndScan, onRefresh, onGrantStorage)
             SettingsDest.Display -> DisplaySettings(text, compact, onLangChange)
@@ -351,8 +370,8 @@ private fun SettingsContent(
 
 @Composable
 private fun SettingsPanel(title: String, icon: ImageVector, compact: Boolean, content: @Composable ColumnScope.() -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh), shape = RoundedCornerShape(18.dp)) {
-        Column(Modifier.fillMaxWidth().padding(if (compact) 10.dp else 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), shape = RoundedCornerShape(20.dp)) {
+        Column(Modifier.fillMaxWidth().padding(if (compact) 12.dp else 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Icon(icon, null, tint = MaterialTheme.colorScheme.primary)
                 Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
