@@ -182,7 +182,7 @@ private fun SettingsScreen(
     ) { padding ->
         if (landscape) {
             Row(Modifier.fillMaxSize().padding(padding)) {
-                SettingsRail(dest, { dest = it }, text)
+                SettingsSelectorBar(dest, { dest = it }, text)
                 Column(
                     Modifier.width(if (compact) 248.dp else 300.dp).fillMaxHeight().padding(pad),
                     verticalArrangement = Arrangement.spacedBy(gap),
