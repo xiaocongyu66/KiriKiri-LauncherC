@@ -1003,20 +1003,18 @@ public:
             if(s_rpbCount <= 8 || (s_rpbCount & 0x3F) == 0) {
                 cocos2d::Vec2 actualOffset = getContentOffset();
                 float actualZoom = getZoomScale();
-                float minZ = getMinScale();
-                float maxZ = getMaxScale();
                 float plaScale = PrimaryLayerArea
                     ? PrimaryLayerArea->getScale() : -1.f;
                 KR2RenderProbeWriteF(
                     "WindowLayer::RecalcPaintBox#%d "
                     "branch=%s req_scale=%.3f req_offset=%.1f,%.1f "
-                    "actualZoom=%.3f min=%.3f max=%.3f "
+                    "actualZoom=%.3f "
                     "actualOffset=%.1f,%.1f plaScale=%.3f "
                     "viewSize=%.0fx%.0f contSize=%.0fx%.0f",
                     s_rpbCount,
                     R > r ? "width" : "height",
                     scale, offset.x, offset.y,
-                    actualZoom, minZ, maxZ,
+                    actualZoom,
                     actualOffset.x, actualOffset.y, plaScale,
                     size.width, size.height,
                     contSize.width, contSize.height);
