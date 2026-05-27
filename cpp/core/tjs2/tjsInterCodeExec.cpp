@@ -31,6 +31,13 @@
 #include <fmt/format.h>
 #include <spdlog/spdlog.h>
 
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#define KR2_TJS_EX_LOG(...) KR2RenderProbeWriteF(__VA_ARGS__)
+#else
+#define KR2_TJS_EX_LOG(...) ((void)0)
+#endif
+
 namespace TJS {
     //---------------------------------------------------------------------------
     // utility functions
@@ -1460,6 +1467,17 @@ namespace TJS {
         } catch(eTJSScriptException &e) {
             if(exobjreg)
                 *(ra + exobjreg) = e.GetValue();
+#if defined(__ANDROID__)
+            {
+                static int s_scrExCount = 0;
+                ++s_scrExCount;
+                if(s_scrExCount <= 64 || (s_scrExCount & 0x3F) == 0) {
+                    ttstr msg = e.GetMessage();
+                    KR2_TJS_EX_LOG("[tjs] CAUGHT_SCRIPT_EX #%d msg='%s' catchip=%d",
+                        s_scrExCount, msg.AsStdString().c_str(), (int)catchip);
+                }
+            }
+#endif
             return catchip;
         } catch(eTJSScriptError &e) {
             if(exobjreg) {
@@ -1468,6 +1486,19 @@ namespace TJS {
                 TJSGetExceptionObject(Block->GetTJS(), ra + exobjreg, msg,
                                       &trace);
             }
+#if defined(__ANDROID__)
+            {
+                static int s_scrErrCount = 0;
+                ++s_scrErrCount;
+                if(s_scrErrCount <= 64 || (s_scrErrCount & 0x3F) == 0) {
+                    ttstr msg = e.GetMessage();
+                    ttstr trace = e.GetTrace();
+                    KR2_TJS_EX_LOG("[tjs] CAUGHT_SCRIPT_ERR #%d msg='%s' trace='%s'",
+                        s_scrErrCount, msg.AsStdString().c_str(),
+                        trace.AsStdString().c_str());
+                }
+            }
+#endif
             return catchip;
         } catch(eTJS &e) {
             if(exobjreg) {
@@ -1475,6 +1506,17 @@ namespace TJS {
                 TJSGetExceptionObject(Block->GetTJS(), ra + exobjreg, msg,
                                       nullptr);
             }
+#if defined(__ANDROID__)
+            {
+                static int s_etjsCount = 0;
+                ++s_etjsCount;
+                if(s_etjsCount <= 64 || (s_etjsCount & 0x3F) == 0) {
+                    ttstr msg = e.GetMessage();
+                    KR2_TJS_EX_LOG("[tjs] CAUGHT_ETJS #%d msg='%s'",
+                        s_etjsCount, msg.AsStdString().c_str());
+                }
+            }
+#endif
             return catchip;
         } catch(std::exception &e) {
             if(exobjreg) {
@@ -1482,10 +1524,30 @@ namespace TJS {
                 TJSGetExceptionObject(Block->GetTJS(), ra + exobjreg, msg,
                                       nullptr);
             }
+#if defined(__ANDROID__)
+            {
+                static int s_stdExCount = 0;
+                ++s_stdExCount;
+                if(s_stdExCount <= 64 || (s_stdExCount & 0x3F) == 0) {
+                    KR2_TJS_EX_LOG("[tjs] CAUGHT_STD_EX #%d what='%s'",
+                        s_stdExCount, e.what() ? e.what() : "(null)");
+                }
+            }
+#endif
             return catchip;
         } catch(...) {
             if(exobjreg)
                 (ra + exobjreg)->Clear();
+#if defined(__ANDROID__)
+            {
+                static int s_unkExCount = 0;
+                ++s_unkExCount;
+                if(s_unkExCount <= 64 || (s_unkExCount & 0x3F) == 0) {
+                    KR2_TJS_EX_LOG("[tjs] CAUGHT_UNKNOWN_EX #%d catchip=%d",
+                        s_unkExCount, (int)catchip);
+                }
+            }
+#endif
             return catchip;
         }
     }
