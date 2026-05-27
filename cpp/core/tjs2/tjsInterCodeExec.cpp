@@ -1497,7 +1497,29 @@ namespace TJS {
                                 valStr = TJS_W("(obj.message=") +
                                     ttstr(memVar) + TJS_W(")");
                             } else {
-                                valStr = TJS_W("(object)");
+                                // Try .what, .trace, .name in turn so we can
+                                // see what class/object the script threw.
+                                tTJSVariant tVar;
+                                tTJSVariantClosure clo2 =
+                                    val.AsObjectClosureNoAddRef();
+                                if(TJS_SUCCEEDED(clo2.PropGet(0,
+                                    TJS_W("what"), nullptr, &tVar,
+                                    nullptr))) {
+                                    valStr = TJS_W("(what=") +
+                                        ttstr(tVar) + TJS_W(")");
+                                } else if(TJS_SUCCEEDED(clo2.PropGet(0,
+                                    TJS_W("trace"), nullptr, &tVar,
+                                    nullptr))) {
+                                    valStr = TJS_W("(trace=") +
+                                        ttstr(tVar) + TJS_W(")");
+                                } else if(TJS_SUCCEEDED(clo2.PropGet(0,
+                                    TJS_W("name"), nullptr, &tVar,
+                                    nullptr))) {
+                                    valStr = TJS_W("(name=") +
+                                        ttstr(tVar) + TJS_W(")");
+                                } else {
+                                    valStr = TJS_W("(object,no-msg)");
+                                }
                             }
                             break;
                         }
