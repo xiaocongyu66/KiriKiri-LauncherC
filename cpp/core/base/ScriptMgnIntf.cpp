@@ -33,6 +33,13 @@
 #include "VideoOvlIntf.h"
 #include "PadIntf.h"
 #include "TextStream.h"
+
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#define KR2_SCR_LOG(...) KR2RenderProbeWriteF(__VA_ARGS__)
+#else
+#define KR2_SCR_LOG(...) ((void)0)
+#endif
 #include "Random.h"
 #include "tjsRandomGenerator.h"
 #include "SysInitIntf.h"
@@ -734,6 +741,24 @@ void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
     // execute storage which contains script
     if(!TVPScriptEngine)
         TVPThrowInternalError;
+
+#if defined(__ANDROID__)
+    // Resource probe: every script TVPExecuteStorage call gets logged so
+    // we can see the order in which initialize.tjs / Initialize.tjs /
+    // KAGWindow.tjs / MainWindow.tjs ... are pulled.
+    {
+        static int s_execCount = 0;
+        ++s_execCount;
+        if(s_execCount <= 96 || (s_execCount & 0x3F) == 0) {
+            ttstr msg = TJS_W("[res] EXEC_SCRIPT #") +
+                ttstr((tjs_int)s_execCount) +
+                TJS_W(" '") + name + TJS_W("' ctx=") +
+                ttstr((tjs_int)(tTVInteger)(intptr_t)context) +
+                TJS_W(" expr=") + ttstr(isexpression ? 1 : 0);
+            KR2_SCR_LOG("%s", msg.AsStdString().c_str());
+        }
+    }
+#endif
 
     if(TVPExecuteStorageWithAfterInitCompatibility(name, context, result,
                                                    isexpression, modestr)) {

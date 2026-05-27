@@ -23,6 +23,13 @@
 #include "XP3Archive.h"
 #include "TickCount.h"
 
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#define KR2_RES_LOG(...) KR2RenderProbeWriteF(__VA_ARGS__)
+#else
+#define KR2_RES_LOG(...) ((void)0)
+#endif
+
 #define TVP_DEFAULT_ARCHIVE_CACHE_NUM 64
 #define TVP_DEFAULT_AUTOPATH_CACHE_NUM 256
 
@@ -1166,6 +1173,22 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
     if(name.IsEmpty()) {
         if(access >= 1)
             TVPRemoveFromStorageCache(_name);
+#if defined(__ANDROID__)
+        // Resource probe: every "Cannot open storage" gets logged with
+        // raw input name + access mode so we can trace which file the
+        // game tried to open and failed to find. Counter limits log spam.
+        {
+            static int s_missCount = 0;
+            ++s_missCount;
+            if(s_missCount <= 64 || (s_missCount & 0x3F) == 0) {
+                ttstr msg = TJS_W("[res] OPEN_FAIL #") +
+                    ttstr((tjs_int)s_missCount) +
+                    TJS_W(" name='") + _name + TJS_W("' access=") +
+                    ttstr((tjs_int)access);
+                KR2_RES_LOG("%s", msg.AsStdString().c_str());
+            }
+        }
+#endif
         TVPThrowExceptionMessage(TVPCannotOpenStorage, _name);
     }
 
@@ -1203,10 +1226,37 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
     } catch(...) {
         if(access >= 1)
             TVPRemoveFromStorageCache(_name);
+#if defined(__ANDROID__)
+        {
+            static int s_mediaFailCount = 0;
+            ++s_mediaFailCount;
+            if(s_mediaFailCount <= 32 || (s_mediaFailCount & 0x3F) == 0) {
+                ttstr msg = TJS_W("[res] MEDIA_OPEN_FAIL #") +
+                    ttstr((tjs_int)s_mediaFailCount) +
+                    TJS_W(" resolved='") + name + TJS_W("' access=") +
+                    ttstr((tjs_int)access);
+                KR2_RES_LOG("%s", msg.AsStdString().c_str());
+            }
+        }
+#endif
         throw;
     }
     if(access >= 1)
         TVPRemoveFromStorageCache(_name);
+#if defined(__ANDROID__)
+    // First few opens always logged so we see exactly which files the
+    // game actually pulled at boot.
+    {
+        static int s_openCount = 0;
+        ++s_openCount;
+        if(s_openCount <= 64) {
+            ttstr msg = TJS_W("[res] OPEN_OK #") +
+                ttstr((tjs_int)s_openCount) +
+                TJS_W(" '") + _name + TJS_W("' -> '") + name + TJS_W("'");
+            KR2_RES_LOG("%s", msg.AsStdString().c_str());
+        }
+    }
+#endif
     return stream;
 }
 
