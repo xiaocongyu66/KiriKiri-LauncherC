@@ -377,6 +377,10 @@ void TVPLoadInternalPlugins() {
     // emoteplayer.dll: must be pre-loaded so CanLoadPlugin("emoteplayer.dll")
     // returns true. Its PreRegist callback chains LoadModule("motionplayer.dll").
     ncbAutoRegister::LoadModule(TJS_W("emoteplayer.dll"));
+    // gfxEffect.dll: tiny script-level shim that registers gfxFire / gfxEffect
+    // as no-op TJS classes. Required by KAG VNs that probe
+    // Plugins.CanLoadPlugin("gfxEffect.dll") before constructing gfxFire.
+    ncbAutoRegister::LoadModule(TJS_W("gfxEffect.dll"));
 }
 
 bool TVPLoadInternalPlugin(const ttstr &_name) {
@@ -634,6 +638,33 @@ tTJSNativeClass *TVPCreateNativeClass_Plugins() {
         return TJS_S_OK;
     }
     TJS_END_NATIVE_STATIC_METHOD_DECL_OUTER(cls, getList)
+    //----------------------------------------------------------------------
+    // CanLoadPlugin(name)
+    //
+    // krkr2-pro extension used by motion.tjs / emoteplayer compatibility
+    // shims to detect whether a given plug-in is available before calling
+    // Plugins.link on it. We answer based on the loaded-plugin registry
+    // populated by ncbind. Returning a boolean (instead of leaving the
+    // method unimplemented) prevents motion.tjs from crashing on line 1
+    // with "Called method is not implemented" when the script does
+    //     if (Plugins.CanLoadPlugin("emoteplayer.dll")) { ... }
+    TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ CanLoadPlugin) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        ttstr name = *param[0];
+        // TVPRegisteredPlugins is keyed by lower-case names (see ncbind.cpp
+        // LoadModule). Match the same casing here so callers like
+        //     if (Plugins.CanLoadPlugin("Emoteplayer.DLL")) { ... }
+        // resolve consistently.
+        ttstr lower = name.AsLowerCase();
+        bool present = TVPRegisteredPlugins.find(lower) != TVPRegisteredPlugins.end();
+        if(result)
+            *result = (tjs_int)(present ? 1 : 0);
+        return TJS_S_OK;
+    }
+    TJS_END_NATIVE_STATIC_METHOD_DECL_OUTER(
+        /*object to register*/ cls,
+        /*func. name*/ CanLoadPlugin)
     //---------------------------------------------------------------------------
 
     //---------------------------------------------------------------------------

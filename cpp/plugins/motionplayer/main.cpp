@@ -573,6 +573,51 @@ static void PostRegistCallback() {
     // compatibility object so old scripts can attach members to it safely.
     ensureGlobalNamespace(global, TJS_W("ENV_context"));
 
+    // ---- D3DEmote / D3DAffineSource* aliases ----
+    // krkrsdl3-main author note (DrawDeviceD3D.cpp top-of-file comment):
+    //   "DrawDeviceD3D 这条渲染管线其实并不需要实现。
+    //    唯一需要的一点小技巧是把 D3DEmote 在此处间接搞定（因为有些游戏只有
+    //    D3DEmote）。做法其实挺简单，将 AffineSourceMotion 适配成
+    //    D3DAffineSourceEmote/D3DAffineSourceMotion 就行了。"
+    //
+    // Translation of that hint into our codebase: some VNs (limelight 系)
+    // dispatch on D3D-prefixed class names instead of the plain ones. We
+    // already register D3DEmoteModule / D3DEmotePlayer through ncbind, but
+    // scripts also reach for `D3DEmote` (no suffix) and the script-side
+    // `AffineSourceMotion` class is sometimes wrapped as
+    // `D3DAffineSourceEmote` / `D3DAffineSourceMotion` for the D3D path.
+    //
+    // We resolve this with global aliasing:
+    //   * `D3DEmote`               -> `D3DEmoteModule` if it exists
+    //   * `D3DAffineSourceEmote`   -> `AffineSourceMotion` if defined,
+    //                                 else a permissive stub
+    //   * `D3DAffineSourceMotion`  -> same fallback
+    //
+    // Aliasing is done at the namespace level (PropSet on global), not at the
+    // class level, so subsequent `new D3DEmote()` / `instanceof` checks reuse
+    // the existing implementation.
+    auto aliasIfExists = [&](const tjs_char *aliasName,
+                             const tjs_char *targetName) {
+        tTJSVariant existing;
+        if(TJS_SUCCEEDED(global->PropGet(0, aliasName, nullptr, &existing,
+                                         global)) &&
+           existing.Type() == tvtObject &&
+           existing.AsObjectNoAddRef() != nullptr) {
+            return; // already defined, leave the real impl alone
+        }
+        tTJSVariant target;
+        if(TJS_SUCCEEDED(global->PropGet(0, targetName, nullptr, &target,
+                                         global)) &&
+           target.Type() == tvtObject &&
+           target.AsObjectNoAddRef() != nullptr) {
+            global->PropSet(TJS_MEMBERENSURE, aliasName, nullptr, &target,
+                            global);
+        }
+    };
+    aliasIfExists(TJS_W("D3DEmote"), TJS_W("D3DEmoteModule"));
+    aliasIfExists(TJS_W("D3DAffineSourceEmote"), TJS_W("AffineSourceMotion"));
+    aliasIfExists(TJS_W("D3DAffineSourceMotion"), TJS_W("AffineSourceMotion"));
+
     // Define ShortCutInitialPadKeyMap and related members as empty
     // dictionaries. These are referenced by encrypted keybinder.tjs but may not
     // be defined if the gamepad initialization script hasn't run yet.

@@ -1,0 +1,38 @@
+// SPDX-License-Identifier: MIT
+//
+// gfxEffect.dll compatibility shim
+//
+// Imported (and lightly adapted) from krkrsdl3-main/cpp/plugins/gfxEffect.cpp.
+//
+// Some KAG VNs probe `Plugins.CanLoadPlugin("gfxEffect.dll")` and, when
+// available, instantiate small effect classes such as `gfxFire`.  On the
+// upstream Windows engine those are provided by gfxEffect.dll; we don't have
+// the binary on Android, so without this stub the script either crashes on
+// `new gfxFire()` ("Member \"gfxFire\" does not exist") or silently disables
+// the entire visual-effect chain because CanLoadPlugin reports false.
+//
+// We mirror the krkrsdl3 trick: register the module name with ncbind so
+// CanLoadPlugin returns true, and pre-define empty `gfxFire` / `gfxEffect`
+// TJS classes through TVPExecuteScript. The construction succeeds, the game
+// proceeds, and any further calls hit the script-level no-op.
+#include "ncbind.hpp"
+
+#define NCB_MODULE_NAME TJS_W("gfxEffect.dll")
+
+static void InitPlugin_GFXEffect() {
+    TVPExecuteScript(
+        TJS_W("class gfxFire {")
+        TJS_W("  function gfxFire() {")
+        TJS_W("  }")
+        TJS_W("  function finalize() {")
+        TJS_W("  }")
+        TJS_W("};")
+        TJS_W("class gfxEffect {")
+        TJS_W("  function gfxEffect() {")
+        TJS_W("  }")
+        TJS_W("  function finalize() {")
+        TJS_W("  }")
+        TJS_W("};"));
+}
+
+NCB_PRE_REGIST_CALLBACK(InitPlugin_GFXEffect);
