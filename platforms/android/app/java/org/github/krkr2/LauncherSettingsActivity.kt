@@ -23,8 +23,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -179,9 +179,6 @@ private fun SettingsScreen(
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
             )
         },
-        bottomBar = {
-            if (!landscape) SettingsBottomBar(dest, { dest = it }, text)
-        },
     ) { padding ->
         if (landscape) {
             Row(Modifier.fillMaxSize().padding(padding)) {
@@ -235,45 +232,56 @@ private fun SettingsScreen(
                 }
             }
         } else {
-            SettingsContent(
-                dest = dest,
-                text = text,
-                compact = false,
-                pathInput = pathInput,
-                onPathChange = { pathInput = it },
-                scanDepth = scanDepth,
-                onScanDepthChange = { scanDepth = it },
-                statusLine = statusLine,
-                onSaveAndScan = { saveAndScan() },
-                onRefresh = { saveAndScan() },
-                onGrantStorage = {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.fromParts("package", context.packageName, null))
-                    context.startActivity(intent)
-                },
-                onLangChange = { newLang -> LauncherPrefs.setLanguage(context, newLang); lang = newLang },
-                onOpenRenderSettings = onOpenRenderSettings,
-                onOpenDiagnostics = onOpenDiagnostics,
-                onLaunchOriginal = onLaunchOriginal,
-                onExportBackup = {
-                    val out = LauncherPrefs.exportBackup(context)
-                    statusLine = "${text.exported}: ${out.absolutePath}"
-                },
-                onCopy = { value -> copyToClipboard(context, value) },
-                modifier = Modifier.fillMaxSize().padding(padding).padding(pad),
-            )
+            Column(Modifier.fillMaxSize().padding(padding).padding(pad), verticalArrangement = Arrangement.spacedBy(gap)) {
+                SettingsSelectorBar(dest, { dest = it }, text)
+                SettingsContent(
+                    dest = dest,
+                    text = text,
+                    compact = false,
+                    pathInput = pathInput,
+                    onPathChange = { pathInput = it },
+                    scanDepth = scanDepth,
+                    onScanDepthChange = { scanDepth = it },
+                    statusLine = statusLine,
+                    onSaveAndScan = { saveAndScan() },
+                    onRefresh = { saveAndScan() },
+                    onGrantStorage = {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.fromParts("package", context.packageName, null))
+                        context.startActivity(intent)
+                    },
+                    onLangChange = { newLang -> LauncherPrefs.setLanguage(context, newLang); lang = newLang },
+                    onOpenRenderSettings = onOpenRenderSettings,
+                    onOpenDiagnostics = onOpenDiagnostics,
+                    onLaunchOriginal = onLaunchOriginal,
+                    onExportBackup = {
+                        val out = LauncherPrefs.exportBackup(context)
+                        statusLine = "${text.exported}: ${out.absolutePath}"
+                    },
+                    onCopy = { value -> copyToClipboard(context, value) },
+                    modifier = Modifier.fillMaxWidth().weight(1f),
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun SettingsRail(dest: SettingsDest, onSelect: (SettingsDest) -> Unit, text: LauncherStrings.Texts) {
-    NavigationRail(containerColor = MaterialTheme.colorScheme.surfaceContainer) {
-        RailItem(dest, SettingsDest.Library, onSelect, Icons.Default.FolderOpen, text.settingsLibrary)
-        RailItem(dest, SettingsDest.Display, onSelect, Icons.Default.Language, text.settingsDisplay)
-        RailItem(dest, SettingsDest.Engine, onSelect, Icons.Default.Tune, text.settingsEngine)
-        RailItem(dest, SettingsDest.Tools, onSelect, Icons.Default.BugReport, text.settingsTools)
-        RailItem(dest, SettingsDest.About, onSelect, Icons.Default.Info, text.settingsAbout)
+private fun SettingsSelectorBar(dest: SettingsDest, onSelect: (SettingsDest) -> Unit, text: LauncherStrings.Texts) {
+    Row(
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        SettingsSelectorChip(dest, SettingsDest.Library, onSelect, Icons.Default.FolderOpen, text.settingsLibrary)
+        SettingsSelectorChip(dest, SettingsDest.Display, onSelect, Icons.Default.Language, text.settingsDisplay)
+        SettingsSelectorChip(dest, SettingsDest.Engine, onSelect, Icons.Default.Tune, text.settingsEngine)
+        SettingsSelectorChip(dest, SettingsDest.Tools, onSelect, Icons.Default.BugReport, text.settingsTools)
+        SettingsSelectorChip(dest, SettingsDest.About, onSelect, Icons.Default.Info, text.settingsAbout)
     }
+}
+
+@Composable
+private fun SettingsSelectorChip(current: SettingsDest, item: SettingsDest, onSelect: (SettingsDest) -> Unit, icon: ImageVector, label: String) {
+    ElevatedAssistChip(onClick = { onSelect(item) }, label = { Text(label, maxLines = 1) }, leadingIcon = { Icon(icon, null) })
 }
 
 @Composable
