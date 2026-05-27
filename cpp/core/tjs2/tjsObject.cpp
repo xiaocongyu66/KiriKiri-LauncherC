@@ -1322,6 +1322,8 @@ namespace TJS {
             static const tjs_char *const k_compat_stub_members[] = {
                 TJS_W("voiceEffectPlugin"),
                 TJS_W("voiceEffectFactory"),
+                TJS_W("Motion"),
+                TJS_W("ENV_context"),
                 nullptr,
             };
             for(const tjs_char *const *p = k_compat_stub_members; *p; ++p) {

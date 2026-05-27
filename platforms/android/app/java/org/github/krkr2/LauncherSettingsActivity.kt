@@ -53,10 +53,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Slider
@@ -182,54 +178,40 @@ private fun SettingsScreen(
     ) { padding ->
         if (landscape) {
             Row(Modifier.fillMaxSize().padding(padding)) {
-                SettingsSelectorBar(dest, { dest = it }, text)
-                Column(
-                    Modifier.width(if (compact) 248.dp else 300.dp).fillMaxHeight().padding(pad),
-                    verticalArrangement = Arrangement.spacedBy(gap),
-                ) {
-                    SettingsHero(text, statusLine, compact, onPrimary = { saveAndScan() }, onSecondary = {
+                SettingsSideBar(dest, { dest = it }, text)
+                SettingsContent(
+                    dest = dest,
+                    text = text,
+                    compact = compact,
+                    pathInput = pathInput,
+                    onPathChange = { pathInput = it },
+                    scanDepth = scanDepth,
+                    onScanDepthChange = { scanDepth = it },
+                    statusLine = statusLine,
+                    onSaveAndScan = { saveAndScan() },
+                    onRefresh = {
                         scope.launch {
                             val games = withContext(Dispatchers.IO) { GameScanner.scan(File(LauncherPrefs.getGameRoot(context)), maxDepth = scanDepth) }
                             statusLine = "${text.scan}: ${games.size}"
                             snackbarHostState.showSnackbar(statusLine)
                         }
-                    })
-                    QuickStatusCard(text, pathInput, scanDepth, compact)
-                }
-                Box(Modifier.weight(1f).fillMaxHeight().padding(end = pad, top = pad, bottom = pad)) {
-                    SettingsContent(
-                        dest = dest,
-                        text = text,
-                        compact = compact,
-                        pathInput = pathInput,
-                        onPathChange = { pathInput = it },
-                        scanDepth = scanDepth,
-                        onScanDepthChange = { scanDepth = it },
-                        statusLine = statusLine,
-                        onSaveAndScan = { saveAndScan() },
-                        onRefresh = {
-                            scope.launch {
-                                val games = withContext(Dispatchers.IO) { GameScanner.scan(File(LauncherPrefs.getGameRoot(context)), maxDepth = scanDepth) }
-                                statusLine = "${text.scan}: ${games.size}"
-                                snackbarHostState.showSnackbar(statusLine)
-                            }
-                        },
-                        onGrantStorage = {
-                            val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.fromParts("package", context.packageName, null))
-                            try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { scope.launch { snackbarHostState.showSnackbar(e.message ?: "") } }
-                        },
-                        onLangChange = { newLang -> LauncherPrefs.setLanguage(context, newLang); lang = newLang },
-                        onOpenRenderSettings = onOpenRenderSettings,
-                        onOpenDiagnostics = onOpenDiagnostics,
-                        onLaunchOriginal = onLaunchOriginal,
-                        onExportBackup = {
-                            val out = LauncherPrefs.exportBackup(context)
-                            statusLine = "${text.exported}: ${out.absolutePath}"
-                            scope.launch { snackbarHostState.showSnackbar("${text.exported}: ${out.name}") }
-                        },
-                        onCopy = { value -> copyToClipboard(context, value); scope.launch { snackbarHostState.showSnackbar(text.aboutCopiedUrl) } },
-                    )
-                }
+                    },
+                    onGrantStorage = {
+                        val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION, Uri.fromParts("package", context.packageName, null))
+                        try { context.startActivity(intent) } catch (e: ActivityNotFoundException) { scope.launch { snackbarHostState.showSnackbar(e.message ?: "") } }
+                    },
+                    onLangChange = { newLang -> LauncherPrefs.setLanguage(context, newLang); lang = newLang },
+                    onOpenRenderSettings = onOpenRenderSettings,
+                    onOpenDiagnostics = onOpenDiagnostics,
+                    onLaunchOriginal = onLaunchOriginal,
+                    onExportBackup = {
+                        val out = LauncherPrefs.exportBackup(context)
+                        statusLine = "${text.exported}: ${out.absolutePath}"
+                        scope.launch { snackbarHostState.showSnackbar("${text.exported}: ${out.name}") }
+                    },
+                    onCopy = { value -> copyToClipboard(context, value); scope.launch { snackbarHostState.showSnackbar(text.aboutCopiedUrl) } },
+                    modifier = Modifier.weight(1f).fillMaxHeight().padding(pad),
+                )
             }
         } else {
             Column(Modifier.fillMaxSize().padding(padding).padding(pad), verticalArrangement = Arrangement.spacedBy(gap)) {
@@ -266,6 +248,35 @@ private fun SettingsScreen(
 }
 
 @Composable
+private fun SettingsSideBar(dest: SettingsDest, onSelect: (SettingsDest) -> Unit, text: LauncherStrings.Texts) {
+    Column(
+        Modifier.width(96.dp).fillMaxHeight().padding(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        SettingsSideChip(dest, SettingsDest.Library, onSelect, Icons.Default.FolderOpen, text.settingsLibrary)
+        SettingsSideChip(dest, SettingsDest.Display, onSelect, Icons.Default.Language, text.settingsDisplay)
+        SettingsSideChip(dest, SettingsDest.Engine, onSelect, Icons.Default.Tune, text.settingsEngine)
+        SettingsSideChip(dest, SettingsDest.Tools, onSelect, Icons.Default.BugReport, text.settingsTools)
+        SettingsSideChip(dest, SettingsDest.About, onSelect, Icons.Default.Info, text.settingsAbout)
+    }
+}
+
+@Composable
+private fun SettingsSideChip(current: SettingsDest, item: SettingsDest, onSelect: (SettingsDest) -> Unit, icon: ImageVector, label: String) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().clickable { onSelect(item) },
+        color = if (current == item) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainer,
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Icon(icon, null, tint = if (current == item) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+@Composable
 private fun SettingsSelectorBar(dest: SettingsDest, onSelect: (SettingsDest) -> Unit, text: LauncherStrings.Texts) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -282,21 +293,6 @@ private fun SettingsSelectorBar(dest: SettingsDest, onSelect: (SettingsDest) -> 
 @Composable
 private fun SettingsSelectorChip(current: SettingsDest, item: SettingsDest, onSelect: (SettingsDest) -> Unit, icon: ImageVector, label: String) {
     ElevatedAssistChip(onClick = { onSelect(item) }, label = { Text(label, maxLines = 1) }, leadingIcon = { Icon(icon, null) })
-}
-
-@Composable
-private fun RailItem(current: SettingsDest, item: SettingsDest, onSelect: (SettingsDest) -> Unit, icon: ImageVector, label: String) {
-    NavigationRailItem(selected = current == item, onClick = { onSelect(item) }, icon = { Icon(icon, null) }, label = { Text(label, maxLines = 1) })
-}
-
-@Composable
-private fun SettingsBottomBar(dest: SettingsDest, onSelect: (SettingsDest) -> Unit, text: LauncherStrings.Texts) {
-    NavigationBar {
-        NavigationBarItem(selected = dest == SettingsDest.Library, onClick = { onSelect(SettingsDest.Library) }, icon = { Icon(Icons.Default.FolderOpen, null) }, label = { Text(text.settingsLibrary) })
-        NavigationBarItem(selected = dest == SettingsDest.Display, onClick = { onSelect(SettingsDest.Display) }, icon = { Icon(Icons.Default.Language, null) }, label = { Text(text.settingsDisplay) })
-        NavigationBarItem(selected = dest == SettingsDest.Engine, onClick = { onSelect(SettingsDest.Engine) }, icon = { Icon(Icons.Default.Tune, null) }, label = { Text(text.settingsEngine) })
-        NavigationBarItem(selected = dest == SettingsDest.Tools, onClick = { onSelect(SettingsDest.Tools) }, icon = { Icon(Icons.Default.BugReport, null) }, label = { Text(text.settingsTools) })
-    }
 }
 
 @Composable
