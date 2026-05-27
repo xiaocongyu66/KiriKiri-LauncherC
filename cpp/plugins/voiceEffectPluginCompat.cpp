@@ -255,6 +255,36 @@ public:
         return TJS_S_OK;
     }
 
+    // `new Motion()` / `new voiceEffectPlugin.SomeClass()` and similar
+    // constructions hit CreateNew. The default tTJSDispatch impl returns
+    // TJS_E_NOTIMPL when membername is null (i.e. constructing the stub
+    // itself), which surfaces as "Called method is not implemented" at
+    // motion.tjs(1). Return the singleton stub instead so the script
+    // keeps a usable object and chained calls survive.
+    tjs_error CreateNew(tjs_uint32 flag, const tjs_char *membername,
+                        tjs_uint32 *hint, iTJSDispatch2 **result,
+                        tjs_int numparams, tTJSVariant **param,
+                        iTJSDispatch2 *objthis) override {
+        LogStubHit("CreateNew", membername);
+        if(result) {
+            this->AddRef();
+            *result = this;
+        }
+        return TJS_S_OK;
+    }
+
+    tjs_error CreateNewByNum(tjs_uint32 flag, tjs_int num,
+                             iTJSDispatch2 **result, tjs_int numparams,
+                             tTJSVariant **param,
+                             iTJSDispatch2 *objthis) override {
+        LogStubHit("CreateNewByNum", nullptr);
+        if(result) {
+            this->AddRef();
+            *result = this;
+        }
+        return TJS_S_OK;
+    }
+
     tjs_error IsValid(tjs_uint32 flag, const tjs_char *membername,
                       tjs_uint32 *hint, iTJSDispatch2 *objthis) override {
         return TJS_S_TRUE;
@@ -391,6 +421,18 @@ void TVPRegisterVoiceEffectStubs() {
     // for objects that should logically behave as a no-op KAGPlugin.
     RegisterPermissiveStubOnGlobal(global, TJS_W("voiceEffectPlugin"));
     RegisterPermissiveStubOnGlobal(global, TJS_W("voiceEffectFactory"));
+    // krkr2-pro / wamsoft-flavoured games (limelight 系) ship a private
+    // `Motion` namespace that builds animation timelines on top of closed
+    // engine extensions. The Android port doesn't have those, so without
+    // a stub motion.tjs blows up at line 1 with either
+    //   "Member \"Motion\" does not exist"
+    // (PropGet path) or
+    //   "Called method is not implemented"
+    // (CreateNew/FuncCall path on the proxy returned from tjsObject's
+    // missing-member whitelist). Registering the permissive stub on
+    // global removes both routes.
+    RegisterPermissiveStubOnGlobal(global, TJS_W("Motion"));
+    RegisterPermissiveStubOnGlobal(global, TJS_W("ENV_context"));
 
     // Many wamsoft-shaped scripts read `kag.voiceEffectPlugin` (KAGWindow
     // instance member), not `voiceEffectPlugin` directly, so a global-only
