@@ -989,6 +989,40 @@ public:
         setZoomScale(scale);
         setContentOffset(offset);
         updateInset();
+#if defined(__ANDROID__)
+        {
+            // [DIAG 2026-05-28] Suspect: cocos2d::extension::ScrollView is
+            // dropping the requested zoomScale (we set 1.448, end up with
+            // 1.000) which leaves PrimaryLayerArea at native 1920x1080 inside
+            // a 2780x1264 viewport — the bottom-left "framebuffer" region the
+            // KAG layer manager owns is the only part of the screen with
+            // content, the rest is cleared to black. Sample the actual zoom
+            // values applied to verify.
+            static int s_rpbCount = 0;
+            ++s_rpbCount;
+            if(s_rpbCount <= 8 || (s_rpbCount & 0x3F) == 0) {
+                cocos2d::Vec2 actualOffset = getContentOffset();
+                float actualZoom = getZoomScale();
+                float minZ = getMinScale();
+                float maxZ = getMaxScale();
+                float plaScale = PrimaryLayerArea
+                    ? PrimaryLayerArea->getScale() : -1.f;
+                KR2RenderProbeWriteF(
+                    "WindowLayer::RecalcPaintBox#%d "
+                    "branch=%s req_scale=%.3f req_offset=%.1f,%.1f "
+                    "actualZoom=%.3f min=%.3f max=%.3f "
+                    "actualOffset=%.1f,%.1f plaScale=%.3f "
+                    "viewSize=%.0fx%.0f contSize=%.0fx%.0f",
+                    s_rpbCount,
+                    R > r ? "width" : "height",
+                    scale, offset.x, offset.y,
+                    actualZoom, minZ, maxZ,
+                    actualOffset.x, actualOffset.y, plaScale,
+                    size.width, size.height,
+                    contSize.width, contSize.height);
+            }
+        }
+#endif
     }
 
     void SetWidth(tjs_int w) override {
