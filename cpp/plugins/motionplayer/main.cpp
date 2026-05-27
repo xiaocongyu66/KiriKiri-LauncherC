@@ -481,6 +481,30 @@ NCB_REGISTER_CLASS(Motion) {
 // Callbacks (must be under motionplayer.dll module)
 // ============================================================
 
+static iTJSDispatch2 *ensureGlobalNamespace(iTJSDispatch2 *global, const wchar_t *name) {
+    if(!global) {
+        return nullptr;
+    }
+
+    tTJSVariant nsVar;
+    if(TJS_SUCCEEDED(global->PropGet(0, name, nullptr, &nsVar, global)) &&
+       nsVar.Type() == tvtObject && nsVar.AsObjectNoAddRef()) {
+        return nsVar.AsObjectNoAddRef();
+    }
+
+    tTJSVariant created;
+    try {
+        TVPExecuteExpression(TJS_W("%[]"), &created);
+    } catch(...) {
+        return nullptr;
+    }
+    if(created.Type() != tvtObject || !created.AsObjectNoAddRef()) {
+        return nullptr;
+    }
+    global->PropSet(TJS_MEMBERENSURE, name, nullptr, &created, global);
+    return created.AsObjectNoAddRef();
+}
+
 static void PostRegistCallback() {
     iTJSDispatch2 *global = TVPGetScriptDispatch();
     if(!global)
@@ -508,24 +532,34 @@ static void PostRegistCallback() {
                              TJS_W("useD3D"), nullptr, &marker, playerClass);
     };
 
-    // Alias Player class into Motion namespace
-    tTJSVariant motionVar;
-    if(TJS_SUCCEEDED(
-           global->PropGet(0, TJS_W("Motion"), nullptr, &motionVar, global))) {
-        iTJSDispatch2 *motion = motionVar.AsObjectNoAddRef();
-        if(motion) {
-            tTJSVariant playerVar;
-            if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("Player"), nullptr,
-                                             &playerVar, global))) {
-                if(playerVar.Type() == tvtObject &&
-                   playerVar.AsObjectNoAddRef() != nullptr) {
-                    ensurePlayerClassUseD3DProbe(playerVar.AsObjectNoAddRef());
-                    motion->PropSet(TJS_MEMBERENSURE, TJS_W("Player"), nullptr,
-                                    &playerVar, motion);
+    // Alias/compat namespace: some scripts expect Motion to exist even if
+    // the class table is initialized later or the module is loaded in a
+    // different order. Make sure the namespace always exists and carry the
+    // top-level classes into it.
+    iTJSDispatch2 *motion = ensureGlobalNamespace(global, TJS_W("Motion"));
+    if(motion) {
+        const wchar_t *names[] = {
+            TJS_W("ResourceManager"), TJS_W("EmotePlayer"),
+            TJS_W("SeparateLayerAdaptor"), TJS_W("D3DAdaptor"),
+            TJS_W("SourceCache"), TJS_W("ObjSource"), TJS_W("Point"),
+            TJS_W("Circle"), TJS_W("Rect"), TJS_W("Quad"),
+            TJS_W("LayerGetter"), TJS_W("Player")
+        };
+        for(const wchar_t *name : names) {
+            tTJSVariant memberVar;
+            if(TJS_SUCCEEDED(global->PropGet(0, name, nullptr, &memberVar, global)) &&
+               memberVar.Type() == tvtObject && memberVar.AsObjectNoAddRef() != nullptr) {
+                if(TJS_WCScmp(name, TJS_W("Player")) == 0) {
+                    ensurePlayerClassUseD3DProbe(memberVar.AsObjectNoAddRef());
                 }
+                motion->PropSet(TJS_MEMBERENSURE, name, nullptr, &memberVar, motion);
             }
         }
     }
+
+    // Some patch scripts also probe ENV_context. Provide an empty
+    // compatibility object so old scripts can attach members to it safely.
+    ensureGlobalNamespace(global, TJS_W("ENV_context"));
 
     // Define ShortCutInitialPadKeyMap and related members as empty
     // dictionaries. These are referenced by encrypted keybinder.tjs but may not
