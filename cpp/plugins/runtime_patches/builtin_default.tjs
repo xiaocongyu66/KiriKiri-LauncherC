@@ -80,7 +80,7 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
         if(typeof global.onWindowPxHeightChanged === "undefined")
             global.onWindowPxHeightChanged = %[];
 
-        // Some scripts expect a callable utility namespace instead.
+        // Also attach to the shared compatibility namespace early.
         if(typeof global.Krkr2CompatUtils === "undefined")
             global.Krkr2CompatUtils = %[];
         if(typeof global.Krkr2CompatUtils.getWindowVirtualPixelHeight === "undefined")
@@ -89,5 +89,6 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
             global.Krkr2CompatUtils.getWindowVirtualPixelWidth = _getCompatWidth;
         if(typeof global.Krkr2CompatUtils.getSquareModeDiff === "undefined")
             global.Krkr2CompatUtils.getSquareModeDiff = function() { return 0; };
+
     })();
 }
