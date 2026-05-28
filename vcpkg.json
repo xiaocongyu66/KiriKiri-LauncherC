@@ -11,7 +11,10 @@
     "boost-iostreams",
     {
       "name": "boost-locale",
-      "default-features": false
+      "default-features": false,
+      "features": [
+        "icu"
+      ]
     },
     "bullet3",
     "boost-phoenix",
