@@ -1555,13 +1555,17 @@ namespace TJS {
                     // members via EnumMembers so we can see what class /
                     // shape of object the script actually threw. Cap to
                     // the first ~16 names to keep the log line bounded.
+                    // Additionally capture the .message value if any
+                    // member yields a non-void string.
                     ttstr memberDump;
+                    ttstr extraMsg;
                     try {
                         tTJSVariant &val = e.GetValue();
                         if(val.Type() == tvtObject &&
                            valStr == TJS_W("(object,no-msg)")) {
                             struct EnumCtx {
                                 std::u16string out;
+                                std::u16string msgValue;
                                 int count;
                             } ctx;
                             ctx.count = 0;
@@ -1589,6 +1593,31 @@ namespace TJS {
                                             i < 32; ++i)
                                             ctx->out += (char16_t)cstr[i];
                                         ctx->count++;
+                                        // If this member is named
+                                        // "message" capture its value
+                                        // string for the log line.
+                                        if(numparams >= 3 && param[2] &&
+                                           ctx->msgValue.empty()) {
+                                            const tjs_char *nm =
+                                                cstr ? cstr : TJS_W("");
+                                            if(TJS_strcmp(
+                                                   nm, TJS_W("message")) ==
+                                               0) {
+                                                try {
+                                                    ttstr v(*param[2]);
+                                                    const tjs_char *vs =
+                                                        v.c_str();
+                                                    for(int i = 0;
+                                                        vs && vs[i] &&
+                                                        i < 200;
+                                                        ++i)
+                                                        ctx->msgValue +=
+                                                            (char16_t)
+                                                                vs[i];
+                                                } catch(...) {
+                                                }
+                                            }
+                                        }
                                     }
                                     if(result)
                                         *result = (tjs_int)1;
@@ -1600,24 +1629,33 @@ namespace TJS {
                             tTJSVariantClosure cbclo(&cb, nullptr);
                             tTJSVariantClosure clo =
                                 val.AsObjectClosureNoAddRef();
-                            clo.EnumMembers(TJS_IGNOREPROP, &cbclo,
-                                            nullptr);
+                            // Pass TJS_ENUM_NO_VALUE=0 so callback gets
+                            // VALUE in param[2] (the EnumMembers default
+                            // already gives us value, but make sure the
+                            // 'no-value' flag is OFF).
+                            clo.EnumMembers(0, &cbclo, nullptr);
                             if(!ctx.out.empty()) {
                                 memberDump = TJS_W(" members=[");
                                 memberDump += ctx.out.c_str();
                                 memberDump += TJS_W("]");
+                            }
+                            if(!ctx.msgValue.empty()) {
+                                extraMsg = TJS_W(" msg='");
+                                extraMsg += ctx.msgValue.c_str();
+                                extraMsg += TJS_W("'");
                             }
                         }
                     } catch(...) {
                     }
                     KR2_TJS_EX_LOG(
                         "[tjs] CAUGHT_SCRIPT_EX #%d msg='%s' val='%s' "
-                        "at='%s:%d' catchip=%d%s",
+                        "at='%s:%d' catchip=%d%s%s",
                         s_scrExCount, msg.AsStdString().c_str(),
                         valStr.AsStdString().c_str(),
                         blockstr.AsStdString().c_str(), line,
                         (int)catchip,
-                        memberDump.AsStdString().c_str());
+                        memberDump.AsStdString().c_str(),
+                        extraMsg.AsStdString().c_str());
                 }
             }
 #endif
