@@ -8233,6 +8233,19 @@ tTJSNC_Layer::tTJSNC_Layer() : tTJSNativeClass(TJS_W("Layer")) {
         tjs_uint32 key = clNone; // TODO Intfなのに固有値が
         if(numparams >= 2 && param[1]->Type() != tvtVoid)
             key = (tjs_uint32)param[1]->AsInteger();
+#if defined(__ANDROID__)
+        // Probe: every Layer.loadImages() call. KAG [bg] / [image] /
+        // [chara] tags eventually funnel through here; if scenario is
+        // running but loadImages count stays 0, the tag handlers are
+        // not actually firing.
+        {
+            static int s_loadImgCount = 0;
+            ++s_loadImgCount;
+            KR2RenderProbeWriteF("[layer] loadImages #%d name='%s' key=%08x layer=%p",
+                s_loadImgCount, name.AsStdString().c_str(),
+                (unsigned)key, (void*)_this);
+        }
+#endif
         iTJSDispatch2 *metainfo = _this->LoadImages(name, key);
         try {
             if(result)

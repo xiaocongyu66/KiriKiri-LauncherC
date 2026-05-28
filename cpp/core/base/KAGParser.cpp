@@ -947,8 +947,33 @@ void tTJSNI_KAGParser::LoadScenario(const ttstr &name) {
         if(status == TJS_S_OK && result.Type() == tvtString) {
             // when onScenarioLoad returns string;
             // assumes the string is scenario
+#if defined(__ANDROID__)
+            // Probe: log first 200 chars of the returned scenario string so
+            // we can see WHAT patch.tjs / world.tjs / Override.tjs hooks are
+            // actually returning when the game asks for first.ks / title.ks.
+            // If the string is empty/short or has no [bg]/[image] tags, we
+            // know the hook chain is broken and the game's scenario was
+            // hijacked into a stub.
+            {
+                ttstr resStr(result);
+                std::string s = resStr.AsStdString();
+                // truncate
+                if(s.size() > 200) s = s.substr(0, 200) + "...";
+                // strip newlines for log readability
+                for(auto &c : s) {
+                    if(c == '\n' || c == '\r') c = ' ';
+                }
+                KR2_KAG_LOG("[kag] onScenarioLoad('%s') -> str(len=%d): %s",
+                    name.AsStdString().c_str(), (int)resStr.GetLen(),
+                    s.c_str());
+            }
+#endif
             Scenario = TVPGetScenario(ttstr(result), true);
         } else {
+#if defined(__ANDROID__)
+            KR2_KAG_LOG("[kag] onScenarioLoad('%s') -> not-string status=%d (load from file)",
+                name.AsStdString().c_str(), (int)status);
+#endif
             // else load from file
             Scenario = TVPGetScenario(name, false);
         }
