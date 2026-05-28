@@ -108,6 +108,32 @@ void tTVPScenarioCacheItem::Release() {
 void tTVPScenarioCacheItem::LoadScenario(const ttstr &name, bool isstring) {
     // load scenario from file or string to buffer
 
+#if defined(__ANDROID__)
+    // Probe: every actual scenario load that misses the cache hits here.
+    // This catches the path from KAGParser::LoadScenario -> TVPGetScenario
+    // -> new tTVPScenarioCacheItem when the cache is cold. By logging here
+    // we can see whether the .ks source is being read from disk
+    // (isstring=false) or being forwarded as a string from
+    // onConductorScenarioLoad (isstring=true, with the first 80 chars of
+    // the injected string for inspection).
+    {
+        static int s_cacheLoadCount = 0;
+        ++s_cacheLoadCount;
+        if(isstring) {
+            std::string preview = name.AsStdString();
+            if(preview.size() > 80) preview = preview.substr(0, 80) + "...";
+            for(auto &c : preview) {
+                if(c == '\n' || c == '\r') c = ' ';
+            }
+            KR2_KAG_LOG("[kag] CacheLoad #%d isstring=1 len=%d preview='%s'",
+                s_cacheLoadCount, (int)name.GetLen(), preview.c_str());
+        } else {
+            KR2_KAG_LOG("[kag] CacheLoad #%d isstring=0 storage='%s'",
+                s_cacheLoadCount, name.AsStdString().c_str());
+        }
+    }
+#endif
+
     if(isstring) {
         // when onScenarioLoad returns string;
         // assumes the string is scenario
