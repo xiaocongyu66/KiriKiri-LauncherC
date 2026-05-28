@@ -204,6 +204,14 @@ public:
             // otherwise. Walk through a list of likely CJK codecs in skip
             // mode (which silently drops bytes the codec cannot map)
             // before giving up and throwing.
+            //
+            // NOTE: boost::locale::conv ships explicit template
+            // instantiations of the charset-aware to_utf<>() only for
+            // {char,wchar_t,std::string} -- NOT for char16_t. Even though
+            // boost-locale[iconv] is statically linked (libiconv-1.18 from
+            // vcpkg), to_utf<char16_t>(..., "CP932", ...) leaves an
+            // undefined symbol at link time. Two-step convert: legacy-cp
+            // -> wchar_t (uses iconv backend) -> char16_t via utf_to_utf.
             spdlog::warn("primary text decode failed (encoding={}): {}",
                          encoding, e.what());
             static const char *const kFallbackCharsets[] = {
@@ -218,10 +226,13 @@ public:
             for(const char *const *cs = kFallbackCharsets; *cs && !decoded;
                 ++cs) {
                 try {
-                    _buffer = boost::locale::conv::to_utf<char16_t>(
-                        src_begin, src_end, *cs,
-                        boost::locale::conv::stop);
-                    if(!_buffer.empty()) {
+                    std::wstring wide =
+                        boost::locale::conv::to_utf<wchar_t>(
+                            src_begin, src_end, *cs,
+                            boost::locale::conv::stop);
+                    if(!wide.empty()) {
+                        _buffer =
+                            boost::locale::conv::utf_to_utf<char16_t>(wide);
                         spdlog::info("text decoded as fallback {}", *cs);
                         decoded = true;
                     }
@@ -234,9 +245,12 @@ public:
                 // bytes, just drops them. Better to render a partially
                 // garbled scenario than to abort the engine entirely.
                 try {
-                    _buffer = boost::locale::conv::to_utf<char16_t>(
-                        src_begin, src_end, "CP932",
-                        boost::locale::conv::skip);
+                    std::wstring wide =
+                        boost::locale::conv::to_utf<wchar_t>(
+                            src_begin, src_end, "CP932",
+                            boost::locale::conv::skip);
+                    _buffer =
+                        boost::locale::conv::utf_to_utf<char16_t>(wide);
                     spdlog::warn("text decoded with CP932 skip mode "
                                  "(some bytes dropped)");
                     decoded = true;

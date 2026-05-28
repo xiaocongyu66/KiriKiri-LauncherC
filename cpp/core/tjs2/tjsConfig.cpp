@@ -302,6 +302,17 @@ namespace TJS {
         // translations. The "skip" mode silently drops bytes that even the
         // chosen codec cannot map, which is preferable to aborting the
         // entire engine over a single malformed string.
+        //
+        // NOTE: boost::locale::conv only ships explicit template
+        // instantiations of the charset-aware to_utf<>() entry point for
+        // {char,wchar_t,std::string}, NOT char16_t / char32_t. Calling
+        // to_utf<char16_t>(..., "CP932", ...) yields an undefined-symbol
+        // link error on Android NDK r28 even though boost-locale[iconv]
+        // is statically linked (the libiconv backend is there, but the
+        // template instantiation just does not exist). The right pattern
+        // is therefore: legacy-cp -> wchar_t (charset-aware, supplied by
+        // the iconv backend) -> char16_t via plain UTF-to-UTF (which has
+        // no codec dependency).
         static const char *const kCharsets[] = {
             "CP932", "SHIFT_JIS", "CP936", "GBK", "BIG5", "EUC-JP", nullptr,
         };
@@ -309,18 +320,21 @@ namespace TJS {
         const char *src_end = s + byte_len;
         for(const char *const *cs = kCharsets; *cs; ++cs) {
             try {
-                std::u16string out = boost::locale::conv::to_utf<char16_t>(
-                    src_begin, src_end, *cs, boost::locale::conv::stop);
-                if(!out.empty())
-                    return out;
+                std::wstring wide = boost::locale::conv::to_utf<wchar_t>(
+                    src_begin, src_end, *cs,
+                    boost::locale::conv::stop);
+                if(!wide.empty()) {
+                    return boost::locale::conv::utf_to_utf<char16_t>(wide);
+                }
             } catch(...) {
                 // try next codec
             }
         }
-        // Last resort: skip-mode SJIS/CP932 (does not throw on bad bytes)
+        // Last resort: skip-mode SJIS/CP932 (never throws on bad bytes)
         try {
-            return boost::locale::conv::to_utf<char16_t>(
+            std::wstring wide = boost::locale::conv::to_utf<wchar_t>(
                 src_begin, src_end, "CP932", boost::locale::conv::skip);
+            return boost::locale::conv::utf_to_utf<char16_t>(wide);
         } catch(...) {
             return {};
         }
