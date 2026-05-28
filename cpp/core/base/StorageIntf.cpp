@@ -1212,11 +1212,75 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
             arc->Release();
             if(access >= 1)
                 TVPRemoveFromStorageCache(_name);
+#if defined(__ANDROID__)
+            // archive open failure -- log so we can see what the game tried
+            // to read and could not find inside the .xp3
+            {
+                static int s_arcFailCount = 0;
+                ++s_arcFailCount;
+                if(s_arcFailCount <= 64 || (s_arcFailCount & 0x3F) == 0) {
+                    ttstr msg = TJS_W("[res] ARC_OPEN_FAIL #") +
+                        ttstr((tjs_int)s_arcFailCount) +
+                        TJS_W(" name='") + _name + TJS_W("' resolved='") +
+                        name + TJS_W("'");
+                    KR2_RES_LOG("%s", msg.AsStdString().c_str());
+                }
+            }
+#endif
             throw;
         }
         if(access >= 1)
             TVPRemoveFromStorageCache(_name);
         arc->Release();
+#if defined(__ANDROID__)
+        // archive open success -- log .ks/.png/.tlg etc so we can finally
+        // see whether scenarios and images flow at all. Same whitelist as
+        // the on-disk path below.
+        {
+            static int s_arcOkCount = 0;
+            ++s_arcOkCount;
+            bool shouldLog = (s_arcOkCount <= 64);
+            if(!shouldLog) {
+                const tjs_char *cstr = _name.c_str();
+                const tjs_char *dot = nullptr;
+                for(const tjs_char *p = cstr; *p; ++p) {
+                    if(*p == TJS_W('.'))
+                        dot = p;
+                }
+                if(dot) {
+                    static const tjs_char *const k_arc_log_exts[] = {
+                        TJS_W(".ks"),  TJS_W(".tjs"), TJS_W(".png"),
+                        TJS_W(".jpg"), TJS_W(".jpeg"),TJS_W(".tlg"),
+                        TJS_W(".psd"), TJS_W(".psb"), TJS_W(".pbd"),
+                        TJS_W(".bmp"), TJS_W(".webp"),
+                        TJS_W(".eft"), TJS_W(".asd"), TJS_W(".tft"),
+                        nullptr,
+                    };
+                    for(const tjs_char *const *e = k_arc_log_exts; *e; ++e) {
+                        bool eq = true;
+                        const tjs_char *a = dot;
+                        const tjs_char *b = *e;
+                        while(*b) {
+                            tjs_char ca = *a, cb = *b;
+                            if(ca >= TJS_W('A') && ca <= TJS_W('Z'))
+                                ca = (tjs_char)(ca + (TJS_W('a') - TJS_W('A')));
+                            if(cb >= TJS_W('A') && cb <= TJS_W('Z'))
+                                cb = (tjs_char)(cb + (TJS_W('a') - TJS_W('A')));
+                            if(ca != cb) { eq = false; break; }
+                            ++a; ++b;
+                        }
+                        if(eq && *a == 0) { shouldLog = true; break; }
+                    }
+                }
+            }
+            if(shouldLog) {
+                ttstr msg = TJS_W("[res] ARC_OK #") +
+                    ttstr((tjs_int)s_arcOkCount) +
+                    TJS_W(" '") + _name + TJS_W("'");
+                KR2_RES_LOG("%s", msg.AsStdString().c_str());
+            }
+        }
+#endif
         return stream;
     }
 
