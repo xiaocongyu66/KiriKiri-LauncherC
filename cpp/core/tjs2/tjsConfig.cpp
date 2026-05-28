@@ -271,9 +271,60 @@ namespace TJS {
             d++;
         return d - p;
     }
-
 //---------------------------------------------------------------------------
 #define TJS_MB_MAX_CHARLEN 2
+
+    //---------------------------------------------------------------------------
+    // Try to decode a narrow byte buffer as one of the legacy CJK encodings
+    // (CP932/Shift_JIS/CP936/GBK/Big5) when UTF-8 decoding fails. Returns
+    // empty u16string if nothing works.
+    //
+    // krkr2 was originally a CP932/Shift_JIS engine (Japanese visual novels)
+    // and many narrow string literals embedded in patched .tjs bytecode are
+    // still CP932/SJIS, not UTF-8. Without this fallback any wide-string
+    // assignment of such a literal throws TJSNarrowToWideConversionError,
+    // which on real games shows up as
+    //     'Cannot convert given narrow string to wide string'
+    // and aborts game startup.
+    //
+    // boost::locale::conv on Linux/Android pulls in libiconv as the backend
+    // (see vcpkg.json + the upstream boost-locale port: libiconv is a hard
+    // dependency on !uwp & !windows & !mingw), so SJIS/CP932/CP936/GBK/Big5
+    // are all available without any extra dependency.
+    static std::u16string TJS_NarrowFallbackToU16(const tjs_nchar *s,
+                                                  size_t byte_len) {
+        if(!s || byte_len == 0)
+            return {};
+        // Charset list ordered by likelihood for krkr2-pro / wamsoft games:
+        // CP932 first (covers 99% of Japanese visual novel literals), then
+        // SHIFT_JIS (alias but some iconv builds expose only one), then
+        // Chinese encodings for translated patches, then Big5 for tw fan
+        // translations. The "skip" mode silently drops bytes that even the
+        // chosen codec cannot map, which is preferable to aborting the
+        // entire engine over a single malformed string.
+        static const char *const kCharsets[] = {
+            "CP932", "SHIFT_JIS", "CP936", "GBK", "BIG5", "EUC-JP", nullptr,
+        };
+        const char *src_begin = s;
+        const char *src_end = s + byte_len;
+        for(const char *const *cs = kCharsets; *cs; ++cs) {
+            try {
+                std::u16string out = boost::locale::conv::to_utf<char16_t>(
+                    src_begin, src_end, *cs, boost::locale::conv::stop);
+                if(!out.empty())
+                    return out;
+            } catch(...) {
+                // try next codec
+            }
+        }
+        // Last resort: skip-mode SJIS/CP932 (does not throw on bad bytes)
+        try {
+            return boost::locale::conv::to_utf<char16_t>(
+                src_begin, src_end, "CP932", boost::locale::conv::skip);
+        } catch(...) {
+            return {};
+        }
+    }
 
     //---------------------------------------------------------------------------
     size_t TJS_mbstowcs(tjs_char *pwcs, const tjs_nchar *s, size_t n) {
@@ -299,34 +350,56 @@ namespace TJS {
         if(pwcs && n == 0)
             return 0;
 
+        // Fast path: try UTF-8 first. krkr2 fork stores most internal
+        // narrow strings (literal in .tjs source, console messages, log
+        // text) as UTF-8 so this hits >99% of the time.
         tjs_char wc;
         size_t count = 0;
         int cl;
         if(!pwcs) {
-            n = strlen(s);
-            while(*s) {
-                cl = utf8_mbtowc(&wc, (const unsigned char *)s, n);
-                if(cl <= 0)
-                    break;
-                s += cl;
-                n -= cl;
+            // measure mode: walk through and count UTF-8 chars
+            size_t bytes_left = strlen(s);
+            const tjs_nchar *p = s;
+            while(*p) {
+                cl = utf8_mbtowc(&wc, (const unsigned char *)p, bytes_left);
+                if(cl <= 0) {
+                    // UTF-8 fails -- fall back to legacy CJK codecs
+                    std::u16string fb = TJS_NarrowFallbackToU16(s, strlen(s));
+                    return fb.empty() ? (size_t)-1 : fb.size();
+                }
+                p += cl;
+                bytes_left -= cl;
                 ++count;
             }
+            return count;
         } else {
+            // convert mode: write into pwcs[0..n)
             tjs_char *pwcsend = pwcs + n;
-            n = strlen(s);
-            while(*s && pwcs < pwcsend) {
-                cl = utf8_mbtowc(&wc, (const unsigned char *)s, n);
-                if(cl <= 0)
-                    return -1;
-                s += cl;
-                n -= cl;
-                *pwcs++ = wc;
+            const tjs_nchar *p = s;
+            size_t bytes_left = strlen(s);
+            tjs_char *pw = pwcs;
+            while(*p && pw < pwcsend) {
+                cl = utf8_mbtowc(&wc, (const unsigned char *)p, bytes_left);
+                if(cl <= 0) {
+                    // UTF-8 decoding failed mid-stream -- redo the whole
+                    // string with a CJK codec and copy out at most n chars.
+                    std::u16string fb = TJS_NarrowFallbackToU16(s, strlen(s));
+                    if(fb.empty())
+                        return (size_t)-1;
+                    size_t copy = std::min(fb.size(), n);
+                    for(size_t i = 0; i < copy; ++i)
+                        pwcs[i] = (tjs_char)fb[i];
+                    return copy;
+                }
+                p += cl;
+                bytes_left -= cl;
+                *pw++ = wc;
                 ++count;
             }
+            return count;
         }
-        return count;
     }
+
 
     //---------------------------------------------------------------------------
     size_t TJS_wcstombs(tjs_nchar *s, const tjs_char *pwcs, size_t n) {

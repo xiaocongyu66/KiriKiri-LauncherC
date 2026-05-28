@@ -146,10 +146,21 @@ public:
         }
 
         if(encoding == "UTF-8") {
-            _buffer = boost::locale::conv::utf_to_utf<char16_t>(
-                reinterpret_cast<const char *>(raw.data()),
-                reinterpret_cast<const char *>(raw.data() + size));
-            return;
+            try {
+                _buffer = boost::locale::conv::utf_to_utf<char16_t>(
+                    reinterpret_cast<const char *>(raw.data()),
+                    reinterpret_cast<const char *>(raw.data() + size),
+                    boost::locale::conv::stop);
+                return;
+            } catch(const std::exception &e) {
+                // uchardet sometimes misidentifies CP932 / GBK as UTF-8 when
+                // the file happens to start with mostly-ASCII bytes. Fall
+                // through to the legacy CJK fallback chain below.
+                spdlog::warn(
+                    "UTF-8 decode failed (likely misidentified): {}",
+                    e.what());
+                encoding = "CP932"; // hint for the fallback path
+            }
         }
 
         if(encoding == "UTF-16" || encoding == "UTF-16LE" ||
@@ -187,8 +198,55 @@ public:
                 encoding);
             _buffer = boost::locale::conv::utf_to_utf<char16_t>(wide);
         } catch(const std::exception &e) {
-            spdlog::error(e.what());
-            TVPThrowExceptionMessage(TJSNarrowToWideConversionError);
+            // Primary codec failed. krkr2 was originally a Shift_JIS engine
+            // and many .ks scenarios / .tjs sources from older Japanese
+            // visual novels are not UTF-8 even when uchardet guesses
+            // otherwise. Walk through a list of likely CJK codecs in skip
+            // mode (which silently drops bytes the codec cannot map)
+            // before giving up and throwing.
+            spdlog::warn("primary text decode failed (encoding={}): {}",
+                         encoding, e.what());
+            static const char *const kFallbackCharsets[] = {
+                "CP932", "SHIFT_JIS", "CP936",   "GBK",
+                "BIG5",  "EUC-JP",    "EUC-KR",  nullptr,
+            };
+            const char *src_begin =
+                reinterpret_cast<const char *>(raw.data());
+            const char *src_end =
+                reinterpret_cast<const char *>(raw.data() + raw.size());
+            bool decoded = false;
+            for(const char *const *cs = kFallbackCharsets; *cs && !decoded;
+                ++cs) {
+                try {
+                    _buffer = boost::locale::conv::to_utf<char16_t>(
+                        src_begin, src_end, *cs,
+                        boost::locale::conv::stop);
+                    if(!_buffer.empty()) {
+                        spdlog::info("text decoded as fallback {}", *cs);
+                        decoded = true;
+                    }
+                } catch(...) {
+                    // try next codec
+                }
+            }
+            if(!decoded) {
+                // Last resort: skip-mode CP932 -- never throws on bad
+                // bytes, just drops them. Better to render a partially
+                // garbled scenario than to abort the engine entirely.
+                try {
+                    _buffer = boost::locale::conv::to_utf<char16_t>(
+                        src_begin, src_end, "CP932",
+                        boost::locale::conv::skip);
+                    spdlog::warn("text decoded with CP932 skip mode "
+                                 "(some bytes dropped)");
+                    decoded = true;
+                } catch(...) {
+                }
+            }
+            if(!decoded) {
+                spdlog::error(e.what());
+                TVPThrowExceptionMessage(TJSNarrowToWideConversionError);
+            }
         }
     }
 
