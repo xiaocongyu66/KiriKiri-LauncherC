@@ -241,25 +241,36 @@ public:
                 }
             }
             if(!decoded) {
-                // Last resort: skip-mode CP932 -- never throws on bad
-                // bytes, just drops them. Better to render a partially
-                // garbled scenario than to abort the engine entirely.
+                // skip-mode CP932 -- never throws on bad bytes, just
+                // drops them. Better to render a partially garbled
+                // scenario than to abort.
                 try {
                     std::wstring wide =
                         boost::locale::conv::to_utf<wchar_t>(
                             src_begin, src_end, "CP932",
                             boost::locale::conv::skip);
-                    _buffer =
-                        boost::locale::conv::utf_to_utf<char16_t>(wide);
-                    spdlog::warn("text decoded with CP932 skip mode "
-                                 "(some bytes dropped)");
-                    decoded = true;
+                    if(!wide.empty()) {
+                        _buffer =
+                            boost::locale::conv::utf_to_utf<char16_t>(wide);
+                        spdlog::warn("text decoded with CP932 skip mode "
+                                     "(some bytes dropped)");
+                        decoded = true;
+                    }
                 } catch(...) {
                 }
             }
             if(!decoded) {
-                spdlog::error(e.what());
-                TVPThrowExceptionMessage(TJSNarrowToWideConversionError);
+                // Absolute last resort: byte-by-byte Latin-1 pass-through.
+                // Cannot throw. Will render mojibake but never aborts the
+                // engine over a single malformed file.
+                _buffer.clear();
+                _buffer.reserve(raw.size());
+                for(auto b : raw)
+                    _buffer.push_back((char16_t)(unsigned char)b);
+                spdlog::warn(
+                    "text decoded with Latin-1 byte pass-through "
+                    "(no codec matched, mojibake expected)");
+                decoded = true;
             }
         }
     }

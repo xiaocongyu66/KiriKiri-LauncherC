@@ -330,14 +330,30 @@ namespace TJS {
                 // try next codec
             }
         }
-        // Last resort: skip-mode SJIS/CP932 (never throws on bad bytes)
+        // skip-mode CP932: never throws on bad bytes
         try {
             std::wstring wide = boost::locale::conv::to_utf<wchar_t>(
                 src_begin, src_end, "CP932", boost::locale::conv::skip);
-            return boost::locale::conv::utf_to_utf<char16_t>(wide);
+            if(!wide.empty())
+                return boost::locale::conv::utf_to_utf<char16_t>(wide);
         } catch(...) {
-            return {};
         }
+        // Absolute last resort: byte-by-byte Latin-1 pass-through. This
+        // can NEVER fail. Even garbage / pre-encrypted / partial-wide
+        // data gets a 1-to-1 char16_t mapping. Worse than CP932 decoding
+        // for actual text but guaranteed non-throwing -- the engine
+        // never crashes on a string assignment, no matter what the byte
+        // soup looks like. Real-world impact: the few callers that
+        // legitimately pass binary data (e.g. patch.tjs handing .pbd
+        // bytes through a string variant on its way to Scripts.eval)
+        // get a non-throwing path and can fall back to their own error
+        // recovery instead of taking down the whole engine.
+        std::u16string out;
+        out.reserve(byte_len);
+        for(size_t i = 0; i < byte_len; ++i) {
+            out.push_back((char16_t)(unsigned char)s[i]);
+        }
+        return out;
     }
 
     //---------------------------------------------------------------------------
@@ -360,7 +376,7 @@ namespace TJS {
 	}
 #endif
         if(!s)
-            return -1;
+            return 0;
         if(pwcs && n == 0)
             return 0;
 
@@ -377,9 +393,16 @@ namespace TJS {
             while(*p) {
                 cl = utf8_mbtowc(&wc, (const unsigned char *)p, bytes_left);
                 if(cl <= 0) {
-                    // UTF-8 fails -- fall back to legacy CJK codecs
+                    // UTF-8 fails -- fall back to legacy CJK codecs.
+                    // TJS_NarrowFallbackToU16 has its own Latin-1 last
+                    // resort and never returns empty for non-empty input,
+                    // so we never need to surface a -1 here. The engine
+                    // treats SetString(narrow) -1 as a fatal "Cannot
+                    // convert" throw, which is exactly what we want to
+                    // avoid for game-script defensive code that throws
+                    // strings containing pre-encrypted bytes etc.
                     std::u16string fb = TJS_NarrowFallbackToU16(s, strlen(s));
-                    return fb.empty() ? (size_t)-1 : fb.size();
+                    return fb.size();
                 }
                 p += cl;
                 bytes_left -= cl;
@@ -397,9 +420,9 @@ namespace TJS {
                 if(cl <= 0) {
                     // UTF-8 decoding failed mid-stream -- redo the whole
                     // string with a CJK codec and copy out at most n chars.
+                    // Same length-consistency guarantee as the measure
+                    // path above.
                     std::u16string fb = TJS_NarrowFallbackToU16(s, strlen(s));
-                    if(fb.empty())
-                        return (size_t)-1;
                     size_t copy = std::min(fb.size(), n);
                     for(size_t i = 0; i < copy; ++i)
                         pwcs[i] = (tjs_char)fb[i];
