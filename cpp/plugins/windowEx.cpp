@@ -20,6 +20,7 @@ typedef unsigned long ULONG_PTR;
 #include "GraphicsLoaderIntf.h"
 #include "EventIntf.h"
 #include "WindowImpl.h"
+#include "TVPScreen.h"
 
 #define NCB_MODULE_NAME TJS_W("windowEx.dll")
 #ifndef _WIN32
@@ -959,12 +960,14 @@ NCB_ATTACH_CLASS_WITH_HOOK(WindowEx, Window) {
 
     RawCallback(TJS_W("minimize"), &Class::minimize, 0);
     RawCallback(TJS_W("maximize"), &Class::maximize, 0);
-    // RawCallback(TJS_W("maximizeBox"), &Class::getMaximizeBox,
-    // &Class::setMaximizeBox, 0); RawCallback(TJS_W("minimizeBox"),
-    // &Class::getMinimizeBox,      &Class::setMinimizeBox, 0);
-    // RawCallback(TJS_W("maximized"),           &Class::getMaximized,
-    // &Class::setMaximized, 0); RawCallback(TJS_W("minimized"),
-    // &Class::getMinimized,      &Class::setMinimized, 0);
+    RawCallback(TJS_W("maximizeBox"), &Class::getMaximizeBox,
+                &Class::setMaximizeBox, 0);
+    RawCallback(TJS_W("minimizeBox"), &Class::getMinimizeBox,
+                &Class::setMinimizeBox, 0);
+    RawCallback(TJS_W("maximized"), &Class::getMaximized,
+                &Class::setMaximized, 0);
+    RawCallback(TJS_W("minimized"), &Class::getMinimized,
+                &Class::setMinimized, 0);
     RawCallback(TJS_W("showRestore"), &Class::showRestore, 0);
     RawCallback(TJS_W("resetWindowIcon"), &Class::resetWindowIcon, 0);
     RawCallback(TJS_W("setWindowIcon"), &Class::setWindowIcon, 0);
@@ -1424,12 +1427,54 @@ struct System {
     static tjs_error getDisplayMonitors(tTJSVariant *result, tjs_int numparams,
                                         tTJSVariant **param,
                                         iTJSDispatch2 *objthis) {
+        if(result) {
+            tjs_int w = tTVPScreen::GetDesktopWidth();
+            tjs_int h = tTVPScreen::GetDesktopHeight();
+
+            ncbDictionaryAccessor monDict;
+            monDict.SetValue(TJS_W("x"), 0);
+            monDict.SetValue(TJS_W("y"), 0);
+            monDict.SetValue(TJS_W("w"), w);
+            monDict.SetValue(TJS_W("h"), h);
+            monDict.SetValue(TJS_W("primary"), 1);
+
+            iTJSDispatch2 *arr = TJSCreateArrayObject();
+            tTJSVariant monVar(monDict.GetDispatch(), monDict.GetDispatch());
+            arr->PropSetByNum(TJS_MEMBERENSURE, 0, &monVar, arr);
+            result->SetObject(arr, arr);
+            arr->Release();
+        }
         return TJS_S_OK;
     }
 
     static tjs_error getMonitorInfo(tTJSVariant *result, tjs_int numparams,
                                     tTJSVariant **param,
                                     iTJSDispatch2 *objthis) {
+        if(result) {
+            tjs_int w = tTVPScreen::GetDesktopWidth();
+            tjs_int h = tTVPScreen::GetDesktopHeight();
+
+            ncbDictionaryAccessor monDict;
+            monDict.SetValue(TJS_W("x"), 0);
+            monDict.SetValue(TJS_W("y"), 0);
+            monDict.SetValue(TJS_W("w"), w);
+            monDict.SetValue(TJS_W("h"), h);
+
+            ncbDictionaryAccessor workDict;
+            workDict.SetValue(TJS_W("x"), 0);
+            workDict.SetValue(TJS_W("y"), 0);
+            workDict.SetValue(TJS_W("w"), w);
+            workDict.SetValue(TJS_W("h"), h);
+
+            ncbDictionaryAccessor resultDict;
+            tTJSVariant monVar(monDict.GetDispatch(), monDict.GetDispatch());
+            resultDict.SetValue(TJS_W("monitor"), monVar);
+            tTJSVariant workVar(workDict.GetDispatch(), workDict.GetDispatch());
+            resultDict.SetValue(TJS_W("work"), workVar);
+
+            auto *dis = resultDict.GetDispatch();
+            result->SetObject(dis, dis);
+        }
         return TJS_S_OK;
     }
 
