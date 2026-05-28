@@ -1244,12 +1244,63 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
     if(access >= 1)
         TVPRemoveFromStorageCache(_name);
 #if defined(__ANDROID__)
-    // First few opens always logged so we see exactly which files the
-    // game actually pulled at boot.
+    // First 64 opens always logged. After that we only keep logging for
+    // a small whitelist of resource extensions we genuinely care about
+    // (scenarios, scripts, images, sound, model assets) so the log does
+    // not get flooded with repeat .xp3 / savedata .ksd opens once the
+    // game has settled into its main loop.
     {
         static int s_openCount = 0;
         ++s_openCount;
-        if(s_openCount <= 64) {
+        bool shouldLog = (s_openCount <= 64);
+        if(!shouldLog) {
+            const tjs_char *cstr = _name.c_str();
+            // find last '.'
+            const tjs_char *dot = nullptr;
+            for(const tjs_char *p = cstr; *p; ++p) {
+                if(*p == TJS_W('.'))
+                    dot = p;
+            }
+            if(dot) {
+                static const tjs_char *const k_log_exts[] = {
+                    TJS_W(".ks"),  TJS_W(".tjs"), TJS_W(".png"),
+                    TJS_W(".jpg"), TJS_W(".jpeg"),TJS_W(".tlg"),
+                    TJS_W(".psd"), TJS_W(".psb"), TJS_W(".pbd"),
+                    TJS_W(".bmp"), TJS_W(".webp"),
+                    TJS_W(".ogg"), TJS_W(".wav"), TJS_W(".mp3"),
+                    TJS_W(".mp4"), TJS_W(".m4a"), TJS_W(".webm"),
+                    TJS_W(".mpg"), TJS_W(".wmv"),
+                    TJS_W(".eft"), TJS_W(".asd"), TJS_W(".tft"),
+                    TJS_W(".sli"), TJS_W(".ttf"), TJS_W(".otf"),
+                    nullptr,
+                };
+                for(const tjs_char *const *e = k_log_exts; *e; ++e) {
+                    bool eq = true;
+                    const tjs_char *a = dot;
+                    const tjs_char *b = *e;
+                    while(*b) {
+                        // case-insensitive ASCII compare
+                        tjs_char ca = *a;
+                        tjs_char cb = *b;
+                        if(ca >= TJS_W('A') && ca <= TJS_W('Z'))
+                            ca = (tjs_char)(ca + (TJS_W('a') - TJS_W('A')));
+                        if(cb >= TJS_W('A') && cb <= TJS_W('Z'))
+                            cb = (tjs_char)(cb + (TJS_W('a') - TJS_W('A')));
+                        if(ca != cb) {
+                            eq = false;
+                            break;
+                        }
+                        ++a;
+                        ++b;
+                    }
+                    if(eq && *a == 0) {
+                        shouldLog = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if(shouldLog) {
             ttstr msg = TJS_W("[res] OPEN_OK #") +
                 ttstr((tjs_int)s_openCount) +
                 TJS_W(" '") + _name + TJS_W("' -> '") + name + TJS_W("'");
