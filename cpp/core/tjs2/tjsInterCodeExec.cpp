@@ -1533,10 +1533,91 @@ namespace TJS {
                     } catch(...) {
                         valStr = TJS_W("(extract-fail)");
                     }
+                    // Resolve catchip -> source block:line so we can pin
+                    // down where in the .tjs / .ks the offending throw
+                    // sits. catchip is the bytecode IP relative to the
+                    // start of CodeArea; Block + CodePosToSrcPos +
+                    // SrcPosToLine give us the .tjs file name and 1-based
+                    // line number.
+                    ttstr blockstr = TJS_W("(?)");
+                    int line = -1;
+                    try {
+                        if(Block && Block->GetName())
+                            blockstr = Block->GetName();
+                        tjs_int srcpos = CodePosToSrcPos(catchip);
+                        if(Block) {
+                            line = (int)Block->SrcPosToLine(srcpos) + 1;
+                        }
+                    } catch(...) {
+                    }
+                    // If the value is an object that did not yield a
+                    // useful .message / .what / .trace / .name, walk its
+                    // members via EnumMembers so we can see what class /
+                    // shape of object the script actually threw. Cap to
+                    // the first ~16 names to keep the log line bounded.
+                    ttstr memberDump;
+                    try {
+                        tTJSVariant &val = e.GetValue();
+                        if(val.Type() == tvtObject &&
+                           valStr == TJS_W("(object,no-msg)")) {
+                            struct EnumCtx {
+                                std::u16string out;
+                                int count;
+                            } ctx;
+                            ctx.count = 0;
+                            // Build a tiny TJS-side callback object that
+                            // captures member names we get fed by
+                            // EnumMembers. The TJS calling convention
+                            // gives us name in args[0], flags in args[1],
+                            // value in args[2].
+                            class tEnumCb : public tTJSDispatch {
+                            public:
+                                EnumCtx *ctx;
+                                tjs_error FuncCall(
+                                    tjs_uint32, const tjs_char *,
+                                    tjs_uint32 *, tTJSVariant *result,
+                                    tjs_int numparams,
+                                    tTJSVariant **param,
+                                    iTJSDispatch2 *) override {
+                                    if(ctx && ctx->count < 16 &&
+                                       numparams >= 1 && param[0]) {
+                                        if(!ctx->out.empty())
+                                            ctx->out += u',';
+                                        ttstr n(*param[0]);
+                                        const tjs_char *cstr = n.c_str();
+                                        for(int i = 0; cstr && cstr[i] &&
+                                            i < 32; ++i)
+                                            ctx->out += (char16_t)cstr[i];
+                                        ctx->count++;
+                                    }
+                                    if(result)
+                                        *result = (tjs_int)1;
+                                    return TJS_S_OK;
+                                }
+                            };
+                            tEnumCb cb;
+                            cb.ctx = &ctx;
+                            tTJSVariantClosure cbclo(&cb, nullptr);
+                            tTJSVariantClosure clo =
+                                val.AsObjectClosureNoAddRef();
+                            clo.EnumMembers(TJS_IGNOREPROP, &cbclo,
+                                            nullptr);
+                            if(!ctx.out.empty()) {
+                                memberDump = TJS_W(" members=[");
+                                memberDump += ctx.out.c_str();
+                                memberDump += TJS_W("]");
+                            }
+                        }
+                    } catch(...) {
+                    }
                     KR2_TJS_EX_LOG(
-                        "[tjs] CAUGHT_SCRIPT_EX #%d msg='%s' val='%s' catchip=%d",
+                        "[tjs] CAUGHT_SCRIPT_EX #%d msg='%s' val='%s' "
+                        "at='%s:%d' catchip=%d%s",
                         s_scrExCount, msg.AsStdString().c_str(),
-                        valStr.AsStdString().c_str(), (int)catchip);
+                        valStr.AsStdString().c_str(),
+                        blockstr.AsStdString().c_str(), line,
+                        (int)catchip,
+                        memberDump.AsStdString().c_str());
                 }
             }
 #endif
