@@ -123,6 +123,7 @@ if(ANDROID OR LINUX)
         psdfile
         fstat
         kagparserex
+        json
         -Wl,--no-whole-archive
         $<$<BOOL:${ANDROID}>:dobby>
     )
@@ -137,6 +138,7 @@ elseif(APPLE)
         "-Wl,-force_load,$<TARGET_FILE:layerExDraw>"
         "-Wl,-force_load,$<TARGET_FILE:psdfile>"
         "-Wl,-force_load,$<TARGET_FILE:fstat>"
+        "-Wl,-force_load,$<TARGET_FILE:json>"
     )
 elseif(MSVC)
     target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -150,6 +152,7 @@ elseif(MSVC)
         /WHOLEARCHIVE:layerExDraw
         /WHOLEARCHIVE:psdfile
         /WHOLEARCHIVE:fstat
+        /WHOLEARCHIVE:json
     )
 else()
     target_link_libraries(${PROJECT_NAME} PUBLIC
