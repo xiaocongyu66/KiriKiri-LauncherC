@@ -65,10 +65,10 @@ jobs:
           ./dotnet-install.sh --channel 8.0
           echo "$HOME/.dotnet" >> $GITHUB_PATH
 
-      - name: Setup JDK 17
+      - name: Setup JDK 17 (fixed version)  # 修复 520 错误，锁定版本，网络友好
         uses: actions/setup-java@v3
         with:
-          java-version: '17'
+          java-version: '17.0.10+7'
           distribution: 'zulu'
 
       - name: Download Android CommandLineTools
