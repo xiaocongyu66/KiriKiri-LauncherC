@@ -37,6 +37,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     tomlCompat.cpp
     extNagano.cpp
     multiimage.cpp
+    memfile.cpp
     runtimePatchLoader.cpp
     gfxEffect.cpp
     # drawDeviceD2DCompat.cpp  # disabled: D2D is Win32-only, KrKr2-Next never built it on Android
