@@ -19,6 +19,10 @@
 
 #define NCB_MODULE_NAME TJS_W("json.dll")
 
+#ifndef TJS_INTF_METHOD
+#define TJS_INTF_METHOD
+#endif
+
 namespace {
 
 using Json = nlohmann::json;
