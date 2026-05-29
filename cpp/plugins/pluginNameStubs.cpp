@@ -70,47 +70,6 @@ NCB_PRE_REGIST_CALLBACK(win32ole_stub);
 static void menu_dll_stub() {}
 NCB_PRE_REGIST_CALLBACK(menu_dll_stub);
 
-class MenuItemCompat {
-public:
-    static tjs_error TJS_INTF_METHOD textToKeycode(tTJSVariant *result,
-                                                   tjs_int numparams,
-                                                   tTJSVariant **param,
-                                                   iTJSDispatch2 *objthis) {
-        if(result)
-            *result = 0;
-        return TJS_S_OK;
-    }
-
-    static tjs_error TJS_INTF_METHOD keycodeToText(tTJSVariant *result,
-                                                   tjs_int numparams,
-                                                   tTJSVariant **param,
-                                                   iTJSDispatch2 *objthis) {
-        if(result)
-            *result = TJS_W("");
-        return TJS_S_OK;
-    }
-
-    tTJSVariant getHMENU() const { return tTJSVariant((tjs_int)0); }
-    void setHMENU(tTJSVariant v) {}
-};
-
-NCB_GET_INSTANCE_HOOK(MenuItemCompat) {
-    NCB_GET_INSTANCE_HOOK_CLASS() {}
-    ~NCB_GET_INSTANCE_HOOK_CLASS() {}
-    NCB_INSTANCE_GETTER(objthis) {
-        ClassT *obj = GetNativeInstance(objthis);
-        if(!obj)
-            SetNativeInstance(objthis, (obj = new ClassT()));
-        return obj;
-    }
-};
-
-NCB_ATTACH_CLASS_WITH_HOOK(MenuItemCompat, MenuItem) {
-    NCB_METHOD_RAW_CALLBACK(textToKeycode, MenuItemCompat::textToKeycode, 0);
-    NCB_METHOD_RAW_CALLBACK(keycodeToText, MenuItemCompat::keycodeToText, 0);
-    NCB_PROPERTY(HMENU, getHMENU, setHMENU);
-}
-
 class WindowMenuCompat {
 public:
     explicit WindowMenuCompat(iTJSDispatch2 *obj) {}

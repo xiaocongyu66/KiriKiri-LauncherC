@@ -134,7 +134,7 @@ struct layerStwCopy {
     }
 };
 
-NCB_ATTACH_CLASS_WITH_HOOK(layerStwCopy, Layer) {
+NCB_ATTACH_CLASS(layerStwCopy, Layer) {
     NCB_METHOD_RAW_CALLBACK(stitchWrappedCopy,
                             &layerStwCopy::stitchWrappedCopyCompat, 0);
 }
