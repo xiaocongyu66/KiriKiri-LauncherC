@@ -36,7 +36,9 @@
 
 #include "spdlog/spdlog.h"
 #include <algorithm>
+#include <cctype>
 #include <set>
+#include <string>
 
 #ifdef WIN32
 #include <io.h>
@@ -1402,6 +1404,86 @@ return true;
 // Ported from KrKr2-Next (StorageImpl.cpp) + kirikiroid2-web-web (Platform.cpp).
 // ---------------------------------------------------------------------------
 static std::vector<ttstr> TVPAutoMountedPaths;
+static std::string TVPLowerAscii(std::string value) {
+    for(auto &c : value)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    return value;
+}
+
+static std::string TVPArchiveBaseLower(const std::string &name) {
+    std::string base = TVPLowerAscii(name);
+    if(base.size() > 4 && base.compare(base.size() - 4, 4, ".xp3") == 0)
+        base.resize(base.size() - 4);
+    return base;
+}
+
+static bool TVPIsPatchLikeArchiveBase(const std::string &base) {
+    return base.find("patch") != std::string::npos ||
+           base.find("update") != std::string::npos ||
+           base.find("append") != std::string::npos ||
+           base.find("hotfix") != std::string::npos;
+}
+
+static bool TVPNaturalLessAscii(const std::string &lhs,
+                                const std::string &rhs) {
+    size_t li = 0;
+    size_t ri = 0;
+    while(li < lhs.size() && ri < rhs.size()) {
+        const unsigned char lc = static_cast<unsigned char>(lhs[li]);
+        const unsigned char rc = static_cast<unsigned char>(rhs[ri]);
+        if(std::isdigit(lc) && std::isdigit(rc)) {
+            size_t ln = li;
+            size_t rn = ri;
+            while(ln < lhs.size() &&
+                  std::isdigit(static_cast<unsigned char>(lhs[ln])))
+                ++ln;
+            while(rn < rhs.size() &&
+                  std::isdigit(static_cast<unsigned char>(rhs[rn])))
+                ++rn;
+
+            size_t lz = li;
+            size_t rz = ri;
+            while(lz < ln && lhs[lz] == '0')
+                ++lz;
+            while(rz < rn && rhs[rz] == '0')
+                ++rz;
+
+            const size_t llen = ln - lz;
+            const size_t rlen = rn - rz;
+            if(llen != rlen)
+                return llen < rlen;
+            for(size_t i = 0; i < llen; ++i) {
+                if(lhs[lz + i] != rhs[rz + i])
+                    return lhs[lz + i] < rhs[rz + i];
+            }
+            if((ln - li) != (rn - ri))
+                return (ln - li) < (rn - ri);
+
+            li = ln;
+            ri = rn;
+            continue;
+        }
+        if(lc != rc)
+            return lc < rc;
+        ++li;
+        ++ri;
+    }
+    return lhs.size() < rhs.size();
+}
+
+static bool TVPCompareSiblingXP3MountOrder(const std::string &lhs,
+                                           const std::string &rhs) {
+    std::string lb = TVPArchiveBaseLower(lhs);
+    std::string rb = TVPArchiveBaseLower(rhs);
+    const bool lp = TVPIsPatchLikeArchiveBase(lb);
+    const bool rp = TVPIsPatchLikeArchiveBase(rb);
+    if(lp != rp)
+        return !lp;
+    if(lb != rb)
+        return TVPNaturalLessAscii(lb, rb);
+    return lhs < rhs;
+}
+
 void TVPAutoMountSiblingXP3Archives() {
     // TVPProjectDir is either:
     //  - "<...>/somedir/"  when launched from a directory
@@ -1444,15 +1526,10 @@ void TVPAutoMountSiblingXP3Archives() {
     std::string parentPath = nativeParent.AsStdString();
     spdlog::info("AutoMountXP3: nativeParent={}", parentPath);
 
-    std::string projBaseStr = projBaseName.AsNarrowStdString();
-    for(auto &c : projBaseStr) c = (char)tolower((unsigned char)c);
     // Strip trailing ".xp3" so xp3-startup vs dir-startup compares equal
-    // ("data.xp3" → "data") — this prevents data.xp3 itself from being
-    // re-mounted as a sibling.
-    if(projBaseStr.size() > 4 &&
-       projBaseStr.compare(projBaseStr.size() - 4, 4, ".xp3") == 0) {
-        projBaseStr.resize(projBaseStr.size() - 4);
-    }
+    // ("data.xp3" -> "data") and data.xp3 itself is not re-mounted.
+    std::string projBaseStr =
+        TVPArchiveBaseLower(projBaseName.AsNarrowStdString());
 
     std::vector<std::string> xp3Names;
 
@@ -1467,19 +1544,18 @@ void TVPAutoMountSiblingXP3Archives() {
     while((dp = readdir(dirp))) {
         std::string name = dp->d_name;
         if(name.size() < 5) continue;
-        std::string ext = name.substr(name.size() - 4);
-        for(auto &c : ext) c = (char)tolower((unsigned char)c);
+        std::string ext = TVPLowerAscii(name.substr(name.size() - 4));
         if(ext != ".xp3") continue;
 
-        std::string baseLower = name.substr(0, name.size() - 4);
-        for(auto &c : baseLower) c = (char)tolower((unsigned char)c);
+        std::string baseLower = TVPArchiveBaseLower(name);
         if(baseLower == projBaseStr) continue;
 
         xp3Names.push_back(name);
     }
     closedir(dirp);
 
-    std::sort(xp3Names.begin(), xp3Names.end());
+    std::sort(xp3Names.begin(), xp3Names.end(),
+              TVPCompareSiblingXP3MountOrder);
 
     if(xp3Names.empty()) {
         TVPAddImportantLog(TJS_W("(info) No sibling XP3 archives found"));
