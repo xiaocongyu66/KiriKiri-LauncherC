@@ -138,6 +138,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
     static private native void nativeOnLowMemory();
 
+    public static native void setUseFFmpegImageDecoder(boolean enabled);
+
     @SuppressLint("StaticFieldLeak")
     public static View mTextEdit = null;
 

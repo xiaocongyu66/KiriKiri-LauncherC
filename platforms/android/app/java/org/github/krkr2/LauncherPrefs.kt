@@ -14,6 +14,8 @@ object LauncherPrefs {
     private const val KEY_LAST_GAME = "last_game"
     private const val KEY_LANGUAGE = "language"
     private const val KEY_FORCE_LANDSCAPE = "force_landscape"
+    private const val KEY_USE_FFMPEG_IMAGE_DECODER = "use_ffmpeg_image_decoder"
+    const val ENGINE_KEY_FFMPEG_IMAGE_DECODER = "ffmpeg_image_decoder"
     // Maximum directory depth GameScanner walks below the configured root
     // before giving up. Deeper trees take quadratically longer, especially
     // when MANAGE_EXTERNAL_STORAGE is granted and the root happens to be
@@ -50,6 +52,19 @@ object LauncherPrefs {
 
     fun setForceLandscape(context: Context, enabled: Boolean) {
         LauncherSettingsDb.setBoolean(context, KEY_FORCE_LANDSCAPE, enabled)
+    }
+
+    fun getUseFfmpegImageDecoder(context: Context): Boolean =
+        LauncherSettingsDb.getBoolean(
+            context,
+            KEY_USE_FFMPEG_IMAGE_DECODER,
+            KrkrPrefsStore.getBool(context, ENGINE_KEY_FFMPEG_IMAGE_DECODER, false),
+        )
+
+    fun setUseFfmpegImageDecoder(context: Context, enabled: Boolean) {
+        LauncherSettingsDb.setBoolean(context, KEY_USE_FFMPEG_IMAGE_DECODER, enabled)
+        KrkrPrefsStore.setBool(context, ENGINE_KEY_FFMPEG_IMAGE_DECODER, enabled)
+        writeLauncherLog(context, "FFmpeg image decoder enabled=$enabled")
     }
 
     fun getScanDepth(context: Context): Int = LauncherSettingsDb.getInt(context, KEY_SCAN_DEPTH, SCAN_DEPTH_DEFAULT).coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)

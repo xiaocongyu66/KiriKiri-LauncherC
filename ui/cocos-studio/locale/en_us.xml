@@ -50,6 +50,7 @@
     <Item id="preference_menu_handler_opacity" text="Menu Handler Opacity"/>
     <Item id="preference_reset" text="Reset"/>
     <Item id="preference_hide_android_sys_btn" text="Hide System Bar"/>
+    <Item id="preference_ffmpeg_image_decoder" text="FFmpeg Image Decoder"/>
     <Item id="preference_default_font" text="Default Font(Internal If Empty)"/>
     <Item id="preference_force_def_font" text="Force using default font"/>
     <Item id="ok" text="OK"/>

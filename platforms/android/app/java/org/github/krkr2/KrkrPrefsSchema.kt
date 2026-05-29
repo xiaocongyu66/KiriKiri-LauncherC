@@ -107,6 +107,7 @@ object KrkrPrefsSchema {
             PrefItem.SliderFloat("menu_handler_opa", "preference_menu_handler_opacity", 0.15f),
             PrefItem.Bool("remember_last_path", "preference_remember_last_path", true),
             PrefItem.Bool("hide_android_sys_btn", "preference_hide_android_sys_btn", false),
+            PrefItem.Bool("ffmpeg_image_decoder", "preference_ffmpeg_image_decoder", false),
         ),
     )
 

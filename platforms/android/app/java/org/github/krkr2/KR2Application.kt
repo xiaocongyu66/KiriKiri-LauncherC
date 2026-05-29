@@ -22,6 +22,9 @@ class KR2Application : Application() {
                 val seed = mutableMapOf<String, String>()
                 if ("renderer" !in snap.items) seed["renderer"] = "opengl"
                 if ("ogl_accurate_render" !in snap.items) seed["ogl_accurate_render"] = "0"
+                if (LauncherPrefs.ENGINE_KEY_FFMPEG_IMAGE_DECODER !in snap.items) {
+                    seed[LauncherPrefs.ENGINE_KEY_FFMPEG_IMAGE_DECODER] = "0"
+                }
                 if (seed.isNotEmpty()) KrkrPrefsStore.update(this, seed)
                 prefs.edit().putBoolean("engine_defaults_v1_applied", true).apply()
             }

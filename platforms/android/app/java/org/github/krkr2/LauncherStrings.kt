@@ -73,6 +73,8 @@ object LauncherStrings {
         val renderSettingsHint: String,
         val gameOverride: String,
         val gameOverrideHint: String,
+        val ffmpegImageDecoder: String,
+        val ffmpegImageDecoderHint: String,
         val resetDefaults: String,
         val running: String,
         val scanDepth: String,
@@ -159,6 +161,8 @@ object LauncherStrings {
         renderSettingsHint = "OpenGL / software renderer toggles, FPS limit, texture compression. Mirrors the engine's in-game preferences.",
         gameOverride = "Per-game settings",
         gameOverrideHint = "Override engine settings for this game only. Stored separately from globals.",
+        ffmpegImageDecoder = "FFmpeg image decoder",
+        ffmpegImageDecoderHint = "Experimental image fallback for PNG/JPEG/BMP/WebP. Video and audio keep using the existing FFmpeg path.",
         resetDefaults = "Reset to defaults",
         running = "running",
         scanDepth = "Scan depth",
@@ -242,6 +246,8 @@ object LauncherStrings {
         renderSettingsHint = "OpenGL / 软件渲染器、帧率上限、纹理压缩等。与游戏内置设置同步。",
         gameOverride = "单游戏覆盖",
         gameOverrideHint = "仅对此游戏生效，覆盖全局引擎设置。",
+        ffmpegImageDecoder = "FFmpeg 图片解码",
+        ffmpegImageDecoderHint = "实验选项：优先用 FFmpeg 解码 PNG/JPEG/BMP/WebP，失败会回退；视频和音频沿用现有 FFmpeg 链路。",
         resetDefaults = "恢复默认值",
         running = "运行中",
         scanDepth = "扫描深度",
@@ -256,4 +262,3 @@ object LauncherStrings {
         aboutCopiedUrl = "链接已复制",
     )
 }
-

@@ -28,7 +28,9 @@
 #include "tjsDictionary.h"
 #include "ScriptMgnIntf.h"
 #include "RenderManager.h"
+#include "ConfigManager/GlobalConfigManager.h"
 #include "ConfigManager/LocaleConfigManager.h"
+#include <atomic>
 #include <mutex>
 #include <thread>
 #include <condition_variable>
@@ -38,6 +40,23 @@
 #include <complex>
 #include <list>
 #include <string>
+#include <vector>
+
+#ifdef PixelFormat
+#undef PixelFormat
+#endif
+#ifndef __STDC_CONSTANT_MACROS
+#define __STDC_CONSTANT_MACROS
+#endif
+extern "C" {
+#include <libavcodec/avcodec.h>
+#include <libavutil/pixdesc.h>
+#include <libswscale/swscale.h>
+}
+
+#ifndef AV_INPUT_BUFFER_PADDING_SIZE
+#define AV_INPUT_BUFFER_PADDING_SIZE 32
+#endif
 
 void TVPLoadPVRv3(void *formatdata, void *callbackdata,
                   tTVPGraphicSizeCallback sizecallback,
@@ -47,6 +66,231 @@ void TVPLoadPVRv3(void *formatdata, void *callbackdata,
                   tTVPGraphicLoadMode mode);
 void TVPLoadHeaderPVRv3(void *formatdata, tTJSBinaryStream *src,
                         iTJSDispatch2 **dic);
+
+static std::atomic_bool TVPUseFFmpegImageDecoderOverrideSet{ false };
+static std::atomic_bool TVPUseFFmpegImageDecoderOverride{ false };
+
+void TVPSetUseFFmpegImageDecoder(bool enabled) {
+    TVPUseFFmpegImageDecoderOverride.store(enabled, std::memory_order_relaxed);
+    TVPUseFFmpegImageDecoderOverrideSet.store(true, std::memory_order_release);
+}
+
+bool TVPGetUseFFmpegImageDecoder() {
+    if(TVPUseFFmpegImageDecoderOverrideSet.load(std::memory_order_acquire))
+        return TVPUseFFmpegImageDecoderOverride.load(std::memory_order_relaxed);
+    return GlobalConfigManager::GetInstance()->GetValue<bool>(
+        "ffmpeg_image_decoder", false);
+}
+
+namespace {
+
+struct tTVPFFmpegImage {
+    tjs_int Width = 0;
+    tjs_int Height = 0;
+    bool HasAlpha = false;
+    bool Grayscale = false;
+    std::vector<tjs_uint8> Pixels;
+};
+
+static void TVPInitFFmpegImageDecoder() {
+    static std::once_flag once;
+    std::call_once(once, []() { avcodec_register_all(); });
+}
+
+static AVCodecID TVPGuessFFmpegImageCodec(const tjs_uint8 *header) {
+    if(!memcmp(header, "BM", 2))
+        return AV_CODEC_ID_BMP;
+    if(!memcmp(header, "\x89PNG", 4))
+        return AV_CODEC_ID_PNG;
+    if(!memcmp(header, "\xFF\xD8\xFF", 3))
+        return AV_CODEC_ID_MJPEG;
+    if(!memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBP", 4))
+        return AV_CODEC_ID_WEBP;
+    return AV_CODEC_ID_NONE;
+}
+
+static bool TVPReadFFmpegImageStream(tTJSBinaryStream *src,
+                                     std::vector<tjs_uint8> *data) {
+    if(!src || !data)
+        return false;
+
+    tjs_uint64 start = src->GetPosition();
+    tjs_uint64 size = src->GetSize();
+    if(size <= start)
+        return false;
+
+    tjs_uint64 remaining64 = size - start;
+    if(remaining64 > 0x7fffffff)
+        return false;
+
+    tjs_uint remaining = static_cast<tjs_uint>(remaining64);
+    data->assign(static_cast<size_t>(remaining) + AV_INPUT_BUFFER_PADDING_SIZE,
+                 0);
+    tjs_uint readBytes = src->Read(data->data(), remaining);
+    if(readBytes == 0)
+        return false;
+    if(readBytes < remaining)
+        data->resize(static_cast<size_t>(readBytes) +
+                     AV_INPUT_BUFFER_PADDING_SIZE);
+    return true;
+}
+
+static bool TVPDecodeImageWithFFmpeg(tTJSBinaryStream *src,
+                                     AVCodecID codecId,
+                                     tTVPGraphicLoadMode mode,
+                                     tTVPFFmpegImage *image) {
+    if(!image || codecId == AV_CODEC_ID_NONE || mode == glmPalettized)
+        return false;
+
+    TVPInitFFmpegImageDecoder();
+
+    std::vector<tjs_uint8> input;
+    if(!TVPReadFFmpegImageStream(src, &input))
+        return false;
+
+    AVCodec *codec = avcodec_find_decoder(codecId);
+    if(!codec)
+        return false;
+
+    AVCodecContext *codecContext = avcodec_alloc_context3(codec);
+    AVFrame *frame = av_frame_alloc();
+    if(!codecContext || !frame) {
+        if(frame)
+            av_frame_free(&frame);
+        if(codecContext)
+            avcodec_free_context(&codecContext);
+        return false;
+    }
+
+    bool decoded = false;
+    if(avcodec_open2(codecContext, codec, nullptr) >= 0) {
+        AVPacket packet;
+        av_init_packet(&packet);
+        packet.data = input.data();
+        packet.size =
+            static_cast<int>(input.size() - AV_INPUT_BUFFER_PADDING_SIZE);
+
+        int gotPicture = 0;
+        int decodedBytes =
+            avcodec_decode_video2(codecContext, frame, &gotPicture, &packet);
+        if(decodedBytes >= 0 && !gotPicture) {
+            AVPacket flushPacket;
+            av_init_packet(&flushPacket);
+            flushPacket.data = nullptr;
+            flushPacket.size = 0;
+            avcodec_decode_video2(codecContext, frame, &gotPicture,
+                                  &flushPacket);
+        }
+
+        if(gotPicture && codecContext->width > 0 && codecContext->height > 0 &&
+           codecContext->width < 65536 && codecContext->height < 65536 &&
+           codecContext->pix_fmt != AV_PIX_FMT_NONE) {
+            const bool grayscale = mode == glmGrayscale;
+            const AVPixelFormat dstFormat =
+                grayscale ? AV_PIX_FMT_GRAY8 : AV_PIX_FMT_RGBA;
+            const int bytesPerPixel = grayscale ? 1 : 4;
+            const int width = codecContext->width;
+            const int height = codecContext->height;
+            const int dstStride = width * bytesPerPixel;
+            const size_t outputSize =
+                static_cast<size_t>(dstStride) * static_cast<size_t>(height);
+
+            SwsContext *sws = sws_getContext(
+                width, height, codecContext->pix_fmt, width, height, dstFormat,
+                SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
+            if(sws) {
+                image->Pixels.assign(outputSize, 0);
+                tjs_uint8 *dstData[4] = { image->Pixels.data(), nullptr,
+                                           nullptr, nullptr };
+                int dstLinesize[4] = { dstStride, 0, 0, 0 };
+                int scaled = sws_scale(sws, frame->data, frame->linesize, 0,
+                                       height, dstData, dstLinesize);
+                sws_freeContext(sws);
+                if(scaled == height) {
+                    const AVPixFmtDescriptor *desc =
+                        av_pix_fmt_desc_get(codecContext->pix_fmt);
+                    image->Width = width;
+                    image->Height = height;
+                    image->Grayscale = grayscale;
+                    image->HasAlpha =
+                        !grayscale && desc &&
+                        (desc->flags & AV_PIX_FMT_FLAG_ALPHA) != 0;
+                    decoded = true;
+                }
+            }
+        }
+    }
+
+    av_frame_free(&frame);
+    avcodec_free_context(&codecContext);
+    return decoded;
+}
+
+static void TVPEmitFFmpegImage(
+    const tTVPFFmpegImage &image, void *callbackdata,
+    tTVPGraphicSizeCallback sizecallback,
+    tTVPGraphicScanLineCallback scanlinecallback) {
+    const tTVPGraphicPixelFormat pixelFormat =
+        image.Grayscale ? gpfLuminance : (image.HasAlpha ? gpfRGBA : gpfRGB);
+    sizecallback(callbackdata, image.Width, image.Height, pixelFormat);
+
+    const int stride = image.Width * (image.Grayscale ? 1 : 4);
+    for(tjs_int y = 0; y < image.Height; ++y) {
+        void *scanline = scanlinecallback(callbackdata, y);
+        if(!scanline)
+            break;
+        memcpy(scanline, image.Pixels.data() + static_cast<size_t>(y) * stride,
+               stride);
+        scanlinecallback(callbackdata, -1);
+    }
+}
+
+static bool TVPTryLoadImageWithFFmpeg(
+    void *callbackdata, tTVPGraphicSizeCallback sizecallback,
+    tTVPGraphicScanLineCallback scanlinecallback, tTJSBinaryStream *src,
+    tjs_int keyidx, tTVPGraphicLoadMode mode, AVCodecID codecId) {
+    if(!TVPGetUseFFmpegImageDecoder() || keyidx != -1 ||
+       codecId == AV_CODEC_ID_NONE)
+        return false;
+
+    tjs_uint64 start = src->GetPosition();
+    tTVPFFmpegImage image;
+    bool decoded = TVPDecodeImageWithFFmpeg(src, codecId, mode, &image);
+    src->SetPosition(start);
+    if(!decoded)
+        return false;
+
+    TVPEmitFFmpegImage(image, callbackdata, sizecallback, scanlinecallback);
+    return true;
+}
+
+static bool TVPTryLoadImageHeaderWithFFmpeg(tTJSBinaryStream *src,
+                                            AVCodecID codecId,
+                                            iTJSDispatch2 **dic) {
+    if(!TVPGetUseFFmpegImageDecoder() || codecId == AV_CODEC_ID_NONE || !dic)
+        return false;
+
+    tjs_uint64 start = src->GetPosition();
+    tTVPFFmpegImage image;
+    bool decoded = TVPDecodeImageWithFFmpeg(src, codecId, glmNormal, &image);
+    src->SetPosition(start);
+    if(!decoded)
+        return false;
+
+    *dic = TJSCreateDictionaryObject();
+    tTJSVariant val((tjs_int64)image.Width);
+    (*dic)->PropSet(TJS_MEMBERENSURE, TJS_W("width"), nullptr, &val, (*dic));
+    val = tTJSVariant((tjs_int64)image.Height);
+    (*dic)->PropSet(TJS_MEMBERENSURE, TJS_W("height"), nullptr, &val, (*dic));
+    val = tTJSVariant((tjs_int64)(image.HasAlpha ? 32 : 24));
+    (*dic)->PropSet(TJS_MEMBERENSURE, TJS_W("bpp"), nullptr, &val, (*dic));
+    val = tTJSVariant((tjs_int)0);
+    (*dic)->PropSet(TJS_MEMBERENSURE, TJS_W("palette"), nullptr, &val,
+                    (*dic));
+    return true;
+}
+
+} // namespace
 
 static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
                                  tTVPGraphicSizeCallback sizecallback,
@@ -58,6 +302,12 @@ static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
     tjs_uint64 origSrcPos = src->GetPosition();
     if(src->Read(header, sizeof(header)) == sizeof(header)) {
         src->SetPosition(origSrcPos);
+        AVCodecID ffmpegCodecId = TVPGuessFFmpegImageCodec(header);
+        if(TVPTryLoadImageWithFFmpeg(callbackdata, sizecallback,
+                                     scanlinecallback, src, keyidx, mode,
+                                     ffmpegCodecId)) {
+            return;
+        }
 #define CALL_LOAD_FUNC(f)                                                      \
     f(formatdata, callbackdata, sizecallback, scanlinecallback,                \
       metainfopushcallback, src, keyidx, mode)
@@ -97,6 +347,10 @@ static void TVPLoadHeaderRouter(void *formatdata, tTJSBinaryStream *src,
     tjs_uint64 origSrcPos = src->GetPosition();
     if(src->Read(header, sizeof(header)) == sizeof(header)) {
         src->SetPosition(origSrcPos);
+        AVCodecID ffmpegCodecId = TVPGuessFFmpegImageCodec(header);
+        if(TVPTryLoadImageHeaderWithFFmpeg(src, ffmpegCodecId, dic)) {
+            return;
+        }
 #define CALL_LOAD_FUNC(f) f(formatdata, src, dic)
         if(!memcmp(header, "BM", 2)) {
             return CALL_LOAD_FUNC(TVPLoadHeaderBMP);

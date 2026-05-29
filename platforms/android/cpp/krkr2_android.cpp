@@ -35,6 +35,7 @@ static bool DumpCallback(const google_breakpad::MinidumpDescriptor &descriptor,
 }
 
 extern bool TVPSystemUninitCalled;
+void TVPSetUseFFmpegImageDecoder(bool enabled);
 
 static bool DumpFilter(void *data) {
     // if trying exit system, ignore all exception
@@ -102,6 +103,17 @@ void Java_org_tvp_kirikiri2_KR2Activity_initDump(JNIEnv *env, jclass cls,
             descriptor, DumpFilter, DumpCallback, nullptr, true, -1);
     }
     env->ReleaseStringUTFChars(path, pszPath);
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_KR2Activity_setUseFFmpegImageDecoder(JNIEnv *, jclass,
+                                                            jboolean enabled) {
+    TVPSetUseFFmpegImageDecoder(enabled == JNI_TRUE);
+    try {
+        spdlog::info("FFmpeg image decoder enabled={}",
+                     enabled == JNI_TRUE ? 1 : 0);
+    } catch(...) {
+    }
 }
 
 void Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxOK(JNIEnv *env, jclass cls,

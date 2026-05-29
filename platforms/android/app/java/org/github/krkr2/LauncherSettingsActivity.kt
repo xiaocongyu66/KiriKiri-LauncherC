@@ -59,6 +59,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -149,6 +150,7 @@ private fun SettingsScreen(
     val text = if (lang == LauncherPrefs.LANG_ZH) LauncherStrings.zh else LauncherStrings.en
     var pathInput by remember { mutableStateOf(LauncherPrefs.getGameRoot(context)) }
     var scanDepth by remember { mutableStateOf(LauncherPrefs.getScanDepth(context)) }
+    var useFfmpegImageDecoder by remember { mutableStateOf(LauncherPrefs.getUseFfmpegImageDecoder(context)) }
     var statusLine by remember { mutableStateOf("") }
     var dest by remember { mutableStateOf(SettingsDest.Library) }
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -202,6 +204,11 @@ private fun SettingsScreen(
                     },
                     onLangChange = { newLang -> LauncherPrefs.setLanguage(context, newLang); lang = newLang },
                     onOpenRenderSettings = onOpenRenderSettings,
+                    useFfmpegImageDecoder = useFfmpegImageDecoder,
+                    onUseFfmpegImageDecoderChange = { enabled ->
+                        useFfmpegImageDecoder = enabled
+                        LauncherPrefs.setUseFfmpegImageDecoder(context, enabled)
+                    },
                     onOpenDiagnostics = onOpenDiagnostics,
                     onLaunchOriginal = onLaunchOriginal,
                     onExportBackup = {
@@ -233,6 +240,11 @@ private fun SettingsScreen(
                     },
                     onLangChange = { newLang -> LauncherPrefs.setLanguage(context, newLang); lang = newLang },
                     onOpenRenderSettings = onOpenRenderSettings,
+                    useFfmpegImageDecoder = useFfmpegImageDecoder,
+                    onUseFfmpegImageDecoderChange = { enabled ->
+                        useFfmpegImageDecoder = enabled
+                        LauncherPrefs.setUseFfmpegImageDecoder(context, enabled)
+                    },
                     onOpenDiagnostics = onOpenDiagnostics,
                     onLaunchOriginal = onLaunchOriginal,
                     onExportBackup = {
@@ -351,6 +363,8 @@ private fun SettingsContent(
     onGrantStorage: () -> Unit,
     onLangChange: (String) -> Unit,
     onOpenRenderSettings: () -> Unit,
+    useFfmpegImageDecoder: Boolean,
+    onUseFfmpegImageDecoderChange: (Boolean) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onLaunchOriginal: () -> Unit,
     onExportBackup: () -> Unit,
@@ -361,7 +375,7 @@ private fun SettingsContent(
         when (dest) {
             SettingsDest.Library -> LibrarySettings(text, compact, pathInput, onPathChange, scanDepth, onScanDepthChange, statusLine, onSaveAndScan, onRefresh, onGrantStorage)
             SettingsDest.Display -> DisplaySettings(text, compact, onLangChange)
-            SettingsDest.Engine -> EngineSettings(text, compact, onOpenRenderSettings)
+            SettingsDest.Engine -> EngineSettings(text, compact, onOpenRenderSettings, useFfmpegImageDecoder, onUseFfmpegImageDecoderChange)
             SettingsDest.Tools -> ToolsSettings(text, compact, onOpenDiagnostics, onLaunchOriginal, onExportBackup)
             SettingsDest.About -> AboutSettings(text, compact, onCopy)
         }
@@ -448,9 +462,29 @@ private fun DisplaySettings(text: LauncherStrings.Texts, compact: Boolean, onLan
 }
 
 @Composable
-private fun EngineSettings(text: LauncherStrings.Texts, compact: Boolean, onOpenRenderSettings: () -> Unit) {
+private fun EngineSettings(
+    text: LauncherStrings.Texts,
+    compact: Boolean,
+    onOpenRenderSettings: () -> Unit,
+    useFfmpegImageDecoder: Boolean,
+    onUseFfmpegImageDecoderChange: (Boolean) -> Unit,
+) {
     SettingsPanel(text.settingsEngine, Icons.Default.Tune, compact) {
         RowSetting(Icons.Default.Tune, text.renderSettings, text.renderSettingsHint, onClick = onOpenRenderSettings)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        RowSetting(
+            Icons.Default.Settings,
+            text.ffmpegImageDecoder,
+            text.ffmpegImageDecoderHint,
+            onClick = { onUseFfmpegImageDecoderChange(!useFfmpegImageDecoder) },
+            trailing = {
+                Switch(
+                    checked = useFfmpegImageDecoder,
+                    onCheckedChange = onUseFfmpegImageDecoderChange,
+                )
+            },
+            showChevron = false,
+        )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         RowSetting(Icons.Default.Settings, text.gameOverride, text.gameOverrideHint, showChevron = false)
     }

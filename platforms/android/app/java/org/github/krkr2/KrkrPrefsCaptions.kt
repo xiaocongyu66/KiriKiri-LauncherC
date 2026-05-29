@@ -40,6 +40,7 @@ object KrkrPrefsCaptions {
         "preference_menu_handler_opacity" to "Menu trigger opacity",
         "preference_remember_last_path" to "Remember last path",
         "preference_hide_android_sys_btn" to "Hide system buttons",
+        "preference_ffmpeg_image_decoder" to "FFmpeg image decoder",
 
         // Software renderer
         "preference_multi_draw_thread" to "Draw threads",
@@ -96,6 +97,7 @@ object KrkrPrefsCaptions {
         "preference_menu_handler_opacity" to "菜单触发器透明度",
         "preference_remember_last_path" to "记住上次路径",
         "preference_hide_android_sys_btn" to "隐藏系统按键",
+        "preference_ffmpeg_image_decoder" to "FFmpeg 图片解码",
 
         // Software renderer
         "preference_multi_draw_thread" to "绘制线程",

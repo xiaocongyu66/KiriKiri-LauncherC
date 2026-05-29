@@ -342,6 +342,8 @@ namespace {
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
             new tTVPPreferenceInfoCheckBox("preference_hide_android_sys_btn",
                                            "hide_android_sys_btn", false),
+            new tTVPPreferenceInfoCheckBox("preference_ffmpeg_image_decoder",
+                                           "ffmpeg_image_decoder", false),
 #endif
             new tTVPPreferenceInfoResetDefaultSkin("preference_reset_def_skin"),
 

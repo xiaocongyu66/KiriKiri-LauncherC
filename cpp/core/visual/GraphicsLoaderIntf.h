@@ -112,6 +112,8 @@ void TVPUnregisterGraphicLoadingHandler(const ttstr &name,
                                         tTVPGraphicSaveHandler save,
                                         tTVPGraphicAcceptSaveHandler accept,
                                         void *formatdata);
+void TVPSetUseFFmpegImageDecoder(bool enabled);
+bool TVPGetUseFFmpegImageDecoder();
 
 /*[*/
 /* For grahpic load and save */

@@ -105,6 +105,14 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     opencv_core
 )
 
+find_package(FFMPEG COMPONENTS
+        avutil
+        avcodec
+        swscale REQUIRED
+)
+target_include_directories(${PROJECT_NAME} PRIVATE ${FFMPEG_INCLUDE_DIRS})
+target_link_libraries(${PROJECT_NAME} PRIVATE ${FFMPEG_LIBRARIES})
+
 find_package(lz4 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PUBLIC
     lz4::lz4
