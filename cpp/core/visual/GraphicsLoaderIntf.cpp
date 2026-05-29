@@ -37,6 +37,7 @@
 #include "GraphicsLoadThread.h"
 #include <complex>
 #include <list>
+#include <string>
 
 void TVPLoadPVRv3(void *formatdata, void *callbackdata,
                   tTVPGraphicSizeCallback sizecallback,
@@ -1435,6 +1436,47 @@ static tjs_uint64 TVPGraphicCacheLimit = 0;
 static tjs_uint64 TVPGraphicCacheTotalBytes = 0;
 tjs_uint64 TVPGraphicCacheSystemLimit =
     0; // maximum possible value of  TVPGraphicCacheLimit
+
+static bool TVPIsCompatDummyGraphicName(const ttstr &name) {
+    std::string normalized = name.AsStdString();
+    for(char &ch : normalized) {
+        if(ch >= 'A' && ch <= 'Z')
+            ch = static_cast<char>(ch - 'A' + 'a');
+    }
+
+    const size_t archiveSep = normalized.find_last_of(">/\\");
+    const std::string basename =
+        archiveSep == std::string::npos ? normalized
+                                        : normalized.substr(archiveSep + 1);
+
+    return basename == "dummy" || basename.rfind("dummy_", 0) == 0 ||
+           basename.rfind("dummy-", 0) == 0;
+}
+
+static int TVPLoadCompatDummyGraphic(iTVPBaseBitmap *dest, tjs_uint desw,
+                                     tjs_uint desh) {
+    const tjs_uint width = desw != 0 ? desw : 1;
+    const tjs_uint height = desh != 0 ? desh : 1;
+    tTVPBitmap *bmp = new tTVPBitmap(width, height, 32);
+    try {
+        bmp->IsOpaque = false;
+        for(tjs_uint y = 0; y < height; ++y) {
+            auto *line = static_cast<tjs_uint32 *>(bmp->GetScanLine(y));
+            memset(line, 0, width * sizeof(tjs_uint32));
+        }
+        if(dest) {
+            tTVPGraphicImageData data;
+            data.AssignBitmap(bmp);
+            data.AssignToTexture(dest);
+        }
+        const int ret = static_cast<int>(width * height * 4);
+        bmp->Release();
+        return ret;
+    } catch(...) {
+        bmp->Release();
+        throw;
+    }
+}
 //---------------------------------------------------------------------------
 tjs_uint64 TVPGetGraphicCacheTotalBytes() { return TVPGraphicCacheTotalBytes; }
 //---------------------------------------------------------------------------
@@ -1977,6 +2019,13 @@ int TVPLoadGraphic(iTVPBaseBitmap *dest, const ttstr &name, tjs_int32 keyidx,
             bmp->Release();
         }
     } catch(...) {
+        if(TVPIsCompatDummyGraphicName(nname)) {
+            if(mi)
+                delete mi;
+            if(data)
+                data->Release();
+            return TVPLoadCompatDummyGraphic(dest, desw, desh);
+        }
         if(mi)
             delete mi;
         if(data)

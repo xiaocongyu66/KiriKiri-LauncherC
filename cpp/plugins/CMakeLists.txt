@@ -27,6 +27,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     layerExImage.cpp
     layerExBTOA.cpp
     layerExRaster.cpp
+    layerStwCopy.cpp
     layerExAreaAverage.cpp
     layerExLongExposure.cpp
     wfBasicEffectCompat.cpp
