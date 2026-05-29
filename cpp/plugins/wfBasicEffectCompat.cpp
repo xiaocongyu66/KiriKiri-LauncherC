@@ -423,3 +423,44 @@ NCB_REGISTER_CLASS(GainLimit) {
     Method(TJS_W("reset"), &Class::reset);
     Method(TJS_W("clear"), &Class::clear);
 }
+
+namespace {
+
+void AttachWaveFilterClass(iTJSDispatch2 *global, iTJSDispatch2 *waveClass,
+                           const tjs_char *name) {
+    if(!global || !waveClass || !name)
+        return;
+
+    tTJSVariant cls;
+    if(TJS_FAILED(global->PropGet(0, name, nullptr, &cls, global)) ||
+       cls.Type() != tvtObject || !cls.AsObjectNoAddRef()) {
+        return;
+    }
+
+    waveClass->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP | TJS_STATICMEMBER,
+                       name, nullptr, &cls, waveClass);
+}
+
+void WfBasicEffectPostRegist() {
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(!global)
+        return;
+
+    tTJSVariant wave;
+    if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("WaveSoundBuffer"), nullptr,
+                                     &wave, global)) &&
+       wave.Type() == tvtObject && wave.AsObjectNoAddRef()) {
+        iTJSDispatch2 *waveClass = wave.AsObjectNoAddRef();
+        AttachWaveFilterClass(global, waveClass, TJS_W("StkFreeVerb"));
+        AttachWaveFilterClass(global, waveClass, TJS_W("GraphicEqualizer"));
+        AttachWaveFilterClass(global, waveClass, TJS_W("DelayEffect"));
+        AttachWaveFilterClass(global, waveClass, TJS_W("WaveDelay"));
+        AttachWaveFilterClass(global, waveClass, TJS_W("GainLimit"));
+    }
+
+    global->Release();
+}
+
+} // namespace
+
+NCB_POST_REGIST_CALLBACK(WfBasicEffectPostRegist);

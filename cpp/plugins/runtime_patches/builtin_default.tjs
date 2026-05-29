@@ -18,10 +18,9 @@
 if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
     global.__krkr2_runtimePatchApplied = true;
 
-    // Some patch scripts touch these namespaces before the native plugin
-    // registration phase finishes. Create the containers early so scripts
-    // like patch.tjs can at least resolve them safely.
-    global.Motion = global.Motion === void ? %[] : global.Motion;
+    // Some patch scripts touch this namespace before the relevant game
+    // scripts create it. Do not pre-create Motion here: the native
+    // motionplayer.dll plugin owns that namespace.
     global.ENV_context = global.ENV_context === void ? %[] : global.ENV_context;
 
     // (no script-level patches needed at the moment.)

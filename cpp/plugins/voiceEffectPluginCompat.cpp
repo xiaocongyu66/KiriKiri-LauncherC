@@ -255,12 +255,11 @@ public:
         return TJS_S_OK;
     }
 
-    // `new Motion()` / `new voiceEffectPlugin.SomeClass()` and similar
-    // constructions hit CreateNew. The default tTJSDispatch impl returns
-    // TJS_E_NOTIMPL when membername is null (i.e. constructing the stub
-    // itself), which surfaces as "Called method is not implemented" at
-    // motion.tjs(1). Return the singleton stub instead so the script
-    // keeps a usable object and chained calls survive.
+    // `new voiceEffectPlugin.SomeClass()` and similar constructions hit
+    // CreateNew. The default tTJSDispatch impl returns TJS_E_NOTIMPL when
+    // membername is null (i.e. constructing the stub itself). Return the
+    // singleton stub instead so the script keeps a usable object and chained
+    // calls survive.
     tjs_error CreateNew(tjs_uint32 flag, const tjs_char *membername,
                         tjs_uint32 *hint, iTJSDispatch2 **result,
                         tjs_int numparams, tTJSVariant **param,
@@ -421,17 +420,9 @@ void TVPRegisterVoiceEffectStubs() {
     // for objects that should logically behave as a no-op KAGPlugin.
     RegisterPermissiveStubOnGlobal(global, TJS_W("voiceEffectPlugin"));
     RegisterPermissiveStubOnGlobal(global, TJS_W("voiceEffectFactory"));
-    // krkr2-pro / wamsoft-flavoured games (limelight 系) ship a private
-    // `Motion` namespace that builds animation timelines on top of closed
-    // engine extensions. The Android port doesn't have those, so without
-    // a stub motion.tjs blows up at line 1 with either
-    //   "Member \"Motion\" does not exist"
-    // (PropGet path) or
-    //   "Called method is not implemented"
-    // (CreateNew/FuncCall path on the proxy returned from tjsObject's
-    // missing-member whitelist). Registering the permissive stub on
-    // global removes both routes.
-    RegisterPermissiveStubOnGlobal(global, TJS_W("Motion"));
+    // Do not register a Motion stub here. The native motionplayer.dll
+    // implementation owns global.Motion, and a permissive placeholder prevents
+    // Motion.ResourceManager / Motion.EmotePlayer from being exposed.
     RegisterPermissiveStubOnGlobal(global, TJS_W("ENV_context"));
 
     // Many wamsoft-shaped scripts read `kag.voiceEffectPlugin` (KAGWindow
