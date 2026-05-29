@@ -20,6 +20,7 @@ typedef unsigned long ULONG_PTR;
 #include "GraphicsLoaderIntf.h"
 #include "EventIntf.h"
 #include "WindowImpl.h"
+#include "TVPScreen.h"
 
 #define NCB_MODULE_NAME TJS_W("windowEx.dll")
 #ifndef _WIN32
@@ -1424,12 +1425,54 @@ struct System {
     static tjs_error getDisplayMonitors(tTJSVariant *result, tjs_int numparams,
                                         tTJSVariant **param,
                                         iTJSDispatch2 *objthis) {
+        if(result) {
+            const tjs_int w = tTVPScreen::GetDesktopWidth();
+            const tjs_int h = tTVPScreen::GetDesktopHeight();
+
+            ncbDictionaryAccessor monDict;
+            monDict.SetValue(TJS_W("x"), 0);
+            monDict.SetValue(TJS_W("y"), 0);
+            monDict.SetValue(TJS_W("w"), w);
+            monDict.SetValue(TJS_W("h"), h);
+            monDict.SetValue(TJS_W("primary"), 1);
+
+            iTJSDispatch2 *arr = TJSCreateArrayObject();
+            tTJSVariant monVar(monDict.GetDispatch(), monDict.GetDispatch());
+            arr->PropSetByNum(TJS_MEMBERENSURE, 0, &monVar, arr);
+            result->SetObject(arr, arr);
+            arr->Release();
+        }
         return TJS_S_OK;
     }
 
     static tjs_error getMonitorInfo(tTJSVariant *result, tjs_int numparams,
                                     tTJSVariant **param,
                                     iTJSDispatch2 *objthis) {
+        if(result) {
+            const tjs_int w = tTVPScreen::GetDesktopWidth();
+            const tjs_int h = tTVPScreen::GetDesktopHeight();
+
+            ncbDictionaryAccessor monDict;
+            monDict.SetValue(TJS_W("x"), 0);
+            monDict.SetValue(TJS_W("y"), 0);
+            monDict.SetValue(TJS_W("w"), w);
+            monDict.SetValue(TJS_W("h"), h);
+
+            ncbDictionaryAccessor workDict;
+            workDict.SetValue(TJS_W("x"), 0);
+            workDict.SetValue(TJS_W("y"), 0);
+            workDict.SetValue(TJS_W("w"), w);
+            workDict.SetValue(TJS_W("h"), h);
+
+            ncbDictionaryAccessor resultDict;
+            tTJSVariant monVar(monDict.GetDispatch(), monDict.GetDispatch());
+            resultDict.SetValue(TJS_W("monitor"), monVar);
+            tTJSVariant workVar(workDict.GetDispatch(), workDict.GetDispatch());
+            resultDict.SetValue(TJS_W("work"), workVar);
+
+            iTJSDispatch2 *dict = resultDict.GetDispatch();
+            result->SetObject(dict, dict);
+        }
         return TJS_S_OK;
     }
 
@@ -1589,3 +1632,10 @@ static void PostUnregistCallback() { Scripts::UnRegist(); }
 
 NCB_PRE_REGIST_CALLBACK(PreRegistCallback);
 NCB_POST_UNREGIST_CALLBACK(PostUnregistCallback);
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("windowsEx.dll")
+static void InitPlugin_WindowsExAlias() {
+    ncbAutoRegister::LoadModule(TJS_W("windowEx.dll"));
+}
+NCB_PRE_REGIST_CALLBACK(InitPlugin_WindowsExAlias);

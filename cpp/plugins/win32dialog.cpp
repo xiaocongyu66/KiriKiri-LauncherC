@@ -174,6 +174,8 @@ static void InitPlugin_WIN32Dialog() {
         TJS_W("    function addBitmap   (id,   div=void, height=void, style=0) {}\n")
         TJS_W("    function addProgress (id,   div=void, height=void, style=0) {}\n")
         TJS_W("    function addTab      (id,   div=void, height=void, style=0) {}\n")
+        TJS_W("    function beginGroup  (name=void, div=void, height=void) { nextLine(); return void; }\n")
+        TJS_W("    function endGroup    () { nextLine(); return void; }\n")
         TJS_W("    function addBlank    (height=0, div=void) {}\n")
         TJS_W("    function addSeparator(height=2, div=void) {}\n")
         TJS_W("    function addControl(item, div=void, height=void) {}\n")
