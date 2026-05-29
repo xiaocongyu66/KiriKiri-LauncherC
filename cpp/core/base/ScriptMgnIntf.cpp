@@ -14,6 +14,7 @@
 #include "tjs.h"
 #include "tjsDebug.h"
 #include "tjsArray.h"
+#include "tjsDictionary.h"
 #include "ScriptMgnIntf.h"
 #include "StorageIntf.h"
 #include "DebugIntf.h"
@@ -725,14 +726,392 @@ void TVPExecuteStorage(const ttstr &name, tTJSVariant *result,
                        bool isexpression, const tjs_char *modestr) {
     TVPExecuteStorage(name, nullptr, result, isexpression, modestr);
 }
+#include <cstring>
 #include <fstream>
+#include <limits>
 #include <tjsByteCodeLoader.h>
+#include <vector>
 
 static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
                                                         iTJSDispatch2 *context,
                                                         tTJSVariant *result,
                                                         bool isexpression,
                                                         const tjs_char *modestr);
+
+class tTVPPbdByteChecker {
+    int Flag{ 1 };
+    tjs_uint8 Seed[3]{};
+
+    static tjs_uint8 Round(tjs_uint8 seed[3]) {
+        tjs_uint8 b = static_cast<tjs_uint8>(
+            seed[0] ^ static_cast<tjs_uint8>(seed[0] * 2));
+        const tjs_uint8 a = b;
+        b >>= 2;
+        b ^= seed[2];
+        b >>= 3;
+        b ^= seed[2];
+        b ^= a;
+
+        seed[0] = seed[1];
+        seed[1] = seed[2];
+        seed[2] = b;
+        return b;
+    }
+
+    tjs_uint8 Update(tjs_uint8 code) {
+        if(Flag == 0)
+            return 0;
+        if(code == 0)
+            return Seed[2];
+        return Round(Seed);
+    }
+
+public:
+    explicit tTVPPbdByteChecker(tjs_uint32 seed) {
+        Seed[0] = static_cast<tjs_uint8>((seed >> 24) ^ seed);
+        Seed[1] = static_cast<tjs_uint8>(seed >> 8);
+        Seed[2] = static_cast<tjs_uint8>(seed >> 16);
+    }
+
+    bool CheckByte(tjs_uint8 code, tjs_uint8 expected) {
+        const tjs_uint8 actual = Update(code);
+        if(Flag == 0 || expected == actual)
+            return true;
+        Flag = -1;
+        return false;
+    }
+
+    bool CheckFinal(tjs_uint32 expected) {
+        Round(Seed);
+        Round(Seed);
+        Round(Seed);
+
+        tjs_uint32 actual = 0;
+        actual |= static_cast<tjs_uint32>(Seed[2]);
+        actual |= static_cast<tjs_uint32>(Seed[1]) << 8;
+        actual |= static_cast<tjs_uint32>(Seed[0]) << 16;
+        return Flag >= 0 && expected == actual;
+    }
+};
+
+class tTVPPbdVariantReader {
+    const tjs_uint8 *Data{ nullptr };
+    size_t Size{ 0 };
+    size_t Pos{ 0 };
+    bool BigEndian{ false };
+    bool CheckBytesOk{ true };
+    tTVPPbdByteChecker Checker;
+
+    bool Require(size_t count) const {
+        return Pos <= Size && count <= Size - Pos;
+    }
+
+    bool ReadU8(tjs_uint8 &value) {
+        if(!Require(1))
+            return false;
+        value = Data[Pos++];
+        return true;
+    }
+
+    bool ReadU16(tjs_uint16 &value) {
+        if(!Require(2))
+            return false;
+        if(BigEndian) {
+            value = (static_cast<tjs_uint16>(Data[Pos]) << 8) |
+                    static_cast<tjs_uint16>(Data[Pos + 1]);
+        } else {
+            value = static_cast<tjs_uint16>(Data[Pos]) |
+                    (static_cast<tjs_uint16>(Data[Pos + 1]) << 8);
+        }
+        Pos += 2;
+        return true;
+    }
+
+    bool ReadU32(tjs_uint32 &value) {
+        if(!Require(4))
+            return false;
+        if(BigEndian) {
+            value = (static_cast<tjs_uint32>(Data[Pos]) << 24) |
+                    (static_cast<tjs_uint32>(Data[Pos + 1]) << 16) |
+                    (static_cast<tjs_uint32>(Data[Pos + 2]) << 8) |
+                    static_cast<tjs_uint32>(Data[Pos + 3]);
+        } else {
+            value = static_cast<tjs_uint32>(Data[Pos]) |
+                    (static_cast<tjs_uint32>(Data[Pos + 1]) << 8) |
+                    (static_cast<tjs_uint32>(Data[Pos + 2]) << 16) |
+                    (static_cast<tjs_uint32>(Data[Pos + 3]) << 24);
+        }
+        Pos += 4;
+        return true;
+    }
+
+    bool ReadU64(tjs_uint64 &value) {
+        tjs_uint32 lo = 0;
+        tjs_uint32 hi = 0;
+        if(BigEndian) {
+            if(!ReadU32(hi) || !ReadU32(lo))
+                return false;
+        } else {
+            if(!ReadU32(lo) || !ReadU32(hi))
+                return false;
+        }
+        value = static_cast<tjs_uint64>(lo) |
+                (static_cast<tjs_uint64>(hi) << 32);
+        return true;
+    }
+
+    bool ReadType(tjs_uint8 &type) {
+        tjs_uint8 check = 0;
+        if(!ReadU8(type) || !ReadU8(check))
+            return false;
+        if(!Checker.CheckByte(type, check))
+            CheckBytesOk = false;
+        return true;
+    }
+
+    bool ReadStringValue(ttstr &value) {
+        tjs_uint32 length = 0;
+        if(!ReadU32(length))
+            return false;
+        if(length > (std::numeric_limits<size_t>::max() / sizeof(tjs_char)) ||
+           !Require(static_cast<size_t>(length) * sizeof(tjs_char))) {
+            return false;
+        }
+
+        std::basic_string<tjs_char> chars;
+        chars.reserve(length);
+        for(tjs_uint32 i = 0; i < length; ++i) {
+            tjs_uint16 ch = 0;
+            if(!ReadU16(ch))
+                return false;
+            chars.push_back(static_cast<tjs_char>(ch));
+        }
+        value = ttstr(chars.c_str(), chars.size());
+        return true;
+    }
+
+    bool ReadArrayValue(tTJSVariant &out) {
+        tjs_uint32 count = 0;
+        if(!ReadU32(count) || count > static_cast<tjs_uint32>(
+                                std::numeric_limits<tjs_int>::max())) {
+            return false;
+        }
+
+        iTJSDispatch2 *array = TJSCreateArrayObject();
+        try {
+            for(tjs_uint32 i = 0; i < count; ++i) {
+                tTJSVariant item;
+                if(!ReadVariant(item)) {
+                    array->Release();
+                    return false;
+                }
+                const tjs_error hr = array->PropSetByNum(
+                    TJS_MEMBERENSURE, static_cast<tjs_int>(i), &item, array);
+                if(TJS_FAILED(hr)) {
+                    array->Release();
+                    return false;
+                }
+            }
+            out = tTJSVariant(array, array);
+            array->Release();
+            return true;
+        } catch(...) {
+            array->Release();
+            throw;
+        }
+    }
+
+    bool ReadDictionaryValue(tTJSVariant &out) {
+        tjs_uint32 count = 0;
+        if(!ReadU32(count))
+            return false;
+
+        iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+        try {
+            for(tjs_uint32 i = 0; i < count; ++i) {
+                ttstr key;
+                tTJSVariant item;
+                if(!ReadStringValue(key) || !ReadVariant(item)) {
+                    dict->Release();
+                    return false;
+                }
+                const tjs_error hr =
+                    dict->PropSet(TJS_MEMBERENSURE, key.c_str(), nullptr,
+                                  &item, dict);
+                if(TJS_FAILED(hr)) {
+                    dict->Release();
+                    return false;
+                }
+            }
+            out = tTJSVariant(dict, dict);
+            dict->Release();
+            return true;
+        } catch(...) {
+            dict->Release();
+            throw;
+        }
+    }
+
+public:
+    tTVPPbdVariantReader(const tjs_uint8 *data, size_t size, bool bigEndian,
+                         tjs_uint32 seed) :
+        Data(data),
+        Size(size), BigEndian(bigEndian), Checker(seed) {}
+
+    bool ReadVariant(tTJSVariant &out) {
+        tjs_uint8 type = 0;
+        if(!ReadType(type))
+            return false;
+
+        switch(type) {
+            case 0x00:
+                out.Clear();
+                return true;
+            case 0x01:
+                out = tTJSVariant((iTJSDispatch2 *)nullptr);
+                return true;
+            case 0x02: {
+                ttstr value;
+                if(!ReadStringValue(value))
+                    return false;
+                out = tTJSVariant(value);
+                return true;
+            }
+            case 0x03: {
+                tjs_uint32 length = 0;
+                if(!ReadU32(length) || !Require(length))
+                    return false;
+                out = length != 0 ? tTJSVariant(Data + Pos, length)
+                                  : tTJSVariant((const tjs_uint8 *)nullptr, 0);
+                Pos += length;
+                return true;
+            }
+            case 0x04: {
+                tjs_uint64 raw = 0;
+                if(!ReadU64(raw))
+                    return false;
+                out = tTJSVariant(static_cast<tjs_int64>(raw));
+                return true;
+            }
+            case 0x05: {
+                tjs_uint64 raw = 0;
+                tjs_real value = 0;
+                if(!ReadU64(raw))
+                    return false;
+                std::memcpy(&value, &raw, sizeof(value));
+                out = tTJSVariant(value);
+                return true;
+            }
+            case 0x81:
+                return ReadArrayValue(out);
+            case 0xC1:
+                return ReadDictionaryValue(out);
+            default:
+                return false;
+        }
+    }
+
+    bool FinishAndCheck() {
+        tjs_uint32 expected = 0;
+        if(!ReadU32(expected))
+            return false;
+        return Checker.CheckFinal(expected) && CheckBytesOk;
+    }
+};
+
+static tjs_uint16 TVPReadPbdU16(const std::vector<tjs_uint8> &data, size_t pos,
+                                bool bigEndian) {
+    if(bigEndian) {
+        return (static_cast<tjs_uint16>(data[pos]) << 8) |
+               static_cast<tjs_uint16>(data[pos + 1]);
+    }
+    return static_cast<tjs_uint16>(data[pos]) |
+           (static_cast<tjs_uint16>(data[pos + 1]) << 8);
+}
+
+static tjs_uint32 TVPReadPbdU32(const std::vector<tjs_uint8> &data, size_t pos,
+                                bool bigEndian) {
+    if(bigEndian) {
+        return (static_cast<tjs_uint32>(data[pos]) << 24) |
+               (static_cast<tjs_uint32>(data[pos + 1]) << 16) |
+               (static_cast<tjs_uint32>(data[pos + 2]) << 8) |
+               static_cast<tjs_uint32>(data[pos + 3]);
+    }
+    return static_cast<tjs_uint32>(data[pos]) |
+           (static_cast<tjs_uint32>(data[pos + 1]) << 8) |
+           (static_cast<tjs_uint32>(data[pos + 2]) << 16) |
+           (static_cast<tjs_uint32>(data[pos + 3]) << 24);
+}
+
+static bool TVPTryLoadPbdTJSVariant(const ttstr &place,
+                                    const tjs_char *modestr,
+                                    tTJSVariant *result) {
+    if(result == nullptr)
+        return false;
+
+    std::unique_ptr<tTJSBinaryStream> stream{
+        TVPCreateBinaryStreamForRead(place, modestr)
+    };
+    if(!stream)
+        return false;
+
+    const tjs_uint64 streamSize64 = stream->GetSize();
+    if(streamSize64 < 20 ||
+       streamSize64 > static_cast<tjs_uint64>(
+                          std::numeric_limits<size_t>::max())) {
+        return false;
+    }
+
+    std::vector<tjs_uint8> data(static_cast<size_t>(streamSize64));
+    if(stream->Read(data.data(), static_cast<tjs_uint>(data.size())) !=
+       data.size()) {
+        return false;
+    }
+
+    const bool littlePbd = data[0] == 'T' && data[1] == 'J' &&
+                           data[2] == 'S' && data[3] == '/';
+    const bool bigPbd = data[0] == 'T' && data[1] == 'J' &&
+                        data[2] == 'S' && data[3] == '\\';
+    if((!littlePbd && !bigPbd) || data[5] != 's' || data[6] != '0' ||
+       data[7] != 0) {
+        return false;
+    }
+
+    const bool bigEndian = bigPbd;
+    const tjs_uint8 compressMode = data[4];
+    const tjs_uint32 seed = TVPReadPbdU32(data, 8, bigEndian);
+    const tjs_uint16 cryptoMode = TVPReadPbdU16(data, 12, bigEndian);
+    const tjs_uint16 ivLength = TVPReadPbdU16(data, 14, bigEndian);
+    const size_t payloadOffset = 16u + ivLength;
+
+    if(payloadOffset >= data.size())
+        return false;
+
+    if(compressMode != 'n' || cryptoMode != 0) {
+        KR2_SCR_LOG("[res] PBD unsupported mode '%s' comp=%d crypto=%d",
+                    place.AsStdString().c_str(), (int)compressMode,
+                    (int)cryptoMode);
+        return false;
+    }
+
+    tTVPPbdVariantReader reader(data.data() + payloadOffset,
+                                data.size() - payloadOffset, bigEndian, seed);
+    tTJSVariant value;
+    if(!reader.ReadVariant(value)) {
+        KR2_SCR_LOG("[res] PBD decode failed '%s'",
+                    place.AsStdString().c_str());
+        return false;
+    }
+
+    if(!reader.FinishAndCheck()) {
+        KR2_SCR_LOG("[res] PBD checksum mismatch '%s'",
+                    place.AsStdString().c_str());
+    }
+
+    *result = value;
+    KR2_SCR_LOG("[res] PBD loaded '%s'", place.AsStdString().c_str());
+    return true;
+}
 
 //---------------------------------------------------------------------------
 void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
@@ -763,6 +1142,12 @@ void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
     if(TVPExecuteStorageWithAfterInitCompatibility(name, context, result,
                                                    isexpression, modestr)) {
         return;
+    }
+
+    if(isexpression) {
+        ttstr place(TVPSearchPlacedPath(name));
+        if(TVPTryLoadPbdTJSVariant(place, modestr, result))
+            return;
     }
 
     { // for bytecode
