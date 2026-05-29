@@ -34,6 +34,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     wfTypicalDSPCompat.cpp
     voiceEffectPluginCompat.cpp
     pluginNameStubs.cpp
+    tomlCompat.cpp
     extNagano.cpp
     multiimage.cpp
     runtimePatchLoader.cpp

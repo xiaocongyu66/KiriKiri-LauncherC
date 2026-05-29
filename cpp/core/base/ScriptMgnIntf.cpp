@@ -729,6 +729,7 @@ void TVPExecuteStorage(const ttstr &name, tTJSVariant *result,
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <tjsBinarySerializer.h>
 #include <tjsByteCodeLoader.h>
 #include <vector>
 
@@ -1065,6 +1066,19 @@ static bool TVPTryLoadPbdTJSVariant(const ttstr &place,
     std::vector<tjs_uint8> data(static_cast<size_t>(streamSize64));
     if(stream->Read(data.data(), static_cast<tjs_uint>(data.size())) !=
        data.size()) {
+        return false;
+    }
+
+    if(data.size() >= tTJSBinarySerializer::HEADER_LENGTH &&
+       tTJSBinarySerializer::IsBinary(data.data())) {
+        stream->SetPosition(0);
+        if(tTJS::LoadBinaryDictionayArray(stream.get(), result)) {
+            KR2_SCR_LOG("[res] KBAD PBD loaded '%s'",
+                        place.AsStdString().c_str());
+            return true;
+        }
+        KR2_SCR_LOG("[res] KBAD PBD decode failed '%s'",
+                    place.AsStdString().c_str());
         return false;
     }
 
