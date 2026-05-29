@@ -9,35 +9,26 @@
 
 #define NCB_MODULE_NAME TJS_W("layerStwCopy.dll")
 
-#include "layerExBase_wamsoft.hpp"
+#include "LayerImpl.h"
+
+#include <algorithm>
+
+#ifndef TJS_INTF_METHOD
+#define TJS_INTF_METHOD
+#endif
 
 namespace {
 
-static bool GetLayerInt(iTJSDispatch2 *obj, const tjs_char *name,
-                        tjs_int &value) {
+static tTJSNI_Layer *GetNativeLayer(iTJSDispatch2 *obj) {
     if(!obj)
-        return false;
-    tTJSVariant var;
-    if(TJS_FAILED(obj->PropGet(0, name, nullptr, &var, obj)))
-        return false;
-    if(var.Type() == tvtVoid)
-        return false;
-    value = static_cast<tjs_int>(var);
-    return true;
-}
-
-static bool GetLayerPtr(iTJSDispatch2 *obj, const tjs_char *name,
-                        unsigned char *&value) {
-    if(!obj)
-        return false;
-    tTJSVariant var;
-    if(TJS_FAILED(obj->PropGet(0, name, nullptr, &var, obj)))
-        return false;
-    if(var.Type() == tvtVoid)
-        return false;
-    value = reinterpret_cast<unsigned char *>(
-        static_cast<tjs_intptr_t>(static_cast<tTVInteger>(var)));
-    return value != nullptr;
+        return nullptr;
+    tTJSNI_Layer *layer = nullptr;
+    if(TJS_FAILED(obj->NativeInstanceSupport(
+           TJS_NIS_GETINSTANCE, tTJSNC_Layer::ClassID,
+           reinterpret_cast<iTJSNativeInstance **>(&layer)))) {
+        return nullptr;
+    }
+    return layer;
 }
 
 static tjs_int WrapCoord(tjs_int value, tjs_int limit) {
@@ -49,18 +40,27 @@ static tjs_int WrapCoord(tjs_int value, tjs_int limit) {
     return value;
 }
 
+static tjs_int VariantToInt(tTJSVariant **param, tjs_int index,
+                            tjs_int fallback = 0) {
+    if(!param[index] || param[index]->Type() == tvtVoid)
+        return fallback;
+    try {
+        return static_cast<tjs_int>(*param[index]);
+    } catch(...) {
+        return fallback;
+    }
+}
+
 } // namespace
 
-struct layerStwCopy : public layerExBase {
-    explicit layerStwCopy(DispatchT obj) : layerExBase(obj) {}
-
-    static tjs_error stitchWrappedCopyCompat(tTJSVariant *result,
-                                             tjs_int numparams,
-                                             tTJSVariant **param,
-                                             layerStwCopy *self) {
+struct layerStwCopy {
+    static tjs_error TJS_INTF_METHOD stitchWrappedCopyCompat(
+        tTJSVariant *result, tjs_int numparams, tTJSVariant **param,
+        iTJSDispatch2 *objthis) {
         if(result)
             result->Clear();
-        if(!self)
+        tTJSNI_Layer *dstLayer = GetNativeLayer(objthis);
+        if(!dstLayer)
             return TJS_S_OK;
 
         // Original calls use:
@@ -76,80 +76,62 @@ struct layerStwCopy : public layerExBase {
         if(!srcObj)
             return TJS_S_OK;
 
-        self->reset();
-        if(!self->_buffer || self->_width <= 0 || self->_height <= 0)
+        tTJSNI_Layer *srcLayer = GetNativeLayer(srcObj);
+        if(!srcLayer)
             return TJS_S_OK;
 
-        tjs_int srcW = 0;
-        tjs_int srcH = 0;
-        tjs_int srcPitch = 0;
-        unsigned char *srcBuffer = nullptr;
-        if(!GetLayerInt(srcObj, TJS_W("imageWidth"), srcW) ||
-           !GetLayerInt(srcObj, TJS_W("imageHeight"), srcH) ||
-           !GetLayerInt(srcObj, TJS_W("mainImageBufferPitch"), srcPitch) ||
-           !GetLayerPtr(srcObj, TJS_W("mainImageBuffer"), srcBuffer) ||
-           srcW <= 0 || srcH <= 0) {
+        auto *dstBuffer = reinterpret_cast<unsigned char *>(
+            dstLayer->GetMainImagePixelBufferForWrite());
+        auto *srcBuffer = reinterpret_cast<const unsigned char *>(
+            srcLayer->GetMainImagePixelBuffer());
+        const tjs_int dstW = static_cast<tjs_int>(dstLayer->GetImageWidth());
+        const tjs_int dstH = static_cast<tjs_int>(dstLayer->GetImageHeight());
+        const tjs_int srcW = static_cast<tjs_int>(srcLayer->GetImageWidth());
+        const tjs_int srcH = static_cast<tjs_int>(srcLayer->GetImageHeight());
+        const tjs_int dstPitch = dstLayer->GetMainImagePixelBufferPitch();
+        const tjs_int srcPitch = srcLayer->GetMainImagePixelBufferPitch();
+        if(!dstBuffer || !srcBuffer || dstW <= 0 || dstH <= 0 || srcW <= 0 ||
+           srcH <= 0 || dstPitch == 0 || srcPitch == 0) {
             return TJS_S_OK;
         }
 
-        tjs_int dx = static_cast<tjs_int>(*param[0]);
-        tjs_int dy = static_cast<tjs_int>(*param[1]);
-        tjs_int width = static_cast<tjs_int>(*param[2]);
-        tjs_int height = static_cast<tjs_int>(*param[3]);
-        tjs_int sx = static_cast<tjs_int>(*param[5]);
-        tjs_int sy = static_cast<tjs_int>(*param[6]);
+        const tjs_int dx = VariantToInt(param, 0);
+        const tjs_int dy = VariantToInt(param, 1);
+        tjs_int width = VariantToInt(param, 2);
+        tjs_int height = VariantToInt(param, 3);
+        const tjs_int sx = VariantToInt(param, 5);
+        const tjs_int sy = VariantToInt(param, 6);
 
         if(width <= 0)
-            width = self->_width;
+            width = dstW;
         if(height <= 0)
-            height = self->_height;
+            height = dstH;
 
-        const tjs_int clipL = self->_clipLeft;
-        const tjs_int clipT = self->_clipTop;
-        const tjs_int clipR = clipL + self->_clipWidth;
-        const tjs_int clipB = clipT + self->_clipHeight;
+        const tTVPRect &clip = dstLayer->GetClip();
+        const tjs_int copyL = std::max({ dx, clip.left, 0 });
+        const tjs_int copyT = std::max({ dy, clip.top, 0 });
+        const tjs_int copyR = std::min({ dx + width, clip.right, dstW });
+        const tjs_int copyB = std::min({ dy + height, clip.bottom, dstH });
+        if(copyL >= copyR || copyT >= copyB)
+            return TJS_S_OK;
 
-        for(tjs_int y = 0; y < height; ++y) {
-            const tjs_int dstY = dy + y;
-            if(dstY < 0 || dstY >= self->_height || dstY < clipT ||
-               dstY >= clipB) {
-                continue;
-            }
-
-            const tjs_int wrappedY = WrapCoord(sy + y, srcH);
+        for(tjs_int dstY = copyT; dstY < copyB; ++dstY) {
+            const tjs_int wrappedY = WrapCoord(sy + dstY - dy, srcH);
             auto *dstLine = reinterpret_cast<tjs_uint32 *>(
-                self->_buffer + dstY * self->_pitch);
+                dstBuffer + dstY * dstPitch);
             auto *srcLine = reinterpret_cast<const tjs_uint32 *>(
                 srcBuffer + wrappedY * srcPitch);
 
-            for(tjs_int x = 0; x < width; ++x) {
-                const tjs_int dstX = dx + x;
-                if(dstX < 0 || dstX >= self->_width || dstX < clipL ||
-                   dstX >= clipR) {
-                    continue;
-                }
-                dstLine[dstX] = srcLine[WrapCoord(sx + x, srcW)];
+            for(tjs_int dstX = copyL; dstX < copyR; ++dstX) {
+                dstLine[dstX] = srcLine[WrapCoord(sx + dstX - dx, srcW)];
             }
         }
 
-        self->redraw();
+        dstLayer->Update(tTVPRect(copyL, copyT, copyR, copyB));
         if(result)
             *result = 1;
         return TJS_S_OK;
     }
-};
-
-NCB_GET_INSTANCE_HOOK(layerStwCopy) {
-    NCB_INSTANCE_GETTER(objthis) {
-        ClassT *obj = GetNativeInstance(objthis);
-        if(!obj) {
-            obj = new ClassT(objthis);
-            SetNativeInstance(objthis, obj);
-        }
-        obj->reset();
-        return obj;
-    }
-    ~NCB_GET_INSTANCE_HOOK_CLASS() {}
 };
 
 NCB_ATTACH_CLASS_WITH_HOOK(layerStwCopy, Layer) {
