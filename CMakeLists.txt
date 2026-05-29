@@ -108,14 +108,21 @@ add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cpp/external)
 add_subdirectory(${KRKR2CORE_PATH})
 add_subdirectory(${KRKR2PLUGIN_PATH})
 
-# For Android/Linux keep the aggregate plugin archive under whole-archive so
-# file-scope NCB static constructors in krkr2plugin are preserved. Do not list
-# plugin sub-archives here as well: krkr2plugin already links them, and adding
-# them again under whole-archive causes duplicate symbols.
+# For Android/Linux keep plugin archives under whole-archive so file-scope NCB
+# static constructors are preserved. Static-library dependencies are not folded
+# into krkr2plugin itself, so plugin sub-archives with their own registrars must
+# be listed here too; otherwise modules such as layerExDraw.dll are never
+# registered even though krkr2plugin links the target.
 if(ANDROID OR LINUX)
     target_link_libraries(${PROJECT_NAME} PUBLIC
         -Wl,--whole-archive
         krkr2plugin
+        motionplayer
+        psbfile
+        layerExDraw
+        psdfile
+        fstat
+        kagparserex
         -Wl,--no-whole-archive
         $<$<BOOL:${ANDROID}>:dobby>
     )
