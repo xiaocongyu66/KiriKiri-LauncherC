@@ -173,7 +173,9 @@ namespace TJS {
 
         tjs_int32 GetPPValue(const tjs_char *name);
 
-        void DoGarbageCollection();
+        void DoGarbageCollection(bool force = false);
+
+        void CompactScriptCache(tjs_int level);
 
         // for Bytecode
         void LoadByteCode(const tjs_uint8 *buff, size_t len,

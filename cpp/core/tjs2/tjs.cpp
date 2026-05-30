@@ -104,6 +104,7 @@ namespace TJS {
         // ensure variant array stack for function stack
         //	TJSVariantArrayStackAddRef();
         VariantArrayStack = new tTJSVariantArrayStack;
+        TJSSetGlobalVariantArrayStack(VariantArrayStack);
 
         // ensure hash table for reserved words
         TJSReservedWordsHashAddRef();
@@ -204,6 +205,7 @@ namespace TJS {
     //---------------------------------------------------------------------------
     void tTJS::Cleanup() {
         TJSVariantArrayStackCompactNow();
+        TJSSetGlobalVariantArrayStack(nullptr);
         //	TJSVariantArrayStackRelease();
         delete VariantArrayStack;
         VariantArrayStack = nullptr;
@@ -492,10 +494,16 @@ namespace TJS {
     }
 
     //---------------------------------------------------------------------------
-    void tTJS::DoGarbageCollection() {
-        // do garbage collection
+    void tTJS::DoGarbageCollection(bool force) {
+        (void)force;
         TJSVariantArrayStackCompactNow();
         TJSCompactStringHeap();
+    }
+
+    //---------------------------------------------------------------------------
+    void tTJS::CompactScriptCache(tjs_int level) {
+        if(Cache)
+            Cache->Compact(level);
     }
 
     //---------------------------------------------------------------------------

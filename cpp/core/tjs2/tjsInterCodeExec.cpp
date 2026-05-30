@@ -632,7 +632,16 @@ namespace TJS {
     void TJSVariantArrayStackCompact() { TJSCompactVariantArrayMagic++; }
 
     //---------------------------------------------------------------------------
-    void TJSVariantArrayStackCompactNow() {}
+    static tTJSVariantArrayStack *TJSGlobalVariantArrayStack = nullptr;
+
+    void TJSSetGlobalVariantArrayStack(tTJSVariantArrayStack *stack) {
+        TJSGlobalVariantArrayStack = stack;
+    }
+
+    void TJSVariantArrayStackCompactNow() {
+        if(TJSGlobalVariantArrayStack)
+            TJSGlobalVariantArrayStack->Compact();
+    }
     //---------------------------------------------------------------------------
     //---------------------------------------------------------------------------
 

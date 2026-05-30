@@ -82,6 +82,8 @@ namespace TJS {
         void LoadByteCode(const tjs_uint8 *buff, size_t len,
                           tTJSVariant *result, iTJSDispatch2 *context,
                           const tjs_char *name);
+
+        void Compact(tjs_int level);
     };
     //---------------------------------------------------------------------------
 

@@ -83,7 +83,7 @@ public:
     }
 
     static tjs_error factory(LineParserCompat **result, tjs_int numparams,
-                             tTJSVariant **param, iTJSDispatch2 *) {
+                             tTJSVariant **param, iTJSDispatch2 *objthis) {
         if(!result)
             return TJS_S_OK;
         LineParserCompat *self = new LineParserCompat();

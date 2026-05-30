@@ -168,6 +168,7 @@ private:
     iTJSDispatch2 *DicObj; // DictionaryObject
 
     iTJSDispatch2 *Macros; // Macro Dictionary Object
+    iTJSDispatch2 *ParamMacros; // Parameter macro Dictionary Object
 
     std::vector<iTJSDispatch2 *> MacroArgs; // Macro arguments
     tjs_uint MacroArgStackDepth;
@@ -240,6 +241,7 @@ private:
     std::vector<bool> IfLevelExecutedStack;
 
     bool Interrupted;
+    bool MultiLineTagEnabled;
 
 public:
     void operator=(const tTJSNI_KAGParser &ref);
@@ -305,6 +307,11 @@ public:
     void ResetInterrupt() { Interrupted = false; };
 
 private:
+    bool EntryParam(bool &condition, tTJSVariant &valueVariant,
+                    const ttstr &attribname, const ttstr &value,
+                    bool entity, bool macroarg, iTJSDispatch2 *dic,
+                    iTJSDispatch2 *taglist, tjs_int &taglistCount);
+
     iTJSDispatch2 *_GetNextTag();
 
 public:
@@ -332,12 +339,18 @@ public:
 
     iTJSDispatch2 *GetMacrosNoAddRef() const { return Macros; }
 
+    iTJSDispatch2 *GetParamMacrosNoAddRef() const { return ParamMacros; }
+
     iTJSDispatch2 *GetMacroTopNoAddRef() const;
     // get current macro argument (parameters)
 
     tjs_int GetCallStackDepth() const { return CallStack.size(); }
 
     void Assign(const tTJSNI_KAGParser &ref) { operator=(ref); }
+
+    void SetMultiLineTagEnabled(bool b) { MultiLineTagEnabled = b; }
+
+    bool GetMultiLineTagEnabled() const { return MultiLineTagEnabled; }
 };
 
 extern iTJSDispatch2 *TVPCreateNativeClass_KAGParser();

@@ -44,7 +44,7 @@ bool ncbAutoRegister::HasModule(const ttstr &_name)
 // LoadAllModules: register every internal plugin module that has been
 // registered into _internal_plugins via NCB_REGISTER_*. This mirrors the
 // AetherKiri / KrKr2-Next behaviour where every layerEx*, layerex_draw,
-// PackinOne etc. attaches to the Layer / Bitmap classes at startup so KAG
+// etc. attaches to the Layer / Bitmap classes at startup so KAG
 // scripts that expect copyRaster / copyBottomBlueToTopAlpha / drawImage
 // to exist as Layer methods will find them without an explicit
 // Plugins.link("xxx.dll") call.
@@ -56,6 +56,12 @@ void ncbAutoRegister::LoadAllModules()
 	for (auto &kv : _internal_plugins) {
 		++total;
 		const ttstr &name = kv.first;
+		if (name == TJS_W("packinone.dll")) {
+			// PackinOne injects game-script helpers and must run at the
+			// script-requested timing, after the game has defined AffineSource.
+			++skipped;
+			continue;
+		}
 		if (TVPRegisteredPlugins.find(name) != TVPRegisteredPlugins.end()) {
 			++skipped;
 			continue;
@@ -85,4 +91,3 @@ void ncbAutoRegister::LoadAllModules()
 	KR2_PLUG_LOG("[plug] LoadAll: done total=%d registered=%d skipped=%d",
 		total, registered, skipped);
 }
-

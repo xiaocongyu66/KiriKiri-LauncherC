@@ -12,6 +12,7 @@
 #include <cstring>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -240,6 +241,12 @@ void SetObjectInt(iTJSDispatch2 *object, const tjs_char *name,
     SetObjectValue(object, name, tTJSVariant(value));
 }
 
+void SetObjectInt64(iTJSDispatch2 *object, const tjs_char *name,
+                    tjs_uint64 value) {
+    SetObjectValue(object, name,
+                   tTJSVariant(static_cast<tTVInteger>(value)));
+}
+
 void EmptyPluginCompat() {}
 
 } // namespace
@@ -353,42 +360,307 @@ private:
 
 class UnzipCompat {
 public:
+    ~UnzipCompat() { close(); }
+
     static tjs_error TJS_INTF_METHOD open(tTJSVariant *result,
                                           tjs_int numparams,
-                                          tTJSVariant **,
+                                          tTJSVariant **param,
                                           UnzipCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        if(numparams < 1)
+        if(numparams < 1 || !param || !param[0])
             return TJS_E_BADPARAMCOUNT;
-        self->opened_ = true;
+        self->close();
+        self->filename_ = *param[0];
+        self->archive_ = TVPOpenArchive(self->filename_, false);
+        if(!self->archive_) {
+            TVPThrowExceptionMessage(
+                (self->filename_ + TJS_W(" can't open.")).c_str());
+        }
         return ReturnBoolCompat(result, true);
     }
 
-    void close() { opened_ = false; }
+    void close() {
+        if(archive_) {
+            archive_->Release();
+            archive_ = nullptr;
+        }
+        filename_.Clear();
+    }
 
-    tTJSVariant list() { return EmptyArrayCompat(); }
+    tTJSVariant list() {
+        if(!archive_)
+            TVPThrowExceptionMessage(TJS_W("don't open zipfile"));
+
+        iTJSDispatch2 *array = TJSCreateArrayObject();
+        if(!array)
+            return tTJSVariant();
+
+        const tjs_uint count = archive_->GetCount();
+        for(tjs_uint i = 0; i < count; ++i) {
+            iTJSDispatch2 *obj = TJSCreateDictionaryObject();
+            if(!obj)
+                continue;
+
+            ttstr filename = archive_->GetName(i);
+            SetObjectValue(obj, TJS_W("filename"), tTJSVariant(filename));
+
+            tjs_uint64 size = 0;
+            std::unique_ptr<tTJSBinaryStream> stream(
+                archive_->CreateStreamByIndex(i));
+            if(stream)
+                size = stream->GetSize();
+
+            SetObjectInt64(obj, TJS_W("uncompressed_size"), size);
+            SetObjectInt64(obj, TJS_W("compressed_size"), size);
+            SetObjectInt(obj, TJS_W("crypted"), 0);
+            SetObjectInt(obj, TJS_W("deflated"), 0);
+            SetObjectInt(obj, TJS_W("deflateLevel"), 0);
+            SetObjectInt(obj, TJS_W("crc"), 0);
+
+            tTJSVariant item(obj, obj);
+            obj->Release();
+            tTJSVariant *args[] = { &item };
+            array->FuncCall(0, TJS_W("add"), nullptr, nullptr, 1, args,
+                            array);
+        }
+
+        tTJSVariant ret(array, array);
+        array->Release();
+        return ret;
+    }
 
     static tjs_error TJS_INTF_METHOD extract(tTJSVariant *result,
                                              tjs_int numparams,
-                                             tTJSVariant **,
+                                             tTJSVariant **param,
                                              UnzipCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        if(numparams < 2)
+        if(numparams < 2 || !param || !param[0] || !param[1])
             return TJS_E_BADPARAMCOUNT;
-        return ReturnBoolCompat(result, false);
+        if(!self->archive_)
+            TVPThrowExceptionMessage(TJS_W("don't open zipfile"));
+
+        ttstr srcname = *param[0];
+        ttstr destname = *param[1];
+        tTVPArchive::NormalizeInArchiveStorageName(srcname);
+        if(!self->archive_->IsExistent(srcname))
+            return ReturnBoolCompat(result, false);
+
+        std::unique_ptr<tTJSBinaryStream> input(
+            self->archive_->CreateStream(srcname));
+        if(!input)
+            return ReturnBoolCompat(result, false);
+
+        std::unique_ptr<tTJSBinaryStream> output(
+            TVPCreateStream(destname, TJS_BS_WRITE));
+        if(!output) {
+            TVPThrowExceptionMessage(
+                (destname + TJS_W(" can't open.")).c_str());
+        }
+
+        std::vector<tjs_uint8> buffer(64 * 1024);
+        for(;;) {
+            tjs_uint read = input->Read(buffer.data(), buffer.size());
+            if(read == 0)
+                break;
+            output->WriteBuffer(buffer.data(), read);
+        }
+        return ReturnBoolCompat(result, true);
     }
 
 private:
-    bool opened_ = false;
+    ttstr filename_;
+    tTVPArchive *archive_ = nullptr;
 };
+
+class ZipStorageMediaCompat : public iTVPStorageMedia {
+public:
+    ZipStorageMediaCompat() = default;
+
+    void AddRef() override { ++refCount_; }
+
+    void Release() override {
+        if(refCount_ == 1)
+            delete this;
+        else
+            --refCount_;
+    }
+
+    void GetName(ttstr &name) override { name = TJS_W("zip"); }
+
+    void NormalizeDomainName(ttstr &name) override {
+        tjs_char *p = name.Independ();
+        while(*p) {
+            if(*p >= TJS_W('A') && *p <= TJS_W('Z'))
+                *p += TJS_W('a') - TJS_W('A');
+            ++p;
+        }
+    }
+
+    void NormalizePathName(ttstr &name) override {
+        bool leadingSlash =
+            !name.IsEmpty() && name.c_str()[0] == TJS_W('/');
+        ttstr path = leadingSlash ? ttstr(name.c_str() + 1) : name;
+        tTVPArchive::NormalizeInArchiveStorageName(path);
+        name = TJS_W("/");
+        name += path;
+    }
+
+    bool CheckExistentStorage(const ttstr &name) override {
+        ttstr storage = makeArchiveStorageName(name);
+        return !storage.IsEmpty() && TVPIsExistentStorageNoSearch(storage);
+    }
+
+    tTJSBinaryStream *Open(const ttstr &name, tjs_uint32 flags) override {
+        if((flags & TJS_BS_ACCESS_MASK) != TJS_BS_READ)
+            TVPThrowExceptionMessage(TJS_W("Cannot write to mounted zip"));
+        ttstr storage = makeArchiveStorageName(name);
+        if(storage.IsEmpty())
+            TVPThrowExceptionMessage(TVPCannotOpenStorage, name);
+        return TVPCreateStream(storage, flags);
+    }
+
+    void GetListAt(const ttstr &name, iTVPStorageLister *lister) override {
+        if(!lister)
+            return;
+        ttstr domain;
+        ttstr path;
+        if(!splitName(name, &domain, &path))
+            return;
+        auto it = mounts_.find(domain);
+        if(it == mounts_.end())
+            return;
+
+        ttstr prefix = path;
+        tTVPArchive::NormalizeInArchiveStorageName(prefix);
+        if(!prefix.IsEmpty() && prefix.GetLastChar() != TJS_W('/'))
+            prefix += TJS_W("/");
+
+        tTVPArchive *archive = TVPOpenArchive(it->second, false);
+        if(!archive)
+            return;
+
+        std::set<ttstr> emitted;
+        try {
+            const tjs_uint count = archive->GetCount();
+            for(tjs_uint i = 0; i < count; ++i) {
+                ttstr item = archive->GetName(i);
+                tTVPArchive::NormalizeInArchiveStorageName(item);
+                if(!prefix.IsEmpty() && !item.StartsWith(prefix))
+                    continue;
+                ttstr rest = prefix.IsEmpty()
+                                 ? item
+                                 : ttstr(item.c_str() + prefix.GetLen());
+                if(rest.IsEmpty() || TJS_strchr(rest.c_str(), TJS_W('/')))
+                    continue;
+                if(emitted.insert(rest).second)
+                    lister->Add(rest);
+            }
+        } catch(...) {
+            archive->Release();
+            throw;
+        }
+        archive->Release();
+    }
+
+    void GetLocallyAccessibleName(ttstr &name) override { name.Clear(); }
+
+    bool mount(const ttstr &domainName, const ttstr &zipfile) {
+        ttstr domain = domainName;
+        NormalizeDomainName(domain);
+        if(domain.IsEmpty())
+            return false;
+        ttstr placed = TVPGetPlacedPath(zipfile);
+        if(placed.IsEmpty())
+            return false;
+        mounts_[domain] = placed;
+        return true;
+    }
+
+    bool unmount(const ttstr &domainName) {
+        ttstr domain = domainName;
+        NormalizeDomainName(domain);
+        return mounts_.erase(domain) != 0;
+    }
+
+private:
+    static bool splitName(const ttstr &name, ttstr *domain, ttstr *path) {
+        const tjs_char *raw = name.c_str();
+        const tjs_char *slash = TJS_strchr(raw, TJS_W('/'));
+        if(slash) {
+            if(domain)
+                *domain = ttstr(raw, static_cast<int>(slash - raw));
+            if(path)
+                *path = ttstr(slash + 1);
+        } else {
+            if(domain)
+                *domain = name;
+            if(path)
+                path->Clear();
+        }
+        return domain && !domain->IsEmpty();
+    }
+
+    ttstr makeArchiveStorageName(const ttstr &name) {
+        ttstr domain;
+        ttstr path;
+        if(!splitName(name, &domain, &path))
+            return {};
+        auto it = mounts_.find(domain);
+        if(it == mounts_.end())
+            return {};
+        tTVPArchive::NormalizeInArchiveStorageName(path);
+        if(path.IsEmpty())
+            return {};
+        ttstr storage = it->second;
+        storage += TVPArchiveDelimiter;
+        storage += path;
+        return storage;
+    }
+
+    tjs_uint refCount_ = 1;
+    std::map<ttstr, ttstr> mounts_;
+};
+
+static ZipStorageMediaCompat *gZipStorageMediaCompat = nullptr;
+
+static void EnsureZipStorageMediaCompat() {
+    if(gZipStorageMediaCompat)
+        return;
+    auto *media = new ZipStorageMediaCompat();
+    TVPRegisterStorageMedia(media);
+    gZipStorageMediaCompat = media;
+    media->Release();
+}
+
+static void ReleaseZipStorageMediaCompat() {
+    if(!gZipStorageMediaCompat)
+        return;
+    ZipStorageMediaCompat *media = gZipStorageMediaCompat;
+    gZipStorageMediaCompat = nullptr;
+    TVPUnregisterStorageMedia(media);
+}
 
 class StoragesZipCompat {
 public:
-    static bool mountZip(ttstr, ttstr) { return false; }
-    static bool unmountZip(ttstr) { return false; }
+    static bool mountZip(ttstr name, ttstr zipfile) {
+        EnsureZipStorageMediaCompat();
+        return gZipStorageMediaCompat &&
+            gZipStorageMediaCompat->mount(name, zipfile);
+    }
+
+    static bool unmountZip(ttstr name) {
+        return gZipStorageMediaCompat &&
+            gZipStorageMediaCompat->unmount(name);
+    }
 };
+
+static void MinizipPreRegistCallback() { EnsureZipStorageMediaCompat(); }
+static void MinizipPostUnregistCallback() { ReleaseZipStorageMediaCompat(); }
+
+NCB_PRE_REGIST_CALLBACK(MinizipPreRegistCallback);
+NCB_POST_UNREGIST_CALLBACK(MinizipPostUnregistCallback);
 
 NCB_REGISTER_CLASS_DIFFER(Zip, ZipCompat) {
     NCB_CONSTRUCTOR(());
@@ -1219,7 +1491,7 @@ public:
             return TJS_E_BADPARAMCOUNT;
         std::vector<tjs_uint8> bytes = ReadStorageBytes(ttstr(*param[0]));
         std::string text(bytes.begin(), bytes.end());
-        tTJSVariant script(ttstr(text));
+        tTJSVariant script{ttstr(text)};
         tTJSVariant *args[1] = { &script };
         return execJS(result, 1, args, objthis);
     }
@@ -1692,6 +1964,10 @@ static void layerExDrawAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("layerExDraw.dll"));
 }
 
+static void layerExPerspectiveAliasCompat() {
+    ncbAutoRegister::LoadModule(TJS_W("perspective.dll"));
+}
+
 static void libpsdAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("psdfile.dll"));
 }
@@ -1719,11 +1995,15 @@ REGISTER_ALIAS_COMPAT_PLUGIN(layerExCairo_dll_compat, "layerExCairo.dll",
                              layerExDrawAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(layerExGdiPlus_dll_compat, "layerExGdiPlus.dll",
                              layerExDrawAliasCompat);
+REGISTER_ALIAS_COMPAT_PLUGIN(layerExPerspective_dll_compat,
+                             "layerExPerspective.dll",
+                             layerExPerspectiveAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(wmrdump_dll_compat, "wmrdump.dll",
                              wmrdumpAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(adjustMoni_dll_compat, "AdjustMoni.dll",
                              adjustMoniAliasCompat);
 
+REGISTER_EMPTY_COMPAT_PLUGIN(layerExBase_dll_compat, "layerExBase.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(libjpeg_dll_compat, "libjpeg.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(basetest_dll_compat, "basetest.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(utf8hack_dll_compat, "utf8hack.dll");

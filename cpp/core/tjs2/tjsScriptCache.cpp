@@ -16,7 +16,7 @@
 #include "tjsScriptBlock.h"
 #include "tjsByteCodeLoader.h"
 
-#define TJS_SCRIPT_CACHE_MAX 64
+#define TJS_SCRIPT_CACHE_MAX 1024
 
 // currently this object holds only anonymous, single-context
 // expression.
@@ -209,6 +209,20 @@ namespace TJS {
             return;
         }
         TJS_eTJSScriptError(TJSByteCodeBroken, blk.get(), 0);
+    }
+    //---------------------------------------------------------------------------
+    void tTJSScriptCache::Compact(tjs_int level) {
+        if(level >= 3) {
+            Cache.Clear();
+        } else if(level >= 2) {
+            tjs_int toRemove = (tjs_int)Cache.GetCount() / 2;
+            if(toRemove > 0)
+                Cache.ChopLast(toRemove);
+        } else if(level >= 1) {
+            tjs_int toRemove = (tjs_int)Cache.GetCount() / 8;
+            if(toRemove > 0)
+                Cache.ChopLast(toRemove);
+        }
     }
     //---------------------------------------------------------------------------
 } // namespace TJS

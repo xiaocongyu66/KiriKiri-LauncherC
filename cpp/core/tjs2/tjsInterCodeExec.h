@@ -16,6 +16,8 @@ namespace TJS {
 
     extern void TJSVariantArrayStackCompactNow();
 
+    extern void TJSSetGlobalVariantArrayStack(class tTJSVariantArrayStack *stack);
+
     class tTJSVariantArrayStack {
 
         struct tVariantArray {
