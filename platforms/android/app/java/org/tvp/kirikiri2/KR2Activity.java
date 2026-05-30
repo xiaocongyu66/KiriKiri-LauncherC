@@ -360,6 +360,13 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     static final int ORIENT_HORIZONTAL = 2;
 
     static public void setOrientation(int orient) {
+        if (sInstance == null) {
+            return;
+        }
+        if (org.github.krkr2.LauncherPrefs.INSTANCE.getForceLandscape(sInstance)) {
+            org.github.krkr2.ForceLandscapeHelper.INSTANCE.apply(sInstance, true);
+            return;
+        }
         if (orient == ORIENT_VERTICAL) {
             sInstance.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         } else if (orient == ORIENT_HORIZONTAL) {

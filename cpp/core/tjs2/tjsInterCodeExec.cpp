@@ -2831,17 +2831,39 @@ namespace TJS {
             }
             return;
         } else if(TJS_STR_METHOD_IS(replace)) {
-            // string.replace(pattern, replacement-string)  -->
-            // pattern.replace(string, replacement-string)
             if(numargs < 2)
                 TJSThrowFrom_tjs_error(TJS_E_BADPARAMCOUNT);
 
-            tTJSVariantClosure clo = args[0]->AsObjectClosureNoAddRef();
-            tTJSVariant str = target;
-            tTJSVariant *params[] = { &str, args[1] };
-            static tTJSString replace_name(TJS_W("replace"));
-            clo.FuncCall(0, replace_name.c_str(), replace_name.GetHint(),
-                         result, 2, params, nullptr);
+            if(args[0]->Type() == tvtString) {
+                ttstr pattern(*args[0]);
+                ttstr replacement(*args[1]);
+                ttstr res;
+                const tjs_char *start = target.c_str();
+                const tjs_int pat_len = pattern.GetLen();
+                if(pat_len == 0) {
+                    if(result)
+                        *result = target;
+                    return;
+                }
+                const tjs_char *p;
+                while((p = TJS_strstr(start, pattern.c_str())) != nullptr) {
+                    res += ttstr(start, (tjs_int)(p - start));
+                    res += replacement;
+                    start = p + pat_len;
+                }
+                res += start;
+                if(result)
+                    *result = res;
+            } else {
+                // string.replace(/regexp/, replacement-string) -->
+                // regexp.replace(string, replacement-string)
+                tTJSVariantClosure clo = args[0]->AsObjectClosureNoAddRef();
+                tTJSVariant str = target;
+                tTJSVariant *params[] = { &str, args[1] };
+                static tTJSString replace_name(TJS_W("replace"));
+                clo.FuncCall(0, replace_name.c_str(), replace_name.GetHint(),
+                             result, 2, params, nullptr);
+            }
 
             return;
         } else if(TJS_STR_METHOD_IS(escape)) {

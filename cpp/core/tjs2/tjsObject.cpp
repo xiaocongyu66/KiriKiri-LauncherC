@@ -1303,6 +1303,41 @@ namespace TJS {
             }
         }
 
+        if(!data && TJS_strncmp(membername, TJS_W("ENV_"), 4) == 0 &&
+           TJS_strcmp(membername, TJS_W("ENV_context")) != 0) {
+            tjs_uint32 env_hint = 0;
+            tTJSSymbolData *env_data = Find(TJS_W("ENV_context"), &env_hint);
+            if(env_data && GetValue(env_data).Type() == tvtObject) {
+                tTJSVariantClosure clo =
+                    GetValue(env_data).AsObjectClosureNoAddRef();
+                tjs_error hr = TJS_E_MEMBERNOTFOUND;
+                try {
+                    if(clo.Object) {
+                        hr = clo.PropGet(0, membername, hint, result, nullptr);
+                    }
+                } catch(...) {
+                    clo.Release();
+                    throw;
+                }
+                clo.Release();
+                if(TJS_SUCCEEDED(hr))
+                    return hr;
+            }
+
+            if(result) {
+                if(TJS_strcmp(membername, TJS_W("ENV_GameName")) == 0) {
+                    *result = TJS_W("Unknown Game");
+                } else if(TJS_strcmp(membername, TJS_W("ENV_GameId")) == 0) {
+                    *result = TJS_W("{00000000-0000-0000-0000-000000000000}");
+                } else if(TJS_strcmp(membername, TJS_W("ENV_Maker")) == 0) {
+                    *result = TJS_W("Unknown");
+                } else {
+                    *result = TJS_W("");
+                }
+            }
+            return TJS_S_OK;
+        }
+
         if(!data && flag & TJS_MEMBERENSURE) {
             // create a member when TJS_MEMBERENSURE is specified
             data = Add(membername, hint);
