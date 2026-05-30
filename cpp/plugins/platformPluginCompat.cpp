@@ -1,12 +1,18 @@
 #include "ncbind.hpp"
+#include "CharacterSet.h"
 #include "DebugIntf.h"
+#include "MsgIntf.h"
+#include "Platform.h"
+#include "PluginImpl.h"
 #include "ScriptMgnIntf.h"
 #include "StorageIntf.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <cstring>
 #include <memory>
+#include <string>
 #include <vector>
 
 #ifndef TJS_INTF_METHOD
@@ -45,6 +51,114 @@ tjs_error ReturnInt(tTJSVariant *result, tjs_int64 value) {
     if(result)
         *result = static_cast<tTVInteger>(value);
     return TJS_S_OK;
+}
+
+void SetDictionaryValue(iTJSDispatch2 *dict, const tjs_char *name,
+                        const tTJSVariant &value) {
+    if(dict)
+        dict->PropSet(TJS_MEMBERENSURE, name, nullptr,
+                      const_cast<tTJSVariant *>(&value), dict);
+}
+
+std::string ToNarrow(const ttstr &text) { return text.AsNarrowStdString(); }
+
+ttstr FromUtf8(const std::string &text) {
+    if(text.empty())
+        return ttstr(TJS_W(""));
+    tjs_int len = TVPUtf8ToWideCharString(
+        text.data(), static_cast<tjs_uint>(text.size()), nullptr);
+    if(len <= 0)
+        return ttstr(text.c_str());
+
+    std::vector<tjs_char> buffer(static_cast<size_t>(len) + 1, 0);
+    TVPUtf8ToWideCharString(text.data(), static_cast<tjs_uint>(text.size()),
+                            buffer.data());
+    return ttstr(buffer.data());
+}
+
+tTJSVariant ReadEnvironmentValue(const ttstr &name) {
+    std::string narrow = ToNarrow(name);
+    if(narrow.empty())
+        return tTJSVariant();
+    const char *value = std::getenv(narrow.c_str());
+    return value ? tTJSVariant(ttstr(value)) : tTJSVariant();
+}
+
+ttstr ExpandEnvironmentString(const ttstr &text) {
+    ttstr result;
+    const tjs_char percent = static_cast<tjs_char>('%');
+    const tjs_uint length = text.length();
+    for(tjs_uint i = 0; i < length; ++i) {
+        if(text[i] != percent) {
+            result += text[i];
+            continue;
+        }
+
+        tjs_uint end = i + 1;
+        while(end < length && text[end] != percent)
+            ++end;
+        if(end >= length) {
+            result += text[i];
+            continue;
+        }
+
+        ttstr key = text.SubString(i + 1, end - i - 1);
+        tTJSVariant value = ReadEnvironmentValue(key);
+        if(value.Type() != tvtVoid)
+            result += ttstr(value);
+        i = end;
+    }
+    return result;
+}
+
+bool IsUrlSafe(unsigned char c) {
+    return std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~';
+}
+
+int HexToInt(char c) {
+    if(c >= '0' && c <= '9')
+        return c - '0';
+    if(c >= 'a' && c <= 'f')
+        return c - 'a' + 10;
+    if(c >= 'A' && c <= 'F')
+        return c - 'A' + 10;
+    return -1;
+}
+
+ttstr UrlEncode(const ttstr &input) {
+    static const char hex[] = "0123456789ABCDEF";
+    std::string bytes = ToNarrow(input);
+    std::string out;
+    out.reserve(bytes.size() * 3);
+    for(unsigned char c : bytes) {
+        if(IsUrlSafe(c)) {
+            out.push_back(static_cast<char>(c));
+        } else {
+            out.push_back('%');
+            out.push_back(hex[c >> 4]);
+            out.push_back(hex[c & 0x0f]);
+        }
+    }
+    return ttstr(out.c_str());
+}
+
+ttstr UrlDecode(const ttstr &input, bool utf8) {
+    std::string bytes = ToNarrow(input);
+    std::string out;
+    out.reserve(bytes.size());
+    for(size_t i = 0; i < bytes.size(); ++i) {
+        if(bytes[i] == '%' && i + 2 < bytes.size()) {
+            int hi = HexToInt(bytes[i + 1]);
+            int lo = HexToInt(bytes[i + 2]);
+            if(hi >= 0 && lo >= 0) {
+                out.push_back(static_cast<char>((hi << 4) | lo));
+                i += 2;
+                continue;
+            }
+        }
+        out.push_back(bytes[i] == '+' ? ' ' : bytes[i]);
+    }
+    return utf8 ? FromUtf8(out) : ttstr(out.c_str());
 }
 
 tTJSVariant MakeCommandExecuteResult(const tjs_char *status,
@@ -140,14 +254,266 @@ NCB_ATTACH_CLASS(StdioCompat, System) {
 
 // ---------------------------------------------------------------------------
 // systemEx.dll
-// windowEx.cpp already provides the useful System functions in this project.
-// This module entry lets Plugins.link/CanLoadPlugin("systemEx.dll") succeed.
+// Cross-platform subset of WAMSoft's Win32-oriented System extension. Windows
+// registry, DPI, known-folder and DLL-search APIs degrade to false/empty values;
+// environment, URL and message-pump helpers remain useful on Android.
 // ---------------------------------------------------------------------------
 
 #undef NCB_MODULE_NAME
 #define NCB_MODULE_NAME TJS_W("systemEx.dll")
-static void systemExCompatStub() {}
-NCB_PRE_REGIST_CALLBACK(systemExCompatStub);
+
+class SystemExCompat {
+public:
+    static tjs_error TJS_INTF_METHOD writeRegValue(tTJSVariant *result,
+                                                   tjs_int numparams,
+                                                   tTJSVariant **,
+                                                   iTJSDispatch2 *) {
+        if(numparams < 2)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnBool(result, false);
+    }
+
+    static tjs_error TJS_INTF_METHOD readEnvValue(tTJSVariant *result,
+                                                  tjs_int numparams,
+                                                  tTJSVariant **param,
+                                                  iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(param[0]->Type() != tvtString)
+            return TJS_E_INVALIDPARAM;
+        if(result)
+            *result = ReadEnvironmentValue(ttstr(*param[0]));
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD writeEnvValue(tTJSVariant *result,
+                                                   tjs_int numparams,
+                                                   tTJSVariant **param,
+                                                   iTJSDispatch2 *) {
+        if(numparams < 2 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(param[0]->Type() != tvtString)
+            return TJS_E_INVALIDPARAM;
+
+        ttstr name = *param[0];
+        if(result)
+            *result = ReadEnvironmentValue(name);
+
+        std::string narrowName = ToNarrow(name);
+        if(narrowName.empty())
+            return TJS_E_INVALIDPARAM;
+        if(!param[1] || param[1]->Type() == tvtVoid) {
+            unsetenv(narrowName.c_str());
+        } else {
+            ttstr value = *param[1];
+            setenv(narrowName.c_str(), ToNarrow(value).c_str(), 1);
+        }
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD expandEnvString(tTJSVariant *result,
+                                                     tjs_int numparams,
+                                                     tTJSVariant **param,
+                                                     iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = ExpandEnvironmentString(ttstr(*param[0]));
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD urlencode(tTJSVariant *result,
+                                               tjs_int numparams,
+                                               tTJSVariant **param,
+                                               iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = UrlEncode(ttstr(*param[0]));
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD urldecode(tTJSVariant *result,
+                                               tjs_int numparams,
+                                               tTJSVariant **param,
+                                               iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        bool utf8 = numparams < 2 || !param[1] || param[1]->AsInteger() != 0;
+        if(result)
+            *result = UrlDecode(ttstr(*param[0]), utf8);
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD getAboutString(tTJSVariant *result,
+                                                    tjs_int, tTJSVariant **,
+                                                    iTJSDispatch2 *) {
+        if(result)
+            *result = TVPGetAboutString();
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD confirm(tTJSVariant *result,
+                                             tjs_int numparams,
+                                             tTJSVariant **param,
+                                             iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        ttstr text = *param[0];
+        ttstr caption =
+            (numparams > 1 && param[1] && param[1]->Type() != tvtVoid)
+                ? ttstr(*param[1])
+                : ttstr(TJS_W(""));
+        return ReturnBool(result,
+                          TVPShowSimpleMessageBoxYesNo(text, caption) == 0);
+    }
+
+    static tjs_error TJS_INTF_METHOD waitForAppLock(tTJSVariant *result,
+                                                    tjs_int numparams,
+                                                    tTJSVariant **,
+                                                    iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnBool(result, true);
+    }
+
+    static tjs_error TJS_INTF_METHOD setDpiAwareness(tTJSVariant *result,
+                                                     tjs_int numparams,
+                                                     tTJSVariant **,
+                                                     iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnInt(result, 0);
+    }
+
+    static tjs_error TJS_INTF_METHOD getOSVersion(tTJSVariant *result, tjs_int,
+                                                  tTJSVariant **,
+                                                  iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+        if(!dict)
+            return TJS_E_FAIL;
+        SetDictionaryValue(dict, TJS_W("major"), tTJSVariant((tjs_int)0));
+        SetDictionaryValue(dict, TJS_W("minor"), tTJSVariant((tjs_int)0));
+        SetDictionaryValue(dict, TJS_W("build"), tTJSVariant((tjs_int)0));
+        SetDictionaryValue(dict, TJS_W("platform"),
+#ifdef __ANDROID__
+                           tTJSVariant(TJS_W("Android"))
+#else
+                           tTJSVariant(TJS_W("Unknown"))
+#endif
+        );
+        SetDictionaryValue(dict, TJS_W("spmajor"), tTJSVariant((tjs_int)0));
+        SetDictionaryValue(dict, TJS_W("spminor"), tTJSVariant((tjs_int)0));
+        SetDictionaryValue(dict, TJS_W("servicepack"),
+                           tTJSVariant(TJS_W("")));
+        SetDictionaryValue(dict, TJS_W("servevicepack"),
+                           tTJSVariant(TJS_W("")));
+        SetDictionaryValue(dict, TJS_W("suite"), tTJSVariant((tjs_int)0));
+        SetDictionaryValue(dict, TJS_W("type"), tTJSVariant((tjs_int)0));
+        *result = tTJSVariant(dict, dict);
+        dict->Release();
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD getKnownFolderPath(tTJSVariant *result,
+                                                        tjs_int numparams,
+                                                        tTJSVariant **,
+                                                        iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = TJS_W("");
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD processApplicationMessages(
+        tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+        TVPHandleApplicationMessage();
+        return ReturnVoid(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD handleApplicationMessage(
+        tTJSVariant *result, tjs_int, tTJSVariant **, iTJSDispatch2 *) {
+        TVPHandleApplicationMessage();
+        return ReturnVoid(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD setDefaultDllDirectories(
+        tTJSVariant *result, tjs_int numparams, tTJSVariant **,
+        iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnBool(result, false);
+    }
+
+    static tjs_error TJS_INTF_METHOD addDllDirectory(tTJSVariant *result,
+                                                     tjs_int numparams,
+                                                     tTJSVariant **,
+                                                     iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnInt(result, 0);
+    }
+
+    static tjs_error TJS_INTF_METHOD removeDllDirectory(tTJSVariant *result,
+                                                        tjs_int numparams,
+                                                        tTJSVariant **,
+                                                        iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnBool(result, false);
+    }
+};
+
+NCB_ATTACH_CLASS(SystemExCompat, System) {
+    RawCallback(TJS_W("writeRegValue"), &SystemExCompat::writeRegValue,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("readEnvValue"), &SystemExCompat::readEnvValue,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("writeEnvValue"), &SystemExCompat::writeEnvValue,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("expandEnvString"), &SystemExCompat::expandEnvString,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("urlencode"), &SystemExCompat::urlencode,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("urldecode"), &SystemExCompat::urldecode,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("getAboutString"), &SystemExCompat::getAboutString,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("confirm"), &SystemExCompat::confirm, TJS_STATICMEMBER);
+    RawCallback(TJS_W("waitForAppLock"), &SystemExCompat::waitForAppLock,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("setDpiAwareness"), &SystemExCompat::setDpiAwareness,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("getOSVersion"), &SystemExCompat::getOSVersion,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("getKnownFolderPath"),
+                &SystemExCompat::getKnownFolderPath, TJS_STATICMEMBER);
+    RawCallback(TJS_W("processApplicationMessages"),
+                &SystemExCompat::processApplicationMessages,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("handleApplicationMessage"),
+                &SystemExCompat::handleApplicationMessage, TJS_STATICMEMBER);
+    RawCallback(TJS_W("setDefaultDllDirectories"),
+                &SystemExCompat::setDefaultDllDirectories, TJS_STATICMEMBER);
+    RawCallback(TJS_W("addDllDirectory"), &SystemExCompat::addDllDirectory,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("removeDllDirectory"),
+                &SystemExCompat::removeDllDirectory, TJS_STATICMEMBER);
+
+    Variant(TJS_W("dacUnaware"), (tjs_int)-1, TJS_STATICMEMBER);
+    Variant(TJS_W("dacSystemAware"), (tjs_int)-2, TJS_STATICMEMBER);
+    Variant(TJS_W("dacPerMonitorAware"), (tjs_int)-3, TJS_STATICMEMBER);
+    Variant(TJS_W("dacPerMonitorAwareV2"), (tjs_int)-4, TJS_STATICMEMBER);
+    Variant(TJS_W("dacUnawareGdiScaled"), (tjs_int)-5, TJS_STATICMEMBER);
+    Variant(TJS_W("llsApplicationDir"), (tjs_int)0x00000200,
+            TJS_STATICMEMBER);
+    Variant(TJS_W("llsDefaultDirs"), (tjs_int)0x00001000, TJS_STATICMEMBER);
+    Variant(TJS_W("llsSystem32"), (tjs_int)0x00000800, TJS_STATICMEMBER);
+    Variant(TJS_W("llsUserDirs"), (tjs_int)0x00000400, TJS_STATICMEMBER);
+}
 
 // ---------------------------------------------------------------------------
 // resourceRW.dll

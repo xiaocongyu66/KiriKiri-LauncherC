@@ -3,6 +3,8 @@
 // source code url: https://github.com/wamsoft/windowEx/blob
 //
 #include <cstdint>
+#include <cstdlib>
+#include <string>
 
 typedef unsigned long DWORD;
 
@@ -1422,6 +1424,41 @@ NCB_ATTACH_CLASS_WITH_HOOK(PadEx, Pad) {
 struct System {
     static tjs_int getDoubleClickTime() { return -1; }
 
+    static tTJSVariant readEnvironmentValue(const ttstr &name) {
+        std::string narrow = name.AsNarrowStdString();
+        if(narrow.empty())
+            return tTJSVariant();
+        const char *value = std::getenv(narrow.c_str());
+        return value ? tTJSVariant(ttstr(value)) : tTJSVariant();
+    }
+
+    static ttstr expandEnvironmentString(const ttstr &text) {
+        ttstr result;
+        const tjs_char percent = static_cast<tjs_char>('%');
+        const tjs_uint length = text.length();
+        for(tjs_uint i = 0; i < length; ++i) {
+            if(text[i] != percent) {
+                result += text[i];
+                continue;
+            }
+
+            tjs_uint end = i + 1;
+            while(end < length && text[end] != percent)
+                ++end;
+            if(end >= length) {
+                result += text[i];
+                continue;
+            }
+
+            ttstr key = text.SubString(i + 1, end - i - 1);
+            tTJSVariant value = readEnvironmentValue(key);
+            if(value.Type() != tvtVoid)
+                result += ttstr(value);
+            i = end;
+        }
+        return result;
+    }
+
     static tjs_error getDisplayMonitors(tTJSVariant *result, tjs_int numparams,
                                         tTJSVariant **param,
                                         iTJSDispatch2 *objthis) {
@@ -1534,6 +1571,8 @@ struct System {
         ttstr name(p[0]->AsStringNoAddRef());
         if(name == TJS_W(""))
             return TJS_E_INVALIDPARAM;
+        if(r)
+            *r = readEnvironmentValue(name);
         return TJS_S_OK;
     }
 
@@ -1541,6 +1580,8 @@ struct System {
                                      iTJSDispatch2 *objthis) {
         if(n < 1)
             return TJS_E_BADPARAMCOUNT;
+        if(r)
+            *r = expandEnvironmentString(ttstr(*p[0]));
         return TJS_S_OK;
     }
 

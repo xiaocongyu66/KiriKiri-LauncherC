@@ -38,6 +38,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     extNagano.cpp
     multiimage.cpp
     memfile.cpp
+    lineParser.cpp
+    pluginSurfaceCompat.cpp
     platformPluginCompat.cpp
     runtimePatchLoader.cpp
     gfxEffect.cpp
@@ -111,7 +113,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 add_definitions(-D__STDC_CONSTANT_MACROS -DTJS_TEXT_OUT_CRLF)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2PLUGIN_PATH} ${KRKR2PLUGIN_PATH}/simplebinder})
-target_link_libraries(${PROJECT_NAME} PUBLIC krkr2core)
+target_link_libraries(${PROJECT_NAME} PUBLIC krkr2core minizip)
 
 add_subdirectory(psdfile)
 add_subdirectory(psbfile)
