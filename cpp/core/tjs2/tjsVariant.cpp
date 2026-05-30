@@ -188,8 +188,14 @@ namespace TJS {
             g_TJSCompatBoolClosure.Object = dict;
             g_TJSCompatBoolClosure.ObjThis = dict;
         }
-        if(add_ref && g_TJSCompatBoolClosure.Object)
-            g_TJSCompatBoolClosure.Object->AddRef();
+        // Match tTJSVariantClosure::Release(): Object and ObjThis are
+        // owned separately.
+        if(add_ref) {
+            if(g_TJSCompatBoolClosure.Object)
+                g_TJSCompatBoolClosure.Object->AddRef();
+            if(g_TJSCompatBoolClosure.ObjThis)
+                g_TJSCompatBoolClosure.ObjThis->AddRef();
+        }
         return g_TJSCompatBoolClosure;
     }
     //---------------------------------------------------------------------------
