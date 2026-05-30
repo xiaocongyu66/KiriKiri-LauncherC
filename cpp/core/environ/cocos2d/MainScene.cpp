@@ -2146,7 +2146,18 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     KR2RenderProbeWriteF("doStartup#before-StartApplication frame=%.0fx%.0f scale=%.3f",
                          screenSize.width, screenSize.height, scale);
 #endif
-    ::Application->StartApplication(path);
+    bool startupOk = false;
+    try {
+        ::Application->StartApplication(path);
+        startupOk = true;
+    }
+    TVP_CATCH_AND_SHOW_SCRIPT_EXCEPTION(TJS_W("startup"))
+    if(!startupOk) {
+#if defined(__ANDROID__)
+        KR2RenderProbeWriteF("doStartup#StartApplication failed");
+#endif
+        return;
+    }
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("doStartup#after-StartApplication");
 #endif

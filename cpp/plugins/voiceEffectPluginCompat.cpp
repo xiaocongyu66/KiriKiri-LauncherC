@@ -37,6 +37,7 @@
 #include "tjsCommHead.h"
 #include "tjs.h"
 #include "tjsObject.h"
+#include "tjsDictionary.h"
 #include "tjsVariant.h"
 #include "ScriptMgnIntf.h"
 #include "DebugIntf.h"
@@ -337,6 +338,19 @@ public:
         return TJS_S_OK;
     }
 
+    tjs_error Operation(tjs_uint32 flag, const tjs_char *membername,
+                        tjs_uint32 *hint, tTJSVariant *result,
+                        const tTJSVariant *param,
+                        iTJSDispatch2 *objthis) override {
+        if(membername && TJS_strcmp(membername, TJS_W("typeof")) == 0) {
+            if(result)
+                *result = DebugName;
+            return TJS_S_OK;
+        }
+        return tTJSDispatch::Operation(flag, membername, hint, result, param,
+                                       objthis);
+    }
+
 private:
     ttstr DebugName;
 };
@@ -399,6 +413,49 @@ void RegisterPermissiveStubOnGlobal(iTJSDispatch2 *global,
     }
 }
 
+void RegisterEnvContextDictionary(iTJSDispatch2 *global) {
+    if(!global)
+        return;
+
+    bool shouldCreate = true;
+    tTJSVariant existing;
+    tjs_error exists = global->IsValid(0, TJS_W("ENV_context"), nullptr, global);
+    if(TJS_SUCCEEDED(exists) &&
+       global->PropGet(0, TJS_W("ENV_context"), nullptr, &existing, global) ==
+           TJS_S_OK &&
+       existing.Type() == tvtObject && existing.AsObjectNoAddRef()) {
+        tTJSVariant existingTypeVar;
+        tTJSVariant dummy;
+        existing.AsObjectNoAddRef()->Operation(
+            0, TJS_W("typeof"), nullptr, &existingTypeVar, &dummy, nullptr);
+        if(existingTypeVar.Type() == tvtString &&
+           ttstr(existingTypeVar) == TJS_W("(compat-void-stub)")) {
+            TVPAddLog(TJS_W("[krkr] replacing placeholder compat stub for "
+                            "ENV_context"));
+        } else {
+            shouldCreate = false;
+        }
+    }
+
+    if(!shouldCreate)
+        return;
+
+    iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+    if(!dict)
+        return;
+
+    tTJSVariant val(dict, dict);
+    tjs_error hr = global->PropSet(TJS_MEMBERENSURE, TJS_W("ENV_context"),
+                                   nullptr, &val, global);
+    dict->Release();
+    if(TJS_FAILED(hr)) {
+        spdlog::warn("[krkr] failed to create ENV_context dictionary: 0x{:x}",
+                     static_cast<unsigned>(hr));
+    } else {
+        spdlog::info("[krkr] registered ENV_context dictionary");
+    }
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
@@ -423,7 +480,7 @@ void TVPRegisterVoiceEffectStubs() {
     // Do not register a Motion stub here. The native motionplayer.dll
     // implementation owns global.Motion, and a permissive placeholder prevents
     // Motion.ResourceManager / Motion.EmotePlayer from being exposed.
-    RegisterPermissiveStubOnGlobal(global, TJS_W("ENV_context"));
+    RegisterEnvContextDictionary(global);
 
     // Many wamsoft-shaped scripts read `kag.voiceEffectPlugin` (KAGWindow
     // instance member), not `voiceEffectPlugin` directly, so a global-only

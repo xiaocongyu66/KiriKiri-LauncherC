@@ -1174,6 +1174,10 @@ void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
                 stream.get(), result, context, shortname.c_str());
 
             if(isbytecode) {
+#if defined(__ANDROID__)
+                KR2_SCR_LOG("[res] EXEC_SCRIPT_DONE '%s'",
+                            name.AsStdString().c_str());
+#endif
                 // save extract binary file for debug!
                 //                auto loader =
                 //                std::make_unique<tTJSByteCodeLoader>(); auto
@@ -1255,6 +1259,10 @@ void TVPExecuteStorage(const ttstr &name, iTJSDispatch2 *context,
         else
             TVPScriptEngine->EvalExpression(buffer, result, context,
                                             &shortname);
+#if defined(__ANDROID__)
+        KR2_SCR_LOG("[res] EXEC_SCRIPT_DONE '%s'",
+                    name.AsStdString().c_str());
+#endif
     }
 }
 
