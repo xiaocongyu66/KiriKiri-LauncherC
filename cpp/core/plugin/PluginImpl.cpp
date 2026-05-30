@@ -527,6 +527,15 @@ void TVP_md5_finish(TVP_md5_state_t *pms, tjs_uint8 *digest) {
 }
 
 //---------------------------------------------------------------------------
+void TVPProcessApplicationMessages() {
+    if(Application)
+        Application->ProcessMessages();
+}
+
+//---------------------------------------------------------------------------
+void TVPHandleApplicationMessage() { TVPProcessApplicationMessages(); }
+
+//---------------------------------------------------------------------------
 bool TVPRegisterGlobalObject(const tjs_char *name, iTJSDispatch2 *dsp) {
     // register given object to global object
     tTJSVariant val(dsp);
