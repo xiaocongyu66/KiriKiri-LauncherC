@@ -215,7 +215,11 @@ namespace TJS {
             tTJSInterCodeContext::tSourcePos *srcPos = nullptr;
             tjs_int srcPosArraySize = 0;
             if(count > 0) {
-                srcPos = new tTJSInterCodeContext::tSourcePos[count];
+                srcPos = static_cast<tTJSInterCodeContext::tSourcePos *>(
+                    TJS_malloc(count *
+                               sizeof(tTJSInterCodeContext::tSourcePos)));
+                if(!srcPos)
+                    TJS_eTJSScriptError(TJSInsufficientMem, block, 0);
                 srcPosArraySize = count;
                 for(int i = 0; i < count; i++) {
                     srcPos[i].CodePos = read4byte(&(buff[offset]));
