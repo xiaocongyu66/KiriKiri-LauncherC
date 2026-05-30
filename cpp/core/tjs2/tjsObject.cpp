@@ -1316,10 +1316,8 @@ namespace TJS {
                         hr = clo.PropGet(0, membername, hint, result, nullptr);
                     }
                 } catch(...) {
-                    clo.Release();
                     throw;
                 }
-                clo.Release();
                 if(TJS_SUCCEEDED(hr))
                     return hr;
             }

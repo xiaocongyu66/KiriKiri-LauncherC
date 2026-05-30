@@ -23,5 +23,25 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
     // motionplayer.dll plugin owns that namespace.
     global.ENV_context = global.ENV_context === void ? %[] : global.ENV_context;
 
-    // (no script-level patches needed at the moment.)
+    // PackinOne / append-data compatibility. Several KAG3 titles probe these
+    // helpers during early config loading even when the real plugin is not
+    // linked yet. Return benign defaults and let real game/plugin definitions
+    // win whenever they exist.
+    if(typeof global.makeDataPackDigest == "undefined") {
+        function __krkr2_makeDataPackDigest(a=void, b=void, c=void, d=void) {
+            return "";
+        }
+        global.makeDataPackDigest = __krkr2_makeDataPackDigest;
+    }
+
+    if(typeof global.AppendDataConfig == "undefined") {
+        class __krkr2_AppendDataConfig {
+            function __krkr2_AppendDataConfig(a=void, b=void, c=void) {}
+            function load(a=void, b=void, c=void) { return false; }
+            function save(a=void, b=void, c=void) { return false; }
+            function add(a=void, b=void, c=void) { return void; }
+            function clear() { return void; }
+        }
+        global.AppendDataConfig = __krkr2_AppendDataConfig;
+    }
 }
