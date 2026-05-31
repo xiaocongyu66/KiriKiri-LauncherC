@@ -65,6 +65,10 @@ namespace motion {
                data[2] == 'G') {
                 return true;
             }
+            if(data.size() >= 15 && std::memcmp(data.data(), "RIFF", 4) == 0 &&
+               std::memcmp(data.data() + 8, "WEBPVP8", 7) == 0) {
+                return true;
+            }
             return false;
         }
 
@@ -1645,7 +1649,9 @@ namespace motion {
             const detail::MotionSnapshot &snapshot, const std::string &source,
             int &outWidth, int &outHeight,
             std::vector<std::uint8_t> &decompressedOut, double &outOriginX,
-            double &outOriginY, bool *outDecodedIsBgra = nullptr) {
+            double &outOriginY, bool *outDecodedIsBgra = nullptr,
+            std::string *outResourcePath = nullptr,
+            int *outResourceLeft = nullptr, int *outResourceTop = nullptr) {
             outWidth = 0;
             outHeight = 0;
             outOriginX = 0.0;
@@ -1654,6 +1660,27 @@ namespace motion {
             if(outDecodedIsBgra) {
                 *outDecodedIsBgra = false;
             }
+            if(outResourcePath) {
+                outResourcePath->clear();
+            }
+            if(outResourceLeft) {
+                *outResourceLeft = 0;
+            }
+            if(outResourceTop) {
+                *outResourceTop = 0;
+            }
+            const auto setResourceLocation =
+                [&](const std::string &path, int left, int top) {
+                    if(outResourcePath) {
+                        *outResourcePath = path;
+                    }
+                    if(outResourceLeft) {
+                        *outResourceLeft = left;
+                    }
+                    if(outResourceTop) {
+                        *outResourceTop = top;
+                    }
+                };
             if(source.empty() || isMotionCrossReference(source)) {
                 return nullptr;
             }
@@ -1734,6 +1761,13 @@ namespace motion {
                                iconLeft >= 0 && iconTop >= 0 &&
                                iconLeft + outWidth <= textureWidth &&
                                iconTop + outHeight <= textureHeight) {
+                                if(looksLikeEmbeddedImageHeader(
+                                       textureResIt->second->data)) {
+                                    setResourceLocation(texturePixelPath,
+                                                        iconLeft, iconTop);
+                                    return textureResIt->second.get();
+                                }
+
                                 bool texturePixelsAreBgra = false;
                                 std::vector<std::uint8_t> texturePixels;
                                 const auto textureCompress =
@@ -1782,6 +1816,8 @@ namespace motion {
                                                 !texturePixels.empty() &&
                                                 texturePixelsAreBgra;
                                         }
+                                        setResourceLocation(texturePixelPath,
+                                                            iconLeft, iconTop);
                                         return textureResIt->second.get();
                                     }
                                 }
@@ -1801,6 +1837,7 @@ namespace motion {
                                 snapshot, iconPath, *resIt->second, outWidth,
                                 outHeight, compressStr == "RL", decompressedOut,
                                 outDecodedIsBgra);
+                            setResourceLocation(pixelPath, 0, 0);
                             return resIt->second.get();
                         }
                     }
@@ -1851,6 +1888,7 @@ namespace motion {
                     }
                     if(outWidth > 0 && outHeight > 0 &&
                        !resource->data.empty()) {
+                        setResourceLocation(resPath, 0, 0);
                         return resource.get();
                     }
                 }

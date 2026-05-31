@@ -1113,8 +1113,8 @@ void tTVPLayerManager::UpdateToDrawDevice() {
     // Helper: walk the primary layer subtree non-recursively (BFS-ish) and
     // dump up to N nodes. Use the public Children container that
     // LayerIntf.h exposes. Each line: depth, ptr, type, visible, opacity,
-    // hasImage, x,y,w,h. We cap at 64 nodes to keep render_probe.log
-    // bounded — if the real tree is larger, the truncation tells us so.
+    // hasImage, x,y,w,h. We cap at 64 nodes to keep the unified native log
+    // bounded; if the real tree is larger, the truncation tells us so.
     auto dumpLayerTree = [](tTJSNI_BaseLayer *root, const char *tag) {
         if(!root) return;
         struct Node { tTJSNI_BaseLayer *layer; int depth; };

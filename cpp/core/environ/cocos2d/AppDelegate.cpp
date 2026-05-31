@@ -1,12 +1,6 @@
 #include <spdlog/spdlog.h>
 #include "AppDelegate.h"
 
-#if defined(__ANDROID__)
-#include <spdlog/sinks/android_sink.h>
-#else
-#include <spdlog/sinks/stdout_color_sinks.h>
-#endif
-
 #include "MainScene.h"
 #include "Application.h"
 #include "Platform.h"
@@ -14,11 +8,17 @@
 #include "ui/MainFileSelectorForm.h"
 #include "ui/extension/UIExtension.h"
 #include "ConfigManager/LocaleConfigManager.h"
+#include "NativeLog.h"
+
+#include <cstdio>
 
 #if defined(__ANDROID__)
-#include <android/log.h>
 #define KR2_LAUNCH_LOG(...)                                                    \
-    __android_log_print(ANDROID_LOG_INFO, "KR2-Launch", __VA_ARGS__)
+    do {                                                                       \
+        char kr2LaunchLogBuf[1024];                                            \
+        std::snprintf(kr2LaunchLogBuf, sizeof(kr2LaunchLogBuf), __VA_ARGS__);  \
+        TVPNativeLogInfo("launch", kr2LaunchLogBuf);                           \
+    } while(0)
 #else
 #define KR2_LAUNCH_LOG(...) ((void)0)
 #endif
@@ -47,32 +47,9 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
     SDL_SetMainReady();
     TVPMainThreadID = std::this_thread::get_id();
 
-    // Engine logging used to silently drop because no one ever called
-    // spdlog::register_logger() for the "core" / "tjs2" names that
-    // CsdUIFactory.h, MainScene.cpp etc. resolve via spdlog::get(...).
-    // Without registration spdlog::get returns nullptr and every
-    // get("core")->info(...) call is a noop, hiding the entire engine
-    // event stream that we need to diagnose black-screen / load issues.
-    //
-    // Wire it up here once: on Android we sink to logcat (visible via
-    // adb / 78.log), on desktop we sink to stdout. Level defaults to
-    // info; debug builds bump to debug.
     static std::once_flag s_log_init;
     std::call_once(s_log_init, []() {
-#if defined(__ANDROID__)
-        auto sink = std::make_shared<
-            spdlog::sinks::android_sink_mt>("krkr2", true);
-#else
-        auto sink = std::make_shared<
-            spdlog::sinks::stdout_color_sink_mt>();
-#endif
-        for(const char *name : { "core", "tjs2", "audio", "video" }) {
-            if(!spdlog::get(name)) {
-                auto logger = std::make_shared<spdlog::logger>(name, sink);
-                spdlog::register_logger(logger);
-            }
-        }
-        spdlog::set_default_logger(spdlog::get("core"));
+        TVPInitializeNativeLogging();
 #if defined(_DEBUG) || defined(TVP_DEBUG)
         spdlog::set_level(spdlog::level::debug);
 #else

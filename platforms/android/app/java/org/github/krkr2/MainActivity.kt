@@ -35,6 +35,7 @@ class MainActivity : KR2Activity() {
             return
         }
 
+        val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
         KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)
 
@@ -55,7 +56,7 @@ class MainActivity : KR2Activity() {
 
         LauncherPrefs.writeLauncherLog(
             this,
-            "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot ffmpegImageDecoder=$useFfmpegImageDecoder"
+            "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot ffmpegImageDecoder=$useFfmpegImageDecoder nativeLogFile=$nativeLogFile"
         )
 
         SDLAudioManager.nativeSetupJNI()

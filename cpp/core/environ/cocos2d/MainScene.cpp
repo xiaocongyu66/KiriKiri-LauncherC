@@ -2860,17 +2860,20 @@ void TVPConsoleLog(const ttstr &l, bool important) {
         _consoleWin->addLine(l, important ? Color3B::YELLOW : Color3B::GRAY);
         TVPDrawSceneOnce(100); // force update in 10fps
     }
-    spdlog::get("tjs2")->info("{}", l.AsStdString());
+    if(auto logger = spdlog::get("tjs2"))
+        logger->info("{}", l.AsStdString());
 }
 
 namespace TJS {
     void TVPConsoleLog(const ttstr &str) {
-        spdlog::get("tjs2")->info("{}", str.AsStdString());
+        if(auto logger = spdlog::get("tjs2"))
+            logger->info("{}", str.AsStdString());
     }
 
     template <typename... Args>
     void TVPConsoleLog(spdlog::format_string_t<Args...> fmt, Args &&...args) {
-        spdlog::get("tjs2")->info(fmt, std::forward<Args>(args)...);
+        if(auto logger = spdlog::get("tjs2"))
+            logger->info(fmt, std::forward<Args>(args)...);
     }
 } // namespace TJS
 

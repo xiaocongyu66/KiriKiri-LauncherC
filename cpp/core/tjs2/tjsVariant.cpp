@@ -207,8 +207,8 @@ namespace TJS {
         // the throw. The fatal handler only shows the formatted error
         // string ("Cannot convert () to Object"), which loses the actual
         // tjs_int / nullptr-string / etc. we were trying to coerce. Push
-        // this into render_probe.log so 78.log captures it and the next
-        // round of triage can target the correct value class.
+        // this into the unified native log so the next round of triage can
+        // target the correct value class.
         if(to == tvtObject) {
             const char *fromName = "?";
             switch(from.Type()) {

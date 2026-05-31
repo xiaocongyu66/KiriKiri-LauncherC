@@ -69,12 +69,8 @@ private data class DiagSnapshot(
     val packageName: String,
     val abi: String,
     val nativeBuildId: String,
-    val launcherLogTail: String,
     val nativeFatalLog: String,
     val nativeFatalPath: String,
-    val launcherLogPath: String,
-    val hookLog: String,
-    val hookLogPath: String,
     val engineLog: String,
     val engineLogPath: String,
 )
@@ -99,12 +95,6 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
     val buildId = readNativeBuildId(context)
 
     val logDir = File(LauncherPrefs.getLogDir(context))
-    val launcherLog = File(logDir, "krkr2_launcher.log")
-    val launcherLogTail = if (launcherLog.exists()) tailFile(launcherLog, 200) else ""
-    val hookLogFile = File(logDir, "krkr2_hook.log")
-    val hookLog = if (hookLogFile.exists() && hookLogFile.length() > 0) {
-        tailFile(hookLogFile, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
-    } else ""
 
     val fatalCandidates = listOf(
         File(logDir, "krkr2_native_fatal.log"),
@@ -116,13 +106,8 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
         tailFile(it, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
     } ?: ""
 
-    // Engine render-path probe log. Written by KR2RenderProbeWriteF in the
-    // native code to the app's external-files dir. Truncated each run, so
-    // it always contains the most recent game session — exactly what the
-    // user is asking to see ("game's last-launch log") for diagnosing
-    // black screen / render-pipeline issues without needing to fish
-    // through the global logcat.
-    val engineLogFile = File(context.getExternalFilesDir(null), "render_probe.log")
+    val engineLogFile = LauncherPrefs.latestUnifiedLogFile(context)
+        ?: File(LauncherPrefs.getLogDir(context), "yyyyMMddHHmm.log")
     val engineLog = if (engineLogFile.exists() && engineLogFile.length() > 0) {
         tailFile(engineLogFile, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
     } else ""
@@ -133,12 +118,8 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
         packageName = pkg,
         abi = abi,
         nativeBuildId = buildId,
-        launcherLogTail = launcherLogTail,
         nativeFatalLog = nativeFatalLog,
         nativeFatalPath = (fatalFile ?: fatalCandidates.first()).absolutePath,
-        launcherLogPath = launcherLog.absolutePath,
-        hookLog = hookLog,
-        hookLogPath = hookLogFile.absolutePath,
         engineLog = engineLog,
         engineLogPath = engineLogFile.absolutePath,
     )
@@ -215,8 +196,8 @@ private fun DiagnosticsScreen(onBack: () -> Unit) {
                         shareText(context, buildShareText(snap, text))
                     }) { Icon(Icons.Default.Share, null) }
                     IconButton(onClick = {
+                        LauncherPrefs.clearUnifiedLogs(context)
                         runCatching { File(snap.nativeFatalPath).delete() }
-                        runCatching { File(snap.launcherLogPath).delete() }
                         snap = loadSnapshot(context)
                         toast(context, text.cleared)
                     }) { Icon(Icons.Default.Delete, null) }
@@ -238,18 +219,6 @@ private fun DiagnosticsScreen(onBack: () -> Unit) {
                     title = text.nativeFatalLog,
                     body = snap.nativeFatalLog.ifBlank { text.noFatalLog },
                     pathHint = snap.nativeFatalPath,
-                )
-
-                LogCard(
-                    title = text.launcherLog,
-                    body = snap.launcherLogTail.ifBlank { text.noLauncherLog },
-                    pathHint = snap.launcherLogPath,
-                )
-
-                LogCard(
-                    title = text.hookLog,
-                    body = snap.hookLog.ifBlank { text.noHookLog },
-                    pathHint = snap.hookLogPath,
                 )
 
                 LogCard(
@@ -316,10 +285,6 @@ private fun buildShareText(snap: DiagSnapshot, text: LauncherStrings.Texts): Str
     append(text.appBuildId).append(": ").append(snap.nativeBuildId).append('\n')
     append('\n').append("--- ").append(text.nativeFatalLog).append(" ---\n")
     append(snap.nativeFatalLog.ifBlank { text.noFatalLog }).append('\n')
-    append('\n').append("--- ").append(text.launcherLog).append(" ---\n")
-    append(snap.launcherLogTail.ifBlank { text.noLauncherLog }).append('\n')
-    append('\n').append("--- ").append(text.hookLog).append(" ---\n")
-    append(snap.hookLog.ifBlank { text.noHookLog }).append('\n')
     append('\n').append("--- ").append(text.engineLog).append(" ---\n")
     append(snap.engineLog.ifBlank { text.noEngineLog })
 }

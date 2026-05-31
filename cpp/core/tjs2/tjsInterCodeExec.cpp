@@ -1427,21 +1427,24 @@ namespace TJS {
             throw;
         } catch(eTJS &e) {
             if(tryCatch) {
-                spdlog::get("tjs2")->debug(e.GetMessage().AsStdString());
+                if(auto logger = spdlog::get("tjs2"))
+                    logger->debug(e.GetMessage().AsStdString());
             } else {
                 DisplayExceptionGeneratedCode(codesave - CodeArea, ra_org);
             }
             TJS_eTJSScriptError(e.GetMessage(), this, codesave - CodeArea);
         } catch(exception &e) {
             if(tryCatch) {
-                spdlog::get("tjs2")->debug(e.what());
+                if(auto logger = spdlog::get("tjs2"))
+                    logger->debug(e.what());
             } else {
                 DisplayExceptionGeneratedCode(codesave - CodeArea, ra_org);
             }
             TJS_eTJSScriptError(e.what(), this, codesave - CodeArea);
         } catch(const char *text) {
             if(tryCatch) {
-                spdlog::get("tjs2")->debug(text);
+                if(auto logger = spdlog::get("tjs2"))
+                    logger->debug(text);
             } else {
                 DisplayExceptionGeneratedCode(codesave - CodeArea, ra_org);
             }

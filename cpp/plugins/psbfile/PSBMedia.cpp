@@ -46,6 +46,27 @@ namespace PSB {
                data[2] == 'G') {
                 return true;
             }
+            if(data.size() >= 15 && std::memcmp(data.data(), "RIFF", 4) == 0 &&
+               std::memcmp(data.data() + 8, "WEBPVP8", 7) == 0) {
+                return true;
+            }
+            return false;
+        }
+
+        bool StripSyntheticImageExtension(std::string &key) {
+            static const char *extensions[] = {
+                ".png", ".webp", ".jpg", ".jpeg", ".bmp", ".dib",
+                ".tlg", ".tlg5", ".tlg6", ".pvr", ".jxr", ".bpg",
+                ".jif", ".jfif", ".jfi",
+            };
+            for(const auto *extension : extensions) {
+                const size_t len = std::strlen(extension);
+                if(key.size() > len &&
+                   key.compare(key.size() - len, len, extension) == 0) {
+                    key.resize(key.size() - len);
+                    return true;
+                }
+            }
             return false;
         }
 
@@ -1019,22 +1040,40 @@ namespace PSB {
 
     PSBMedia::ResourceMap::iterator
     PSBMedia::findBySuffixLocked(const std::string &key) {
-        for(auto it = _resources.begin(); it != _resources.end(); ++it) {
-            const auto &stored = it->first;
-            if(stored.size() < key.size()) {
-                continue;
+        const auto findByKey = [this](const std::string &candidate)
+            -> ResourceMap::iterator {
+            if(candidate.empty()) {
+                return _resources.end();
             }
-            if(stored.compare(stored.size() - key.size(), key.size(), key) != 0) {
-                continue;
-            }
-            if(stored.size() == key.size()) {
-                return it;
-            }
+            for(auto it = _resources.begin(); it != _resources.end(); ++it) {
+                const auto &stored = it->first;
+                if(stored.size() < candidate.size()) {
+                    continue;
+                }
+                if(stored.compare(stored.size() - candidate.size(),
+                                  candidate.size(), candidate) != 0) {
+                    continue;
+                }
+                if(stored.size() == candidate.size()) {
+                    return it;
+                }
 
-            const char boundary = stored[stored.size() - key.size() - 1];
-            if(boundary == '/' || boundary == '>') {
-                return it;
+                const char boundary =
+                    stored[stored.size() - candidate.size() - 1];
+                if(boundary == '/' || boundary == '>') {
+                    return it;
+                }
             }
+            return _resources.end();
+        };
+
+        if(auto it = findByKey(key); it != _resources.end()) {
+            return it;
+        }
+
+        std::string aliasKey = key;
+        if(StripSyntheticImageExtension(aliasKey)) {
+            return findByKey(aliasKey);
         }
         return _resources.end();
     }

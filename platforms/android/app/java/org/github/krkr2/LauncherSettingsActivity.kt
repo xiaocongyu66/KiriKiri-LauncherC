@@ -151,6 +151,9 @@ private fun SettingsScreen(
     var pathInput by remember { mutableStateOf(LauncherPrefs.getGameRoot(context)) }
     var scanDepth by remember { mutableStateOf(LauncherPrefs.getScanDepth(context)) }
     var useFfmpegImageDecoder by remember { mutableStateOf(LauncherPrefs.getUseFfmpegImageDecoder(context)) }
+    var fileLogEnabled by remember { mutableStateOf(LauncherPrefs.getFileLogEnabled(context)) }
+    var fileLogAutoCleanup by remember { mutableStateOf(LauncherPrefs.getFileLogAutoCleanup(context)) }
+    var fileLogRetentionDays by remember { mutableStateOf(LauncherPrefs.getFileLogRetentionDays(context)) }
     var statusLine by remember { mutableStateOf("") }
     var dest by remember { mutableStateOf(SettingsDest.Library) }
     val landscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -216,6 +219,21 @@ private fun SettingsScreen(
                         statusLine = "${text.exported}: ${out.absolutePath}"
                         scope.launch { snackbarHostState.showSnackbar("${text.exported}: ${out.name}") }
                     },
+                    fileLogEnabled = fileLogEnabled,
+                    onFileLogEnabledChange = { enabled ->
+                        fileLogEnabled = enabled
+                        LauncherPrefs.setFileLogEnabled(context, enabled)
+                    },
+                    fileLogAutoCleanup = fileLogAutoCleanup,
+                    onFileLogAutoCleanupChange = { enabled ->
+                        fileLogAutoCleanup = enabled
+                        LauncherPrefs.setFileLogAutoCleanup(context, enabled)
+                    },
+                    fileLogRetentionDays = fileLogRetentionDays,
+                    onFileLogRetentionDaysChange = { days ->
+                        fileLogRetentionDays = days
+                        LauncherPrefs.setFileLogRetentionDays(context, days)
+                    },
                     onCopy = { value -> copyToClipboard(context, value); scope.launch { snackbarHostState.showSnackbar(text.aboutCopiedUrl) } },
                     modifier = Modifier.weight(1f).fillMaxHeight().padding(pad),
                 )
@@ -250,6 +268,21 @@ private fun SettingsScreen(
                     onExportBackup = {
                         val out = LauncherPrefs.exportBackup(context)
                         statusLine = "${text.exported}: ${out.absolutePath}"
+                    },
+                    fileLogEnabled = fileLogEnabled,
+                    onFileLogEnabledChange = { enabled ->
+                        fileLogEnabled = enabled
+                        LauncherPrefs.setFileLogEnabled(context, enabled)
+                    },
+                    fileLogAutoCleanup = fileLogAutoCleanup,
+                    onFileLogAutoCleanupChange = { enabled ->
+                        fileLogAutoCleanup = enabled
+                        LauncherPrefs.setFileLogAutoCleanup(context, enabled)
+                    },
+                    fileLogRetentionDays = fileLogRetentionDays,
+                    onFileLogRetentionDaysChange = { days ->
+                        fileLogRetentionDays = days
+                        LauncherPrefs.setFileLogRetentionDays(context, days)
                     },
                     onCopy = { value -> copyToClipboard(context, value) },
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -368,6 +401,12 @@ private fun SettingsContent(
     onOpenDiagnostics: () -> Unit,
     onLaunchOriginal: () -> Unit,
     onExportBackup: () -> Unit,
+    fileLogEnabled: Boolean,
+    onFileLogEnabledChange: (Boolean) -> Unit,
+    fileLogAutoCleanup: Boolean,
+    onFileLogAutoCleanupChange: (Boolean) -> Unit,
+    fileLogRetentionDays: Int,
+    onFileLogRetentionDaysChange: (Int) -> Unit,
     onCopy: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -376,7 +415,19 @@ private fun SettingsContent(
             SettingsDest.Library -> LibrarySettings(text, compact, pathInput, onPathChange, scanDepth, onScanDepthChange, statusLine, onSaveAndScan, onRefresh, onGrantStorage)
             SettingsDest.Display -> DisplaySettings(text, compact, onLangChange)
             SettingsDest.Engine -> EngineSettings(text, compact, onOpenRenderSettings, useFfmpegImageDecoder, onUseFfmpegImageDecoderChange)
-            SettingsDest.Tools -> ToolsSettings(text, compact, onOpenDiagnostics, onLaunchOriginal, onExportBackup)
+            SettingsDest.Tools -> ToolsSettings(
+                text,
+                compact,
+                onOpenDiagnostics,
+                onLaunchOriginal,
+                onExportBackup,
+                fileLogEnabled,
+                onFileLogEnabledChange,
+                fileLogAutoCleanup,
+                onFileLogAutoCleanupChange,
+                fileLogRetentionDays,
+                onFileLogRetentionDaysChange,
+            )
             SettingsDest.About -> AboutSettings(text, compact, onCopy)
         }
     }
@@ -491,9 +542,68 @@ private fun EngineSettings(
 }
 
 @Composable
-private fun ToolsSettings(text: LauncherStrings.Texts, compact: Boolean, onOpenDiagnostics: () -> Unit, onLaunchOriginal: () -> Unit, onExportBackup: () -> Unit) {
+private fun ToolsSettings(
+    text: LauncherStrings.Texts,
+    compact: Boolean,
+    onOpenDiagnostics: () -> Unit,
+    onLaunchOriginal: () -> Unit,
+    onExportBackup: () -> Unit,
+    fileLogEnabled: Boolean,
+    onFileLogEnabledChange: (Boolean) -> Unit,
+    fileLogAutoCleanup: Boolean,
+    onFileLogAutoCleanupChange: (Boolean) -> Unit,
+    fileLogRetentionDays: Int,
+    onFileLogRetentionDaysChange: (Int) -> Unit,
+) {
     SettingsPanel(text.settingsTools, Icons.Default.BugReport, compact) {
         RowSetting(Icons.Default.BugReport, text.diagnostics, "Inspect launcher and engine logs.", onClick = onOpenDiagnostics)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        RowSetting(
+            Icons.Default.BugReport,
+            text.fileLog,
+            "${text.fileLogDir}: ${LauncherPrefs.NATIVE_LOG_DIR}",
+            onClick = { onFileLogEnabledChange(!fileLogEnabled) },
+            trailing = {
+                Switch(
+                    checked = fileLogEnabled,
+                    onCheckedChange = onFileLogEnabledChange,
+                )
+            },
+            showChevron = false,
+        )
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        RowSetting(
+            Icons.Default.Settings,
+            text.fileLogAutoCleanup,
+            text.fileLogAutoCleanupHint,
+            onClick = { onFileLogAutoCleanupChange(!fileLogAutoCleanup) },
+            trailing = {
+                Switch(
+                    checked = fileLogAutoCleanup,
+                    onCheckedChange = onFileLogAutoCleanupChange,
+                )
+            },
+            showChevron = false,
+        )
+        Text(
+            "${text.fileLogRetentionDays}: $fileLogRetentionDays",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodySmall,
+        )
+        Slider(
+            value = fileLogRetentionDays.toFloat(),
+            onValueChange = {
+                onFileLogRetentionDaysChange(
+                    it.toInt().coerceIn(
+                        LauncherPrefs.FILE_LOG_RETENTION_MIN_DAYS,
+                        LauncherPrefs.FILE_LOG_RETENTION_MAX_DAYS,
+                    )
+                )
+            },
+            valueRange = LauncherPrefs.FILE_LOG_RETENTION_MIN_DAYS.toFloat()..LauncherPrefs.FILE_LOG_RETENTION_MAX_DAYS.toFloat(),
+            steps = LauncherPrefs.FILE_LOG_RETENTION_MAX_DAYS - LauncherPrefs.FILE_LOG_RETENTION_MIN_DAYS - 1,
+        )
+        Text(text.fileLogHint, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         RowSetting(Icons.AutoMirrored.Filled.OpenInNew, text.launchOriginal, "Open the engine without a selected game.", onClick = onLaunchOriginal)
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)

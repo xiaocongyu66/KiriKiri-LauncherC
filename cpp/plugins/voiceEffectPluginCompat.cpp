@@ -60,9 +60,9 @@ namespace {
 // the (object) is *our* permissive stub. To pinpoint which member a script
 // is actually reading on the stub (so we can return a real-typed default for
 // just those names instead of throwing), we mirror the first ~N PropGet /
-// FuncCall hits to render_probe.log so they show up in 78.log's engine log
-// section. TVPAddLog is NOT used here because that engine log stream is not
-// captured by the launcher's diagnostics panel on Android.
+// FuncCall hits to the unified native log. TVPAddLog is NOT used here because
+// that engine log stream is not captured by the launcher's diagnostics panel
+// on Android.
 //
 // The cap is intentional — once the stub is wired into `kag.voiceEffectPlugin`
 // scripts will iterate over it and a few hundred entries is plenty to identify
@@ -547,9 +547,9 @@ extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub() {
 // Diagnostic exit point used by tjsObject.cpp::PropGet right before it
 // returns TJS_E_MEMBERNOTFOUND. We can't always tell from the upstream
 // "Member XXX does not exist" exception which member was being read on
-// which object — by funneling missing names through KR2RenderProbeWriteF
-// here we get a chronological list in render_probe.log (and thus 78.log)
-// that immediately precedes a crash.
+// which object — by funneling missing names through KR2RenderProbeWriteF here
+// we get a chronological list in the unified native log that immediately
+// precedes a crash.
 //
 // Filter out names that are produced by *typeof probes* in stock KAG3
 // startup (Config.tjs uses `if (typeof patch_appendN != "undefined") ...`

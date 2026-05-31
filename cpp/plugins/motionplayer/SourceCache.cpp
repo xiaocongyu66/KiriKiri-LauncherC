@@ -79,6 +79,30 @@ namespace {
         return copy;
     }
 
+    std::shared_ptr<tTVPBaseBitmap>
+    cropBitmap32(const tTVPBaseBitmap &src, int left, int top, int width,
+                 int height) {
+        const int sourceWidth = static_cast<int>(src.GetWidth());
+        const int sourceHeight = static_cast<int>(src.GetHeight());
+        if(left < 0 || top < 0 || width <= 0 || height <= 0 ||
+           left + width > sourceWidth || top + height > sourceHeight) {
+            return nullptr;
+        }
+
+        auto copy = std::make_shared<tTVPBaseBitmap>(
+            static_cast<tjs_uint>(width), static_cast<tjs_uint>(height), 32);
+        const size_t rowBytes = static_cast<size_t>(width) * 4u;
+        for(int y = 0; y < height; ++y) {
+            const auto *srcRow = static_cast<const std::uint8_t *>(
+                src.GetScanLine(static_cast<tjs_uint>(top + y)));
+            auto *dstRow = static_cast<std::uint8_t *>(
+                copy->GetScanLineForWrite(static_cast<tjs_uint>(y)));
+            std::memcpy(dstRow, srcRow + static_cast<size_t>(left) * 4u,
+                        rowBytes);
+        }
+        return copy;
+    }
+
     void applyPackedCornerTintLike_0x6A7518(
         tTVPBaseBitmap &bitmap,
         const std::array<std::uint32_t, 4> &packedColors, bool halfAlphaBlend) {
@@ -232,8 +256,10 @@ namespace {
 
         ttstr loadPath = path;
         const auto pathString = motion::detail::narrow(path);
-        if(pathString.rfind('.') == std::string::npos ||
-           pathString.rfind('.') < pathString.rfind('/')) {
+        const bool isPsbResource = pathString.rfind("psb://", 0) == 0;
+        if(!isPsbResource &&
+           (pathString.rfind('.') == std::string::npos ||
+            pathString.rfind('.') < pathString.rfind('/'))) {
             loadPath = path + TJS_W(".png");
         }
 
@@ -265,7 +291,39 @@ namespace {
            data[2] == 'G') {
             return true;
         }
+        if(data.size() >= 15 && std::memcmp(data.data(), "RIFF", 4) == 0 &&
+           std::memcmp(data.data() + 8, "WEBPVP8", 7) == 0) {
+            return true;
+        }
         return false;
+    }
+
+    std::shared_ptr<tTVPBaseBitmap> loadPsbEncodedBitmap(
+        const motion::detail::MotionSnapshot &snapshot,
+        const std::string &resourcePath, int left, int top, int width,
+        int height) {
+        if(resourcePath.empty() || width <= 0 || height <= 0) {
+            return nullptr;
+        }
+
+        for(const auto &alias : snapshot.resourceAliases) {
+            const auto psbPath = ttstr{ TJS_W("psb://") } +
+                motion::detail::widen(alias) + TJS_W("/") +
+                motion::detail::widen(resourcePath);
+            auto bitmap = loadGraphicBitmap(psbPath);
+            if(!bitmap) {
+                continue;
+            }
+            if(left == 0 && top == 0 &&
+               static_cast<int>(bitmap->GetWidth()) == width &&
+               static_cast<int>(bitmap->GetHeight()) == height) {
+                return bitmap;
+            }
+            if(auto cropped = cropBitmap32(*bitmap, left, top, width, height)) {
+                return cropped;
+            }
+        }
+        return nullptr;
     }
 
     std::shared_ptr<tTVPBaseBitmap>
@@ -277,15 +335,19 @@ namespace {
         double originY = 0.0;
         std::vector<std::uint8_t> decodedPixels;
         bool decodedPixelsAreBgra = false;
+        std::string resourcePath;
+        int resourceLeft = 0;
+        int resourceTop = 0;
         const auto *resource = motion::internal::findPSBResourceBySourceName(
             snapshot, sourceKey, width, height, decodedPixels, originX, originY,
-            &decodedPixelsAreBgra);
+            &decodedPixelsAreBgra, &resourcePath, &resourceLeft, &resourceTop);
         if(!resource || width <= 0 || height <= 0 || resource->data.empty()) {
             return nullptr;
         }
         if(decodedPixels.empty() &&
            looksLikeSupportedImageHeader(resource->data)) {
-            return nullptr;
+            return loadPsbEncodedBitmap(snapshot, resourcePath, resourceLeft,
+                                        resourceTop, width, height);
         }
 
         const auto &pixelData =

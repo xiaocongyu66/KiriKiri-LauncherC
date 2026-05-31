@@ -5,7 +5,6 @@
 #include <android/log.h>
 #include <dlfcn.h>
 #include <mutex>
-#include <cstdio>
 #include <cstdarg>
 #include <spdlog/spdlog.h>
 
@@ -15,6 +14,8 @@
 #include "tjsDictionary.h"
 #include "../utils/DebugIntf.h"
 #include "dobby.h"
+
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
 
 namespace TJS {
 
@@ -52,12 +53,7 @@ static void HookLog(const char *fmt, ...) {
         spdlog::debug("[hook] {}", buf);
     } catch(...) {
     }
-    FILE *fp = fopen("/storage/emulated/0/Android/data/org.github.krkr2/files/krkr2_hook.log", "a");
-    if(fp) {
-        fputs(buf, fp);
-        fputc('\n', fp);
-        fclose(fp);
-    }
+    KR2RenderProbeWriteF("[hook] %s", buf);
 }
 
 static tjs_int fake_CallFunction(tTJSInterCodeContext *thiz,
