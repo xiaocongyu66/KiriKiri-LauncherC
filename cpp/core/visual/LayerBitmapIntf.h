@@ -246,7 +246,7 @@ class tTVPBaseBitmap : public iTVPBaseBitmap // for ProvinceImage
 {
 public:
     tTVPBaseBitmap(tjs_uint w, tjs_uint h, tjs_uint bpp = 32);
-    tTVPBaseBitmap(const iTVPBaseBitmap &r) : iTVPBaseBitmap(r) {}
+    tTVPBaseBitmap(const iTVPBaseBitmap &r);
     virtual bool AssignBitmap(tTVPBitmap *bmp);
     iTVPRenderManager *GetRenderManager() override;
     bool Fill(tTVPRect rect, tjs_uint32 value) override;
@@ -266,7 +266,7 @@ public:
 class tTVPBaseTexture : public iTVPBaseBitmap {
 public:
     tTVPBaseTexture(tjs_uint w, tjs_uint h, tjs_uint bpp = 32);
-    tTVPBaseTexture(const iTVPBaseBitmap &r) : iTVPBaseBitmap(r) {}
+    tTVPBaseTexture(const iTVPBaseBitmap &r);
     virtual bool AssignBitmap(tTVPBitmap *bmp);
     iTVPRenderManager *GetRenderManager() override;
     void Update(const void *pixel, unsigned int pitch, int x, int y, int w,

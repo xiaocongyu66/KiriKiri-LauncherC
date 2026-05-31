@@ -47,6 +47,51 @@ void TVPInitWindowOptions();
 // prototypes
 //---------------------------------------------------------------------------
 void TVPClearFontCache();
+
+static iTVPTexture2D *
+TVPCreateTextureCopyForManager(iTVPRenderManager *manager,
+                               iTVPTexture2D *source) {
+    if(!manager || !source || source->GetWidth() == 0 ||
+       source->GetHeight() == 0) {
+        return nullptr;
+    }
+
+    const void *pixels = source->GetPixelData();
+    const tjs_int pitch = source->GetPitch();
+    if(!pixels || pitch <= 0) {
+        return nullptr;
+    }
+
+    iTVPTexture2D *copy = manager->CreateTexture2D(
+        nullptr, 0, source->GetWidth(), source->GetHeight(),
+        source->GetFormat(), RENDER_CREATE_TEXTURE_FLAG_NO_COMPRESS);
+    if(!copy) {
+        return nullptr;
+    }
+
+    copy->Update(pixels, source->GetFormat(), pitch,
+                 tTVPRect(0, 0, source->GetWidth(), source->GetHeight()));
+    return copy;
+}
+
+static bool TVPReplaceTextureForManager(iTVPTexture2D *&texture,
+                                        iTVPRenderManager *targetManager,
+                                        iTVPRenderManager *sourceManager) {
+    if(!texture || !targetManager || !sourceManager ||
+       targetManager == sourceManager) {
+        return false;
+    }
+
+    iTVPTexture2D *copy =
+        TVPCreateTextureCopyForManager(targetManager, texture);
+    if(!copy) {
+        return false;
+    }
+
+    texture->Release();
+    texture = copy;
+    return true;
+}
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
@@ -596,9 +641,24 @@ bool tTVPNativeBaseBitmap::Assign(const tTVPNativeBaseBitmap &rhs) {
     if(this == &rhs || Bitmap == rhs.Bitmap)
         return false;
 
+    iTVPTexture2D *newbitmap = nullptr;
+    iTVPRenderManager *targetManager = GetRenderManager();
+    iTVPRenderManager *sourceManager =
+        const_cast<tTVPNativeBaseBitmap &>(rhs).GetRenderManager();
+    if(targetManager && sourceManager && targetManager != sourceManager) {
+        newbitmap = TVPCreateTextureCopyForManager(targetManager, rhs.Bitmap);
+        if(!newbitmap) {
+            return false;
+        }
+    }
+
     Bitmap->Release();
-    Bitmap = rhs.Bitmap;
-    Bitmap->AddRef();
+    if(newbitmap) {
+        Bitmap = newbitmap;
+    } else {
+        Bitmap = rhs.Bitmap;
+        Bitmap->AddRef();
+    }
 
     Font = rhs.Font;
     FontChanged = true; // informs internal font information is invalidated
@@ -611,9 +671,24 @@ bool tTVPNativeBaseBitmap::AssignBitmap(const tTVPNativeBaseBitmap &rhs) {
     if(this == &rhs || Bitmap == rhs.Bitmap)
         return false;
 
+    iTVPTexture2D *newbitmap = nullptr;
+    iTVPRenderManager *targetManager = GetRenderManager();
+    iTVPRenderManager *sourceManager =
+        const_cast<tTVPNativeBaseBitmap &>(rhs).GetRenderManager();
+    if(targetManager && sourceManager && targetManager != sourceManager) {
+        newbitmap = TVPCreateTextureCopyForManager(targetManager, rhs.Bitmap);
+        if(!newbitmap) {
+            return false;
+        }
+    }
+
     Bitmap->Release();
-    Bitmap = rhs.Bitmap;
-    Bitmap->AddRef();
+    if(newbitmap) {
+        Bitmap = newbitmap;
+    } else {
+        Bitmap = rhs.Bitmap;
+        Bitmap->AddRef();
+    }
 
     // font information are not copyed
     FontChanged = true; // informs internal font information is invalidated

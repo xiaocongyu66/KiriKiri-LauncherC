@@ -28,6 +28,51 @@
 
 iTVPRenderManager *TVPGetSoftwareRenderManager();
 
+static iTVPTexture2D *
+TVPCreateTextureCopyForManager(iTVPRenderManager *manager,
+                               iTVPTexture2D *source) {
+    if(!manager || !source || source->GetWidth() == 0 ||
+       source->GetHeight() == 0) {
+        return nullptr;
+    }
+
+    const void *pixels = source->GetPixelData();
+    const tjs_int pitch = source->GetPitch();
+    if(!pixels || pitch <= 0) {
+        return nullptr;
+    }
+
+    iTVPTexture2D *copy = manager->CreateTexture2D(
+        nullptr, 0, source->GetWidth(), source->GetHeight(),
+        source->GetFormat(), RENDER_CREATE_TEXTURE_FLAG_NO_COMPRESS);
+    if(!copy) {
+        return nullptr;
+    }
+
+    copy->Update(pixels, source->GetFormat(), pitch,
+                 tTVPRect(0, 0, source->GetWidth(), source->GetHeight()));
+    return copy;
+}
+
+static bool TVPReplaceTextureForManager(iTVPTexture2D *&texture,
+                                        iTVPRenderManager *targetManager,
+                                        iTVPRenderManager *sourceManager) {
+    if(!texture || !targetManager || !sourceManager ||
+       targetManager == sourceManager) {
+        return false;
+    }
+
+    iTVPTexture2D *copy =
+        TVPCreateTextureCopyForManager(targetManager, texture);
+    if(!copy) {
+        return false;
+    }
+
+    texture->Release();
+    texture = copy;
+    return true;
+}
+
 //---------------------------------------------------------------------------
 // To forcing bilinear interpolation, define TVP_FORCE_BILINEAR.
 
@@ -814,7 +859,7 @@ bool tTVPBaseBitmap::CopyRect(tjs_int x, tjs_int y, const iTVPBaseBitmap *ref,
        plane == (TVP_BB_COPY_MASK | TVP_BB_COPY_MAIN) &&
        (bool)!Is32BPP() == (bool)!ref->Is32BPP()) {
         // entire area of both bitmaps
-        AssignTexture(ref->GetTexture());
+        tTVPNativeBaseBitmap::AssignBitmap(*ref);
         return true;
     }
 
@@ -958,7 +1003,7 @@ bool iTVPBaseBitmap::CopyRect(tjs_int x, tjs_int y, const iTVPBaseBitmap *ref,
        plane == (TVP_BB_COPY_MASK | TVP_BB_COPY_MAIN) &&
        (bool)!Is32BPP() == (bool)!ref->Is32BPP()) {
         // entire area of both bitmaps
-        AssignTexture(ref->GetTexture());
+        tTVPNativeBaseBitmap::AssignBitmap(*ref);
         return true;
     }
 
@@ -4783,6 +4828,12 @@ tTVPBaseBitmap::tTVPBaseBitmap(tjs_uint w, tjs_uint h, tjs_uint bpp /*= 32*/) {
         bpp == 8 ? TVPTextureFormat::Gray : TVPTextureFormat::RGBA);
 }
 
+tTVPBaseBitmap::tTVPBaseBitmap(const iTVPBaseBitmap &r) : iTVPBaseBitmap(r) {
+    TVPReplaceTextureForManager(
+        Bitmap, GetRenderManager(),
+        const_cast<iTVPBaseBitmap &>(r).GetRenderManager());
+}
+
 bool tTVPBaseBitmap::AssignBitmap(tTVPBitmap *bmp) {
     return AssignTexture(TVPGetSoftwareRenderManager()->CreateTexture2D(bmp));
 }
@@ -4801,6 +4852,12 @@ tTVPBaseTexture::tTVPBaseTexture(tjs_uint w, tjs_uint h,
     Bitmap = TVPGetRenderManager()->CreateTexture2D(
         nullptr, 0, w, h,
         bpp == 8 ? TVPTextureFormat::Gray : TVPTextureFormat::RGBA);
+}
+
+tTVPBaseTexture::tTVPBaseTexture(const iTVPBaseBitmap &r) : iTVPBaseBitmap(r) {
+    TVPReplaceTextureForManager(
+        Bitmap, GetRenderManager(),
+        const_cast<iTVPBaseBitmap &>(r).GetRenderManager());
 }
 
 bool tTVPBaseTexture::AssignBitmap(tTVPBitmap *bmp) {

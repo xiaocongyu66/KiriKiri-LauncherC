@@ -3,6 +3,8 @@
 //
 
 #include <algorithm>
+#include <cctype>
+#include <cstring>
 #include <spdlog/spdlog.h>
 
 #include "PSBMedia.h"
@@ -58,11 +60,19 @@ namespace PSB {
 
         bool ShouldTracePsbResourceKey(const std::string &key) {
             const auto slash = key.find('/');
-            const std::string archive =
+            std::string archive =
                 slash == std::string::npos ? key : key.substr(0, slash);
-            return archive == "main.psb" || archive == "title.psb" ||
-                archive == "chapter.psb" || archive == "autoskip.psb" ||
-                archive.find(".mtn") != std::string::npos;
+            std::transform(archive.begin(), archive.end(), archive.begin(),
+                           [](unsigned char ch) {
+                               return static_cast<char>(std::tolower(ch));
+                           });
+            const auto hasExtension = [&](const char *extension) {
+                const size_t len = std::strlen(extension);
+                return archive.size() >= len &&
+                    archive.compare(archive.size() - len, len, extension) == 0;
+            };
+            return hasExtension(".psb") || hasExtension(".mtn") ||
+                hasExtension(".pimg") || hasExtension(".scn");
         }
 
         uint16_t ReadLE16(const uint8_t *src) {

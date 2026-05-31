@@ -118,24 +118,37 @@ void TVPInstallKrkrHook() {
     std::call_once(g_hook_once, []() {
         HookLog("install begin");
         size_t symbol_size = 0;
-        const char *symbol = "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKjPPS1_i";
-        void *sym = DobbySymbolResolverEx(
-            "libkrkr2.so",
-            symbol,
-            DOBBY_SYMBOL_RESOLVER_DEFAULT,
-            &symbol_size);
-        if(!sym) {
-            sym = DobbySymbolResolverEx(
-                nullptr,
-                symbol,
-                DOBBY_SYMBOL_RESOLVER_DEFAULT,
-                &symbol_size);
+        const char *resolved_symbol = nullptr;
+        const char *symbols[] = {
+            // tjs_int32 is std::int32_t, which mangles as int on Android/arm64.
+            "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKiPPS1_i",
+            // Keep the previous unsigned-int form for old cached builds.
+            "_ZN3TJS20tTJSInterCodeContext12CallFunctionEPNS_11tTJSVariantEPKjPPS1_i",
+        };
+
+        void *sym = nullptr;
+        for(const char *symbol : symbols) {
+            sym = DobbySymbolResolverEx("libkrkr2.so", symbol,
+                                        DOBBY_SYMBOL_RESOLVER_DEFAULT,
+                                        &symbol_size);
+            if(!sym) {
+                sym = DobbySymbolResolverEx(nullptr, symbol,
+                                            DOBBY_SYMBOL_RESOLVER_DEFAULT,
+                                            &symbol_size);
+            }
+            if(sym) {
+                resolved_symbol = symbol;
+                break;
+            }
+            HookLog("resolver failed for CallFunction mangled symbol: %s",
+                    symbol);
         }
         if(!sym) {
-            HookLog("resolver failed for CallFunction mangled symbol: %s", symbol);
+            HookLog("resolver failed for all CallFunction mangled symbols");
             return;
         }
-        HookLog("resolver ok sym=%p size=%zu symbol=%s", sym, symbol_size, symbol);
+        HookLog("resolver ok sym=%p size=%zu symbol=%s", sym, symbol_size,
+                resolved_symbol);
         int rc = DobbyHook(sym, (void *)fake_CallFunction,
                            (void **)&orig_CallFunction);
         if(rc == 0 && orig_CallFunction) {
