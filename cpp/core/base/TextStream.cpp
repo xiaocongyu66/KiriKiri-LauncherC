@@ -136,12 +136,13 @@ public:
         std::uint8_t bomSize = 0;
         std::string encoding = checkTextEncoding(raw.data(), size, bomSize);
         raw.erase(raw.begin(), raw.begin() + bomSize);
+        const size_t rawSize = raw.size();
 
         if(encoding.empty())
             encoding = G_DefaultReadEncoding; // 默认回退
 
         if(encoding == "ASCII") {
-            _buffer.assign(raw.data(), raw.data() + size);
+            _buffer.assign(raw.data(), raw.data() + rawSize);
             return;
         }
 
@@ -149,7 +150,7 @@ public:
             try {
                 _buffer = boost::locale::conv::utf_to_utf<char16_t>(
                     reinterpret_cast<const char *>(raw.data()),
-                    reinterpret_cast<const char *>(raw.data() + size),
+                    reinterpret_cast<const char *>(raw.data() + rawSize),
                     boost::locale::conv::stop);
                 return;
             } catch(const std::exception &e) {
@@ -186,7 +187,7 @@ public:
            encoding == "UTF-32BE") {
             _buffer = boost::locale::conv::utf_to_utf<char16_t>(
                 reinterpret_cast<const char32_t *>(raw.data()),
-                reinterpret_cast<const char32_t *>(raw.data() + size));
+                reinterpret_cast<const char32_t *>(raw.data() + rawSize));
             return;
         }
 

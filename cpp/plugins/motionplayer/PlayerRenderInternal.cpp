@@ -182,7 +182,7 @@ namespace motion::internal::render_detail {
     ttstr
     resolveMotionSourcePath(const motion::detail::MotionSnapshot &snapshot,
                             const std::string &source) {
-        if(source.empty() || isMotionCrossReference(source)) {
+        if(source.empty() || isNonImageSourceReference(source)) {
             return {};
         }
 

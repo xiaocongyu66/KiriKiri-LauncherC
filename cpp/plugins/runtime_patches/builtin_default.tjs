@@ -35,13 +35,15 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
     }
 
     if(typeof global.AppendDataConfig == "undefined") {
-        class __krkr2_AppendDataConfig {
-            function __krkr2_AppendDataConfig(a=void, b=void, c=void) {}
-            function load(a=void, b=void, c=void) { return false; }
-            function save(a=void, b=void, c=void) { return false; }
-            function add(a=void, b=void, c=void) { return void; }
-            function clear() { return void; }
-        }
-        global.AppendDataConfig = __krkr2_AppendDataConfig;
+        var __krkr2_appendDataConfig = %[
+            "min" => void,
+            "max" => void,
+            "archive" => void
+        ];
+        __krkr2_appendDataConfig.load = function(a=void, b=void, c=void) { return false; };
+        __krkr2_appendDataConfig.save = function(a=void, b=void, c=void) { return false; };
+        __krkr2_appendDataConfig.add = function(a=void, b=void, c=void) { return void; };
+        __krkr2_appendDataConfig.clear = function() { return void; };
+        global.AppendDataConfig = __krkr2_appendDataConfig;
     }
 }

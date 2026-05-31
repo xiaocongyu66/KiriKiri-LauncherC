@@ -359,6 +359,10 @@ namespace motion::detail {
             }
         }
 
+        bool isLayoutSourceReference(const std::string &value) {
+            return value == "layout";
+        }
+
         double timelineControlEaseWeightLike_0x66FC5C(double easing) {
             if(easing > 0.0) {
                 return easing + 1.0;
@@ -933,6 +937,9 @@ namespace motion::detail {
             for(const auto &[key, child] : *dic) {
                 const auto loweredKey = lowercase(key);
                 if(const auto text = psbString(child)) {
+                    if(isLayoutSourceReference(*text)) {
+                        continue;
+                    }
                     if(looksLikeStoragePath(*text) ||
                        loweredKey.find("source") != std::string::npos ||
                        loweredKey == "path" || loweredKey == "file" ||

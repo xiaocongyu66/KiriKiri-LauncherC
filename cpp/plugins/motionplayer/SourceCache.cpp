@@ -195,7 +195,8 @@ namespace {
     ttstr resolveMotionSourcePathLike_0x6948E8(
         const motion::detail::MotionSnapshot &snapshot,
         const std::string &source) {
-        if(source.empty() || motion::internal::isMotionCrossReference(source)) {
+        if(source.empty() ||
+           motion::internal::isNonImageSourceReference(source)) {
             return {};
         }
 

@@ -48,6 +48,14 @@ namespace motion {
             return src.rfind("motion/", 0) == 0;
         }
 
+        inline bool isLayoutSourceReference(const std::string &src) {
+            return src == "layout";
+        }
+
+        inline bool isNonImageSourceReference(const std::string &src) {
+            return isMotionCrossReference(src) || isLayoutSourceReference(src);
+        }
+
         inline bool looksLikeEmbeddedImageHeader(
             const std::vector<std::uint8_t> &data) {
             if(data.size() >= 8 && data[0] == 0x89 && data[1] == 0x50 &&
@@ -935,7 +943,7 @@ namespace motion {
                  0x1849u) != 0;
             if(sourceGateEnabled) {
                 if(const auto src = psbDictionaryString(content, "src");
-                   !src.empty()) {
+                   !src.empty() && !isLayoutSourceReference(src)) {
                     state.src = src;
                 } else if(auto srcList = psbDictionaryList(content, "src")) {
                     for(size_t si = 0; si < srcList->size(); ++si) {
@@ -1681,7 +1689,7 @@ namespace motion {
                         *outResourceTop = top;
                     }
                 };
-            if(source.empty() || isMotionCrossReference(source)) {
+            if(source.empty() || isNonImageSourceReference(source)) {
                 return nullptr;
             }
 

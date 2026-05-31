@@ -67,6 +67,10 @@ namespace motion::detail {
             return std::dynamic_pointer_cast<PSB::PSBList>((*dic)[key]);
         }
 
+        bool nodeTreeIsLayoutSource(const std::string &src) {
+            return src == "layout";
+        }
+
         // Check if any frame in frameList has a non-empty "src" in its
         // "content".
         bool
@@ -85,7 +89,8 @@ namespace motion::detail {
                     continue;
                 auto srcVal = std::dynamic_pointer_cast<PSB::PSBString>(
                     (*content)["src"]);
-                if(srcVal && !srcVal->value.empty())
+                if(srcVal && !srcVal->value.empty() &&
+                   !nodeTreeIsLayoutSource(srcVal->value))
                     return true;
             }
             return false;

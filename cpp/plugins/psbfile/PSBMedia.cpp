@@ -622,6 +622,7 @@ namespace PSB {
 
         struct LayerFrameInfo {
             std::string src;
+            bool hasSrc = false;
             float ox = 0, oy = 0, cx = 0, cy = 0;
         };
 
@@ -653,12 +654,11 @@ namespace PSB {
                 return false;
             }
             auto srcStr = std::dynamic_pointer_cast<PSBString>((*content)["src"]);
-            if(!srcStr || srcStr->value.empty()) {
-                if(logger) logger->info("  ExtractFrameInfo[{}]: no src string in content", debugLabel);
-                return false;
+            if(srcStr && !srcStr->value.empty()) {
+                out.src = srcStr->value;
+                out.hasSrc = true;
             }
 
-            out.src = srcStr->value;
             out.ox = GetPSBFloat((*content)["ox"], 0);
             out.oy = GetPSBFloat((*content)["oy"], 0);
             auto coordList = std::dynamic_pointer_cast<PSBList>((*content)["coord"]);
@@ -678,7 +678,132 @@ namespace PSB {
             std::vector<PSBMedia::LayerPosition> &positions,
             std::vector<PSBMedia::ButtonBoundInfo> *buttons,
             const std::shared_ptr<spdlog::logger> &logger,
-            int depth = 0) {
+            int depth = 0);
+
+        void CollectLayerNode(
+            const std::shared_ptr<PSBDictionary> &layerDict,
+            const std::string &sceneName,
+            const std::string &motionName,
+            const std::string &parentLabelPath,
+            int layerIndex,
+            float parentX, float parentY,
+            const std::shared_ptr<PSBDictionary> &objectTree,
+            std::vector<PSBMedia::LayerPosition> &positions,
+            std::vector<PSBMedia::ButtonBoundInfo> *buttons,
+            const std::shared_ptr<spdlog::logger> &logger,
+            int depth) {
+            if(!layerDict || depth > 8) return;
+
+            auto labelVal = std::dynamic_pointer_cast<PSBString>((*layerDict)["label"]);
+            std::string label = labelVal ? labelVal->value : ("layer_" + std::to_string(layerIndex));
+            std::string labelPath =
+                parentLabelPath.empty() ? label : parentLabelPath + "/" + label;
+
+            LayerFrameInfo fi;
+            const bool hasFrameInfo = ExtractFrameInfo(
+                layerDict, fi, logger, sceneName + "/" + motionName + "/" + labelPath);
+            float finalX = parentX;
+            float finalY = parentY;
+            if(hasFrameInfo) {
+                finalX += fi.ox + fi.cx;
+                finalY += fi.oy + fi.cy;
+            }
+
+            if(hasFrameInfo && fi.hasSrc && fi.src.substr(0, 7) == "motion/") {
+                std::string ref = fi.src.substr(7);
+                auto slash = ref.find('/');
+                if(slash != std::string::npos && objectTree) {
+                    std::string objName = ref.substr(0, slash);
+                    std::string subMotion = ref.substr(slash + 1);
+                    auto objDict = std::dynamic_pointer_cast<PSBDictionary>((*objectTree)[objName]);
+                    if(objDict) {
+                        auto objMotionDict = std::dynamic_pointer_cast<PSBDictionary>((*objDict)["motion"]);
+                        if(objMotionDict) {
+                            if(logger) {
+                                logger->info("follow motion ref: {} → {}/{} offset=({},{})",
+                                    fi.src, objName, subMotion, finalX, finalY);
+                            }
+                            size_t posBefore = positions.size();
+                            CollectLayersFromMotion(objMotionDict, subMotion, sceneName,
+                                finalX, finalY, objectTree, positions, buttons, logger, depth + 1);
+
+                            if(buttons) {
+                                std::string newImageKey;
+                                if(positions.size() > posBefore) {
+                                    newImageKey = positions[posBefore].srcPath;
+                                }
+                                bool found = false;
+                                for(auto &existing : *buttons) {
+                                    if(existing.buttonName == objName && existing.sceneName == sceneName) {
+                                        if(existing.imageKey.empty() && !newImageKey.empty()) {
+                                            existing.imageKey = newImageKey;
+                                        }
+                                        found = true;
+                                        break;
+                                    }
+                                }
+                                if(!found) {
+                                    PSBMedia::ButtonBoundInfo btn;
+                                    btn.sceneName = sceneName;
+                                    btn.buttonName = objName;
+                                    btn.imageKey = newImageKey;
+                                    btn.left = finalX;
+                                    btn.top = finalY;
+                                    buttons->push_back(std::move(btn));
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if(hasFrameInfo && fi.hasSrc && fi.src.substr(0, 4) == "src/") {
+                std::string resourcePath = MapSrcToResourcePath(fi.src);
+                PSBMedia::LayerPosition pos;
+                pos.sceneName = sceneName;
+                pos.layerName = sceneName + "/" + labelPath;
+                pos.srcPath = resourcePath;
+                pos.left = finalX;
+                pos.top = finalY;
+                pos.opacity = 255;
+                pos.visible = true;
+
+                if(logger) {
+                    logger->info("layer: [{}] src={} → res={} final=({},{}) depth={}",
+                        pos.layerName, fi.src, resourcePath, finalX, finalY, depth);
+                }
+
+                positions.push_back(std::move(pos));
+            } else if(hasFrameInfo && fi.hasSrc && fi.src == "layout") {
+                if(logger) {
+                    logger->info("expand layout: [{}] pos=({},{}) depth={}",
+                        labelPath, finalX, finalY, depth);
+                }
+            } else if(hasFrameInfo && fi.hasSrc) {
+                if(logger) {
+                    logger->info("  unhandled src type: [{}] src={} pos=({},{}) depth={}",
+                        labelPath, fi.src, finalX, finalY, depth);
+                }
+            }
+
+            auto children = std::dynamic_pointer_cast<PSBList>((*layerDict)["children"]);
+            if(children) {
+                for(int i = 0; i < static_cast<int>(children->size()); i++) {
+                    auto childDict = std::dynamic_pointer_cast<PSBDictionary>((*children)[i]);
+                    CollectLayerNode(childDict, sceneName, motionName, labelPath, i,
+                        finalX, finalY, objectTree, positions, buttons, logger, depth + 1);
+                }
+            }
+        }
+
+        void CollectLayersFromMotion(
+            const std::shared_ptr<PSBDictionary> &motionDict,
+            const std::string &motionName,
+            const std::string &sceneName,
+            float parentX, float parentY,
+            const std::shared_ptr<PSBDictionary> &objectTree,
+            std::vector<PSBMedia::LayerPosition> &positions,
+            std::vector<PSBMedia::ButtonBoundInfo> *buttons,
+            const std::shared_ptr<spdlog::logger> &logger,
+            int depth) {
             if(depth > 8) return;
 
             auto targetMotion = std::dynamic_pointer_cast<PSBDictionary>((*motionDict)[motionName]);
@@ -702,86 +827,8 @@ namespace PSB {
 
             for(int i = 0; i < static_cast<int>(layerList->size()); i++) {
                 auto layerDict = std::dynamic_pointer_cast<PSBDictionary>((*layerList)[i]);
-                if(!layerDict) continue;
-
-                auto labelVal = std::dynamic_pointer_cast<PSBString>((*layerDict)["label"]);
-                std::string label = labelVal ? labelVal->value : ("layer_" + std::to_string(i));
-
-                LayerFrameInfo fi;
-                if(!ExtractFrameInfo(layerDict, fi, logger, sceneName + "/" + motionName + "/" + label)) continue;
-
-                float finalX = parentX + fi.ox + fi.cx;
-                float finalY = parentY + fi.oy + fi.cy;
-
-                if(fi.src.substr(0, 7) == "motion/") {
-                    std::string ref = fi.src.substr(7);
-                    auto slash = ref.find('/');
-                    if(slash != std::string::npos && objectTree) {
-                        std::string objName = ref.substr(0, slash);
-                        std::string subMotion = ref.substr(slash + 1);
-                        auto objDict = std::dynamic_pointer_cast<PSBDictionary>((*objectTree)[objName]);
-                        if(objDict) {
-                            auto objMotionDict = std::dynamic_pointer_cast<PSBDictionary>((*objDict)["motion"]);
-                            if(objMotionDict) {
-                                if(logger) {
-                                    logger->info("follow motion ref: {} → {}/{} offset=({},{})",
-                                        fi.src, objName, subMotion, finalX, finalY);
-                                }
-                                size_t posBefore = positions.size();
-                                CollectLayersFromMotion(objMotionDict, subMotion, sceneName,
-                                    finalX, finalY, objectTree, positions, buttons, logger, depth + 1);
-
-                                if(buttons) {
-                                    std::string newImageKey;
-                                    if(positions.size() > posBefore) {
-                                        newImageKey = positions[posBefore].srcPath;
-                                    }
-                                    bool found = false;
-                                    for(auto &existing : *buttons) {
-                                        if(existing.buttonName == objName && existing.sceneName == sceneName) {
-                                            if(existing.imageKey.empty() && !newImageKey.empty()) {
-                                                existing.imageKey = newImageKey;
-                                            }
-                                            found = true;
-                                            break;
-                                        }
-                                    }
-                                    if(!found) {
-                                        PSBMedia::ButtonBoundInfo btn;
-                                        btn.sceneName = sceneName;
-                                        btn.buttonName = objName;
-                                        btn.imageKey = newImageKey;
-                                        btn.left = finalX;
-                                        btn.top = finalY;
-                                        buttons->push_back(std::move(btn));
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else if(fi.src.substr(0, 4) == "src/") {
-                    std::string resourcePath = MapSrcToResourcePath(fi.src);
-                    PSBMedia::LayerPosition pos;
-                    pos.sceneName = sceneName;
-                    pos.layerName = sceneName + "/" + label;
-                    pos.srcPath = resourcePath;
-                    pos.left = finalX;
-                    pos.top = finalY;
-                    pos.opacity = 255;
-                    pos.visible = true;
-
-                    if(logger) {
-                        logger->info("layer: [{}] src={} → res={} final=({},{}) depth={}",
-                            pos.layerName, fi.src, resourcePath, finalX, finalY, depth);
-                    }
-
-                    positions.push_back(std::move(pos));
-                } else {
-                    if(logger) {
-                        logger->info("  unhandled src type: [{}] src={} pos=({},{}) depth={}",
-                            label, fi.src, finalX, finalY, depth);
-                    }
-                }
+                CollectLayerNode(layerDict, sceneName, motionName, "", i,
+                    parentX, parentY, objectTree, positions, buttons, logger, depth);
             }
         }
 
@@ -799,13 +846,17 @@ namespace PSB {
                 auto motionDict = std::dynamic_pointer_cast<PSBDictionary>((*sceneDict)["motion"]);
                 if(!motionDict) continue;
 
-                std::string motionName = "normal";
-                if(!std::dynamic_pointer_cast<PSBDictionary>((*motionDict)[motionName])) {
-                    motionName = "show";
+                std::string motionName;
+                for(const char *candidate : { "normal", "show", "title", "bt" }) {
+                    if(std::dynamic_pointer_cast<PSBDictionary>((*motionDict)[candidate])) {
+                        motionName = candidate;
+                        break;
+                    }
                 }
-                if(!std::dynamic_pointer_cast<PSBDictionary>((*motionDict)[motionName])) {
-                    motionName = "bt";
+                if(motionName.empty() && motionDict->begin() != motionDict->end()) {
+                    motionName = motionDict->begin()->first;
                 }
+                if(motionName.empty()) continue;
 
                 CollectLayersFromMotion(motionDict, motionName, sceneName,
                     0, 0, objectTree, positions, &buttons, logger);
