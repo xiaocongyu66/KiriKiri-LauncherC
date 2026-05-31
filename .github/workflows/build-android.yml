@@ -38,7 +38,8 @@ jobs:
           LIVE2D_SDK_TOKEN: ${{ secrets.LIVE2D_SDK_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          SDK_FETCH_TOKEN="${LIVE2D_SDK_TOKEN:-${GH_TOKEN:-}}"
+          RAW_SDK_FETCH_TOKEN="${LIVE2D_SDK_TOKEN:-${GH_TOKEN:-}}"
+          SDK_FETCH_TOKEN="$(printf '%s' "$RAW_SDK_FETCH_TOKEN" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')"
           if [ -z "$SDK_FETCH_TOKEN" ]; then
             echo "::error::Set LIVE2D_SDK_TOKEN or GH_TOKEN to a PAT that can read the private Live2D SDK submodule. The default github.token cannot read sibling private repositories."
             exit 1
