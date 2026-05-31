@@ -200,7 +200,7 @@ KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器
 
 项目会按兼容需求引入第三方组件。主项目代码仍以仓库根目录的 [LICENSE](./LICENSE) 为准；第三方模块、移植代码和专有 SDK 组件遵循各自许可证，相关文本会保留在源码目录、`licenses` 目录或 overlay port 中。
 
-* **Live2D Cubism**: `cpp/plugins/live2d` 已导入 KrKr2-Next 的 `krkrlive2d.cpp` / `krkrgles.cpp` 桥接代码，并放入官方 Cubism Native Framework 5 r.5 的 Framework 源码。Cubism Core 头文件和静态库不提交到仓库；需要构建时通过 `KRKR2_LIVE2D_CORE_DIR` 指向本机 SDK 的 `Core` 目录，或把 SDK Core 目录作为未跟踪文件放到 `cpp/plugins/live2d/cubism/Core`。CMake 开关为 `KRKR2_ENABLE_LIVE2D`，默认开启检查；Android 构建只有在存在 `include/Live2DCubismCore.h` 与 `lib/android/<ABI>/libLive2DCubismCore.a` 时才会真正编译插件，否则会自动跳过，不影响普通构建。KrKr2-Next 桥接代码遵循 GPL-3.0-or-later，许可证副本保存在 `cpp/plugins/live2d/licenses/KrKr2-Next-GPL-3.0-or-later.LICENSE`；Cubism Framework 相关许可证和 notice 也保存在 `cpp/plugins/live2d/licenses`。
+* **Live2D Cubism**: `cpp/plugins/live2d` 已导入 KrKr2-Next 的 `krkrlive2d.cpp` / `krkrgles.cpp` 桥接代码，并放入官方 Cubism Native Framework 5 r.5 的 Framework 源码。Cubism Core 头文件和静态库不提交到仓库；需要构建时通过私有 submodule `third_party/live2d-sdk/Core` 提供，或通过 `KRKR2_LIVE2D_CORE_DIR` 显式指向本机 SDK 的 `Core` 目录。CMake 开关为 `KRKR2_ENABLE_LIVE2D`，默认开启检查；Android 构建只有在存在 `include/Live2DCubismCore.h` 与 `lib/android/<ABI>/libLive2DCubismCore.a` 时才会真正编译插件，否则会自动跳过，不影响普通构建。KrKr2-Next 桥接代码遵循 GPL-3.0-or-later，许可证副本保存在 `cpp/plugins/live2d/licenses/KrKr2-Next-GPL-3.0-or-later.LICENSE`；Cubism Framework 相关许可证和 notice 也保存在 `cpp/plugins/live2d/licenses`。私有 SDK submodule 流程见 [docs/live2d-private-sdk.md](docs/live2d-private-sdk.md)。
 * **oneTBB**: 用于原生层文件扫描和短任务并发调度，尽量把 I/O 密集任务移出主线程，同时保留跨平台构建边界。
 * **mimalloc**: 用于原生内存分配，降低多线程场景下频繁分配释放带来的锁竞争。
 * **libarchive / zlib-ng / minizip**: 用于归档读取、压缩格式兼容和 ZIP 相关处理；overlay port 中保留对应版本和许可证信息。

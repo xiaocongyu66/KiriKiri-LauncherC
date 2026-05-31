@@ -30,3 +30,6 @@ lib/android/<ABI>/libLive2DCubismCore.a
 header and library are present for the active ABI. This lets the source import
 stay in-tree without committing proprietary Core files or breaking existing
 builds.
+
+For the private SDK submodule workflow used by CI or release builds, see
+`../../../docs/live2d-private-sdk.md`.
