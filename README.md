@@ -1,6 +1,6 @@
 # KiriKiri LauncherC
 
-**默认语言**: 中文
+**语言 / Language**: 中文 | [English](README_EN.md)
 
 ## 项目介绍
 
