@@ -1,4 +1,6 @@
 #include "ncbind.hpp"
+#include <algorithm>
+#include <string>
 #include <vector>
 
 #define NCB_MODULE_NAME TJS_W("multiimage.dll")
@@ -11,6 +13,260 @@ struct MultiImageEntry {
     double zoomY;
     int time;
 };
+
+namespace {
+
+using TjsString = std::basic_string<tjs_char>;
+
+static bool IsSpace(tjs_char ch) {
+    return ch == TJS_W(' ') || ch == TJS_W('\t') || ch == TJS_W('\r') ||
+           ch == TJS_W('\n');
+}
+
+static TjsString Trim(const TjsString &src) {
+    size_t first = 0;
+    while(first < src.size() && IsSpace(src[first]))
+        ++first;
+
+    size_t last = src.size();
+    while(last > first && IsSpace(src[last - 1]))
+        --last;
+
+    return src.substr(first, last - first);
+}
+
+static std::vector<TjsString> SplitImageMultiLine(const TjsString &line) {
+    std::vector<TjsString> tokens;
+    TjsString current;
+    bool sawTab = false;
+
+    for(tjs_char ch : line) {
+        if(ch == TJS_W('\t')) {
+            sawTab = true;
+            tokens.push_back(Trim(current));
+            current.clear();
+        } else {
+            current.push_back(ch);
+        }
+    }
+    tokens.push_back(Trim(current));
+
+    if(sawTab)
+        return tokens;
+
+    tokens.clear();
+    current.clear();
+    for(tjs_char ch : line) {
+        if(IsSpace(ch)) {
+            if(!current.empty()) {
+                tokens.push_back(current);
+                current.clear();
+            }
+        } else {
+            current.push_back(ch);
+        }
+    }
+    if(!current.empty())
+        tokens.push_back(current);
+    return tokens;
+}
+
+static bool ParseScalePrefix(const TjsString &token, tjs_real &scale,
+                             TjsString &file) {
+    const size_t colon = token.find(TJS_W(':'));
+    if(colon == TjsString::npos || colon == 0)
+        return false;
+
+    bool numeric = true;
+    bool hasDigit = false;
+    bool hasDot = false;
+    for(size_t i = 0; i < colon; ++i) {
+        const tjs_char ch = token[i];
+        if(ch >= TJS_W('0') && ch <= TJS_W('9')) {
+            hasDigit = true;
+            continue;
+        }
+        if(ch == TJS_W('.') && !hasDot) {
+            hasDot = true;
+            continue;
+        }
+        numeric = false;
+        break;
+    }
+
+    if(!numeric || !hasDigit)
+        return false;
+
+    tjs_real value = 0;
+    tjs_real place = 0.1;
+    bool fraction = false;
+    for(size_t i = 0; i < colon; ++i) {
+        const tjs_char ch = token[i];
+        if(ch == TJS_W('.')) {
+            fraction = true;
+            continue;
+        }
+        const int digit = static_cast<int>(ch - TJS_W('0'));
+        if(fraction) {
+            value += digit * place;
+            place *= 0.1;
+        } else {
+            value = value * 10 + digit;
+        }
+    }
+
+    TjsString rest = Trim(token.substr(colon + 1));
+    if(rest.empty())
+        return false;
+
+    scale = value;
+    file = rest;
+    return true;
+}
+
+static tTJSVariant MakeImageMultiEntry(const TjsString &token) {
+    tjs_real scale = 100;
+    TjsString file = token;
+    ParseScalePrefix(token, scale, file);
+
+    iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+    tTJSVariant fileVar(ttstr(file.c_str(), file.size()));
+    tTJSVariant scaleVar(scale);
+    dict->PropSet(TJS_MEMBERENSURE, TJS_W("file"), nullptr, &fileVar, dict);
+    dict->PropSet(TJS_MEMBERENSURE, TJS_W("scale"), nullptr, &scaleVar, dict);
+
+    tTJSVariant ret(dict, dict);
+    dict->Release();
+    return ret;
+}
+
+static tjs_error ImagemultiLoadInfo(tTJSVariant *result, tjs_int numparams,
+                                    tTJSVariant **param,
+                                    iTJSDispatch2 *objthis) {
+    if(!result)
+        return TJS_S_OK;
+
+    iTJSDispatch2 *groups = TJSCreateArrayObject();
+    try {
+        if(numparams < 1 || !param || !param[0] || param[0]->Type() == tvtVoid) {
+            *result = tTJSVariant(groups, groups);
+            groups->Release();
+            return TJS_S_OK;
+        }
+
+        ttstr text(*param[0]);
+        TjsString content(text.c_str(), text.length());
+        size_t lineStart = 0;
+        tjs_int groupIndex = 0;
+
+        while(lineStart <= content.size()) {
+            size_t lineEnd = lineStart;
+            while(lineEnd < content.size() && content[lineEnd] != TJS_W('\r') &&
+                  content[lineEnd] != TJS_W('\n')) {
+                ++lineEnd;
+            }
+
+            TjsString line = Trim(content.substr(lineStart, lineEnd - lineStart));
+            if(!line.empty() && line[0] == 0xfeff)
+                line = Trim(line.substr(1));
+
+            if(!line.empty() && line[0] != TJS_W('#')) {
+                std::vector<TjsString> tokens = SplitImageMultiLine(line);
+                tokens.erase(std::remove_if(tokens.begin(), tokens.end(),
+                                            [](const TjsString &v) {
+                                                return Trim(v).empty();
+                                            }),
+                             tokens.end());
+
+                if(tokens.size() >= 2) {
+                    iTJSDispatch2 *group = TJSCreateArrayObject();
+                    try {
+                        tjs_int itemIndex = 0;
+                        for(const auto &token : tokens) {
+                            tTJSVariant item = MakeImageMultiEntry(token);
+                            group->PropSetByNum(TJS_MEMBERENSURE, itemIndex++,
+                                                &item, group);
+                        }
+                        tTJSVariant groupVar(group, group);
+                        groups->PropSetByNum(TJS_MEMBERENSURE, groupIndex++,
+                                             &groupVar, groups);
+                        group->Release();
+                    } catch(...) {
+                        group->Release();
+                        throw;
+                    }
+                }
+            }
+
+            if(lineEnd >= content.size())
+                break;
+            lineStart = lineEnd + 1;
+            if(lineEnd + 1 < content.size() && content[lineEnd] == TJS_W('\r') &&
+               content[lineEnd + 1] == TJS_W('\n')) {
+                lineStart = lineEnd + 2;
+            }
+        }
+
+        *result = tTJSVariant(groups, groups);
+        groups->Release();
+        return TJS_S_OK;
+    } catch(...) {
+        groups->Release();
+        throw;
+    }
+}
+
+static void SetObjectMethod(iTJSDispatch2 *object, const tjs_char *name,
+                            tTJSNativeClassMethodCallback callback) {
+    if(!object || !name || !callback)
+        return;
+
+    tTJSVariant existing;
+    if(TJS_SUCCEEDED(object->PropGet(0, name, nullptr, &existing, object)) &&
+       existing.Type() == tvtObject) {
+        iTJSDispatch2 *existingObject = existing.AsObjectNoAddRef();
+        if(existingObject &&
+           existingObject->IsInstanceOf(0, nullptr, nullptr, TJS_W("Function"),
+                                        existingObject) == TJS_S_TRUE) {
+            return;
+        }
+    }
+
+    iTJSDispatch2 *method = TJSCreateNativeClassMethod(callback);
+    if(!method)
+        return;
+
+    tTJSVariant value(method, method);
+    object->PropSet(TJS_MEMBERENSURE, name, nullptr, &value, object);
+    method->Release();
+}
+
+static void RegisterImageMultiObject() {
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(!global)
+        return;
+
+    iTJSDispatch2 *imagemulti = nullptr;
+    tTJSVariant existing;
+    if(TJS_SUCCEEDED(global->PropGet(0, TJS_W("imagemulti"), nullptr,
+                                     &existing, global)) &&
+       existing.Type() == tvtObject) {
+        imagemulti = existing.AsObject();
+    }
+
+    if(!imagemulti) {
+        imagemulti = TJSCreateDictionaryObject();
+        tTJSVariant value(imagemulti, imagemulti);
+        global->PropSet(TJS_MEMBERENSURE, TJS_W("imagemulti"), nullptr,
+                        &value, global);
+    }
+
+    SetObjectMethod(imagemulti, TJS_W("loadInfo"), ImagemultiLoadInfo);
+    imagemulti->Release();
+    global->Release();
+}
+
+} // namespace
 
 // MultiImage Class Definition
 class MultiImage {
@@ -238,3 +494,5 @@ NCB_ATTACH_CLASS(LayerExMulti, Layer)
     RawCallback("multiAffineCopy", &LayerExMulti::multiAffineCopy, 0);
     RawCallback("operateMultiAffine", &LayerExMulti::operateMultiAffine, 0);
 }
+
+NCB_POST_REGIST_CALLBACK(RegisterImageMultiObject);

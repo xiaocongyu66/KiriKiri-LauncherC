@@ -32,6 +32,27 @@ jobs:
         with:
           lfs: true
 
+      - name: Init private Live2D SDK submodule
+        shell: bash
+        env:
+          LIVE2D_SDK_TOKEN: ${{ secrets.LIVE2D_SDK_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          SDK_FETCH_TOKEN="${LIVE2D_SDK_TOKEN:-${GH_TOKEN:-$GITHUB_TOKEN}}"
+          if [ -z "$SDK_FETCH_TOKEN" ]; then
+            echo "::error::No token available for the private Live2D SDK submodule."
+            exit 1
+          fi
+
+          git submodule sync --recursive
+          git -c url."https://x-access-token:${SDK_FETCH_TOKEN}@github.com/".insteadOf=https://github.com/ \
+            submodule update --init --depth 1 third_party/live2d-sdk
+
+          test -f third_party/live2d-sdk/Core/include/Live2DCubismCore.h
+          test -f third_party/live2d-sdk/Core/lib/android/arm64-v8a/libLive2DCubismCore.a
+          echo "Live2D Core SDK submodule ready."
+
       - name: Free disk space
         run: |
           echo "Initial disk usage:"
