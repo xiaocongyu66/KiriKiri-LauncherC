@@ -44,11 +44,24 @@ jobs:
             exit 1
           fi
 
+          export SDK_FETCH_TOKEN
+          ASKPASS="$(mktemp)"
+          cat > "$ASKPASS" <<'EOF'
+          #!/bin/sh
+          case "$1" in
+            *Username*) echo x-access-token ;;
+            *Password*) printf '%s\n' "$SDK_FETCH_TOKEN" ;;
+            *) echo ;;
+          esac
+          EOF
+          chmod 700 "$ASKPASS"
+          trap 'rm -f "$ASKPASS"' EXIT
+          export GIT_ASKPASS="$ASKPASS"
+          export GIT_TERMINAL_PROMPT=0
+
           git submodule sync --recursive
-          git -c url."https://x-access-token:${SDK_FETCH_TOKEN}@github.com/".insteadOf=https://github.com/ \
-            ls-remote https://github.com/xiaocongyu66/KiriKiri-Live2D-SDK.git HEAD >/dev/null
-          git -c url."https://x-access-token:${SDK_FETCH_TOKEN}@github.com/".insteadOf=https://github.com/ \
-            submodule update --init --depth 1 third_party/live2d-sdk
+          git ls-remote https://github.com/xiaocongyu66/KiriKiri-Live2D-SDK.git HEAD >/dev/null
+          git submodule update --init --depth 1 third_party/live2d-sdk
 
           test -f third_party/live2d-sdk/Core/include/Live2DCubismCore.h
           test -f third_party/live2d-sdk/Core/lib/android/arm64-v8a/libLive2DCubismCore.a
