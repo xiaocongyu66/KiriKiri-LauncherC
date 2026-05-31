@@ -84,6 +84,8 @@ find_package(WebP CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} INTERFACE WebP::webp WebP::webpdecoder WebP::webpdemux)
 
 find_package(cocos2dx CONFIG REQUIRED)
+include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
+fix_cocos2dx_android_cpufeatures_include()
 target_link_libraries(${PROJECT_NAME} PRIVATE
         cocos2dx::cocos2d
 )

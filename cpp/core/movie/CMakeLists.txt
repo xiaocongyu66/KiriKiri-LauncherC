@@ -57,6 +57,8 @@ find_package(FFMPEG COMPONENTS
         swresample REQUIRED
 )
 find_package(cocos2dx CONFIG REQUIRED)
+include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
+fix_cocos2dx_android_cpufeatures_include()
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${FFMPEG_INCLUDE_DIRS})
 

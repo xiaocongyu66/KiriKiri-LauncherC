@@ -58,6 +58,8 @@ endif()
 
 # cocos2dx
 find_package(cocos2dx CONFIG REQUIRED)
+include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
+fix_cocos2dx_android_cpufeatures_include()
 
 ## Link libraries
 target_link_libraries(${PROJECT_NAME} INTERFACE

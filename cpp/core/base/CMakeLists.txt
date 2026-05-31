@@ -44,6 +44,8 @@ find_package(LibArchive REQUIRED)
 find_package(SDL2 CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(cocos2dx CONFIG REQUIRED)
+include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
+fix_cocos2dx_android_cpufeatures_include()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     uchardet::libuchardet
