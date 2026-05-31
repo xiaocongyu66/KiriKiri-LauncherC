@@ -119,6 +119,78 @@ add_definitions(-D__STDC_CONSTANT_MACROS -DTJS_TEXT_OUT_CRLF)
 target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2PLUGIN_PATH} ${KRKR2PLUGIN_PATH}/simplebinder})
 target_link_libraries(${PROJECT_NAME} PUBLIC krkr2core minizip)
 
+option(KRKR2_ENABLE_LIVE2D "Build the optional Live2D Cubism plugin when its SDK is complete" ON)
+if(KRKR2_ENABLE_LIVE2D)
+    set(KRKR2_LIVE2D_DIR "${CMAKE_CURRENT_SOURCE_DIR}/live2d")
+    set(KRKR2_LIVE2D_CUBISM_DIR "${KRKR2_LIVE2D_DIR}/cubism")
+    set(KRKR2_LIVE2D_CORE_DIR "${KRKR2_LIVE2D_CUBISM_DIR}/Core")
+    set(KRKR2_LIVE2D_FRAMEWORK_DIR "${KRKR2_LIVE2D_CUBISM_DIR}/Framework")
+    set(KRKR2_LIVE2D_MISSING)
+
+    foreach(_live2d_required_file IN ITEMS
+            "${KRKR2_LIVE2D_DIR}/krkrlive2d.cpp"
+            "${KRKR2_LIVE2D_DIR}/krkrgles.cpp"
+            "${KRKR2_LIVE2D_FRAMEWORK_DIR}/CubismFramework.hpp"
+            "${KRKR2_LIVE2D_FRAMEWORK_DIR}/CubismModelSettingJson.hpp"
+            "${KRKR2_LIVE2D_CORE_DIR}/include/Live2DCubismCore.h")
+        if(NOT EXISTS "${_live2d_required_file}")
+            list(APPEND KRKR2_LIVE2D_MISSING "${_live2d_required_file}")
+        endif()
+    endforeach()
+
+    if(ANDROID)
+        set(KRKR2_LIVE2D_ANDROID_ABI "${CMAKE_ANDROID_ARCH_ABI}")
+        if(NOT KRKR2_LIVE2D_ANDROID_ABI)
+            set(KRKR2_LIVE2D_ANDROID_ABI "${ANDROID_ABI}")
+        endif()
+        set(KRKR2_LIVE2D_CORE_LIB
+            "${KRKR2_LIVE2D_CORE_DIR}/lib/android/${KRKR2_LIVE2D_ANDROID_ABI}/libLive2DCubismCore.a")
+        if(NOT EXISTS "${KRKR2_LIVE2D_CORE_LIB}")
+            list(APPEND KRKR2_LIVE2D_MISSING "${KRKR2_LIVE2D_CORE_LIB}")
+        endif()
+    else()
+        list(APPEND KRKR2_LIVE2D_MISSING "Android target")
+    endif()
+
+    if(KRKR2_LIVE2D_MISSING)
+        list(JOIN KRKR2_LIVE2D_MISSING ", " KRKR2_LIVE2D_MISSING_TEXT)
+        message(STATUS "Live2D Cubism plugin disabled; missing: ${KRKR2_LIVE2D_MISSING_TEXT}")
+    else()
+        find_package(PNG REQUIRED)
+        find_package(LibArchive REQUIRED)
+
+        file(GLOB_RECURSE KRKR2_LIVE2D_FRAMEWORK_SOURCES CONFIGURE_DEPENDS
+            "${KRKR2_LIVE2D_FRAMEWORK_DIR}/*.cpp")
+        list(FILTER KRKR2_LIVE2D_FRAMEWORK_SOURCES EXCLUDE REGEX
+            ".*/D3D9/.*|.*/D3D11/.*|.*/Vulkan/.*|.*/Metal/.*|.*/Cocos2d/.*")
+
+        add_library(krkr2_cubism_framework STATIC ${KRKR2_LIVE2D_FRAMEWORK_SOURCES})
+        target_include_directories(krkr2_cubism_framework PUBLIC
+            "${KRKR2_LIVE2D_FRAMEWORK_DIR}"
+            "${KRKR2_LIVE2D_CORE_DIR}/include")
+        target_compile_definitions(krkr2_cubism_framework PUBLIC CSM_TARGET_ANGLE_ES2)
+        target_link_libraries(krkr2_cubism_framework PUBLIC
+            "${KRKR2_LIVE2D_CORE_LIB}"
+            EGL
+            GLESv2)
+
+        target_sources(${PROJECT_NAME} PRIVATE
+            live2d/krkrlive2d.cpp
+            live2d/krkrgles.cpp)
+        target_include_directories(${PROJECT_NAME} PRIVATE
+            "${KRKR2_LIVE2D_DIR}"
+            "${KRKR2_LIVE2D_FRAMEWORK_DIR}"
+            "${KRKR2_LIVE2D_CORE_DIR}/include")
+        target_compile_definitions(${PROJECT_NAME} PUBLIC CSM_TARGET_ANGLE_ES2)
+        target_link_libraries(${PROJECT_NAME} PUBLIC
+            krkr2_cubism_framework
+            LibArchive::LibArchive
+            PNG::PNG
+            EGL
+            GLESv2)
+    endif()
+endif()
+
 add_subdirectory(psdfile)
 add_subdirectory(psbfile)
 add_subdirectory(layerex_draw)
