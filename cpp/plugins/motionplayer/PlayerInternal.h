@@ -1747,41 +1747,43 @@ namespace motion {
                                 const auto &pixelData = texturePixels.empty()
                                     ? textureResIt->second->data
                                     : texturePixels;
-                                if(texturePixels.empty() &&
-                                   looksLikeEmbeddedImageHeader(
-                                       textureResIt->second->data)) {
-                                    continue;
-                                }
-                                const size_t requiredSize =
-                                    static_cast<size_t>(textureWidth) *
-                                    static_cast<size_t>(textureHeight) * 4u;
-                                if(pixelData.size() >= requiredSize) {
-                                    decompressedOut.assign(
-                                        static_cast<size_t>(outWidth) *
-                                            static_cast<size_t>(outHeight) * 4u,
-                                        0);
-                                    const size_t targetStride =
-                                        static_cast<size_t>(outWidth) * 4u;
-                                    for(int y = 0; y < outHeight; ++y) {
-                                        const size_t sourceOffset =
-                                            (static_cast<size_t>(iconTop + y) *
-                                                 static_cast<size_t>(
-                                                     textureWidth) +
-                                             static_cast<size_t>(iconLeft)) *
-                                            4u;
-                                        std::memcpy(decompressedOut.data() +
-                                                        static_cast<size_t>(y) *
-                                                            targetStride,
-                                                    pixelData.data() +
-                                                        sourceOffset,
-                                                    targetStride);
+                                if(!(texturePixels.empty() &&
+                                     looksLikeEmbeddedImageHeader(
+                                         textureResIt->second->data))) {
+                                    const size_t requiredSize =
+                                        static_cast<size_t>(textureWidth) *
+                                        static_cast<size_t>(textureHeight) *
+                                        4u;
+                                    if(pixelData.size() >= requiredSize) {
+                                        decompressedOut.assign(
+                                            static_cast<size_t>(outWidth) *
+                                                static_cast<size_t>(outHeight) *
+                                                4u,
+                                            0);
+                                        const size_t targetStride =
+                                            static_cast<size_t>(outWidth) * 4u;
+                                        for(int y = 0; y < outHeight; ++y) {
+                                            const size_t sourceOffset =
+                                                (static_cast<size_t>(
+                                                     iconTop + y) *
+                                                     static_cast<size_t>(
+                                                         textureWidth) +
+                                                 static_cast<size_t>(iconLeft)) *
+                                                4u;
+                                            std::memcpy(
+                                                decompressedOut.data() +
+                                                    static_cast<size_t>(y) *
+                                                        targetStride,
+                                                pixelData.data() + sourceOffset,
+                                                targetStride);
+                                        }
+                                        if(outDecodedIsBgra) {
+                                            *outDecodedIsBgra =
+                                                !texturePixels.empty() &&
+                                                texturePixelsAreBgra;
+                                        }
+                                        return textureResIt->second.get();
                                     }
-                                    if(outDecodedIsBgra) {
-                                        *outDecodedIsBgra =
-                                            !texturePixels.empty() &&
-                                            texturePixelsAreBgra;
-                                    }
-                                    return textureResIt->second.get();
                                 }
                             }
                         }
