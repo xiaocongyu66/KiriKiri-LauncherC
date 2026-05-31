@@ -37,15 +37,16 @@ jobs:
         env:
           LIVE2D_SDK_TOKEN: ${{ secrets.LIVE2D_SDK_TOKEN }}
           GH_TOKEN: ${{ secrets.GH_TOKEN }}
-          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          SDK_FETCH_TOKEN="${LIVE2D_SDK_TOKEN:-${GH_TOKEN:-$GITHUB_TOKEN}}"
+          SDK_FETCH_TOKEN="${LIVE2D_SDK_TOKEN:-${GH_TOKEN:-}}"
           if [ -z "$SDK_FETCH_TOKEN" ]; then
-            echo "::error::No token available for the private Live2D SDK submodule."
+            echo "::error::Set LIVE2D_SDK_TOKEN or GH_TOKEN to a PAT that can read the private Live2D SDK submodule. The default github.token cannot read sibling private repositories."
             exit 1
           fi
 
           git submodule sync --recursive
+          git -c url."https://x-access-token:${SDK_FETCH_TOKEN}@github.com/".insteadOf=https://github.com/ \
+            ls-remote https://github.com/xiaocongyu66/KiriKiri-Live2D-SDK.git HEAD >/dev/null
           git -c url."https://x-access-token:${SDK_FETCH_TOKEN}@github.com/".insteadOf=https://github.com/ \
             submodule update --init --depth 1 third_party/live2d-sdk
 
