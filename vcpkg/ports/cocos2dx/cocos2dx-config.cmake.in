@@ -120,5 +120,56 @@ endif()
 # Import targets
 include("${CMAKE_CURRENT_LIST_DIR}/cocos2dx-targets.cmake")
 
+if(@ANDROID@)
+    function(_cocos2dx_fix_android_cpufeatures_include target_name)
+        if(NOT TARGET "${target_name}")
+            return()
+        endif()
+
+        get_target_property(_include_dirs "${target_name}" INTERFACE_INCLUDE_DIRECTORIES)
+        if(NOT _include_dirs OR _include_dirs STREQUAL "_include_dirs-NOTFOUND")
+            return()
+        endif()
+
+        set(_fixed_include_dirs)
+        foreach(_include_dir IN LISTS _include_dirs)
+            if(_include_dir MATCHES "/sources/android/cpufeatures/?$")
+                set(_replacement_dir "")
+                foreach(_ndk_root IN ITEMS
+                    "${ANDROID_NDK}"
+                    "${CMAKE_ANDROID_NDK}"
+                    "$ENV{ANDROID_NDK}"
+                    "$ENV{ANDROID_NDK_HOME}"
+                    "$ENV{ANDROID_NDK_ROOT}"
+                )
+                    if(_ndk_root AND EXISTS "${_ndk_root}/sources/android/cpufeatures")
+                        set(_replacement_dir "${_ndk_root}/sources/android/cpufeatures")
+                        break()
+                    endif()
+                endforeach()
+
+                if(_replacement_dir)
+                    list(APPEND _fixed_include_dirs "${_replacement_dir}")
+                endif()
+            else()
+                list(APPEND _fixed_include_dirs "${_include_dir}")
+            endif()
+        endforeach()
+
+        set_target_properties("${target_name}" PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${_fixed_include_dirs}"
+        )
+    endfunction()
+
+    foreach(_cocos2dx_target IN ITEMS
+        cocos2dx::cocos2d
+        cocos2dx::external
+        cocos2dx::ext_cpufeatures
+        cocos2dx::cpp_android_spec
+    )
+        _cocos2dx_fix_android_cpufeatures_include("${_cocos2dx_target}")
+    endforeach()
+endif()
+
 check_required_components(cocos2d)
 check_required_components(external)
