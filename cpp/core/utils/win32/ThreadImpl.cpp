@@ -20,6 +20,10 @@
 #include "MsgIntf.h"
 #include "DebugIntf.h"
 
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/info.h>
+#include <oneapi/tbb/parallel_for.h>
+
 #if defined(CC_TARGET_OS_IPHONE) || defined(__aarch64__)
 #else
 // #define USING_THREADPOOL11
@@ -125,7 +129,11 @@ tjs_int TVPDrawThreadNum = 1;
 static tjs_int GetProcesserNum() {
     static tjs_int processor_num = 0;
     if(!processor_num) {
-        processor_num = std::thread::hardware_concurrency();
+        processor_num = oneapi::tbb::info::default_concurrency();
+        if(processor_num <= 0)
+            processor_num = std::thread::hardware_concurrency();
+        if(processor_num <= 0)
+            processor_num = 1;
         tjs_char tmp[34];
         TVPAddLog(ttstr(TJS_W("Detected CPU core(s): ")) +
                   TJS_tTVInt_to_str(processor_num, tmp));
@@ -149,9 +157,12 @@ void TVPExecThreadTask(int numThreads, TVP_THREAD_TASK_FUNC func) {
         return;
     }
 #if !defined(USING_THREADPOOL11)
-#pragma omp parallel for schedule(static)
-    for(int i = 0; i < numThreads; ++i)
-        func(i);
+    oneapi::tbb::parallel_for(
+        oneapi::tbb::blocked_range<int>(0, numThreads),
+        [func](const oneapi::tbb::blocked_range<int> &range) {
+            for(int i = range.begin(); i != range.end(); ++i)
+                func(i);
+        });
 #else
     static threadpool11::Pool pool;
     std::vector<std::future<void>> futures;

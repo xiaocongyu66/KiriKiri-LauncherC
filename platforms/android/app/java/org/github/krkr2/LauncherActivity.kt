@@ -629,28 +629,7 @@ private fun GameSwitchSetting(title: String, checked: Boolean, onCheckedChange: 
 }
 
 private fun scanGameLaunchFiles(gameDir: String): List<File> {
-    val root = File(gameDir)
-    if (!root.isDirectory) return emptyList()
-    val preferred = listOf("startup.tjs", "start.tjs", "data.xp3")
-    return runCatching {
-        root.walkTopDown()
-            .filter { file ->
-                file.isFile && file.extension.lowercase() in setOf("xp3", "tjs", "ks") &&
-                    file.relativeTo(root).invariantSeparatorsPath.count { it == '/' } <= 3
-            }
-            .sortedWith(compareBy<File> { file ->
-                val name = file.name.lowercase()
-                val idx = preferred.indexOf(name)
-                if (idx >= 0) idx else 100 + when (file.extension.lowercase()) {
-                    "xp3" -> 0
-                    "tjs" -> 1
-                    "ks" -> 2
-                    else -> 9
-                }
-            }.thenBy { it.relativeTo(root).invariantSeparatorsPath.lowercase() })
-            .take(80)
-            .toList()
-    }.getOrDefault(emptyList())
+    return GameScanner.listLaunchCandidates(File(gameDir))
 }
 
 private fun engineCaption(text: LauncherStrings.Texts, key: String): String {

@@ -60,7 +60,10 @@ if(MSVC)
 endif()
 
 if(ANDROID)
-    add_library(${PROJECT_NAME} SHARED ${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/cpp/krkr2_android.cpp)
+    add_library(${PROJECT_NAME} SHARED
+        ${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/cpp/krkr2_android.cpp
+        ${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/cpp/LauncherNativeScanner.cpp
+    )
     find_package(unofficial-breakpad CONFIG REQUIRED)
     target_link_libraries(${PROJECT_NAME} PUBLIC unofficial::breakpad::libbreakpad_client)
 elseif(LINUX)
@@ -100,6 +103,9 @@ elseif(MACOS)
 endif()
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2CORE_PATH}/environ/cocos2d)
+
+find_package(TBB CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PUBLIC TBB::tbb)
 
 # external lib
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/cpp/external)

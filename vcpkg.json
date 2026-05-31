@@ -80,6 +80,10 @@
       "default-features": false
     },
     "spdlog",
+    {
+      "name": "tbb",
+      "default-features": false
+    },
     "uchardet",
     "unrar",
     {

@@ -37,14 +37,6 @@ target_compile_definitions(${PROJECT_NAME} INTERFACE
     -DUSE_UNICODE_FSTRING
 )
 
-if(NOT APPLE)
-    # 启用 OpenMP 支持
-    find_package(OpenMP REQUIRED)
-
-    target_link_libraries(${PROJECT_NAME} INTERFACE OpenMP::OpenMP_CXX)
-    target_compile_options(${PROJECT_NAME} INTERFACE ${OpenMP_CXX_FLAGS})
-endif ()
-
 if(ANDROID)
     target_link_libraries(${PROJECT_NAME} INTERFACE
         log

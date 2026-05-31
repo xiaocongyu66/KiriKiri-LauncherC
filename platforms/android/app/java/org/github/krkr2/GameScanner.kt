@@ -1,5 +1,6 @@
 package org.github.krkr2
 
+import android.util.Log
 import java.io.File
 import java.util.Locale
 
@@ -18,6 +19,7 @@ data class GameEntry(
 }
 
 object GameScanner {
+    private const val TAG = "KR2GameScanner"
     private val gameMarkers = setOf(
         "startup.tjs", "start.tjs", "data.xp3", "patch.xp3", "scenario.ks", "first.ks", "config.tjs"
     )
@@ -25,6 +27,20 @@ object GameScanner {
     private val coverNames = listOf(
         "cover", "icon", "title", "thumb", "thumbnail", "package", "bg", "background", "main"
     )
+    private val nativeAvailable: Boolean = runCatching {
+        System.loadLibrary("krkr2")
+        true
+    }.getOrElse {
+        Log.w(TAG, "Native scanner unavailable, using Kotlin scanner", it)
+        false
+    }
+
+    private fun interface NativeProgress {
+        fun onPath(path: String)
+    }
+
+    private external fun nativeScan(rootPath: String, maxDepth: Int, progress: NativeProgress?): Array<GameEntry>?
+    private external fun nativeListLaunchCandidates(rootPath: String): Array<String>?
 
     /**
      * Scan [root] for kirikiri/KAG game directories.
@@ -44,12 +60,35 @@ object GameScanner {
         onProgress: ((String) -> Unit)? = null,
     ): List<GameEntry> {
         if (!root.exists() || !root.isDirectory) return emptyList()
+        val clampedDepth = maxDepth.coerceIn(0, 32)
+        if (nativeAvailable) {
+            val native = runCatching {
+                nativeScan(
+                    root.absolutePath,
+                    clampedDepth,
+                    onProgress?.let { callback -> NativeProgress { path -> callback(path) } },
+                )?.toList()
+            }.getOrElse {
+                Log.w(TAG, "Native scan failed, using Kotlin scanner", it)
+                null
+            }
+            if (native != null) return sortEntries(native)
+        }
+        return scanKotlinFallback(root, clampedDepth, onProgress)
+    }
+
+    private fun scanKotlinFallback(
+        root: File,
+        maxDepth: Int,
+        onProgress: ((String) -> Unit)?,
+    ): List<GameEntry> {
         val result = linkedMapOf<String, GameEntry>()
         scanDir(root, 0, maxDepth, result, onProgress)
-        return result.values.sortedWith(
-            compareByDescending<GameEntry> { it.lastModified }.thenBy { it.title.lowercase(Locale.ROOT) }
-        )
+        return sortEntries(result.values)
     }
+
+    private fun sortEntries(entries: Collection<GameEntry>): List<GameEntry> =
+        entries.sortedWith(compareByDescending<GameEntry> { it.lastModified }.thenBy { it.title.lowercase(Locale.ROOT) })
 
     private fun scanDir(
         dir: File,
@@ -159,23 +198,34 @@ object GameScanner {
      */
     fun listLaunchCandidates(dir: File): List<File> {
         if (!dir.exists() || !dir.isDirectory) return emptyList()
-        val children = runCatching { dir.listFiles()?.toList().orEmpty() }
-            .getOrDefault(emptyList())
-            .filter { it.isFile }
-        val canonical = setOf("startup.tjs", "start.tjs", "data.xp3")
-        // Prefer real boot entries: kirikiri only ever boots .xp3, .tjs or .ks.
-        // Keeping the filter narrow stops asset images from polluting the list.
-        val candidates = children.filter { f ->
-            val ext = f.extension.lowercase(Locale.ROOT)
-            ext == "xp3" || ext == "tjs" || ext == "ks"
+        if (nativeAvailable) {
+            val native = runCatching {
+                nativeListLaunchCandidates(dir.absolutePath)?.map(::File)
+            }.getOrElse {
+                Log.w(TAG, "Native launch candidate scan failed, using Kotlin scanner", it)
+                null
+            }
+            if (native != null) return native
         }
-        return candidates.sortedWith(
-            compareBy<File>(
-                { if (canonical.contains(it.name.lowercase(Locale.ROOT))) 0 else 1 },
-                { extPriority(it.extension.lowercase(Locale.ROOT)) },
-                { it.name.lowercase(Locale.ROOT) },
-            )
-        )
+        return listLaunchCandidatesKotlin(dir)
+    }
+
+    private fun listLaunchCandidatesKotlin(dir: File): List<File> {
+        val preferred = listOf("startup.tjs", "start.tjs", "data.xp3")
+        return runCatching {
+            dir.walkTopDown()
+                .filter { file ->
+                    file.isFile && file.extension.lowercase(Locale.ROOT) in setOf("xp3", "tjs", "ks") &&
+                        file.relativeTo(dir).invariantSeparatorsPath.count { it == '/' } <= 3
+                }
+                .sortedWith(compareBy<File> { file ->
+                    val name = file.name.lowercase(Locale.ROOT)
+                    val idx = preferred.indexOf(name)
+                    if (idx >= 0) idx else 100 + extPriority(file.extension.lowercase(Locale.ROOT))
+                }.thenBy { it.relativeTo(dir).invariantSeparatorsPath.lowercase(Locale.ROOT) })
+                .take(80)
+                .toList()
+        }.getOrDefault(emptyList())
     }
 
     private fun extPriority(ext: String): Int = when (ext) {
