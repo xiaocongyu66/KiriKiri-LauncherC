@@ -22,6 +22,7 @@ KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器
 
 - 提升 Android 端启动、存储、输入、渲染和崩溃诊断的稳定性。
 - 补全真实游戏常用插件，特别是 motionplayer、PSB/PSD、layerEx 和 Kirikiroid 兼容行为。
+- 可选接入 Live2D Cubism：插件桥接源码已入库，但需要对应 ABI 的 Cubism Core 静态库后才会参与 Android 构建。
 - 保持插件静态注册、whole-archive/force-load 链接策略和运行时 patch 可维护。
 - 修复 CI、vcpkg 二进制缓存、NDK/CMake 版本和跨平台构建差异。
 - 在移植或改写其他项目实现时保留来源、许可证和必要的兼容说明。
@@ -40,6 +41,7 @@ KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器
 - [代码格式化](#代码格式化)
 - [支持的游戏列表](#支持的游戏列表)
 - [插件资源](#插件资源)
+- [可选组件与第三方许可](#可选组件与第三方许可)
 - [致谢](#致谢)
 - [许可证](#许可证)
 
@@ -194,6 +196,17 @@ KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器
 
 ---
 
+## 可选组件与第三方许可
+
+项目会按兼容需求引入第三方组件。主项目代码仍以仓库根目录的 [LICENSE](./LICENSE) 为准；第三方模块、移植代码和专有 SDK 组件遵循各自许可证，相关文本会保留在源码目录、`licenses` 目录或 overlay port 中。
+
+* **Live2D Cubism**: `cpp/plugins/live2d` 已导入 KrKr2-Next 的 `krkrlive2d.cpp` / `krkrgles.cpp` 桥接代码，并放入官方 Cubism Native Framework 5 r.5 的 Framework 源码和 Cubism Core 头文件。CMake 开关为 `KRKR2_ENABLE_LIVE2D`，默认开启检查；Android 构建只有在存在 `cpp/plugins/live2d/cubism/Core/lib/android/<ABI>/libLive2DCubismCore.a` 时才会真正编译插件，否则会自动跳过，不影响普通构建。KrKr2-Next 桥接代码遵循 GPL-3.0-or-later，许可证副本保存在 `cpp/plugins/live2d/licenses/KrKr2-Next-GPL-3.0-or-later.LICENSE`；Cubism Framework、Cubism Core 相关许可证和 notice 也保存在 `cpp/plugins/live2d/licenses`。
+* **oneTBB**: 用于原生层文件扫描和短任务并发调度，尽量把 I/O 密集任务移出主线程，同时保留跨平台构建边界。
+* **mimalloc**: 用于原生内存分配，降低多线程场景下频繁分配释放带来的锁竞争。
+* **libarchive / zlib-ng / minizip**: 用于归档读取、压缩格式兼容和 ZIP 相关处理；overlay port 中保留对应版本和许可证信息。
+
+---
+
 ## 致谢
 
 KiriKiri LauncherC 的开发参考并受益于多个 KiriKiri / KrKr 相关开源项目。感谢这些项目在引擎兼容、平台移植、插件实现和移动端运行环境上的探索：
@@ -210,6 +223,6 @@ KiriKiri LauncherC 的开发参考并受益于多个 KiriKiri / KrKr 相关开�
 
 ## 许可证
 
-此项目遵循 MIT 许可证。详细信息请参阅 [LICENSE](./LICENSE) 文件。
+此项目原始代码遵循 MIT 许可证。详细信息请参阅 [LICENSE](./LICENSE) 文件。仓库中引入的第三方组件、移植代码和可选 SDK 组件遵循各自许可证，请同时查看对应目录内的许可证与 notice 文件。
 
 ---

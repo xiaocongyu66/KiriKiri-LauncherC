@@ -8,7 +8,9 @@ Imported sources:
 - `cubism/Framework` comes from the official Cubism Native Framework 5 r.5 package.
 - `cubism/Core/include/Live2DCubismCore.h` is the Cubism Core public header required by the framework.
 
-Licenses and notices are preserved under `licenses/`.
+Licenses and notices are preserved under `licenses/`. The KrKr2-Next bridge
+source is GPL-3.0-or-later; see
+`licenses/KrKr2-Next-GPL-3.0-or-later.LICENSE`.
 
 The Live2D Cubism Core binary is not committed here. To enable the plugin on
 Android, place the Cubism Core static libraries at:
