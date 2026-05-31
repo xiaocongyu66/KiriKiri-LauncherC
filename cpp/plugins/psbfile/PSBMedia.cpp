@@ -47,6 +47,24 @@ namespace PSB {
             return false;
         }
 
+        uint32_t HeaderLE32(const std::vector<uint8_t> &data) {
+            return data.size() >= 4
+                ? static_cast<uint32_t>(data[0]) |
+                    (static_cast<uint32_t>(data[1]) << 8) |
+                    (static_cast<uint32_t>(data[2]) << 16) |
+                    (static_cast<uint32_t>(data[3]) << 24)
+                : 0;
+        }
+
+        bool ShouldTracePsbResourceKey(const std::string &key) {
+            const auto slash = key.find('/');
+            const std::string archive =
+                slash == std::string::npos ? key : key.substr(0, slash);
+            return archive == "main.psb" || archive == "title.psb" ||
+                archive == "chapter.psb" || archive == "autoskip.psb" ||
+                archive.find(".mtn") != std::string::npos;
+        }
+
         uint16_t ReadLE16(const uint8_t *src) {
             return static_cast<uint16_t>(src[0]) |
                 static_cast<uint16_t>(src[1] << 8);
@@ -195,10 +213,7 @@ namespace PSB {
                 }
             }
 
-            if(LOGGER && (info.debugKey.rfind("main.psb/", 0) == 0 ||
-                          info.debugKey.rfind("title.psb/", 0) == 0 ||
-                          info.debugKey.rfind("chapter.psb/", 0) == 0 ||
-                          info.debugKey.rfind("autoskip.psb/", 0) == 0)) {
+            if(LOGGER && ShouldTracePsbResourceKey(info.debugKey)) {
                 LOGGER->info(
                     "psb build: key={} decodedAlign={} decodedSize={} rawSize={}",
                     info.debugKey, decodedAlign, src->size(), rawSrc.size());
@@ -779,8 +794,7 @@ namespace PSB {
                         continue;
                     media.add(archiveKey + "/" + name, resource);
                     if(logger && logged < 40 &&
-                       (archiveKey == "main.psb" || archiveKey == "title.psb" ||
-                        archiveKey == "chapter.psb" || archiveKey == "autoskip.psb")) {
+                       ShouldTracePsbResourceKey(archiveKey)) {
                         logger->info("psb register: {}/{}", archiveKey, name);
                         ++logged;
                     }
@@ -804,8 +818,7 @@ namespace PSB {
                     continue;
                 media.add(archiveKey + "/" + name, resource, image);
                 if(logger && logged < 120 &&
-                   (archiveKey == "main.psb" || archiveKey == "title.psb" ||
-                    archiveKey == "chapter.psb" || archiveKey == "autoskip.psb")) {
+                   ShouldTracePsbResourceKey(archiveKey)) {
                     logger->info("psb register: {}/{}", archiveKey, name);
                     ++logged;
                 }
@@ -1135,17 +1148,8 @@ namespace PSB {
                                      name);
             return nullptr;
         }
-        if(LOGGER && (resolvedKey.rfind("main.psb/", 0) == 0 ||
-                      resolvedKey.rfind("title.psb/", 0) == 0 ||
-                      resolvedKey.rfind("chapter.psb/", 0) == 0 ||
-                      resolvedKey.rfind("autoskip.psb/", 0) == 0)) {
-            const uint32_t header =
-                res->data.size() >= 4
-                ? static_cast<uint32_t>(res->data[0]) |
-                    (static_cast<uint32_t>(res->data[1]) << 8) |
-                    (static_cast<uint32_t>(res->data[2]) << 16) |
-                    (static_cast<uint32_t>(res->data[3]) << 24)
-                : 0;
+        if(LOGGER && ShouldTracePsbResourceKey(resolvedKey)) {
+            const uint32_t header = HeaderLE32(res->data);
             LOGGER->info(
                 "psb open: key={} hasMeta={} w={} h={} type={} palType={} pal={} compress={} raw={} header=0x{:08x}",
                 resolvedKey, hasImageInfo ? 1 : 0, imageInfo.width,
@@ -1155,10 +1159,7 @@ namespace PSB {
         }
         if(!convertedImage && hasImageInfo && !IsSupportedImageHeader(res->data)) {
             convertedImage = BuildBmpFromRaw(imageInfo, res);
-            if(LOGGER && (resolvedKey.rfind("main.psb/", 0) == 0 ||
-                          resolvedKey.rfind("title.psb/", 0) == 0 ||
-                          resolvedKey.rfind("chapter.psb/", 0) == 0 ||
-                          resolvedKey.rfind("autoskip.psb/", 0) == 0)) {
+            if(LOGGER && ShouldTracePsbResourceKey(resolvedKey)) {
                 LOGGER->info(
                     "psb open: convert key={} ok={} converted={} type={}",
                     resolvedKey, convertedImage ? 1 : 0,
@@ -1181,17 +1182,8 @@ namespace PSB {
 
         const auto &streamBytes =
             convertedImage ? *convertedImage : res->data;
-        if(LOGGER && (resolvedKey.rfind("main.psb/", 0) == 0 ||
-                      resolvedKey.rfind("title.psb/", 0) == 0 ||
-                      resolvedKey.rfind("chapter.psb/", 0) == 0 ||
-                      resolvedKey.rfind("autoskip.psb/", 0) == 0)) {
-            const uint32_t outHeader =
-                streamBytes.size() >= 4
-                ? static_cast<uint32_t>(streamBytes[0]) |
-                    (static_cast<uint32_t>(streamBytes[1]) << 8) |
-                    (static_cast<uint32_t>(streamBytes[2]) << 16) |
-                    (static_cast<uint32_t>(streamBytes[3]) << 24)
-                : 0;
+        if(LOGGER && ShouldTracePsbResourceKey(resolvedKey)) {
+            const uint32_t outHeader = HeaderLE32(streamBytes);
             LOGGER->info("psb open: return key={} size={} header=0x{:08x}",
                          resolvedKey, streamBytes.size(), outHeader);
         }

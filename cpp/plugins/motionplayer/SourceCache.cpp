@@ -249,6 +249,25 @@ namespace {
         return nullptr;
     }
 
+    bool looksLikeSupportedImageHeader(const std::vector<std::uint8_t> &data) {
+        if(data.size() >= 8 && data[0] == 0x89 && data[1] == 0x50 &&
+           data[2] == 0x4e && data[3] == 0x47) {
+            return true;
+        }
+        if(data.size() >= 2 && data[0] == 'B' && data[1] == 'M') {
+            return true;
+        }
+        if(data.size() >= 3 && data[0] == 0xff && data[1] == 0xd8 &&
+           data[2] == 0xff) {
+            return true;
+        }
+        if(data.size() >= 3 && data[0] == 'T' && data[1] == 'L' &&
+           data[2] == 'G') {
+            return true;
+        }
+        return false;
+    }
+
     std::shared_ptr<tTVPBaseBitmap>
     loadPsbBitmap(const motion::detail::MotionSnapshot &snapshot,
                   const std::string &sourceKey) {
@@ -262,6 +281,10 @@ namespace {
             snapshot, sourceKey, width, height, decodedPixels, originX, originY,
             &decodedPixelsAreBgra);
         if(!resource || width <= 0 || height <= 0 || resource->data.empty()) {
+            return nullptr;
+        }
+        if(decodedPixels.empty() &&
+           looksLikeSupportedImageHeader(resource->data)) {
             return nullptr;
         }
 
@@ -693,11 +716,28 @@ namespace motion {
 
         std::shared_ptr<tTVPBaseBitmap> baseBitmap;
         if(_runtime && _runtime->activeMotion) {
-            const auto path = resolveMotionSourcePathLike_0x6948E8(
-                *_runtime->activeMotion, key);
-            baseBitmap = loadGraphicBitmap(path);
-            if(!baseBitmap) {
+            const bool preferEmbeddedRaw = key.rfind("src/", 0) == 0;
+            if(preferEmbeddedRaw) {
                 baseBitmap = loadPsbBitmap(*_runtime->activeMotion, key);
+            }
+            if(baseBitmap && preferEmbeddedRaw) {
+                if(auto logger = spdlog::get("plugin")) {
+                    const auto &motionPath = _runtime->activeMotion->path;
+                    if(motionPath.find(".mtn") != std::string::npos) {
+                        logger->info(
+                            "SourceCache direct PSB bitmap: motion={} key={} size={}x{}",
+                            motionPath, key, baseBitmap->GetWidth(),
+                            baseBitmap->GetHeight());
+                    }
+                }
+            }
+            if(!baseBitmap) {
+                const auto path = resolveMotionSourcePathLike_0x6948E8(
+                    *_runtime->activeMotion, key);
+                baseBitmap = loadGraphicBitmap(path);
+                if(!baseBitmap && !preferEmbeddedRaw) {
+                    baseBitmap = loadPsbBitmap(*_runtime->activeMotion, key);
+                }
             }
         }
         if(!baseBitmap || baseBitmap->GetWidth() <= 0 ||

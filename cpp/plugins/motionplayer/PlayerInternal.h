@@ -48,6 +48,26 @@ namespace motion {
             return src.rfind("motion/", 0) == 0;
         }
 
+        inline bool looksLikeEmbeddedImageHeader(
+            const std::vector<std::uint8_t> &data) {
+            if(data.size() >= 8 && data[0] == 0x89 && data[1] == 0x50 &&
+               data[2] == 0x4e && data[3] == 0x47) {
+                return true;
+            }
+            if(data.size() >= 2 && data[0] == 'B' && data[1] == 'M') {
+                return true;
+            }
+            if(data.size() >= 3 && data[0] == 0xff && data[1] == 0xd8 &&
+               data[2] == 0xff) {
+                return true;
+            }
+            if(data.size() >= 3 && data[0] == 'T' && data[1] == 'L' &&
+               data[2] == 'G') {
+                return true;
+            }
+            return false;
+        }
+
         // PSB RL decompression: each RGBA channel is separately RL-compressed.
         // Format per channel: stream of [marker] entries where
         //   marker & 0x80 → repeat (marker & 0x7F + 1) copies of next byte
@@ -1727,6 +1747,11 @@ namespace motion {
                                 const auto &pixelData = texturePixels.empty()
                                     ? textureResIt->second->data
                                     : texturePixels;
+                                if(texturePixels.empty() &&
+                                   looksLikeEmbeddedImageHeader(
+                                       textureResIt->second->data)) {
+                                    continue;
+                                }
                                 const size_t requiredSize =
                                     static_cast<size_t>(textureWidth) *
                                     static_cast<size_t>(textureHeight) * 4u;
