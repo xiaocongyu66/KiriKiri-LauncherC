@@ -1,7 +1,6 @@
 {
   "name": "libarchive",
-  "version": "3.7.7",
-  "port-version": 0,
+  "version": "3.8.7",
   "description": "Library for reading and writing streaming archives",
   "homepage": "https://www.libarchive.org",
   "license": null,
@@ -11,6 +10,68 @@
       "name": "vcpkg-cmake",
       "host": true
     },
-    "libxml2"
-  ]
+    "zlib"
+  ],
+  "default-features": [
+    "bzip2",
+    "lz4",
+    "lzma",
+    "xar",
+    "zstd"
+  ],
+  "features": {
+    "bzip2": {
+      "description": "BZip2 support",
+      "dependencies": [
+        "bzip2"
+      ]
+    },
+    "crypto": {
+      "description": "Support for cryptographic features",
+      "dependencies": [
+        {
+          "name": "mbedtls",
+          "platform": "osx"
+        },
+        {
+          "name": "openssl",
+          "platform": "!osx"
+        }
+      ]
+    },
+    "lz4": {
+      "description": "Lz4 support",
+      "dependencies": [
+        "lz4"
+      ]
+    },
+    "lzma": {
+      "description": "Lzma support",
+      "dependencies": [
+        "liblzma"
+      ]
+    },
+    "lzo": {
+      "description": "Lzo support",
+      "dependencies": [
+        "lzo"
+      ]
+    },
+    "xar": {
+      "description": "Xar support",
+      "dependencies": [
+        {
+          "name": "libxml2",
+          "default-features": false,
+          "platform": "!windows | mingw"
+        }
+      ]
+    },
+    "zstd": {
+      "description": "Zstd support",
+      "dependencies": [
+        "zstd"
+      ]
+    }
+  }
 }
