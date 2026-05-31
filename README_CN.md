@@ -6,7 +6,7 @@
 
 KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器。项目目标不是只做一个简单的游戏入口，而是把 KiriKiri2/TJS2 运行时、资源系统、渲染、音频、视频、插件兼容层和平台启动器整理成可维护的 C++ 架构，让更多旧游戏能在 Android、Windows、Linux 和 macOS 上继续运行。
 
-本项目以 [2468785842/krkr2](https://github.com/2468785842/krkr2) 的上游主分支为基础，沿用其模块化架构继续维护和适配：核心运行时被拆分到 `cpp/core`，平台入口集中在 `platforms`，插件兼容代码集中在 `cpp/plugins`，依赖和交叉编译由 CMake、vcpkg overlay ports/triplets 以及 Android Gradle 工程统一驱动。Android 端同时接入 SDL/Cocos2d-x 平台层、Breakpad、Dobby hook 和移动端资源路径适配；桌面端保留 Windows、Linux、macOS 入口，方便验证核心兼容行为。
+本项目 fork 自 [2468785842/krkr2](https://github.com/2468785842/krkr2)，并在其模块化架构基础上继续维护和适配：核心运行时被拆分到 `cpp/core`，平台入口集中在 `platforms`，插件兼容代码集中在 `cpp/plugins`，依赖和交叉编译由 CMake、vcpkg overlay ports/triplets 以及 Android Gradle 工程统一驱动。Android 端同时接入 SDL/Cocos2d-x 平台层、Breakpad、Dobby hook 和移动端资源路径适配；桌面端保留 Windows、Linux、macOS 入口，方便验证核心兼容行为。
 
 项目目前重点补齐真实游戏会依赖的行为，包括 XP3/ZIP/TAR 等资源读取、TJS2/KAG 脚本执行、OpenGL/Cocos2d-x 渲染桥接、FFmpeg 音视频、PSD/PSB/EMote/motionplayer、layerEx 系列插件、Kirikiroid 兼容补丁、运行时 TJS patch、移动端输入与存储路径等。不同游戏的兼容性仍会受到脚本写法、插件组合、封包格式和平台差异影响，欢迎用可复现日志和测试游戏反馈问题。
 
@@ -179,7 +179,7 @@ KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器
 
 KiriKiri LauncherC 的开发参考并受益于多个 KiriKiri / KrKr 相关开源项目。感谢这些项目在引擎兼容、平台移植、插件实现和移动端运行环境上的探索：
 
-- [2468785842/krkr2](https://github.com/2468785842/krkr2) - 上游主分支
+- [2468785842/krkr2](https://github.com/2468785842/krkr2)
 - [reAAAq/KrKr2-Next](https://github.com/reAAAq/KrKr2-Next)
 - [krkrsdl3/krkrsdl3](https://github.com/krkrsdl3/krkrsdl3)
 - [fenghengzhi/kirikiroid2-web](https://github.com/fenghengzhi/kirikiroid2-web)
