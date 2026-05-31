@@ -253,6 +253,37 @@ NCB_ATTACH_CLASS(StdioCompat, System) {
 }
 
 // ---------------------------------------------------------------------------
+// pkutil.dll
+// Product-key helpers used by some commercial KRKR titles commonly expose
+// Win32 locale/codepage functions as globals. Android has no LCID, but the
+// scripts mainly need the calls to exist during startup/license checks.
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("pkutil.dll")
+
+static tjs_int GetUserDefaultLCIDCompat() { return 0x0411; }
+static tjs_int GetSystemDefaultLCIDCompat() { return 0x0411; }
+static tjs_int GetThreadLocaleCompat() { return 0x0411; }
+static tjs_int GetUserDefaultLangIDCompat() { return 0x0411; }
+static tjs_int GetSystemDefaultLangIDCompat() { return 0x0411; }
+static tjs_int GetUserDefaultUILanguageCompat() { return 0x0411; }
+static tjs_int GetACPCompat() { return 932; }
+static tjs_int GetOEMCPCompat() { return 932; }
+static bool SetThreadLocaleCompat(tjs_int) { return true; }
+
+NCB_REGISTER_FUNCTION(GetUserDefaultLCID, GetUserDefaultLCIDCompat);
+NCB_REGISTER_FUNCTION(GetSystemDefaultLCID, GetSystemDefaultLCIDCompat);
+NCB_REGISTER_FUNCTION(GetThreadLocale, GetThreadLocaleCompat);
+NCB_REGISTER_FUNCTION(GetUserDefaultLangID, GetUserDefaultLangIDCompat);
+NCB_REGISTER_FUNCTION(GetSystemDefaultLangID, GetSystemDefaultLangIDCompat);
+NCB_REGISTER_FUNCTION(GetUserDefaultUILanguage,
+                      GetUserDefaultUILanguageCompat);
+NCB_REGISTER_FUNCTION(GetACP, GetACPCompat);
+NCB_REGISTER_FUNCTION(GetOEMCP, GetOEMCPCompat);
+NCB_REGISTER_FUNCTION(SetThreadLocale, SetThreadLocaleCompat);
+
+// ---------------------------------------------------------------------------
 // systemEx.dll
 // Cross-platform subset of WAMSoft's Win32-oriented System extension. Windows
 // registry, DPI, known-folder and DLL-search APIs degrade to false/empty values;

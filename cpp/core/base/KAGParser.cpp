@@ -1548,6 +1548,8 @@ bool tTJSNI_KAGParser::EntryParam(bool &condition,
                     valueVariant = ttstr(vp + 1);
             } else {
                 args->PropGet(0, value.c_str(), nullptr, &valueVariant, args);
+                if(valueVariant.Type() == tvtVoid)
+                    valueVariant = TJS_W("");
             }
 
         } else {

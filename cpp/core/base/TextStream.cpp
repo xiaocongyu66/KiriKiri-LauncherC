@@ -2,6 +2,8 @@
 #include <uchardet.h>
 #include <zlib.h>
 #include <optional>
+#include <algorithm>
+#include <string>
 
 #include "TextStream.h"
 
@@ -21,7 +23,17 @@ std::string checkTextEncoding(const void *buf, size_t size,
     auto raw = static_cast<const unsigned char *>(buf);
     std::string encoding;
     // --- 检查 BOM ---
-    if(size >= 2 && raw[0] == 0xFF && raw[1] == 0xFE) {
+    if(size >= 4 && raw[0] == 0xFF && raw[1] == 0xFE && raw[2] == 0x00 &&
+       raw[3] == 0x00) {
+        // UTF-32LE BOM
+        bomSize = 4;
+        encoding = "UTF-32LE";
+    } else if(size >= 4 && raw[0] == 0x00 && raw[1] == 0x00 &&
+              raw[2] == 0xFE && raw[3] == 0xFF) {
+        // UTF-32BE BOM
+        bomSize = 4;
+        encoding = "UTF-32BE";
+    } else if(size >= 2 && raw[0] == 0xFF && raw[1] == 0xFE) {
         // UTF-16LE BOM
         bomSize = 2;
         encoding = "UTF-16LE";
@@ -33,16 +45,6 @@ std::string checkTextEncoding(const void *buf, size_t size,
         // UTF-8 BOM
         bomSize = 3;
         encoding = "UTF-8";
-    } else if(size >= 4 && raw[0] == 0xFF && raw[1] == 0xFE && raw[2] == 0x00 &&
-              raw[3] == 0x00) {
-        // UTF-32LE BOM
-        bomSize = 4;
-        encoding = "UTF-32LE";
-    } else if(size >= 4 && raw[0] == 0x00 && raw[1] == 0x00 && raw[2] == 0xFE &&
-              raw[3] == 0xFF) {
-        // UTF-32BE BOM
-        bomSize = 4;
-        encoding = "UTF-32BE";
     } else {
         // ---------- 普通文本：用 uchardet 检测编码 ----------
         uchardet_t ud = uchardet_new();
@@ -166,17 +168,17 @@ public:
 
         if(encoding == "UTF-16" || encoding == "UTF-16LE" ||
            encoding == "UTF-16BE") {
-            _buffer.assign(
-                reinterpret_cast<const char16_t *>(raw.data()),
-                reinterpret_cast<const char16_t *>(raw.data() + raw.size()));
-
-            if(encoding == "UTF-16BE") {
-                size_t len = raw.size() / 2;
-                _buffer.resize(len);
-                auto src = reinterpret_cast<const char16_t *>(raw.data());
-                for(size_t i = 0; i < len; i++) {
-                    char16_t ch = src[i];
-                    _buffer[i] = (ch >> 8) | (ch << 8);
+            const bool bigEndian = encoding == "UTF-16BE";
+            const size_t len = rawSize / 2;
+            _buffer.resize(len);
+            for(size_t i = 0; i < len; ++i) {
+                const size_t j = i * 2;
+                if(bigEndian) {
+                    _buffer[i] =
+                        static_cast<char16_t>((raw[j] << 8) | raw[j + 1]);
+                } else {
+                    _buffer[i] =
+                        static_cast<char16_t>(raw[j] | (raw[j + 1] << 8));
                 }
             }
 
@@ -185,9 +187,26 @@ public:
 
         if(encoding == "UTF-32" || encoding == "UTF-32LE" ||
            encoding == "UTF-32BE") {
+            const bool bigEndian = encoding == "UTF-32BE";
+            const size_t len = rawSize / 4;
+            std::u32string utf32;
+            utf32.resize(len);
+            for(size_t i = 0; i < len; ++i) {
+                const size_t j = i * 4;
+                if(bigEndian) {
+                    utf32[i] = (static_cast<char32_t>(raw[j]) << 24) |
+                               (static_cast<char32_t>(raw[j + 1]) << 16) |
+                               (static_cast<char32_t>(raw[j + 2]) << 8) |
+                               static_cast<char32_t>(raw[j + 3]);
+                } else {
+                    utf32[i] = static_cast<char32_t>(raw[j]) |
+                               (static_cast<char32_t>(raw[j + 1]) << 8) |
+                               (static_cast<char32_t>(raw[j + 2]) << 16) |
+                               (static_cast<char32_t>(raw[j + 3]) << 24);
+                }
+            }
             _buffer = boost::locale::conv::utf_to_utf<char16_t>(
-                reinterpret_cast<const char32_t *>(raw.data()),
-                reinterpret_cast<const char32_t *>(raw.data() + rawSize));
+                utf32.data(), utf32.data() + utf32.size());
             return;
         }
 
@@ -286,7 +305,7 @@ public:
             return 0;
         }
         size_t remain = _buffer.size() - _pos;
-        size_t n = size ? size : remain;
+        size_t n = size ? std::min<size_t>(size, remain) : remain;
         tjs_char *buf = targ.AllocBuffer(n);
         std::copy_n(_buffer.data() + _pos, n, buf);
         buf[n] = 0;

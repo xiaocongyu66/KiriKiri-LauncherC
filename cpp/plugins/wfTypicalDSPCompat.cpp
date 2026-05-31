@@ -204,3 +204,25 @@ NCB_REGISTER_CLASS(WaveDSPFilter) {
     Method(TJS_W("reset"), &Class::reset);
     Method(TJS_W("clear"), &Class::clear);
 }
+
+void TVPEnsureWaveDSPFilterCompat() {
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(!global)
+        return;
+
+    tTJSVariant existing;
+    const bool registered =
+        TJS_SUCCEEDED(global->PropGet(TJS_MEMBERMUSTEXIST,
+                                      TJS_W("WaveDSPFilter"), nullptr,
+                                      &existing, global)) &&
+        existing.Type() != tvtVoid;
+    global->Release();
+    if(registered)
+        return;
+
+    TVPAddLog(TJS_W("[krkr] WaveDSPFilter missing after plugin load; retrying "
+                    "wfTypicalDSP.dll registration"));
+    ncbClassInfo<WaveDSPFilter>::Clear();
+    TVPRegisteredPlugins.erase(ttstr(TJS_W("wftypicaldsp.dll")));
+    ncbAutoRegister::LoadModule(TJS_W("wfTypicalDSP.dll"));
+}

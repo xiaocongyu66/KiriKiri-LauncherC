@@ -42,6 +42,8 @@
 #define strcasecmp _stricmp
 #endif
 
+void TVPEnsureWaveDSPFilterCompat();
+
 //---------------------------------------------------------------------------
 // gamepad.dll の代替スタブ実装
 //
@@ -393,6 +395,7 @@ void TVPLoadInternalPlugins() {
     // find them at startup, without an explicit Plugins.link("xxx.dll").
     // This mirrors AetherKiri / KrKr2-Next behaviour.
     ncbAutoRegister::LoadAllModules();
+    TVPEnsureWaveDSPFilterCompat();
 }
 
 bool TVPLoadInternalPlugin(const ttstr &_name) {
