@@ -1,5 +1,6 @@
 #include <string>
 #include <vector>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <spdlog/spdlog.h>
@@ -406,8 +407,22 @@ public:
      * 実ファイルがある場合のみ処理されます
      */
     static bool truncateFile(const tjs_char *file, tjs_int size) {
-        LOGGER->warn("truncateFile not impl!! but ret true");
-        return true;
+        if(size < 0)
+            return false;
+
+        ttstr filename = TVPNormalizeStorageName(file);
+        TVPGetLocalName(filename);
+        if(filename.IsEmpty())
+            return false;
+
+        try {
+            fs::resize_file(filename.AsNarrowStdString(),
+                            static_cast<uintmax_t>(size));
+            TVPClearStorageCaches();
+            return true;
+        } catch(const fs::filesystem_error &) {
+            return false;
+        }
     }
 
     /**
@@ -690,8 +705,7 @@ public:
         }
         dir = TVPNormalizeStorageName(dir);
         TVPGetLocalName(dir);
-        LOGGER->warn("changeDirectory not impl!! but ret true");
-        return true;
+        return false;
     }
 
     /**
@@ -703,8 +717,24 @@ public:
     static bool setFileAttributes(ttstr filename, DWORD attr) {
         filename = TVPNormalizeStorageName(filename);
         TVPGetLocalName(filename);
-        LOGGER->warn("setFileAttributes not impl!! but ret true");
-        return true;
+        try {
+            fs::path path(filename.AsNarrowStdString());
+            if(!fs::exists(path))
+                return false;
+
+            const fs::perms writeBits = fs::perms::owner_write |
+                                        fs::perms::group_write |
+                                        fs::perms::others_write;
+            if(attr & FILE_ATTRIBUTE_READONLY) {
+                fs::permissions(path, writeBits, fs::perm_options::remove);
+            } else {
+                fs::permissions(path, fs::perms::owner_write,
+                                fs::perm_options::add);
+            }
+            return true;
+        } catch(const fs::filesystem_error &) {
+            return false;
+        }
     }
 
     /**
@@ -716,9 +746,19 @@ public:
     static bool resetFileAttributes(ttstr filename, DWORD attr) {
         filename = TVPNormalizeStorageName(filename);
         TVPGetLocalName(filename);
+        try {
+            fs::path path(filename.AsNarrowStdString());
+            if(!fs::exists(path))
+                return false;
 
-        LOGGER->warn("resetFileAttributes not impl!! but ret true");
-        return true;
+            if(attr & FILE_ATTRIBUTE_READONLY) {
+                fs::permissions(path, fs::perms::owner_write,
+                                fs::perm_options::add);
+            }
+            return true;
+        } catch(const fs::filesystem_error &) {
+            return false;
+        }
     }
 
     /**
@@ -729,10 +769,29 @@ public:
     static DWORD getFileAttributes(ttstr filename) {
         filename = TVPNormalizeStorageName(filename);
         TVPGetLocalName(filename);
+        try {
+            fs::path path(filename.AsNarrowStdString());
+            if(!fs::exists(path))
+                return static_cast<DWORD>(-1);
 
-        LOGGER->warn("getFileAttributes not impl!! ret 0");
+            DWORD attr = 0;
+            if(fs::is_directory(path)) {
+                attr |= FILE_ATTRIBUTE_DIRECTORY;
+            } else {
+                attr |= FILE_ATTRIBUTE_ARCHIVE;
+            }
 
-        return 0;
+            const fs::perms perms = fs::status(path).permissions();
+            if((perms & fs::perms::owner_write) == fs::perms::none &&
+               (perms & fs::perms::group_write) == fs::perms::none &&
+               (perms & fs::perms::others_write) == fs::perms::none) {
+                attr |= FILE_ATTRIBUTE_READONLY;
+            }
+
+            return attr == 0 ? FILE_ATTRIBUTE_NORMAL : attr;
+        } catch(const fs::filesystem_error &) {
+            return static_cast<DWORD>(-1);
+        }
     }
 
     /**

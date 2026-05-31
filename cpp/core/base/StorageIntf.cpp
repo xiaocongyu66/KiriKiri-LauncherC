@@ -1087,6 +1087,100 @@ static tjs_uint TVPRebuildAutoPathTable() {
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
+// GalPatch-compatible external patch overlay
+//---------------------------------------------------------------------------
+struct tTVPPatchOverlayRoots {
+    bool Initialized = false;
+    std::vector<ttstr> DirectoryRoots;
+    std::vector<ttstr> ArchiveRoots;
+};
+
+static tTVPPatchOverlayRoots TVPPatchOverlayRootState;
+
+static ttstr TVPGetPatchOverlayBaseName(tjs_int index) {
+    ttstr base = TVPGetAppPath() + TJS_W("unencrypted");
+    if(index > 1)
+        base += ttstr(index);
+    return base;
+}
+
+static bool TVPIsExistentStorageNoSearchNoThrow(const ttstr &name) {
+    try {
+        return TVPIsExistentStorageNoSearchNoNormalize(name);
+    } catch(...) {
+        return false;
+    }
+}
+
+static void TVPInitializePatchOverlayRoots() {
+    if(TVPPatchOverlayRootState.Initialized)
+        return;
+    TVPPatchOverlayRootState.Initialized = true;
+
+    const ttstr appPath = TVPGetAppPath();
+    if(appPath.IsEmpty())
+        return;
+
+    class tHasAnyStorageLister : public iTVPStorageLister {
+    public:
+        bool HasAny = false;
+        void Add(const ttstr &) override { HasAny = true; }
+    };
+
+    // Search order mirrors GalPatch: higher numbered folders first, and
+    // folders take priority over same-name XP3 patch archives.
+    for(tjs_int i = 9; i >= 1; --i) {
+        ttstr root = TVPGetPatchOverlayBaseName(i) + TJS_W("/");
+        try {
+            root = TVPNormalizeStorageName(root);
+            tHasAnyStorageLister lister;
+            TVPStorageMediaManager.GetListAt(root, &lister);
+            if(lister.HasAny) {
+                TVPPatchOverlayRootState.DirectoryRoots.push_back(root);
+                TVPAddImportantLog(
+                    ttstr(TJS_W("(info) Patch overlay folder: ")) + root);
+            }
+        } catch(...) {
+        }
+    }
+
+    tjs_char delimiter[2] = { TVPArchiveDelimiter, 0 };
+    for(tjs_int i = 9; i >= 1; --i) {
+        ttstr archive = TVPGetPatchOverlayBaseName(i) + TJS_W(".xp3");
+        archive = TVPNormalizeStorageName(archive);
+        if(!TVPIsExistentStorageNoSearchNoThrow(archive))
+            continue;
+        ttstr root = archive + delimiter;
+        TVPPatchOverlayRootState.ArchiveRoots.push_back(root);
+        TVPAddImportantLog(
+            ttstr(TJS_W("(info) Patch overlay archive: ")) + archive);
+    }
+}
+
+static ttstr TVPFindPatchOverlayStorage(const ttstr &normalized) {
+    TVPInitializePatchOverlayRoots();
+
+    ttstr storageName = TVPExtractStorageName(normalized);
+    if(storageName.IsEmpty())
+        return {};
+
+    for(const auto &root : TVPPatchOverlayRootState.DirectoryRoots) {
+        ttstr candidate = root + storageName;
+        if(TVPIsExistentStorageNoSearchNoThrow(candidate))
+            return candidate;
+    }
+
+    for(const auto &root : TVPPatchOverlayRootState.ArchiveRoots) {
+        ttstr candidate = root + storageName;
+        if(TVPIsExistentStorageNoSearchNoThrow(candidate))
+            return candidate;
+    }
+
+    return {};
+}
+//---------------------------------------------------------------------------
+
+//---------------------------------------------------------------------------
 // TVPGetPlacedPath
 //---------------------------------------------------------------------------
 ttstr TVPGetPlacedPath(const ttstr &name) {
@@ -1108,6 +1202,23 @@ ttstr TVPGetPlacedPath(const ttstr &name) {
     tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
 
     ttstr normalized(TVPNormalizeStorageName(name));
+
+    ttstr patch = TVPFindPatchOverlayStorage(normalized);
+    if(!patch.IsEmpty()) {
+        TVPAutoPathCache.Add(name, patch);
+#if defined(__ANDROID__)
+        static int s_patchOverlayCount = 0;
+        ++s_patchOverlayCount;
+        if(s_patchOverlayCount <= 64 ||
+           (s_patchOverlayCount & 0x3F) == 0) {
+            ttstr msg = TJS_W("[res] PATCH_OVERLAY #") +
+                ttstr((tjs_int)s_patchOverlayCount) + TJS_W(" '") + name +
+                TJS_W("' -> '") + patch + TJS_W("'");
+            KR2_RES_LOG("%s", msg.AsStdString().c_str());
+        }
+#endif
+        return patch;
+    }
 
     bool found = TVPIsExistentStorageNoSearchNoNormalize(normalized);
     if(found) {

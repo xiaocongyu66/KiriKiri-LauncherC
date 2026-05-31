@@ -22,6 +22,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     xp3filter.cpp
     textrender.cpp
     extrans.cpp
+    layerExSave.cpp
+    shrinkCopy.cpp
     PackinOne.cpp
     kirikiroid2.cpp
     kirikiroidPatchCompat.cpp

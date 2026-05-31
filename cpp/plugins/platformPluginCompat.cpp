@@ -907,18 +907,6 @@ NCB_ATTACH_CLASS_WITH_HOOK(LayerExSaveLayerCompat, Layer) {
                 &LayerExSaveLayerCompat::falseRaw, 0);
     RawCallback(TJS_W("saveLayerImageTlg5"),
                 &LayerExSaveLayerCompat::falseRaw, 0);
-    RawCallback(TJS_W("getCropRect"),
-                &LayerExSaveLayerCompat::emptyArrayRaw, 0);
-    RawCallback(TJS_W("getCropRectZero"),
-                &LayerExSaveLayerCompat::emptyArrayRaw, 0);
-    RawCallback(TJS_W("getDiffRect"),
-                &LayerExSaveLayerCompat::emptyArrayRaw, 0);
-    RawCallback(TJS_W("getDiffPixel"), &LayerExSaveLayerCompat::zeroRaw, 0);
-    RawCallback(TJS_W("oozeColor"), &LayerExSaveLayerCompat::voidRaw, 0);
-    RawCallback(TJS_W("copyBlueToAlpha"), &LayerExSaveLayerCompat::voidRaw, 0);
-    RawCallback(TJS_W("isBlank"), &LayerExSaveLayerCompat::falseRaw, 0);
-    RawCallback(TJS_W("clearAlpha"), &LayerExSaveLayerCompat::voidRaw, 0);
-    RawCallback(TJS_W("getAverageColor"), &LayerExSaveLayerCompat::zeroRaw, 0);
     RawCallback(TJS_W("getFingerPrintValue"),
                 &LayerExSaveLayerCompat::zeroRaw, 0);
     RawCallback(TJS_W("getShrinkVectorOctet"),
@@ -1157,27 +1145,10 @@ NCB_ATTACH_CLASS_WITH_HOOK(ShellExecuteWindowCompat, Window) {
 }
 
 // ---------------------------------------------------------------------------
-// shrinkCopy.dll / sigcheck.dll
-// Optional export and verification helpers. They are non-critical for Android
-// playback, but missing methods can stop script initialization.
+// sigcheck.dll
+// Optional verification helpers. They are non-critical for Android playback,
+// but missing methods can stop script initialization.
 // ---------------------------------------------------------------------------
-
-#undef NCB_MODULE_NAME
-#define NCB_MODULE_NAME TJS_W("shrinkCopy.dll")
-
-class ShrinkCopyCompat {
-public:
-    static tjs_error TJS_INTF_METHOD falseRaw(tTJSVariant *result, tjs_int,
-                                              tTJSVariant **,
-                                              iTJSDispatch2 *) {
-        return ReturnBool(result, false);
-    }
-};
-
-NCB_ATTACH_CLASS(ShrinkCopyCompat, Layer) {
-    RawCallback(TJS_W("shrinkCopy"), &ShrinkCopyCompat::falseRaw, 0);
-    RawCallback(TJS_W("shrinkCopyFast"), &ShrinkCopyCompat::falseRaw, 0);
-}
 
 #undef NCB_MODULE_NAME
 #define NCB_MODULE_NAME TJS_W("sigcheck.dll")

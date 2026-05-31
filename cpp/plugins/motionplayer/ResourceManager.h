@@ -20,6 +20,7 @@ namespace motion {
         tTJSVariant loadSource(ttstr path) const;
         void unload(ttstr path) const;
         void clearCache() const;
+        void unloadAll() const { clearCache(); }
         tTJSVariant getLastLoadedModule() const;
         tTJSVariant findLoaded(ttstr path) const;
         // SDL3 ref (ResourceManager::GetPlayerByName): try placed/raw/lzf

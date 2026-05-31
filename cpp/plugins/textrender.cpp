@@ -356,6 +356,28 @@ static void read_integer(tTJSString const &str, size_t &i, int &value) {
   }
 }
 
+static bool read_switch(tTJSString const &str, size_t &i, bool default_value) {
+  tjs_char ch;
+  if (!readchar(str, i, ch)) {
+    TVPThrowExceptionMessage(
+        TJS_W("TextRenderBase::render() parse error: expected switch value"));
+  }
+  if (ch == TJS_W('0')) return false;
+  if (ch == TJS_W('1')) return true;
+  return default_value;
+}
+
+static void skip_until_semicolon(tTJSString const &str, size_t &i) {
+  tjs_char ch;
+  while (true) {
+    if (!readchar(str, i, ch)) {
+      TVPThrowExceptionMessage(
+          TJS_W("TextRenderBase::render() parse error: expected ';'"));
+    }
+    if (ch == TJS_W(';')) return;
+  }
+}
+
 void TextRenderBase::applyFont() {
   if (!m_fontDirty) return;
   m_fontDirty = false;
@@ -426,35 +448,57 @@ bool TextRenderBase::render(tTJSString text, int autoIndent, int diff, int all, 
         break;
       }
       case 'b': {
-        int value = 0;
-        read_integer(text, i, value);
-        m_state.bold = (value != 0);
+        m_state.bold = read_switch(text, i, m_default.bold);
         m_fontDirty = true;
         break;
       }
       case 'i': {
-        int value = 0;
-        read_integer(text, i, value);
-        m_state.italic = (value != 0);
+        m_state.italic = read_switch(text, i, m_default.italic);
         m_fontDirty = true;
         break;
       }
       case 's': {
-        int value = 0;
-        read_integer(text, i, value);
-        m_state.fontSize = value;
-        m_fontDirty = true;
+        m_state.shadow = read_switch(text, i, m_default.shadow);
         break;
       }
       case 'e': {
+        m_state.edge = read_switch(text, i, m_default.edge);
+        break;
+      }
+      case 'B':
+      case 'S':
+      case 'C':
+      case 'R':
+      case 'L':
+        break;
+      case 'p': {
         int value = 0;
         read_integer(text, i, value);
-        m_state.edge = (value != 0);
+        m_state.pitch = value;
         break;
       }
       case 'd': {
         int value = 0;
         read_integer(text, i, value);
+        break;
+      }
+      case 'w': {
+        int value = 0;
+        read_integer(text, i, value);
+        break;
+      }
+      case 'D': {
+        if (!readchar(text, i, ch)) {
+          TVPThrowExceptionMessage(
+              TJS_W("TextRenderBase::render() parse error in %D"));
+        }
+        if (ch == TJS_W('$')) {
+          skip_until_semicolon(text, i);
+        } else {
+          --i;
+          int value = 0;
+          read_integer(text, i, value);
+        }
         break;
       }
       case 'r': m_state = m_default; m_fontDirty = true; break;
