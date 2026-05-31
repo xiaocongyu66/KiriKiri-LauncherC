@@ -12,6 +12,7 @@
 #include "tjsCommHead.h"
 
 #include <memory>
+#include <vector>
 #include <stdlib.h>
 #include <math.h>
 
@@ -56,21 +57,87 @@ TVPCreateTextureCopyForManager(iTVPRenderManager *manager,
         return nullptr;
     }
 
-    const void *pixels = source->GetPixelData();
-    const tjs_int pitch = source->GetPitch();
+    const tjs_uint8 *pixels = (const tjs_uint8 *)source->GetPixelData();
+    tjs_int pitch = source->GetPitch();
     if(!pixels || pitch <= 0) {
         return nullptr;
     }
 
+    const tjs_int width = source->GetWidth();
+    const tjs_int height = source->GetHeight();
+    const TVPTextureFormat::e sourceFormat = source->GetFormat();
+    const TVPTextureFormat::e readFormat = source->GetPixelDataFormat();
+
+    std::vector<tjs_uint8> converted;
+    const tjs_uint8 *uploadPixels = pixels;
+    tjs_int uploadPitch = pitch;
+    TVPTextureFormat::e uploadFormat = sourceFormat;
+
+    auto rgbaIsOpaque = [&]() {
+        const tjs_uint8 *src = pixels;
+        for(tjs_int y = 0; y < height; ++y) {
+            const tjs_uint8 *line = src;
+            for(tjs_int x = 0; x < width; ++x) {
+                if(line[3] != 0xff)
+                    return false;
+                line += 4;
+            }
+            src += pitch;
+        }
+        return true;
+    };
+
+    auto convertRGBAtoRGB = [&]() {
+        uploadPitch = (width * 3 + 3) & ~3;
+        converted.assign(uploadPitch * height, 0);
+        const tjs_uint8 *src = pixels;
+        tjs_uint8 *dst = converted.data();
+        for(tjs_int y = 0; y < height; ++y) {
+            TVPConvert32BitTo24Bit(dst, src, width * 4);
+            src += pitch;
+            dst += uploadPitch;
+        }
+        uploadPixels = converted.data();
+        uploadFormat = TVPTextureFormat::RGB;
+    };
+
+    if(readFormat == TVPTextureFormat::RGBA &&
+       sourceFormat == TVPTextureFormat::Gray) {
+        uploadPitch = width;
+        converted.resize(uploadPitch * height);
+        const tjs_uint8 *src = pixels;
+        tjs_uint8 *dst = converted.data();
+        for(tjs_int y = 0; y < height; ++y) {
+            for(tjs_int x = 0; x < width; ++x)
+                dst[x] = src[x * 4];
+            src += pitch;
+            dst += uploadPitch;
+        }
+        uploadPixels = converted.data();
+        uploadFormat = TVPTextureFormat::Gray;
+    } else if(readFormat == TVPTextureFormat::RGBA &&
+              sourceFormat == TVPTextureFormat::RGB) {
+        if(manager->IsSoftware()) {
+            uploadFormat = TVPTextureFormat::RGBA;
+        } else {
+            convertRGBAtoRGB();
+        }
+    } else if(readFormat == TVPTextureFormat::RGBA &&
+              sourceFormat == TVPTextureFormat::RGBA &&
+              !manager->IsSoftware() &&
+              (source->IsOpaque() || rgbaIsOpaque())) {
+        convertRGBAtoRGB();
+    }
+
     iTVPTexture2D *copy = manager->CreateTexture2D(
-        nullptr, 0, source->GetWidth(), source->GetHeight(),
-        source->GetFormat(), RENDER_CREATE_TEXTURE_FLAG_NO_COMPRESS);
+        nullptr, 0, width, height, uploadFormat,
+        RENDER_CREATE_TEXTURE_FLAG_NO_COMPRESS);
     if(!copy) {
         return nullptr;
     }
 
-    copy->Update(pixels, source->GetFormat(), pitch,
-                 tTVPRect(0, 0, source->GetWidth(), source->GetHeight()));
+    copy->Update(uploadPixels, uploadFormat, uploadPitch,
+                 tTVPRect(0, 0, width, height));
     return copy;
 }
 

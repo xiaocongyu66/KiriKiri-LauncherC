@@ -1074,6 +1074,9 @@ public:
     }
 
     const void *GetScanLineForRead(tjs_uint l) override;
+    TVPTextureFormat::e GetPixelDataFormat() const override {
+        return TVPTextureFormat::RGBA;
+    }
 
     tjs_uint32 GetPoint(int x, int y) override {
         if(PixelData)
@@ -1224,6 +1227,7 @@ public:
     const void *GetScanLineForRead(tjs_uint l) override {
         return Bitmap->GetScanLine(l);
     }
+    TVPTextureFormat::e GetPixelDataFormat() const override { return Format; }
     tjs_int GetPitch() const override { return Bitmap->GetPitch(); }
     tjs_uint32 GetPoint(int x, int y) override {
         if(Bitmap->Is32bit()) {

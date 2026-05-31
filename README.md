@@ -202,6 +202,7 @@ KiriKiri LauncherC 的开发参考并受益于多个 KiriKiri / KrKr 相关开�
 * [reAAAq/KrKr2-Next](https://github.com/reAAAq/KrKr2-Next)
 * [krkrsdl3/krkrsdl3](https://github.com/krkrsdl3/krkrsdl3)
 * [fenghengzhi/kirikiroid2-web](https://github.com/fenghengzhi/kirikiroid2-web)
+* [AetherKiri/AetherKiri](https://github.com/AetherKiri/AetherKiri)
 
 如果后续从其他项目移植或改写具体模块，会在对应源码、提交记录或文档中保留必要的来源与许可证说明。
 

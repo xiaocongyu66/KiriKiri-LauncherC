@@ -121,6 +121,9 @@ public:
     virtual TVPTextureFormat::e GetFormat() const = 0;
     virtual const void *GetScanLineForRead(tjs_uint l) { return nullptr; }
     virtual const void *GetPixelData() { return GetScanLineForRead(0); }
+    virtual TVPTextureFormat::e GetPixelDataFormat() const {
+        return GetFormat();
+    }
     virtual void *GetScanLineForWrite(tjs_uint l) {
         return (void *)GetScanLineForRead(l);
     }

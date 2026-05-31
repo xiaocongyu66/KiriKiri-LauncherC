@@ -944,6 +944,11 @@ public:
             return *((const tjs_uint8 *)Bitmap->GetScanLine(y) + x); // 8bpp
     }
 
+    TVPTextureFormat::e GetPixelDataFormat() const override {
+        return Format == TVPTextureFormat::RGB ? TVPTextureFormat::RGBA
+                                               : Format;
+    }
+
     void SetPoint(int x, int y, uint32_t clr) override {
         if(Bitmap->Is32bit())
             *((tjs_uint32 *)Bitmap->GetScanLine(y) + x) = clr; // 32bpp

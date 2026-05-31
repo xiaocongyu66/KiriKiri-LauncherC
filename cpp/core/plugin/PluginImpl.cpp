@@ -673,12 +673,13 @@ tTJSNativeClass *TVPCreateNativeClass_Plugins() {
         if(numparams < 1)
             return TJS_E_BADPARAMCOUNT;
         ttstr name = *param[0];
-        // TVPRegisteredPlugins is keyed by lower-case names (see ncbind.cpp
-        // LoadModule). Match the same casing here so callers like
-        //     if (Plugins.CanLoadPlugin("Emoteplayer.DLL")) { ... }
-        // resolve consistently.
+        // TVPRegisteredPlugins and ncbind's module table are keyed by
+        // lower-case names. CanLoadPlugin means "available", not just
+        // "already linked"; scripts use it before calling Plugins.link.
         ttstr lower = name.AsLowerCase();
-        bool present = TVPRegisteredPlugins.find(lower) != TVPRegisteredPlugins.end();
+        bool present =
+            TVPRegisteredPlugins.find(lower) != TVPRegisteredPlugins.end() ||
+            ncbAutoRegister::HasModule(lower);
         if(result)
             *result = (tjs_int)(present ? 1 : 0);
         return TJS_S_OK;

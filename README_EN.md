@@ -202,6 +202,7 @@ KiriKiri LauncherC is informed by and benefits from several open-source projects
 * [reAAAq/KrKr2-Next](https://github.com/reAAAq/KrKr2-Next)
 * [krkrsdl3/krkrsdl3](https://github.com/krkrsdl3/krkrsdl3)
 * [fenghengzhi/kirikiroid2-web](https://github.com/fenghengzhi/kirikiroid2-web)
+* [AetherKiri/AetherKiri](https://github.com/AetherKiri/AetherKiri)
 
 When code or behavior is ported or rewritten from another project, the relevant source files, commits, or documentation should preserve the required origin and license notes.
 
