@@ -11,6 +11,7 @@
 #include "tjsCommHead.h"
 
 #include "tjsUtils.h"
+#include <mimalloc.h>
 #include <mutex>
 #include <thread>
 
@@ -258,19 +259,14 @@ namespace TJS {
     void *TJSAlignedAlloc(tjs_uint bytes, tjs_uint align_bits) {
         // aligned memory allocation is to be used to gain performance
         // on some processors.
-        tjs_int align = 1 << align_bits;
-        void *ptr = (void *)(new tjs_uint8[bytes + align + sizeof(void *)]);
-        void *org_ptr = ptr;
-        auto *iptr = reinterpret_cast<tTJSPointerSizedInteger::type *>(&ptr);
-        *iptr += align + sizeof(void *);
-        *iptr &= ~(tTJSPointerSizedInteger::type)(align - 1);
-        (reinterpret_cast<void **>(ptr))[-1] = org_ptr;
-        return ptr;
+        size_t align = static_cast<size_t>(1) << align_bits;
+        if(align < sizeof(void *)) align = sizeof(void *);
+        return mi_malloc_aligned(bytes, align);
     }
 
     //---------------------------------------------------------------------------
     void TJSAlignedDealloc(void *ptr) {
-        delete[](tjs_uint8 *)((reinterpret_cast<void **>(ptr))[-1]);
+        mi_free(ptr);
     }
     //---------------------------------------------------------------------------
 

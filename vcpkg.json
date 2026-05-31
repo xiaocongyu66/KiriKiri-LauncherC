@@ -58,6 +58,14 @@
     "libvorbis",
     "libwebp",
     "lz4",
+    {
+      "name": "mimalloc",
+      "default-features": false,
+      "features": [
+        "override",
+        "nooptarch"
+      ]
+    },
     "oniguruma",
     "openal-soft",
     {

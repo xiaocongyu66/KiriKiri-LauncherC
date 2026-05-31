@@ -15,6 +15,7 @@
 #include "tjsUtils.h"
 #include "tjsLex.h"
 #include <algorithm>
+#include <mimalloc.h>
 
 namespace TJS {
     //---------------------------------------------------------------------------
@@ -66,9 +67,9 @@ namespace TJS {
     // switching value of double-sizing or incremental-sizing
     //---------------------------------------------------------------------------
     /*static inline*/ tjs_char *TJSVS_malloc(tjs_uint len) {
-        char *ret = (char *)malloc((len = (len + TJSVS_ALLOC_INC_SIZE_S)) *
-                                       sizeof(tjs_char) +
-                                   sizeof(size_t));
+        char *ret = (char *)mi_malloc((len = (len + TJSVS_ALLOC_INC_SIZE_S)) *
+                                          sizeof(tjs_char) +
+                                      sizeof(size_t));
         if(!ret)
             TJSThrowStringAllocError();
         *(size_t *)ret = len; // embed size
@@ -93,19 +94,17 @@ namespace TJS {
         else
             len = len + TJSVS_ALLOC_INC_SIZE_L;
 
-        char *ret = (char *)malloc( // ptr,
-            len * sizeof(tjs_char) + sizeof(size_t));
+        char *ret = (char *)mi_realloc(
+            ptr, len * sizeof(tjs_char) + sizeof(size_t));
         if(!ret)
             TJSThrowStringAllocError();
-        memcpy(ret + sizeof(size_t), ptr + 1, *ptr * sizeof(tjs_char));
         *(size_t *)ret = len; // embed size
-        TJSVS_free(buf);
         return (tjs_char *)(ret + sizeof(size_t));
     }
     //---------------------------------------------------------------------------
     /*static inline*/ void TJSVS_free(tjs_char *buf) {
         // free buffer
-        free((char *)buf - sizeof(size_t));
+        mi_free((char *)buf - sizeof(size_t));
     }
     //---------------------------------------------------------------------------
 

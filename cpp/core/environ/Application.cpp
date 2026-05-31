@@ -30,6 +30,7 @@
 #include <thread>
 #include "ConfigManager/LocaleConfigManager.h"
 #include "StorageIntf.h"
+#include <mimalloc.h>
 #include <spdlog/spdlog.h>
 extern "C" {
 #include <libavutil/avstring.h>
@@ -39,7 +40,7 @@ extern "C" {
 tTVPApplication *Application = new tTVPApplication;
 std::thread::id TVPMainThreadID;
 static tTJSCriticalSection _NoMemCallBackCS;
-static void *_reservedMem = malloc(1024 * 1024 * 4); // 4M reserved mem
+static void *_reservedMem = mi_malloc(1024 * 1024 * 4); // 4M reserved mem
 
 
 static bool _project_startup = false;
@@ -48,13 +49,13 @@ static void _do_compact() { TVPDeliverCompactEvent(TVP_COMPACT_LEVEL_MAX); }
 
 static void _no_memory_cb() {
     tTJSCSH lock(_NoMemCallBackCS);
-    free(_reservedMem);
+    mi_free(_reservedMem);
     if(TVPMainThreadID == std::this_thread::get_id()) {
         _do_compact();
     } else {
         Application->PostUserMessage(_do_compact);
     }
-    _reservedMem = realloc(nullptr, 1024 * 1024 * 4);
+    _reservedMem = mi_realloc(nullptr, 1024 * 1024 * 4);
 }
 
 static std::string _title, _msg, _retry, _cancel;

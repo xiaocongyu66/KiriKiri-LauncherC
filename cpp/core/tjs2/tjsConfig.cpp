@@ -14,6 +14,7 @@
 
 #include <cassert>
 #include <boost/locale.hpp>
+#include <mimalloc.h>
 #include <spdlog/spdlog.h>
 
 #ifdef _WIN32
@@ -743,7 +744,7 @@ namespace TJS {
     }
 
     void *TJS_malloc(size_t len) {
-        char *ret = (char *)malloc(len + sizeof(size_t));
+        char *ret = (char *)mi_malloc(len + sizeof(size_t));
         if(!ret)
             return nullptr;
         *(size_t *)ret = len; // embed size
@@ -757,17 +758,16 @@ namespace TJS {
         size_t *ptr = (size_t *)((char *)buf - sizeof(size_t));
         if(*ptr >= len)
             return buf; // still adequate
-        char *ret = (char *)TJS_malloc(len);
+        char *ret = (char *)mi_realloc(ptr, len + sizeof(size_t));
         if(!ret)
             return nullptr;
-        memcpy(ret, ptr + 1, *ptr);
-        TJS_free(buf);
-        return ret;
+        *(size_t *)ret = len;
+        return ret + sizeof(size_t);
     }
 
     void TJS_free(void *buf) {
         if(buf)
-            free((char *)buf - sizeof(size_t));
+            mi_free((char *)buf - sizeof(size_t));
     }
 
     tjs_char *TJS_strrchr(const tjs_char *s, int c) {

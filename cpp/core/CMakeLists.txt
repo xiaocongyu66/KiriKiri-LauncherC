@@ -5,6 +5,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/common)
 
 add_library(${PROJECT_NAME} INTERFACE)
 
+find_package(mimalloc CONFIG REQUIRED)
+
 add_subdirectory(tjs2)
 add_subdirectory(base)
 add_subdirectory(environ)
@@ -25,6 +27,7 @@ target_link_libraries(${PROJECT_NAME} INTERFACE
         core_sound_module
         core_visual_module
         core_utils_module
+        mimalloc
 )
 
 target_include_directories(${PROJECT_NAME} INTERFACE

@@ -2,6 +2,7 @@
 #include "StorageIntf.h"
 #include "UtilStreams.h"
 #include <algorithm>
+#include <mimalloc.h>
 
 extern "C" {
 #include <7zip/C/7z.h>
@@ -12,9 +13,9 @@ extern "C" {
 #include "StorageImpl.h"
 
 static ISzAlloc allocImp = { [](ISzAllocPtr p, size_t size) -> void * {
-                                return malloc(size);
+                                return mi_malloc(size);
                             },
-                             [](ISzAllocPtr p, void *addr) { free(addr); } };
+                             [](ISzAllocPtr p, void *addr) { mi_free(addr); } };
 
 class SevenZipStreamWrap {
 public:
