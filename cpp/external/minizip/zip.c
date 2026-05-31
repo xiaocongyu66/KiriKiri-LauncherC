@@ -20,7 +20,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include "zlib.h"
+#include <zlib.h>
 #include "zip.h"
 
 #ifdef HAVE_AES
