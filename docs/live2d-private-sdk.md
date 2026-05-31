@@ -37,7 +37,7 @@ artifacts.
 After creating the private repository, add it as an optional submodule:
 
 ```sh
-git submodule add git@github.com:xiaocongyu66/KiriKiri-Live2D-SDK.git third_party/live2d-sdk
+git submodule add https://github.com/xiaocongyu66/KiriKiri-Live2D-SDK.git third_party/live2d-sdk
 git commit -m "Add private Live2D SDK submodule"
 ```
 
@@ -70,19 +70,13 @@ private SDK is unavailable.
 Use a read-only deploy key or token that can read the private SDK repository.
 Store it as a CI secret, for example `LIVE2D_SDK_TOKEN`.
 
-Example GitHub Actions checkout using a token:
+Example GitHub Actions checkout using a token with access to both repositories:
 
 ```yaml
 - uses: actions/checkout@v4
   with:
-    submodules: false
-
-- name: Initialize private Live2D SDK submodule
-  env:
-    LIVE2D_SDK_TOKEN: ${{ secrets.LIVE2D_SDK_TOKEN }}
-  run: |
-    git config --global url."https://x-access-token:${LIVE2D_SDK_TOKEN}@github.com/".insteadOf "git@github.com:"
-    git submodule update --init --depth 1 third_party/live2d-sdk
+    token: ${{ secrets.LIVE2D_SDK_TOKEN }}
+    submodules: true
 
 - name: Configure
   run: cmake -S . -B build/android
