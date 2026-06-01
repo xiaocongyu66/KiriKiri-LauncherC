@@ -70,6 +70,20 @@ namespace PSB {
             return false;
         }
 
+        bool IsProtectedEvictionKey(const std::string &victim,
+                                    const std::string &protectedKey) {
+            if(protectedKey.empty())
+                return false;
+            if(victim == protectedKey)
+                return true;
+
+            std::string victimBase = victim;
+            std::string protectedBase = protectedKey;
+            StripSyntheticImageExtension(victimBase);
+            StripSyntheticImageExtension(protectedBase);
+            return !victimBase.empty() && victimBase == protectedBase;
+        }
+
         uint32_t HeaderLE32(const std::vector<uint8_t> &data) {
             return data.size() >= 4
                 ? static_cast<uint32_t>(data[0]) |
@@ -1058,6 +1072,8 @@ namespace PSB {
     }
 
     void PSBMedia::touchLocked(CacheEntry &entry) {
+        if(!entry.inLru)
+            return;
         if(entry.lruIt != _lru.begin()) {
             _lru.splice(_lru.begin(), _lru, entry.lruIt);
             entry.lruIt = _lru.begin();
@@ -1134,7 +1150,7 @@ namespace PSB {
 
         size_t evictedCount = 0;
         size_t evictedBytes = 0;
-        while((_resources.size() > _maxEntryCount || _bytesInUse > _maxByteSize) &&
+        while((_lru.size() > _maxEntryCount || _bytesInUse > _maxByteSize) &&
               !_lru.empty()) {
             const std::string victimKey = _lru.back();
             _lru.pop_back();
@@ -1144,17 +1160,37 @@ namespace PSB {
                 continue;
             }
 
+            CacheEntry &entry = it->second;
+            if(IsProtectedEvictionKey(victimKey, _evictionProtectedKey)) {
+                _lru.push_front(victimKey);
+                entry.lruIt = _lru.begin();
+                entry.inLru = true;
+                if(_lru.size() == 1)
+                    break;
+                continue;
+            }
+
+            const size_t oldSize = entry.sizeBytes;
+            if(oldSize == 0 && !entry.resource && !entry.convertedImage) {
+                entry.inLru = false;
+                continue;
+            }
+
             evictedCount++;
-            evictedBytes += it->second.sizeBytes;
-            _bytesInUse -= it->second.sizeBytes;
-            _resources.erase(it);
+            evictedBytes += oldSize;
+            _bytesInUse = oldSize <= _bytesInUse ? _bytesInUse - oldSize : 0;
+            entry.resource.reset();
+            entry.convertedImage.reset();
+            entry.sizeBytes = CalcEntryFootprint(entry);
+            _bytesInUse += entry.sizeBytes;
+            entry.inLru = false;
         }
 
         if(evictedCount > 0) {
             LOGGER->debug(
                 "PSB media cache evicted: count={} bytes={} remain_count={} "
                 "remain_bytes={}",
-                evictedCount, evictedBytes, _resources.size(), _bytesInUse);
+                evictedCount, evictedBytes, _lru.size(), _bytesInUse);
         }
     }
 
@@ -1198,6 +1234,7 @@ namespace PSB {
         CachedImageInfo imageInfo;
         bool hasImageInfo = false;
         std::string resolvedKey;
+        bool knownButEvicted = false;
         {
             std::lock_guard<std::mutex> lock(Mutex());
             auto it = _resources.find(key);
@@ -1216,10 +1253,16 @@ namespace PSB {
                 imageInfo = it->second.imageInfo;
                 hasImageInfo = it->second.hasImageInfo;
                 resolvedKey = it->first;
+            } else if(it != _resources.end()) {
+                knownButEvicted = true;
+                resolvedKey = it->first;
             }
         }
 
-        if(!res && tryLazyLoadArchive(key)) {
+        const std::string protectedReloadKey =
+            !resolvedKey.empty() ? resolvedKey : key;
+        if(!res &&
+           tryLazyLoadArchive(key, knownButEvicted, protectedReloadKey)) {
             std::lock_guard<std::mutex> lock(Mutex());
             auto it = _resources.find(key);
             if(it == _resources.end()) {
@@ -1293,20 +1336,34 @@ namespace PSB {
         return memoryStream;
     }
 
-    bool PSBMedia::tryLazyLoadArchive(const std::string &key) {
+    bool PSBMedia::tryLazyLoadArchive(const std::string &key,
+                                      bool forceReload,
+                                      const std::string &protectedKey) {
         const auto slashPos = key.find('/');
         if(slashPos == std::string::npos || slashPos == 0)
             return false;
 
         const std::string archiveKey = key.substr(0, slashPos);
+        std::string previousProtectedKey;
         bool shouldAttemptLoad = false;
         {
             std::lock_guard<std::mutex> lock(Mutex());
-            shouldAttemptLoad =
-                _loadedArchives.insert(archiveKey).second;
+            if(forceReload) {
+                _loadedArchives.insert(archiveKey);
+                shouldAttemptLoad = true;
+            } else {
+                shouldAttemptLoad =
+                    _loadedArchives.insert(archiveKey).second;
+            }
         }
         if(!shouldAttemptLoad)
             return false;
+
+        if(!protectedKey.empty()) {
+            std::lock_guard<std::mutex> lock(Mutex());
+            previousProtectedKey = _evictionProtectedKey;
+            _evictionProtectedKey = canonicalizeKey(protectedKey);
+        }
 
         try {
             ttstr archivePath(archiveKey.c_str());
@@ -1321,20 +1378,31 @@ namespace PSB {
             if(!psb.loadPSBFile(archivePath)) {
                 std::lock_guard<std::mutex> lock(Mutex());
                 _loadedArchives.erase(archiveKey);
+                if(!protectedKey.empty())
+                    _evictionProtectedKey = previousProtectedKey;
                 LOGGER->debug("PSB lazy-load failed: {}", archiveKey);
                 return false;
             }
-            LOGGER->info("PSB lazy-load archive: {}", archiveKey);
+            LOGGER->info("PSB {} archive: {}",
+                         forceReload ? "reload" : "lazy-load", archiveKey);
             RegisterPSBResourcesIntoMedia(*this, psb, archiveKey);
+            if(!protectedKey.empty()) {
+                std::lock_guard<std::mutex> lock(Mutex());
+                _evictionProtectedKey = previousProtectedKey;
+            }
             return true;
         } catch(const std::exception &e) {
             std::lock_guard<std::mutex> lock(Mutex());
             _loadedArchives.erase(archiveKey);
+            if(!protectedKey.empty())
+                _evictionProtectedKey = previousProtectedKey;
             LOGGER->warn("PSB lazy-load error: {} ({})", e.what(), archiveKey);
             return false;
         } catch(...) {
             std::lock_guard<std::mutex> lock(Mutex());
             _loadedArchives.erase(archiveKey);
+            if(!protectedKey.empty())
+                _evictionProtectedKey = previousProtectedKey;
             LOGGER->warn("PSB lazy-load unknown error: {}", archiveKey);
             return false;
         }
@@ -1357,7 +1425,6 @@ namespace PSB {
         }
 
         const auto key = canonicalizeKey(name);
-        const size_t incomingSize = resource->data.size();
 
         std::lock_guard<std::mutex> lock(Mutex());
         auto it = _resources.find(key);
@@ -1383,6 +1450,11 @@ namespace PSB {
             }
             it->second.sizeBytes = CalcEntryFootprint(it->second);
             _bytesInUse += it->second.sizeBytes;
+            if(!it->second.inLru) {
+                _lru.push_front(key);
+                it->second.lruIt = _lru.begin();
+                it->second.inLru = true;
+            }
             touchLocked(it->second);
         } else {
             _lru.push_front(key);
@@ -1405,6 +1477,7 @@ namespace PSB {
                 entry.imageInfo.palette = imageMeta->getPalette().data;
             }
             entry.sizeBytes = CalcEntryFootprint(entry);
+            entry.inLru = true;
             entry.lruIt = _lru.begin();
             size_t entrySize = entry.sizeBytes;
             _resources.emplace(key, std::move(entry));
@@ -1427,7 +1500,7 @@ namespace PSB {
     PSBMediaCacheStats PSBMedia::getCacheStats() const {
         std::lock_guard<std::mutex> lock(Mutex());
         PSBMediaCacheStats stats;
-        stats.entryCount = _resources.size();
+        stats.entryCount = _lru.size();
         stats.entryLimit = _maxEntryCount;
         stats.bytesInUse = _bytesInUse;
         stats.byteLimit = _maxByteSize;
@@ -1441,23 +1514,35 @@ namespace PSB {
         if(!normalizedPrefix.empty() && normalizedPrefix.back() != '/') {
             normalizedPrefix.push_back('/');
         }
+        std::string archiveKey = normalizedPrefix;
+        if(!archiveKey.empty() && archiveKey.back() == '/') {
+            archiveKey.pop_back();
+        }
 
         std::lock_guard<std::mutex> lock(Mutex());
         for(auto it = _resources.begin(); it != _resources.end();) {
             if(it->first.rfind(normalizedPrefix, 0) == 0) {
-                _bytesInUse -= it->second.sizeBytes;
-                _lru.erase(it->second.lruIt);
+                _bytesInUse = it->second.sizeBytes <= _bytesInUse
+                    ? _bytesInUse - it->second.sizeBytes
+                    : 0;
+                if(it->second.inLru)
+                    _lru.erase(it->second.lruIt);
                 it = _resources.erase(it);
                 continue;
             }
             ++it;
         }
+        if(!archiveKey.empty())
+            _loadedArchives.erase(archiveKey);
     }
 
     void PSBMedia::clear() {
         std::lock_guard<std::mutex> lock(Mutex());
         _resources.clear();
         _lru.clear();
+        _loadedArchives.clear();
+        _layerPositions.clear();
+        _buttonBoundsMap.clear();
         _bytesInUse = 0;
         _hitCount = 0;
         _missCount = 0;

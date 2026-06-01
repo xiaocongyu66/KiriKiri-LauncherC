@@ -86,6 +86,7 @@ namespace PSB {
             CachedImageInfo imageInfo;
             bool hasImageInfo = false;
             size_t sizeBytes = 0;
+            bool inLru = false;
             std::list<std::string>::iterator lruIt;
         };
 
@@ -129,7 +130,9 @@ namespace PSB {
 
         std::string canonicalizeKey(const std::string &key) const;
         ResourceMap::iterator findBySuffixLocked(const std::string &key);
-        bool tryLazyLoadArchive(const std::string &key);
+        bool tryLazyLoadArchive(const std::string &key,
+                                bool forceReload = false,
+                                const std::string &protectedKey = {});
         void touchLocked(CacheEntry &entry);
         void adaptBudgetByMemoryPressureLocked();
         void evictIfNeededLocked();
@@ -162,6 +165,7 @@ namespace PSB {
         size_t _maxByteSize = 192ULL * 1024ULL * 1024ULL;
         uint64_t _hitCount = 0;
         uint64_t _missCount = 0;
+        std::string _evictionProtectedKey;
         std::unordered_set<std::string> _loadedArchives;
         std::unordered_map<std::string, std::vector<LayerPosition>> _layerPositions;
         std::unordered_map<std::string, std::vector<ButtonBoundInfo>> _buttonBoundsMap;
