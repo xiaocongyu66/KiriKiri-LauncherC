@@ -769,8 +769,32 @@ csmInt32 CubismModel::GetPartParentPartIndex(csmUint32 partIndex) const
 
 csmBool CubismModel::GetDrawableDynamicFlagIsVisible(csmInt32 drawableIndex) const
 {
+    if (drawableIndex >= 0 &&
+        drawableIndex < static_cast<csmInt32>(_drawableForceHidden.GetSize()) &&
+        _drawableForceHidden[drawableIndex])
+    {
+        return false;
+    }
     const Core::csmFlags* dynamicFlags = Core::csmGetDrawableDynamicFlags(_model);
     return IsBitSet(dynamicFlags[drawableIndex], Core::csmIsVisible)!=0 ? true : false;
+}
+
+void CubismModel::SetDrawableForceHidden(csmInt32 drawableIndex, csmBool hidden)
+{
+    if (drawableIndex < 0 || drawableIndex >= GetDrawableCount())
+    {
+        return;
+    }
+    if (_drawableForceHidden.GetSize() < static_cast<csmUint32>(GetDrawableCount()))
+    {
+        _drawableForceHidden.UpdateSize(GetDrawableCount(), false, false);
+    }
+    _drawableForceHidden[drawableIndex] = hidden;
+}
+
+void CubismModel::ClearDrawableForceHiddenFlags()
+{
+    _drawableForceHidden.Clear();
 }
 
 csmBool CubismModel::GetDrawableDynamicFlagVisibilityDidChange(csmInt32 drawableIndex) const

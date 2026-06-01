@@ -706,6 +706,16 @@ public:
     csmBool GetDrawableDynamicFlagIsVisible(csmInt32 drawableIndex) const;
 
     /**
+     * Sets an engine-side visibility override for a drawable.
+     */
+    void SetDrawableForceHidden(csmInt32 drawableIndex, csmBool hidden);
+
+    /**
+     * Clears all engine-side drawable visibility overrides.
+     */
+    void ClearDrawableForceHiddenFlags();
+
+    /**
      * Returns whether the visibility state of the drawable has changed from the dynamic flag.
      *
      * @param drawableIndex Drawable index
@@ -1106,6 +1116,7 @@ protected:
     csmVector<CubismIdHandle> _parameterIds;
     csmVector<CubismIdHandle> _partIds;
     csmVector<CubismIdHandle> _drawableIds;
+    csmVector<csmBool> _drawableForceHidden;
     csmVector<CubismModelPartInfo> _partsHierarchy;
     csmVector<ParameterRepeatData> _userParameterRepeatDataList;
     csmVector<CullingData> _userDrawableCullings;

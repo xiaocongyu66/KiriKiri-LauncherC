@@ -145,6 +145,8 @@ public:
         y = 1.f;
         return true;
     }
+    virtual unsigned int GetNativeGLTextureId() const { return 0; }
+    virtual void InvalidatePixelCache() {}
 
     static void RecycleProcess();
 };
