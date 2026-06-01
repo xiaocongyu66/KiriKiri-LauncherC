@@ -1295,6 +1295,9 @@ bool tTJSNI_KAGParser::SkipCommentOrLabel() {
 }
 
 //---------------------------------------------------------------------------
+static void TVPKAGCopyHiddenTagList(iTJSDispatch2 *dst, iTJSDispatch2 *src);
+
+//---------------------------------------------------------------------------
 void tTJSNI_KAGParser::PushMacroArgs(iTJSDispatch2 *args) {
     iTJSDispatch2 *dsp;
     if(MacroArgs.size() > MacroArgStackDepth) {
@@ -1311,6 +1314,7 @@ void tTJSNI_KAGParser::PushMacroArgs(iTJSDispatch2 *args) {
     tTJSVariant src(args, args);
     tTJSVariant *psrc = &src;
     DicAssign->FuncCall(0, nullptr, nullptr, nullptr, 1, &psrc, dsp);
+    TVPKAGCopyHiddenTagList(dsp, args);
 }
 
 //---------------------------------------------------------------------------
@@ -1472,11 +1476,60 @@ void tTJSNI_KAGParser::ClearCallStack() {
 }
 
 //---------------------------------------------------------------------------
+static ttstr &TVPKAGTagListName() {
+    static ttstr taglistName(TJSMapGlobalStringMap(TJS_W("taglist")));
+    return taglistName;
+}
+
+static bool TVPKAGIsInternalParam(const ttstr &name) {
+    return name == TVPKAGTagListName();
+}
+
+static void TVPKAGSetHiddenParam(iTJSDispatch2 *dic, const ttstr &name,
+                                 tTJSVariant &value) {
+    if(!dic)
+        return;
+    dic->PropSetByVS(TJS_MEMBERENSURE | TJS_HIDDENMEMBER,
+                     name.AsVariantStringNoAddRef(), &value, dic);
+}
+
+static void TVPKAGAttachHiddenTagList(iTJSDispatch2 *dic,
+                                      iTJSDispatch2 *taglist) {
+    if(!dic || !taglist)
+        return;
+    tTJSVariant taglistValue(taglist, taglist);
+    TVPKAGSetHiddenParam(dic, TVPKAGTagListName(), taglistValue);
+}
+
+static void TVPKAGHideExistingTagList(iTJSDispatch2 *dic) {
+    if(!dic)
+        return;
+    tTJSVariant value;
+    ttstr &name = TVPKAGTagListName();
+    if(TJS_SUCCEEDED(dic->PropGet(0, name.c_str(), name.GetHint(), &value,
+                                  dic)) &&
+       value.Type() != tvtVoid) {
+        TVPKAGSetHiddenParam(dic, name, value);
+    }
+}
+
+static void TVPKAGCopyHiddenTagList(iTJSDispatch2 *dst, iTJSDispatch2 *src) {
+    if(!dst || !src)
+        return;
+    tTJSVariant value;
+    ttstr &name = TVPKAGTagListName();
+    if(TJS_SUCCEEDED(src->PropGet(0, name.c_str(), name.GetHint(), &value,
+                                  src)) &&
+       value.Type() != tvtVoid) {
+        TVPKAGSetHiddenParam(dst, name, value);
+    }
+}
+
+//---------------------------------------------------------------------------
 static void TVPKAGSetOrderedParam(iTJSDispatch2 *dic, iTJSDispatch2 *taglist,
                                   tjs_int &taglistCount, const ttstr &name,
                                   tTJSVariant &value) {
-    static ttstr taglistName(TJSMapGlobalStringMap(TJS_W("taglist")));
-    if(name == taglistName)
+    if(TVPKAGIsInternalParam(name))
         return;
 
     dic->PropSetByVS(TJS_MEMBERENSURE, name.AsVariantStringNoAddRef(), &value,
@@ -1598,17 +1651,14 @@ parse_start:
     static ttstr __exp_name(TJSMapGlobalStringMap(TJS_W("exp")));
     static ttstr __name_name(TJSMapGlobalStringMap(TJS_W("name")));
     static ttstr __escape_name(TJSMapGlobalStringMap(TJS_W("escape")));
-    static ttstr __taglist_name(TJSMapGlobalStringMap(TJS_W("taglist")));
+    ttstr &__taglist_name = TVPKAGTagListName();
 
     while(true) {
         DicClear->FuncCall(0, nullptr, nullptr, nullptr, 0, nullptr, DicObj);
         // clear dictionary object
 
         iTJSDispatch2 *taglist = TJSCreateArrayObject();
-        tTJSVariant taglistValue(taglist, taglist);
-        DicObj->PropSetByVS(TJS_MEMBERENSURE | TJS_HIDDENMEMBER,
-                            __taglist_name.AsVariantStringNoAddRef(),
-                            &taglistValue, DicObj);
+        TVPKAGAttachHiddenTagList(DicObj, taglist);
         taglist->Release();
         tjs_int taglistCount = 0;
 
@@ -1619,6 +1669,7 @@ parse_start:
             TVPKAGSetOrderedParam(DicObj, taglist, taglistCount, __tag_name,
                                   r_val);
             Interrupted = false;
+            TVPKAGHideExistingTagList(DicObj);
             DicObj->AddRef();
             return DicObj;
         }
@@ -1662,6 +1713,7 @@ parse_start:
                 CurPos = 0;
                 LineBufferUsing = false;
                 if(!RecordingMacro && ExcludeLevel == -1) {
+                    TVPKAGHideExistingTagList(DicObj);
                     DicObj->AddRef();
                     return DicObj;
                 }
@@ -1721,6 +1773,7 @@ parse_start:
                 CurPos++;
 
                 if(!RecordingMacro && ExcludeLevel == -1) {
+                    TVPKAGHideExistingTagList(DicObj);
                     DicObj->AddRef();
                     return DicObj;
                 }
@@ -1909,6 +1962,7 @@ parse_start:
                     TVP_KAG_STEP_NEXT;
 
                     if(condition && ExcludeLevel == -1) {
+                        TVPKAGHideExistingTagList(DicObj);
                         DicObj->AddRef();
                         return DicObj;
                     }
@@ -2374,9 +2428,10 @@ parse_start:
                             }
                         } else {
                             tTJSVariant src(dsp, dsp);
-                            tTJSVariant *psrc = &src;
-                            DicAssign->FuncCall(0, nullptr, nullptr, nullptr, 1,
-                                                &psrc, DicObj);
+                            tTJSVariant clear(false);
+                            tTJSVariant *psrc[2] = { &src, &clear };
+                            DicAssign->FuncCall(0, nullptr, nullptr, nullptr, 2,
+                                                psrc, DicObj);
                         }
                     }
                     tTJSVariant tag_val(tagname);

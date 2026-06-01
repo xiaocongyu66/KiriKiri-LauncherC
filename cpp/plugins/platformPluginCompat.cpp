@@ -30,6 +30,15 @@ tTJSVariant EmptyArray() {
     return ret;
 }
 
+tTJSVariant EmptyDictionary() {
+    iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+    if(!dict)
+        return tTJSVariant();
+    tTJSVariant ret(dict, dict);
+    dict->Release();
+    return ret;
+}
+
 tTJSVariant EmptyOctet() {
     static const tjs_uint8 empty = 0;
     return tTJSVariant(&empty, 0);
@@ -250,6 +259,29 @@ NCB_ATTACH_CLASS(StdioCompat, System) {
     RawCallback(TJS_W("stdout"), &StdioCompat::out, TJS_STATICMEMBER);
     RawCallback(TJS_W("stderr"), &StdioCompat::out, TJS_STATICMEMBER);
     RawCallback(TJS_W("flush"), &StdioCompat::flush, TJS_STATICMEMBER);
+}
+
+// ---------------------------------------------------------------------------
+// fontInfo.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("fontInfo.dll")
+
+class FontInfoCompat {
+public:
+    static tjs_error TJS_INTF_METHOD getFontInfoMap(tTJSVariant *result,
+                                                    tjs_int, tTJSVariant **,
+                                                    iTJSDispatch2 *) {
+        if(result)
+            *result = EmptyDictionary();
+        return TJS_S_OK;
+    }
+};
+
+NCB_ATTACH_CLASS(FontInfoCompat, System) {
+    RawCallback(TJS_W("getFontInfoMap"), &FontInfoCompat::getFontInfoMap,
+                TJS_STATICMEMBER);
 }
 
 // ---------------------------------------------------------------------------
