@@ -198,6 +198,9 @@ tTVPStorageMediaManager::tTVPStorageMediaManager() {
     iTVPStorageMedia *filemedia = TVPCreateFileMedia();
     Register(filemedia);
     filemedia->Release();
+    // Some scripts probe bare storage names very early. Default to the file
+    // media so those lookups degrade into an ordinary file/auto-path search.
+    TVPCurrentMedia = TJS_W("file");
 }
 
 //---------------------------------------------------------------------------
@@ -742,6 +745,9 @@ static tTVPAtExit TVPClearArchiveCacheAtExit(TVP_ATEXIT_PRI_SHUTDOWN,
 // TVPIsExistentStorageNoSearch
 //---------------------------------------------------------------------------
 bool TVPIsExistentStorageNoSearchNoNormalize(const ttstr &name) {
+    if(name.IsEmpty())
+        return false;
+
     // does name contain > ?
     tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
 
@@ -1187,6 +1193,9 @@ ttstr TVPGetPlacedPath(const ttstr &name) {
     // search path and return the path which the "name" is placed.
     // returned name is normalized. returns empty string if the
     // storage is not found.
+    if(name.IsEmpty())
+        return {};
+
 #if 0 // needn't
     if(!TVPClearAutoPathCacheCallbackInit)
     {

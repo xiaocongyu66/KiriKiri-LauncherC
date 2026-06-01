@@ -19,6 +19,81 @@
 
 namespace TJS {
 
+    namespace {
+
+        static bool TJSIsAsciiHexDigit(tjs_char ch) {
+            return (ch >= TJS_W('0') && ch <= TJS_W('9')) ||
+                (ch >= TJS_W('a') && ch <= TJS_W('f')) ||
+                (ch >= TJS_W('A') && ch <= TJS_W('F'));
+        }
+
+        static ttstr TJSNormalizeUnicodeHexEscapesForOniguruma(
+            const ttstr &expr) {
+            std::u16string normalized;
+            normalized.reserve(expr.length());
+
+            const tjs_char *src = expr.c_str();
+            const size_t len = expr.length();
+            for(size_t i = 0; i < len; ++i) {
+                tjs_char ch = src[i];
+                if(ch == TJS_W('\\') && (i + 2) < len &&
+                   (src[i + 1] == TJS_W('x') || src[i + 1] == TJS_W('X')) &&
+                   src[i + 2] != TJS_W('{')) {
+                    size_t hex_begin = i + 2;
+                    size_t hex_end = hex_begin;
+                    while(hex_end < len && TJSIsAsciiHexDigit(src[hex_end]))
+                        ++hex_end;
+
+                    const size_t hex_count = hex_end - hex_begin;
+                    if(hex_count > 2) {
+                        normalized.push_back(TJS_W('\\'));
+                        normalized.push_back(TJS_W('x'));
+                        normalized.push_back(TJS_W('{'));
+                        for(size_t j = hex_begin; j < hex_end; ++j)
+                            normalized.push_back(src[j]);
+                        normalized.push_back(TJS_W('}'));
+                        i = hex_end - 1;
+                        continue;
+                    }
+                }
+
+                normalized.push_back(ch);
+            }
+
+            return ttstr(normalized);
+        }
+
+        static int TJSCompileRegExpRegex(regex_t **regex, const ttstr &expr,
+                                         tjs_uint32 flags,
+                                         OnigErrorInfo *einfo) {
+            return onig_new(regex, (UChar *)expr.c_str(),
+                            (UChar *)(expr.c_str() + expr.length()),
+                            flags & ((ONIG_OPTION_MAXBIT << 1) - 1),
+                            ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, einfo);
+        }
+
+        static void TJSCompileRegExpOrThrow(regex_t **regex, const ttstr &expr,
+                                            tjs_uint32 flags) {
+            OnigErrorInfo einfo;
+            int r = TJSCompileRegExpRegex(regex, expr, flags, &einfo);
+            if(r == 0)
+                return;
+
+            const ttstr normalized =
+                TJSNormalizeUnicodeHexEscapesForOniguruma(expr);
+            if(normalized != expr) {
+                r = TJSCompileRegExpRegex(regex, normalized, flags, &einfo);
+                if(r == 0)
+                    return;
+            }
+
+            char s[ONIG_MAX_ERROR_MESSAGE_LEN];
+            onig_error_code_to_str((UChar *)s, r, &einfo);
+            TJS_eTJSError(s);
+        }
+
+    } // namespace
+
     //---------------------------------------------------------------------------
     // Flags
     //---------------------------------------------------------------------------
@@ -240,8 +315,6 @@ namespace TJS {
 
                     if(numparams >=
                        1){ tTJSNC_RegExp::Compile(numparams, param, _this);
-} // namespace TJS
-
 return TJS_S_OK;
 }
 TJS_END_NATIVE_CONSTRUCTOR_DECL(/*TJS class name*/ RegExp)
@@ -300,16 +373,7 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ _compile) {
             onig_free(_this->RegEx);
             _this->RegEx = nullptr;
         }
-        OnigErrorInfo einfo;
-        int r = onig_new(&(_this->RegEx), (UChar *)exprstart,
-                         (UChar *)(expr.c_str() + expr.length()),
-                         flags & ((ONIG_OPTION_MAXBIT << 1) - 1),
-                         ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, &einfo);
-        if(r) {
-            char s[ONIG_MAX_ERROR_MESSAGE_LEN];
-            onig_error_code_to_str((UChar *)s, r, &einfo);
-            TJS_eTJSError(s);
-        }
+        TJSCompileRegExpOrThrow(&(_this->RegEx), ttstr(exprstart), flags);
     } catch(std::exception &e) {
         TJS_eTJSError(e.what());
     }
@@ -643,16 +707,7 @@ void tTJSNC_RegExp::Compile(tjs_int numparams, tTJSVariant **param,
         onig_free(_this->RegEx);
         _this->RegEx = nullptr;
     }
-    OnigErrorInfo einfo;
-    int r = onig_new(&(_this->RegEx), (UChar *)expr.c_str(),
-                     (UChar *)(expr.c_str() + expr.length()),
-                     flags & ((ONIG_OPTION_MAXBIT << 1) - 1),
-                     ONIG_ENCODING_UTF16_LE, ONIG_SYNTAX_PERL, &einfo);
-    if(r) {
-        char s[ONIG_MAX_ERROR_MESSAGE_LEN];
-        onig_error_code_to_str((UChar *)s, r, &einfo);
-        TJS_eTJSError(s);
-    }
+    TJSCompileRegExpOrThrow(&(_this->RegEx), expr, flags);
     _this->Flags = flags;
 }
 

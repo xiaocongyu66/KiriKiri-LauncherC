@@ -1,6 +1,7 @@
 #define NCB_MODULE_NAME TJS_W("wfTypicalDSP.dll")
 
 #include "ncbind.hpp"
+#include "ScriptMgnIntf.h"
 #include "tjs.h"
 #include "waveFilterCompat.hpp"
 #include <vector>
@@ -182,6 +183,60 @@ private:
     std::vector<tTJSVariant> params_;
 };
 
+bool TryGetExistingProperty(iTJSDispatch2 *owner, const tjs_char *name,
+                            tTJSVariant &value) {
+    return owner &&
+           TJS_SUCCEEDED(owner->PropGet(TJS_MEMBERMUSTEXIST, name, nullptr,
+                                        &value, owner)) &&
+           value.Type() != tvtVoid;
+}
+
+bool ExportWaveDSPFilterClass(iTJSDispatch2 *global) {
+    tTJSVariant filterClass;
+    if(TryGetExistingProperty(global, TJS_W("WaveDSPFilter"), filterClass))
+        return true;
+
+    auto *klass = ncbClassInfo<WaveDSPFilter>::GetClassObject();
+    if(!klass)
+        return false;
+
+    klass->AddRef();
+    filterClass = tTJSVariant(klass, klass);
+    klass->Release();
+    global->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP, TJS_W("WaveDSPFilter"),
+                    nullptr, &filterClass, global);
+    return true;
+}
+
+void AttachWaveDSPFilterToWaveSoundBuffer(iTJSDispatch2 *global) {
+    if(!global)
+        return;
+
+    if(!ExportWaveDSPFilterClass(global))
+        return;
+
+    tTJSVariant waveClass;
+    if(!TryGetExistingProperty(global, TJS_W("WaveSoundBuffer"), waveClass))
+        return;
+
+    auto *waveDispatch = waveClass.AsObjectNoAddRef();
+    if(!waveDispatch)
+        return;
+
+    tTJSVariant existing;
+    if(TryGetExistingProperty(waveDispatch, TJS_W("WaveDSPFilter"), existing))
+        return;
+
+    tTJSVariant filterClass;
+    if(!TryGetExistingProperty(global, TJS_W("WaveDSPFilter"), filterClass))
+        return;
+
+    waveDispatch->PropSet(TJS_MEMBERENSURE | TJS_IGNOREPROP |
+                              TJS_STATICMEMBER,
+                          TJS_W("WaveDSPFilter"), nullptr, &filterClass,
+                          waveDispatch);
+}
+
 } // namespace
 
 NCB_REGISTER_CLASS(WaveDSPFilter) {
@@ -210,14 +265,10 @@ void TVPEnsureWaveDSPFilterCompat() {
     if(!global)
         return;
 
-    tTJSVariant existing;
-    const bool registered =
-        TJS_SUCCEEDED(global->PropGet(TJS_MEMBERMUSTEXIST,
-                                      TJS_W("WaveDSPFilter"), nullptr,
-                                      &existing, global)) &&
-        existing.Type() != tvtVoid;
+    const bool exported = ExportWaveDSPFilterClass(global);
+    AttachWaveDSPFilterToWaveSoundBuffer(global);
     global->Release();
-    if(registered)
+    if(exported)
         return;
 
     TVPAddLog(TJS_W("[krkr] WaveDSPFilter missing after plugin load; retrying "
@@ -225,4 +276,11 @@ void TVPEnsureWaveDSPFilterCompat() {
     ncbClassInfo<WaveDSPFilter>::Clear();
     TVPRegisteredPlugins.erase(ttstr(TJS_W("wftypicaldsp.dll")));
     ncbAutoRegister::LoadModule(TJS_W("wfTypicalDSP.dll"));
+
+    global = TVPGetScriptDispatch();
+    if(!global)
+        return;
+    ExportWaveDSPFilterClass(global);
+    AttachWaveDSPFilterToWaveSoundBuffer(global);
+    global->Release();
 }

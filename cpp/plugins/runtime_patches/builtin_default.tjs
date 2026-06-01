@@ -46,4 +46,86 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
         __krkr2_appendDataConfig.clear = function() { return void; };
         global.AppendDataConfig = __krkr2_appendDataConfig;
     }
+
+    function __krkr2_isAsciiScalePrefix(text=void, colonPos=void) {
+        if(typeof text != "string")
+            return false;
+        if(colonPos === void)
+            colonPos = text.indexOf("：");
+        if(colonPos <= 0)
+            return false;
+
+        var digits = "0123456789";
+        var dotSeen = false;
+        for(var i = 0; i < colonPos; i++) {
+            var ch = text.charAt(i);
+            if(ch == ".") {
+                if(dotSeen)
+                    return false;
+                dotSeen = true;
+                continue;
+            }
+            if(digits.indexOf(ch) < 0)
+                return false;
+        }
+        return true;
+    }
+
+    function __krkr2_normalizeIndexedResourceCell(text=void) {
+        if(typeof text != "string")
+            return text;
+        var colonPos = text.indexOf("：");
+        if(colonPos <= 0)
+            return text;
+        if(!__krkr2_isAsciiScalePrefix(text, colonPos))
+            return text;
+        return text.substr(0, colonPos) + ":" + text.substr(colonPos + 1);
+    }
+
+    function __krkr2_installIndexedResourceConfigCompat() {
+        if(global.__krkr2_indexedResourceConfigCompatApplied)
+            return;
+        if(typeof global.loadConfigFile != "function")
+            return;
+
+        global.__krkr2_indexedResourceConfigCompatApplied = true;
+        global.__krkr2_loadConfigFile_indexedResourceCompat = global.loadConfigFile;
+        global.loadConfigFile = function(marker=void, storage=void, delim=void) {
+            var rows = global.__krkr2_loadConfigFile_indexedResourceCompat(*);
+            try {
+                if(rows !== void && typeof rows.count != "undefined") {
+                    for(var i = 0; i < rows.count; i++) {
+                        var row = rows[i];
+                        if(row === void || typeof row.count == "undefined")
+                            continue;
+                        for(var j = 0; j < row.count; j++) {
+                            var normalized =
+                                __krkr2_normalizeIndexedResourceCell(row[j]);
+                            if(normalized !== row[j])
+                                row[j] = normalized;
+                        }
+                    }
+                }
+            } catch(e) {}
+            return rows;
+        };
+    }
+
+    function __krkr2_tryInstallIndexedResourceCompat() {
+        try {
+            __krkr2_installIndexedResourceConfigCompat();
+        } catch(e) {}
+    }
+
+    __krkr2_tryInstallIndexedResourceCompat();
+
+    if(typeof Scripts != "undefined" && typeof Scripts.execStorage == "function" &&
+       typeof Scripts.__krkr2_indexedResourceCompatExecStorage == "undefined") {
+        Scripts.__krkr2_indexedResourceCompatExecStorage = Scripts.execStorage;
+        Scripts.execStorage = function(name=void) {
+            var ret = Scripts.__krkr2_indexedResourceCompatExecStorage(*);
+            __krkr2_tryInstallIndexedResourceCompat();
+            return ret;
+        };
+    }
 }
