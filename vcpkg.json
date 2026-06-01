@@ -87,6 +87,7 @@
       "name": "sdl2",
       "default-features": false
     },
+    "sqlite3",
     "spdlog",
     {
       "name": "tbb",

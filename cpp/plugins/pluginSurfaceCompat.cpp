@@ -6,6 +6,14 @@
 #include "md5.h"
 
 #include <minizip/zip.h>
+#include <sqlite3.h>
+
+#if __has_include("tinyxml2/tinyxml2.h")
+#include "tinyxml2/tinyxml2.h"
+#define KRKR2_PLUGIN_HAS_TINYXML2 1
+#else
+#define KRKR2_PLUGIN_HAS_TINYXML2 0
+#endif
 
 #include <algorithm>
 #include <cctype>
@@ -326,6 +334,25 @@ ttstr Utf8BytesToTtstrCompat(const std::vector<tjs_uint8> &bytes) {
     }
 
     return ttstr(std::string(data, data + length).c_str());
+}
+
+ttstr Utf8TextToTtstrCompat(const char *data, size_t length) {
+    if(!data || length == 0)
+        return ttstr();
+    tjs_int outlen = TVPUtf8ToWideCharString(
+        data, static_cast<tjs_uint>(length), nullptr);
+    if(outlen >= 0) {
+        std::vector<tjs_char> out(static_cast<size_t>(outlen) + 1);
+        TVPUtf8ToWideCharString(data, static_cast<tjs_uint>(length),
+                                out.data());
+        out[static_cast<size_t>(outlen)] = 0;
+        return ttstr(out.data());
+    }
+    return ttstr(std::string(data, data + length).c_str());
+}
+
+ttstr Utf8TextToTtstrCompat(const char *text) {
+    return text ? Utf8TextToTtstrCompat(text, std::strlen(text)) : ttstr();
 }
 
 } // namespace
@@ -1259,6 +1286,189 @@ NCB_REGISTER_CLASS_DIFFER(Encode, EncodeCompat) {
 #undef NCB_MODULE_NAME
 #define NCB_MODULE_NAME TJS_W("sqlite3.dll")
 
+namespace {
+
+ttstr SqliteLocalDatabaseName(const ttstr &database) {
+    if(database.IsEmpty())
+        return database;
+    const tjs_char *name = database.c_str();
+    if(name[0] == TJS_W(':'))
+        return database;
+
+    ttstr normalized = TVPNormalizeStorageName(database);
+    ttstr local = TVPGetLocallyAccessibleName(normalized);
+    if(local.IsEmpty()) {
+        local = normalized;
+        TVPGetLocalName(local);
+    }
+    return local;
+}
+
+void SqliteSetError(sqlite3 *db, tjs_int *code, ttstr *message, int fallback) {
+    if(code)
+        *code = db ? sqlite3_errcode(db) : fallback;
+    if(message) {
+        if(db && sqlite3_errmsg16(db))
+            *message = reinterpret_cast<const tjs_char *>(sqlite3_errmsg16(db));
+        else
+            *message = TJS_W("database is not open");
+    }
+}
+
+std::string TtstrToUtf8Compat(const ttstr &value) {
+    const tjs_char *src = value.c_str();
+    tjs_int len = TVPWideCharToUtf8String(src, nullptr);
+    if(len >= 0) {
+        std::vector<char> out(static_cast<size_t>(len) + 1);
+        TVPWideCharToUtf8String(src, out.data());
+        out[static_cast<size_t>(len)] = 0;
+        return std::string(out.data());
+    }
+    return value.AsNarrowStdString();
+}
+
+int SqliteBindParam(sqlite3_stmt *stmt, const tTJSVariant &param, int pos) {
+    switch(param.Type()) {
+    case tvtInteger:
+        return sqlite3_bind_int64(stmt, pos,
+                                  static_cast<sqlite3_int64>(param.AsInteger()));
+    case tvtReal:
+        return sqlite3_bind_double(stmt, pos, param.AsReal());
+    case tvtString: {
+        tTJSVariantString *str = param.AsStringNoAddRef();
+        const void *text = str ? static_cast<const void *>(*str) : nullptr;
+        int bytes = str ? str->GetLength() * static_cast<int>(sizeof(tjs_char))
+                        : 0;
+        return sqlite3_bind_text16(stmt, pos, text, bytes, SQLITE_TRANSIENT);
+    }
+    case tvtOctet: {
+        tTJSVariantOctet *octet = param.AsOctetNoAddRef();
+        return sqlite3_bind_blob(stmt, pos,
+                                 octet ? octet->GetData() : nullptr,
+                                 octet ? static_cast<int>(octet->GetLength()) : 0,
+                                 SQLITE_TRANSIENT);
+    }
+    default:
+        return sqlite3_bind_null(stmt, pos);
+    }
+}
+
+int SqliteBindPos(sqlite3_stmt *stmt, const tTJSVariant &name) {
+    if(name.Type() == tvtInteger || name.Type() == tvtReal)
+        return static_cast<int>(name.AsInteger()) + 1;
+    if(name.Type() != tvtString)
+        return 0;
+
+    ttstr key(name);
+    std::string utf8 = TtstrToUtf8Compat(key);
+    return sqlite3_bind_parameter_index(stmt, utf8.c_str());
+}
+
+class SqliteBindCaller : public tTJSDispatch {
+public:
+    explicit SqliteBindCaller(sqlite3_stmt *stmt) : stmt_(stmt) {}
+
+    tjs_error TJS_INTF_METHOD FuncCall(tjs_uint32, const tjs_char *,
+                                       tjs_uint32 *, tTJSVariant *result,
+                                       tjs_int numparams,
+                                       tTJSVariant **param,
+                                       iTJSDispatch2 *) override {
+        if(numparams > 2 && param && param[0] && param[1] && param[2]) {
+            tTVInteger flags = param[1]->AsInteger();
+            if(!(flags & TJS_HIDDENMEMBER)) {
+                errorCode_ = SqliteBindParam(
+                    stmt_, *param[2], SqliteBindPos(stmt_, *param[0]));
+            }
+        }
+        if(result)
+            *result = errorCode_ == SQLITE_OK;
+        return TJS_S_OK;
+    }
+
+    int getErrorCode() const { return errorCode_; }
+
+private:
+    sqlite3_stmt *stmt_ = nullptr;
+    int errorCode_ = SQLITE_OK;
+};
+
+int SqliteBindParams(sqlite3_stmt *stmt, const tTJSVariant *params) {
+    if(!stmt || !params || params->Type() == tvtVoid)
+        return SQLITE_OK;
+    if(params->Type() != tvtObject)
+        return SqliteBindParam(stmt, *params, 1);
+
+    tTJSVariantClosure closure = params->AsObjectClosureNoAddRef();
+    if(closure.IsInstanceOf(TJS_IGNOREPROP, nullptr, nullptr, TJS_W("Array"),
+                            nullptr) == TJS_S_TRUE) {
+        tTJSVariant countVar;
+        closure.PropGet(0, TJS_W("count"), nullptr, &countVar, nullptr);
+        int count = static_cast<int>(countVar.AsInteger());
+        for(int i = 0; i < count; ++i) {
+            tTJSVariant value;
+            closure.PropGetByNum(0, i, &value, nullptr);
+            int ret = SqliteBindParam(stmt, value, i + 1);
+            if(ret != SQLITE_OK)
+                return ret;
+        }
+        return SQLITE_OK;
+    }
+
+    SqliteBindCaller *caller = new SqliteBindCaller(stmt);
+    tTJSVariantClosure enumClosure(caller);
+    closure.EnumMembers(TJS_IGNOREPROP, &enumClosure, nullptr);
+    int ret = caller->getErrorCode();
+    caller->Release();
+    return ret;
+}
+
+void SqliteColumnToVariant(sqlite3_stmt *stmt, int column,
+                           tTJSVariant *result) {
+    if(!result)
+        return;
+    switch(sqlite3_column_type(stmt, column)) {
+    case SQLITE_INTEGER:
+        *result = static_cast<tTVInteger>(sqlite3_column_int64(stmt, column));
+        break;
+    case SQLITE_FLOAT:
+        *result = sqlite3_column_double(stmt, column);
+        break;
+    case SQLITE_TEXT:
+        *result = reinterpret_cast<const tjs_char *>(
+            sqlite3_column_text16(stmt, column));
+        break;
+    case SQLITE_BLOB:
+        *result = tTJSVariant(
+            reinterpret_cast<const tjs_uint8 *>(sqlite3_column_blob(stmt, column)),
+            static_cast<tjs_uint>(sqlite3_column_bytes(stmt, column)));
+        break;
+    default:
+        result->Clear();
+        break;
+    }
+}
+
+int SqliteColumnIndex(sqlite3_stmt *stmt, const tTJSVariant &column) {
+    if(!stmt)
+        return -1;
+    if(column.Type() == tvtInteger || column.Type() == tvtReal)
+        return static_cast<int>(column.AsInteger());
+    if(column.Type() != tvtString)
+        return -1;
+
+    ttstr wanted(column);
+    int count = sqlite3_column_count(stmt);
+    for(int i = 0; i < count; ++i) {
+        const auto *name = reinterpret_cast<const tjs_char *>(
+            sqlite3_column_name16(stmt, i));
+        if(name && TJS_stricmp(wanted.c_str(), name) == 0)
+            return i;
+    }
+    return -1;
+}
+
+} // namespace
+
 class SqliteCompat {
 public:
     static tjs_error factory(SqliteCompat **result, tjs_int numparams,
@@ -1275,89 +1485,168 @@ public:
     }
 
     SqliteCompat(ttstr database, bool readonly) :
-        database_(database), readonly_(readonly) {}
+        database_(database), readonly_(readonly) {
+        ttstr local = SqliteLocalDatabaseName(database_);
+        int flags = readonly_ ? SQLITE_OPEN_READONLY
+                              : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
+        std::string path = TtstrToUtf8Compat(local);
+        errorCode_ = sqlite3_open_v2(path.c_str(), &db_, flags, nullptr);
+        if(errorCode_ != SQLITE_OK)
+            SqliteSetError(db_, &errorCode_, &errorMessage_, errorCode_);
+        else
+            errorMessage_.Clear();
+    }
 
-    static tjs_error TJS_INTF_METHOD exec(tTJSVariant *result, tjs_int,
-                                          tTJSVariant **,
+    ~SqliteCompat() {
+        if(db_) {
+            sqlite3_close(db_);
+            db_ = nullptr;
+        }
+    }
+
+    static tjs_error TJS_INTF_METHOD exec(tTJSVariant *result, tjs_int numparams,
+                                          tTJSVariant **param,
                                           SqliteCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        self->errorCode_ = SQLITE_OK;
-        self->errorMessage_.Clear();
-        return ReturnBoolCompat(result, true);
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(!self->db_)
+            return ReturnBoolCompat(result, false);
+
+        sqlite3_stmt *stmt = nullptr;
+        int ret = sqlite3_prepare16_v2(self->db_, param[0]->GetString(), -1,
+                                       &stmt, nullptr);
+        if(ret == SQLITE_OK && stmt) {
+            ret = SqliteBindParams(stmt,
+                                   numparams > 1 && param[1] ? param[1] : nullptr);
+            if(ret == SQLITE_OK) {
+                if(numparams > 2 && param[2] &&
+                   param[2]->Type() == tvtObject) {
+                    tTJSVariantClosure callback =
+                        param[2]->AsObjectClosureNoAddRef();
+                    int argc = sqlite3_column_count(stmt);
+                    std::vector<tTJSVariant> args(
+                        static_cast<size_t>(std::max(argc, 0)));
+                    std::vector<tTJSVariant *> argv(args.size());
+                    for(size_t i = 0; i < args.size(); ++i)
+                        argv[i] = &args[i];
+                    while((ret = sqlite3_step(stmt)) == SQLITE_ROW) {
+                        for(int i = 0; i < argc; ++i)
+                            SqliteColumnToVariant(stmt, i, &args[i]);
+                        callback.FuncCall(0, nullptr, nullptr, nullptr, argc,
+                                          argv.empty() ? nullptr : argv.data(),
+                                          nullptr);
+                    }
+                } else {
+                    while((ret = sqlite3_step(stmt)) == SQLITE_ROW) {
+                    }
+                }
+            }
+        }
+        if(stmt)
+            sqlite3_finalize(stmt);
+        if(ret == SQLITE_DONE || ret == SQLITE_ROW)
+            ret = SQLITE_OK;
+        self->errorCode_ = ret;
+        SqliteSetError(self->db_, &self->errorCode_, &self->errorMessage_, ret);
+        return ReturnBoolCompat(result, ret == SQLITE_OK);
     }
 
-    static tjs_error TJS_INTF_METHOD execValue(tTJSVariant *result, tjs_int,
-                                               tTJSVariant **,
+    static tjs_error TJS_INTF_METHOD execValue(tTJSVariant *result,
+                                               tjs_int numparams,
+                                               tTJSVariant **param,
                                                SqliteCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        self->errorCode_ = SQLITE_OK;
-        self->errorMessage_.Clear();
-        return ReturnVoidCompat(result);
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            result->Clear();
+        if(!self->db_)
+            return TJS_S_OK;
+
+        sqlite3_stmt *stmt = nullptr;
+        int ret = sqlite3_prepare16_v2(self->db_, param[0]->GetString(), -1,
+                                       &stmt, nullptr);
+        if(ret == SQLITE_OK && stmt) {
+            ret = SqliteBindParams(stmt,
+                                   numparams > 1 && param[1] ? param[1] : nullptr);
+            if(ret == SQLITE_OK) {
+                int stepRet = sqlite3_step(stmt);
+                if(stepRet == SQLITE_ROW && sqlite3_column_count(stmt) > 0)
+                    SqliteColumnToVariant(stmt, 0, result);
+                ret = (stepRet == SQLITE_ROW || stepRet == SQLITE_DONE)
+                          ? SQLITE_OK
+                          : stepRet;
+            }
+        }
+        if(stmt)
+            sqlite3_finalize(stmt);
+        self->errorCode_ = ret;
+        SqliteSetError(self->db_, &self->errorCode_, &self->errorMessage_,
+                       self->errorCode_);
+        return TJS_S_OK;
     }
 
-    bool begin() { return true; }
-    bool commit() { return true; }
-    bool rollback() { return true; }
-    tjs_int64 getLastInsertRowId() const { return 0; }
+    bool begin() { return execSimple("BEGIN TRANSACTION;"); }
+    bool commit() { return execSimple("COMMIT;"); }
+    bool rollback() { return execSimple("ROLLBACK;"); }
+    tjs_int64 getLastInsertRowId() const {
+        return db_ ? sqlite3_last_insert_rowid(db_) : 0;
+    }
     tjs_int getErrorCode() const { return errorCode_; }
     ttstr getErrorMessage() const { return errorMessage_; }
     ttstr getDatabase() const { return database_; }
     bool getReadOnly() const { return readonly_; }
-
-    enum {
-        SQLITE_OK = 0,
-        SQLITE_ERROR = 1,
-        SQLITE_INTERNAL = 2,
-        SQLITE_PERM = 3,
-        SQLITE_ABORT = 4,
-        SQLITE_BUSY = 5,
-        SQLITE_LOCKED = 6,
-        SQLITE_NOMEM = 7,
-        SQLITE_READONLY = 8,
-        SQLITE_INTERRUPT = 9,
-        SQLITE_IOERR = 10,
-        SQLITE_CORRUPT = 11,
-        SQLITE_NOTFOUND = 12,
-        SQLITE_FULL = 13,
-        SQLITE_CANTOPEN = 14,
-        SQLITE_PROTOCOL = 15,
-        SQLITE_EMPTY = 16,
-        SQLITE_SCHEMA = 17,
-        SQLITE_TOOBIG = 18,
-        SQLITE_CONSTRAINT = 19,
-        SQLITE_MISMATCH = 20,
-        SQLITE_MISUSE = 21,
-        SQLITE_NOLFS = 22,
-        SQLITE_AUTH = 23,
-        SQLITE_FORMAT = 24,
-        SQLITE_RANGE = 25,
-        SQLITE_NOTADB = 26,
-        SQLITE_ROW = 100,
-        SQLITE_DONE = 101
-    };
+    sqlite3 *getHandle() const { return db_; }
 
 private:
+    bool execSimple(const char *sql) {
+        if(!db_)
+            return false;
+        errorCode_ = sqlite3_exec(db_, sql, nullptr, nullptr, nullptr);
+        SqliteSetError(db_, &errorCode_, &errorMessage_, errorCode_);
+        return errorCode_ == SQLITE_OK;
+    }
+
     ttstr database_;
     bool readonly_ = false;
     tjs_int errorCode_ = SQLITE_OK;
     ttstr errorMessage_;
+    sqlite3 *db_ = nullptr;
 };
 
 class SqliteStatementCompat {
 public:
     static tjs_error factory(SqliteStatementCompat **result, tjs_int numparams,
-                             tTJSVariant **param, iTJSDispatch2 *) {
+                             tTJSVariant **param, iTJSDispatch2 *objthis) {
         if(!result)
             return TJS_S_OK;
+        if(numparams < 1 || !param || !param[0] ||
+           param[0]->Type() != tvtObject)
+            return TJS_E_BADPARAMCOUNT;
+        auto *sqlite = ncbInstanceAdaptor<SqliteCompat>::GetNativeInstance(
+            param[0]->AsObjectNoAddRef());
+        if(!sqlite)
+            TVPThrowExceptionMessage(TJS_W("use Sqlite class Object"));
         std::unique_ptr<SqliteStatementCompat> self(
-            new SqliteStatementCompat());
+            new SqliteStatementCompat(*param[0], sqlite));
         if(numparams > 1 && param && param[1] && param[1]->Type() != tvtVoid)
-            self->sql_ = ttstr(*param[1]);
+            self->openSql(ttstr(*param[1]),
+                          numparams > 2 && param[2] ? param[2] : nullptr);
+        if(objthis) {
+            tTJSVariant name(TJS_W("missing"));
+            objthis->ClassInstanceInfo(TJS_CII_SET_MISSING, 0, &name);
+        }
         *result = self.release();
         return TJS_S_OK;
     }
+
+    SqliteStatementCompat(tTJSVariant owner, SqliteCompat *sqlite) :
+        owner_(owner), sqlite_(sqlite), db_(sqlite ? sqlite->getHandle() : nullptr) {}
+
+    ~SqliteStatementCompat() { close(); }
 
     static tjs_error TJS_INTF_METHOD open(tTJSVariant *result,
                                           tjs_int numparams,
@@ -1367,30 +1656,79 @@ public:
             return TJS_E_NATIVECLASSCRASH;
         if(numparams < 1 || !param || !param[0])
             return TJS_E_BADPARAMCOUNT;
-        self->sql_ = ttstr(*param[0]);
-        return ReturnIntCompat(result, SqliteCompat::SQLITE_OK);
+        int ret = self->openSql(ttstr(*param[0]),
+                                numparams > 1 && param[1] ? param[1] : nullptr);
+        return ReturnIntCompat(result, ret);
     }
 
-    void close() { sql_.Clear(); }
+    void close() {
+        if(stmt_) {
+            sqlite3_finalize(stmt_);
+            stmt_ = nullptr;
+        }
+        sql_.Clear();
+        bindPos_ = 1;
+    }
     ttstr getSql() const { return sql_; }
-    tjs_int reset() { return SqliteCompat::SQLITE_OK; }
-    tjs_int bind(tTJSVariant = tTJSVariant()) { return SqliteCompat::SQLITE_OK; }
+    tjs_int reset() {
+        bindPos_ = 1;
+        return stmt_ ? sqlite3_reset(stmt_) : SQLITE_MISUSE;
+    }
+    tjs_int bind(tTJSVariant params = tTJSVariant()) {
+        return stmt_ ? SqliteBindParams(stmt_, &params) : SQLITE_MISUSE;
+    }
 
-    static tjs_error TJS_INTF_METHOD bindAt(tTJSVariant *result, tjs_int,
-                                            tTJSVariant **,
+    static tjs_error TJS_INTF_METHOD bindAt(tTJSVariant *result,
+                                            tjs_int numparams,
+                                            tTJSVariant **param,
                                             SqliteStatementCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        return ReturnIntCompat(result, SqliteCompat::SQLITE_OK);
+        if(numparams < 1 || !self->stmt_ || !param || !param[0])
+            return ReturnIntCompat(result, SQLITE_MISUSE);
+        int pos = numparams > 1 && param[1]
+                      ? SqliteBindPos(self->stmt_, *param[1])
+                      : self->bindPos_++;
+        int ret = SqliteBindParam(self->stmt_, *param[0], pos);
+        return ReturnIntCompat(result, ret);
     }
 
-    tjs_int exec() { return SqliteCompat::SQLITE_OK; }
-    bool step() { return false; }
-    tjs_int getCount() const { return 0; }
-    tjs_int getColumnCount() const { return 0; }
-    bool isNull(tTJSVariant = tTJSVariant()) { return true; }
-    tjs_int getType(tTJSVariant = tTJSVariant()) { return SQLITE_NULL; }
-    ttstr getName(tTJSVariant = tTJSVariant()) { return ttstr(); }
+    tjs_int exec() {
+        if(!stmt_)
+            return SQLITE_MISUSE;
+        int ret = sqlite3_step(stmt_);
+        if(ret != SQLITE_ROW)
+            reset();
+        return ret;
+    }
+    bool step() {
+        if(!stmt_)
+            return false;
+        int ret = sqlite3_step(stmt_);
+        if(ret == SQLITE_ROW)
+            return true;
+        reset();
+        return false;
+    }
+    tjs_int getCount() const { return stmt_ ? sqlite3_data_count(stmt_) : 0; }
+    tjs_int getColumnCount() const {
+        return stmt_ ? sqlite3_column_count(stmt_) : 0;
+    }
+    bool isNull(tTJSVariant column = tTJSVariant()) {
+        int index = SqliteColumnIndex(stmt_, column);
+        return index < 0 || sqlite3_column_type(stmt_, index) == SQLITE_NULL;
+    }
+    tjs_int getType(tTJSVariant column = tTJSVariant()) {
+        int index = SqliteColumnIndex(stmt_, column);
+        return index < 0 ? SQLITE_NULL : sqlite3_column_type(stmt_, index);
+    }
+    ttstr getName(tTJSVariant column = tTJSVariant()) {
+        int index = SqliteColumnIndex(stmt_, column);
+        if(index < 0)
+            return ttstr();
+        return reinterpret_cast<const tjs_char *>(
+            sqlite3_column_name16(stmt_, index));
+    }
 
     static tjs_error TJS_INTF_METHOD get(tTJSVariant *result,
                                          tjs_int numparams,
@@ -1398,47 +1736,216 @@ public:
                                          SqliteStatementCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        if(result && numparams > 1 && param && param[1] &&
-           param[1]->Type() != tvtVoid)
-            *result = *param[1];
-        else if(result)
+        if(!result)
+            return TJS_S_OK;
+        if(!self->stmt_) {
             result->Clear();
+            return TJS_S_OK;
+        }
+        if(numparams == 0) {
+            iTJSDispatch2 *array = TJSCreateArrayObject();
+            int count = sqlite3_column_count(self->stmt_);
+            for(int i = 0; i < count; ++i) {
+                tTJSVariant value;
+                SqliteColumnToVariant(self->stmt_, i, &value);
+                tTJSVariant *args[] = { &value };
+                array->FuncCall(0, TJS_W("add"), nullptr, nullptr, 1, args,
+                                array);
+            }
+            *result = tTJSVariant(array, array);
+            array->Release();
+            return TJS_S_OK;
+        }
+        int index = SqliteColumnIndex(self->stmt_, *param[0]);
+        if(index < 0 || sqlite3_column_type(self->stmt_, index) == SQLITE_NULL) {
+            if(numparams > 1 && param[1] && param[1]->Type() != tvtVoid)
+                *result = *param[1];
+            else
+                result->Clear();
+            return TJS_S_OK;
+        }
+        SqliteColumnToVariant(self->stmt_, index, result);
         return TJS_S_OK;
     }
 
-    enum {
-        SQLITE_INTEGER = 1,
-        SQLITE_FLOAT = 2,
-        SQLITE_TEXT = 3,
-        SQLITE_BLOB = 4,
-        SQLITE_NULL = 5
-    };
+    static tjs_error TJS_INTF_METHOD missing(tTJSVariant *result,
+                                             tjs_int numparams,
+                                             tTJSVariant **param,
+                                             SqliteStatementCompat *self) {
+        if(!self)
+            return TJS_E_NATIVECLASSCRASH;
+        bool handled = false;
+        if(numparams >= 3 && param && param[0] && param[1] && param[2] &&
+           !static_cast<bool>(param[0]->AsInteger()) && self->stmt_) {
+            int index = SqliteColumnIndex(self->stmt_, *param[1]);
+            if(index >= 0) {
+                tTJSVariant value;
+                SqliteColumnToVariant(self->stmt_, index, &value);
+                param[2]->AsObjectClosureNoAddRef().PropSet(
+                    0, nullptr, nullptr, &value, nullptr);
+                handled = true;
+            }
+        }
+        return ReturnBoolCompat(result, handled);
+    }
 
 private:
+    int openSql(const ttstr &sql, const tTJSVariant *params) {
+        close();
+        if(!db_)
+            return SQLITE_MISUSE;
+        sql_ = sql;
+        int ret = sqlite3_prepare16_v2(db_, sql.c_str(), -1, &stmt_, nullptr);
+        if(ret == SQLITE_OK && stmt_) {
+            reset();
+            ret = SqliteBindParams(stmt_, params);
+        }
+        if(ret != SQLITE_OK)
+            close();
+        return ret;
+    }
+
+    tTJSVariant owner_;
+    SqliteCompat *sqlite_ = nullptr;
+    sqlite3 *db_ = nullptr;
+    sqlite3_stmt *stmt_ = nullptr;
+    int bindPos_ = 1;
     ttstr sql_;
 };
 
 class SqliteThreadCompat {
 public:
-    static tjs_error factory(SqliteThreadCompat **result, tjs_int,
-                             tTJSVariant **, iTJSDispatch2 *) {
-        if(result)
-            *result = new SqliteThreadCompat();
+    static tjs_error factory(SqliteThreadCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        tTJSVariant sqliteOwner;
+        SqliteCompat *sqlite = nullptr;
+        for(tjs_int i = 0; i < numparams; ++i) {
+            if(param && param[i] && param[i]->Type() == tvtObject) {
+                sqlite = ncbInstanceAdaptor<SqliteCompat>::GetNativeInstance(
+                    param[i]->AsObjectNoAddRef());
+                if(sqlite) {
+                    sqliteOwner = *param[i];
+                    break;
+                }
+            }
+        }
+        if(!sqlite)
+            TVPThrowExceptionMessage(TJS_W("use Sqlite class Object"));
+        *result = new SqliteThreadCompat(sqliteOwner, sqlite);
         return TJS_S_OK;
     }
 
-    bool select(ttstr, tTJSVariant = tTJSVariant()) {
+    SqliteThreadCompat(tTJSVariant owner, SqliteCompat *sqlite) :
+        owner_(owner), sqlite_(sqlite), db_(sqlite ? sqlite->getHandle() : nullptr) {}
+
+    bool select(ttstr sql, tTJSVariant params = tTJSVariant()) {
+        abort();
+        state_ = WORKING;
+        errorCode_ = SQLITE_OK;
+        iTJSDispatch2 *array = TJSCreateArrayObject();
+        selectResult_ = tTJSVariant(array, array);
+        array->Release();
+
+        sqlite3_stmt *stmt = nullptr;
+        errorCode_ = db_ ? sqlite3_prepare16_v2(db_, sql.c_str(), -1, &stmt,
+                                                nullptr)
+                         : SQLITE_MISUSE;
+        if(errorCode_ == SQLITE_OK && stmt)
+            errorCode_ = SqliteBindParams(stmt, &params);
+        if(errorCode_ == SQLITE_OK && stmt) {
+            tTJSVariantClosure target = selectResult_.AsObjectClosureNoAddRef();
+            while((errorCode_ = sqlite3_step(stmt)) == SQLITE_ROW) {
+                int columns = sqlite3_data_count(stmt);
+                iTJSDispatch2 *line = TJSCreateArrayObject();
+                for(int i = 0; i < columns; ++i) {
+                    tTJSVariant value;
+                    SqliteColumnToVariant(stmt, i, &value);
+                    tTJSVariant *args[] = { &value };
+                    line->FuncCall(0, TJS_W("add"), nullptr, nullptr, 1, args,
+                                   line);
+                }
+                tTJSVariant row(line, line);
+                line->Release();
+                tTJSVariant *args[] = { &row };
+                target.FuncCall(0, TJS_W("add"), nullptr, nullptr, 1, args,
+                                nullptr);
+            }
+            if(errorCode_ == SQLITE_DONE)
+                errorCode_ = SQLITE_OK;
+        }
+        if(stmt)
+            sqlite3_finalize(stmt);
         state_ = DONE;
-        return true;
+        return errorCode_ == SQLITE_OK;
     }
-    bool update(ttstr, tTJSVariant = tTJSVariant()) {
+
+    bool update(ttstr sql, tTJSVariant data = tTJSVariant()) {
+        abort();
+        state_ = WORKING;
+        errorCode_ = SQLITE_OK;
+        if(!db_) {
+            errorCode_ = SQLITE_MISUSE;
+            state_ = DONE;
+            return false;
+        }
+
+        sqlite3_stmt *stmt = nullptr;
+        errorCode_ = sqlite3_prepare16_v2(db_, sql.c_str(), -1, &stmt, nullptr);
+        if(errorCode_ != SQLITE_OK || !stmt) {
+            state_ = DONE;
+            return false;
+        }
+
+        sqlite3_exec(db_, "BEGIN TRANSACTION;", nullptr, nullptr, nullptr);
+        bool ok = true;
+        if(data.Type() == tvtObject) {
+            tTJSVariantClosure rows = data.AsObjectClosureNoAddRef();
+            if(rows.IsInstanceOf(TJS_IGNOREPROP, nullptr, nullptr,
+                                 TJS_W("Array"), nullptr) == TJS_S_TRUE) {
+                tTJSVariant countVar;
+                rows.PropGet(0, TJS_W("count"), nullptr, &countVar, nullptr);
+                int count = static_cast<int>(countVar.AsInteger());
+                for(int i = 0; i < count; ++i) {
+                    tTJSVariant row;
+                    rows.PropGetByNum(0, i, &row, nullptr);
+                    sqlite3_reset(stmt);
+                    sqlite3_clear_bindings(stmt);
+                    errorCode_ = SqliteBindParams(stmt, &row);
+                    if(errorCode_ != SQLITE_OK ||
+                       ((errorCode_ = sqlite3_step(stmt)) != SQLITE_DONE &&
+                        errorCode_ != SQLITE_ROW)) {
+                        ok = false;
+                        break;
+                    }
+                }
+            } else {
+                errorCode_ = SqliteBindParams(stmt, &data);
+                ok = errorCode_ == SQLITE_OK &&
+                     ((errorCode_ = sqlite3_step(stmt)) == SQLITE_DONE ||
+                      errorCode_ == SQLITE_ROW);
+            }
+        } else {
+            errorCode_ = SqliteBindParams(stmt, &data);
+            ok = errorCode_ == SQLITE_OK &&
+                 ((errorCode_ = sqlite3_step(stmt)) == SQLITE_DONE ||
+                  errorCode_ == SQLITE_ROW);
+        }
+        sqlite3_finalize(stmt);
+        sqlite3_exec(db_, ok ? "COMMIT;" : "ROLLBACK;", nullptr, nullptr,
+                     nullptr);
+        if(errorCode_ == SQLITE_DONE || errorCode_ == SQLITE_ROW)
+            errorCode_ = SQLITE_OK;
         state_ = DONE;
-        return true;
+        return ok && errorCode_ == SQLITE_OK;
     }
-    void abort() { state_ = DONE; }
+    void abort() {
+        state_ = DONE;
+    }
     tjs_int getState() const { return state_; }
-    tjs_int getErrorCode() const { return SqliteCompat::SQLITE_OK; }
-    tTJSVariant getSelectResult() const { return EmptyArrayCompat(); }
+    tjs_int getErrorCode() const { return errorCode_; }
+    tTJSVariant getSelectResult() const { return selectResult_; }
     tjs_int getProgressUpdateCount() const { return progressUpdateCount_; }
     void setProgressUpdateCount(tjs_int value) { progressUpdateCount_ = value; }
     void onStateChange(tjs_int) {}
@@ -1447,8 +1954,13 @@ public:
     enum { INIT = 0, WORKING = 1, DONE = 2 };
 
 private:
+    tTJSVariant owner_;
+    SqliteCompat *sqlite_ = nullptr;
+    sqlite3 *db_ = nullptr;
     tjs_int state_ = INIT;
+    tjs_int errorCode_ = SQLITE_OK;
     tjs_int progressUpdateCount_ = 100;
+    tTJSVariant selectResult_ = EmptyArrayCompat();
 };
 
 NCB_REGISTER_CLASS_DIFFER(Sqlite, SqliteCompat) {
@@ -1463,35 +1975,35 @@ NCB_REGISTER_CLASS_DIFFER(Sqlite, SqliteCompat) {
     NCB_PROPERTY_RO(errorMessage, getErrorMessage);
     NCB_PROPERTY_RO(database, getDatabase);
     NCB_PROPERTY_RO(readonly, getReadOnly);
-    Variant(TJS_W("SQLITE_OK"), (tjs_int)SqliteCompat::SQLITE_OK);
-    Variant(TJS_W("SQLITE_ERROR"), (tjs_int)SqliteCompat::SQLITE_ERROR);
-    Variant(TJS_W("SQLITE_INTERNAL"), (tjs_int)SqliteCompat::SQLITE_INTERNAL);
-    Variant(TJS_W("SQLITE_PERM"), (tjs_int)SqliteCompat::SQLITE_PERM);
-    Variant(TJS_W("SQLITE_ABORT"), (tjs_int)SqliteCompat::SQLITE_ABORT);
-    Variant(TJS_W("SQLITE_BUSY"), (tjs_int)SqliteCompat::SQLITE_BUSY);
-    Variant(TJS_W("SQLITE_LOCKED"), (tjs_int)SqliteCompat::SQLITE_LOCKED);
-    Variant(TJS_W("SQLITE_NOMEM"), (tjs_int)SqliteCompat::SQLITE_NOMEM);
-    Variant(TJS_W("SQLITE_READONLY"), (tjs_int)SqliteCompat::SQLITE_READONLY);
-    Variant(TJS_W("SQLITE_INTERRUPT"), (tjs_int)SqliteCompat::SQLITE_INTERRUPT);
-    Variant(TJS_W("SQLITE_IOERR"), (tjs_int)SqliteCompat::SQLITE_IOERR);
-    Variant(TJS_W("SQLITE_CORRUPT"), (tjs_int)SqliteCompat::SQLITE_CORRUPT);
-    Variant(TJS_W("SQLITE_NOTFOUND"), (tjs_int)SqliteCompat::SQLITE_NOTFOUND);
-    Variant(TJS_W("SQLITE_FULL"), (tjs_int)SqliteCompat::SQLITE_FULL);
-    Variant(TJS_W("SQLITE_CANTOPEN"), (tjs_int)SqliteCompat::SQLITE_CANTOPEN);
-    Variant(TJS_W("SQLITE_PROTOCOL"), (tjs_int)SqliteCompat::SQLITE_PROTOCOL);
-    Variant(TJS_W("SQLITE_EMPTY"), (tjs_int)SqliteCompat::SQLITE_EMPTY);
-    Variant(TJS_W("SQLITE_SCHEMA"), (tjs_int)SqliteCompat::SQLITE_SCHEMA);
-    Variant(TJS_W("SQLITE_TOOBIG"), (tjs_int)SqliteCompat::SQLITE_TOOBIG);
-    Variant(TJS_W("SQLITE_CONSTRAINT"), (tjs_int)SqliteCompat::SQLITE_CONSTRAINT);
-    Variant(TJS_W("SQLITE_MISMATCH"), (tjs_int)SqliteCompat::SQLITE_MISMATCH);
-    Variant(TJS_W("SQLITE_MISUSE"), (tjs_int)SqliteCompat::SQLITE_MISUSE);
-    Variant(TJS_W("SQLITE_NOLFS"), (tjs_int)SqliteCompat::SQLITE_NOLFS);
-    Variant(TJS_W("SQLITE_AUTH"), (tjs_int)SqliteCompat::SQLITE_AUTH);
-    Variant(TJS_W("SQLITE_FORMAT"), (tjs_int)SqliteCompat::SQLITE_FORMAT);
-    Variant(TJS_W("SQLITE_RANGE"), (tjs_int)SqliteCompat::SQLITE_RANGE);
-    Variant(TJS_W("SQLITE_NOTADB"), (tjs_int)SqliteCompat::SQLITE_NOTADB);
-    Variant(TJS_W("SQLITE_ROW"), (tjs_int)SqliteCompat::SQLITE_ROW);
-    Variant(TJS_W("SQLITE_DONE"), (tjs_int)SqliteCompat::SQLITE_DONE);
+    Variant(TJS_W("SQLITE_OK"), (tjs_int)SQLITE_OK);
+    Variant(TJS_W("SQLITE_ERROR"), (tjs_int)SQLITE_ERROR);
+    Variant(TJS_W("SQLITE_INTERNAL"), (tjs_int)SQLITE_INTERNAL);
+    Variant(TJS_W("SQLITE_PERM"), (tjs_int)SQLITE_PERM);
+    Variant(TJS_W("SQLITE_ABORT"), (tjs_int)SQLITE_ABORT);
+    Variant(TJS_W("SQLITE_BUSY"), (tjs_int)SQLITE_BUSY);
+    Variant(TJS_W("SQLITE_LOCKED"), (tjs_int)SQLITE_LOCKED);
+    Variant(TJS_W("SQLITE_NOMEM"), (tjs_int)SQLITE_NOMEM);
+    Variant(TJS_W("SQLITE_READONLY"), (tjs_int)SQLITE_READONLY);
+    Variant(TJS_W("SQLITE_INTERRUPT"), (tjs_int)SQLITE_INTERRUPT);
+    Variant(TJS_W("SQLITE_IOERR"), (tjs_int)SQLITE_IOERR);
+    Variant(TJS_W("SQLITE_CORRUPT"), (tjs_int)SQLITE_CORRUPT);
+    Variant(TJS_W("SQLITE_NOTFOUND"), (tjs_int)SQLITE_NOTFOUND);
+    Variant(TJS_W("SQLITE_FULL"), (tjs_int)SQLITE_FULL);
+    Variant(TJS_W("SQLITE_CANTOPEN"), (tjs_int)SQLITE_CANTOPEN);
+    Variant(TJS_W("SQLITE_PROTOCOL"), (tjs_int)SQLITE_PROTOCOL);
+    Variant(TJS_W("SQLITE_EMPTY"), (tjs_int)SQLITE_EMPTY);
+    Variant(TJS_W("SQLITE_SCHEMA"), (tjs_int)SQLITE_SCHEMA);
+    Variant(TJS_W("SQLITE_TOOBIG"), (tjs_int)SQLITE_TOOBIG);
+    Variant(TJS_W("SQLITE_CONSTRAINT"), (tjs_int)SQLITE_CONSTRAINT);
+    Variant(TJS_W("SQLITE_MISMATCH"), (tjs_int)SQLITE_MISMATCH);
+    Variant(TJS_W("SQLITE_MISUSE"), (tjs_int)SQLITE_MISUSE);
+    Variant(TJS_W("SQLITE_NOLFS"), (tjs_int)SQLITE_NOLFS);
+    Variant(TJS_W("SQLITE_AUTH"), (tjs_int)SQLITE_AUTH);
+    Variant(TJS_W("SQLITE_FORMAT"), (tjs_int)SQLITE_FORMAT);
+    Variant(TJS_W("SQLITE_RANGE"), (tjs_int)SQLITE_RANGE);
+    Variant(TJS_W("SQLITE_NOTADB"), (tjs_int)SQLITE_NOTADB);
+    Variant(TJS_W("SQLITE_ROW"), (tjs_int)SQLITE_ROW);
+    Variant(TJS_W("SQLITE_DONE"), (tjs_int)SQLITE_DONE);
 }
 
 NCB_REGISTER_CLASS_DIFFER(SqliteStatement, SqliteStatementCompat) {
@@ -1510,11 +2022,12 @@ NCB_REGISTER_CLASS_DIFFER(SqliteStatement, SqliteStatementCompat) {
     NCB_METHOD(getType);
     NCB_METHOD(getName);
     RawCallback(TJS_W("get"), &Class::get, 0);
-    Variant(TJS_W("SQLITE_INTEGER"), (tjs_int)SqliteStatementCompat::SQLITE_INTEGER);
-    Variant(TJS_W("SQLITE_FLOAT"), (tjs_int)SqliteStatementCompat::SQLITE_FLOAT);
-    Variant(TJS_W("SQLITE_TEXT"), (tjs_int)SqliteStatementCompat::SQLITE_TEXT);
-    Variant(TJS_W("SQLITE_BLOB"), (tjs_int)SqliteStatementCompat::SQLITE_BLOB);
-    Variant(TJS_W("SQLITE_NULL"), (tjs_int)SqliteStatementCompat::SQLITE_NULL);
+    RawCallback(TJS_W("missing"), &Class::missing, 0);
+    Variant(TJS_W("SQLITE_INTEGER"), (tjs_int)SQLITE_INTEGER);
+    Variant(TJS_W("SQLITE_FLOAT"), (tjs_int)SQLITE_FLOAT);
+    Variant(TJS_W("SQLITE_TEXT"), (tjs_int)SQLITE_TEXT);
+    Variant(TJS_W("SQLITE_BLOB"), (tjs_int)SQLITE_BLOB);
+    Variant(TJS_W("SQLITE_NULL"), (tjs_int)SQLITE_NULL);
 }
 
 NCB_REGISTER_CLASS_DIFFER(SqliteThread, SqliteThreadCompat) {
@@ -1759,7 +2272,133 @@ private:
         CallTjsMethodCompat(target, name, args);
     }
 
+    void callDefault(iTJSDispatch2 *target, const tTJSVariant &arg) {
+        std::vector<tTJSVariant> args;
+        args.push_back(arg);
+        if(!CallTjsMethodCompat(target, TJS_W("defaultHandlerExpand"), args))
+            CallTjsMethodCompat(target, TJS_W("defaultHandler"), args);
+    }
+
+#if KRKR2_PLUGIN_HAS_TINYXML2
+    void callTinyProcessingInstruction(iTJSDispatch2 *target,
+                                       const char *value) {
+        std::string raw = value ? value : "";
+        size_t nameEnd = 0;
+        while(nameEnd < raw.size() &&
+              !std::isspace(static_cast<unsigned char>(raw[nameEnd])))
+            ++nameEnd;
+        size_t bodyBegin = nameEnd;
+        while(bodyBegin < raw.size() &&
+              std::isspace(static_cast<unsigned char>(raw[bodyBegin])))
+            ++bodyBegin;
+
+        std::vector<tTJSVariant> args;
+        args.emplace_back(Utf8TextToTtstrCompat(raw.data(), nameEnd));
+        args.emplace_back(Utf8TextToTtstrCompat(raw.data() + bodyBegin,
+                                                raw.size() - bodyBegin));
+        CallTjsMethodCompat(target, TJS_W("processingInstruction"), args);
+    }
+
+    bool emitTinyNode(const tinyxml2::XMLNode *node, iTJSDispatch2 *target) {
+        if(!node)
+            return true;
+
+        if(const tinyxml2::XMLElement *element = node->ToElement()) {
+            iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+            for(const tinyxml2::XMLAttribute *attr = element->FirstAttribute();
+                attr; attr = attr->Next()) {
+                ttstr name = Utf8TextToTtstrCompat(attr->Name());
+                tTJSVariant value(Utf8TextToTtstrCompat(attr->Value()));
+                dict->PropSet(TJS_MEMBERENSURE, name.c_str(), nullptr, &value,
+                              dict);
+            }
+
+            std::vector<tTJSVariant> args;
+            args.emplace_back(Utf8TextToTtstrCompat(element->Name()));
+            tTJSVariant attrs(dict, dict);
+            dict->Release();
+            args.push_back(attrs);
+            CallTjsMethodCompat(target, TJS_W("startElement"), args);
+
+            for(const tinyxml2::XMLNode *child = element->FirstChild(); child;
+                child = child->NextSibling())
+                emitTinyNode(child, target);
+
+            call1(target, TJS_W("endElement"),
+                  tTJSVariant(Utf8TextToTtstrCompat(element->Name())));
+            return true;
+        }
+
+        if(const tinyxml2::XMLText *textNode = node->ToText()) {
+            if(textNode->CData())
+                call0(target, TJS_W("startCdataSection"));
+            call1(target, TJS_W("characterData"),
+                  tTJSVariant(Utf8TextToTtstrCompat(textNode->Value())));
+            if(textNode->CData())
+                call0(target, TJS_W("endCdataSection"));
+            return true;
+        }
+
+        if(const tinyxml2::XMLComment *commentNode = node->ToComment()) {
+            call1(target, TJS_W("comment"),
+                  tTJSVariant(Utf8TextToTtstrCompat(commentNode->Value())));
+            return true;
+        }
+
+        if(const tinyxml2::XMLDeclaration *declaration =
+               node->ToDeclaration()) {
+            callTinyProcessingInstruction(target, declaration->Value());
+            return true;
+        }
+
+        if(const tinyxml2::XMLUnknown *unknown = node->ToUnknown()) {
+            ttstr value = TJS_W("<");
+            value += Utf8TextToTtstrCompat(unknown->Value());
+            value += TJS_W(">");
+            callDefault(target, tTJSVariant(value));
+            return true;
+        }
+
+        for(const tinyxml2::XMLNode *child = node->FirstChild(); child;
+            child = child->NextSibling())
+            emitTinyNode(child, target);
+        return true;
+    }
+
+    bool parseTinyXml2Text(const ttstr &text, iTJSDispatch2 *target) {
+        errorCode_ = 0;
+        errorString_.Clear();
+        currentByteIndex_ = currentByteCount_ = 0;
+        currentLineNumber_ = 1;
+        currentColumnNumber_ = 0;
+
+        std::string utf8 = TtstrToUtf8Compat(text);
+        tinyxml2::XMLDocument doc;
+        tinyxml2::XMLError ret = doc.Parse(utf8.c_str(), utf8.size());
+        if(ret != tinyxml2::XML_SUCCESS) {
+            errorCode_ = static_cast<tjs_int>(ret);
+            const char *message = doc.ErrorStr();
+            errorString_ = message ? Utf8TextToTtstrCompat(message)
+                                   : TJS_W("XML parse error");
+            return false;
+        }
+
+        for(const tinyxml2::XMLNode *child = doc.FirstChild(); child;
+            child = child->NextSibling())
+            emitTinyNode(child, target);
+        return true;
+    }
+#endif
+
     bool parseText(const ttstr &text, iTJSDispatch2 *target) {
+#if KRKR2_PLUGIN_HAS_TINYXML2
+        if(parseTinyXml2Text(text, target))
+            return true;
+#endif
+        return parseLegacyText(text, target);
+    }
+
+    bool parseLegacyText(const ttstr &text, iTJSDispatch2 *target) {
         errorCode_ = 0;
         errorString_.Clear();
         currentByteIndex_ = currentByteCount_ = 0;
@@ -1866,8 +2505,8 @@ private:
                 if(end >= len)
                     return fail(text, pos, TJS_W("unterminated XML declaration"));
                 mark(text, pos, end + 1 - pos);
-                call1(target, TJS_W("defaultHandler"),
-                      tTJSVariant(makeString(data + pos, data + end + 1)));
+                callDefault(target,
+                            tTJSVariant(makeString(data + pos, data + end + 1)));
                 pos = end + 1;
                 continue;
             }
