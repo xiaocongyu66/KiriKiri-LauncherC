@@ -105,15 +105,3 @@ NCB_PRE_REGIST_CALLBACK(wumultitrack_stub);
 #define NCB_MODULE_NAME TJS_W("wvdecoder.dll")
 static void wvdecoder_stub() {}
 NCB_PRE_REGIST_CALLBACK(wvdecoder_stub);
-
-// ---------------------------------------------------------------------------
-// expat.dll — stub for older KAG scripts that probe Plugins.link("expat.dll")
-// before parsing XML resources. We do not bundle libexpat on Android; this
-// just needs the module name registered so CanLoadPlugin reports true.
-// (mirrors krkrsdl3-main/cpp/plugins/expat.cpp)
-// ---------------------------------------------------------------------------
-
-#undef NCB_MODULE_NAME
-#define NCB_MODULE_NAME TJS_W("expat.dll")
-static void expat_stub() {}
-NCB_PRE_REGIST_CALLBACK(expat_stub);

@@ -1,5 +1,6 @@
 #include "ncbind.hpp"
 #include "ClipboardIntf.h"
+#include "CharacterSet.h"
 #include "ScriptMgnIntf.h"
 #include "StorageIntf.h"
 #include "md5.h"
@@ -14,6 +15,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #ifndef TJS_INTF_METHOD
@@ -248,6 +250,83 @@ void SetObjectInt64(iTJSDispatch2 *object, const tjs_char *name,
 }
 
 void EmptyPluginCompat() {}
+
+ttstr TtstrFromChars(const std::basic_string<tjs_char> &text) {
+    std::vector<tjs_char> buffer(text.begin(), text.end());
+    buffer.push_back(0);
+    return ttstr(buffer.data());
+}
+
+tTJSVariant ClassObjectCompat(const tjs_char *name) {
+    tTJSVariant result;
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(global) {
+        global->PropGet(TJS_IGNOREPROP, name, nullptr, &result, global);
+        global->Release();
+    }
+    return result;
+}
+
+bool CallTjsMethodCompat(iTJSDispatch2 *target, const tjs_char *name,
+                         std::vector<tTJSVariant> &args) {
+    if(!target || !name)
+        return false;
+    if(target->IsValid(TJS_IGNOREPROP, name, nullptr, target) != TJS_S_TRUE)
+        return false;
+    std::vector<tTJSVariant *> argv;
+    argv.reserve(args.size());
+    for(auto &arg : args)
+        argv.push_back(&arg);
+    return TJS_SUCCEEDED(target->FuncCall(0, name, nullptr, nullptr,
+                                          static_cast<tjs_int>(argv.size()),
+                                          argv.empty() ? nullptr : argv.data(),
+                                          target));
+}
+
+ttstr Utf8BytesToTtstrCompat(const std::vector<tjs_uint8> &bytes) {
+    if(bytes.empty())
+        return ttstr();
+
+    if(bytes.size() >= 2 && bytes[0] == 0xff && bytes[1] == 0xfe) {
+        std::basic_string<tjs_char> out;
+        for(size_t i = 2; i + 1 < bytes.size(); i += 2) {
+            tjs_uint16 ch = static_cast<tjs_uint16>(bytes[i]) |
+                            (static_cast<tjs_uint16>(bytes[i + 1]) << 8);
+            if(ch == 0)
+                break;
+            out.push_back(static_cast<tjs_char>(ch));
+        }
+        return TtstrFromChars(out);
+    }
+
+    if(bytes.size() >= 2 && bytes[0] == 0xfe && bytes[1] == 0xff) {
+        std::basic_string<tjs_char> out;
+        for(size_t i = 2; i + 1 < bytes.size(); i += 2) {
+            tjs_uint16 ch = (static_cast<tjs_uint16>(bytes[i]) << 8) |
+                            static_cast<tjs_uint16>(bytes[i + 1]);
+            if(ch == 0)
+                break;
+            out.push_back(static_cast<tjs_char>(ch));
+        }
+        return TtstrFromChars(out);
+    }
+
+    size_t offset = bytes.size() >= 3 && bytes[0] == 0xef &&
+                            bytes[1] == 0xbb && bytes[2] == 0xbf
+                        ? 3
+                        : 0;
+    const char *data = reinterpret_cast<const char *>(bytes.data() + offset);
+    tjs_uint length = static_cast<tjs_uint>(bytes.size() - offset);
+    tjs_int outlen = TVPUtf8ToWideCharString(data, length, nullptr);
+    if(outlen >= 0) {
+        std::vector<tjs_char> out(static_cast<size_t>(outlen) + 1);
+        TVPUtf8ToWideCharString(data, length, out.data());
+        out[static_cast<size_t>(outlen)] = 0;
+        return ttstr(out.data());
+    }
+
+    return ttstr(std::string(data, data + length).c_str());
+}
 
 } // namespace
 
@@ -1463,6 +1542,462 @@ static void sqliteXp3VfsAliasCompat() {
 NCB_PRE_REGIST_CALLBACK(sqliteXp3VfsAliasCompat);
 
 // ---------------------------------------------------------------------------
+// expat.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("expat.dll")
+
+class XMLParserCompat {
+public:
+    static tjs_error factory(XMLParserCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *objthis) {
+        if(!result)
+            return TJS_S_OK;
+        auto *parser = new XMLParserCompat();
+        if(objthis)
+            parser->owner_ = objthis;
+        if(numparams > 0 && param && param[0] &&
+           param[0]->Type() == tvtObject)
+            parser->target_ = *param[0];
+        *result = parser;
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD parse(tTJSVariant *result,
+                                           tjs_int numparams,
+                                           tTJSVariant **param,
+                                           XMLParserCompat *self) {
+        if(!self)
+            return TJS_E_NATIVECLASSCRASH;
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+
+        iTJSDispatch2 *target = self->resolveTarget(numparams, param);
+        bool ok = self->parseText(ttstr(*param[0]), target);
+        return ReturnBoolCompat(result, ok);
+    }
+
+    static tjs_error TJS_INTF_METHOD parseStorage(tTJSVariant *result,
+                                                  tjs_int numparams,
+                                                  tTJSVariant **param,
+                                                  XMLParserCompat *self) {
+        if(!self)
+            return TJS_E_NATIVECLASSCRASH;
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+
+        std::vector<tjs_uint8> bytes = ReadStorageBytes(ttstr(*param[0]));
+        ttstr text = Utf8BytesToTtstrCompat(bytes);
+        iTJSDispatch2 *target = self->resolveTarget(numparams, param);
+        bool ok = self->parseText(text, target);
+        return ReturnBoolCompat(result, ok);
+    }
+
+    tjs_int getErrorCode() const { return errorCode_; }
+    ttstr getErrorString() const { return errorString_; }
+    tjs_int getCurrentByteIndex() const { return currentByteIndex_; }
+    tjs_int getCurrentLineNumber() const { return currentLineNumber_; }
+    tjs_int getCurrentColumnNumber() const { return currentColumnNumber_; }
+    tjs_int getCurrentByteCount() const { return currentByteCount_; }
+
+private:
+    static bool isSpace(tjs_char ch) {
+        return ch == TJS_W(' ') || ch == TJS_W('\t') ||
+               ch == TJS_W('\r') || ch == TJS_W('\n');
+    }
+
+    static bool isNameChar(tjs_char ch) {
+        return ch > 0x7f || (ch >= TJS_W('a') && ch <= TJS_W('z')) ||
+               (ch >= TJS_W('A') && ch <= TJS_W('Z')) ||
+               (ch >= TJS_W('0') && ch <= TJS_W('9')) ||
+               ch == TJS_W('_') || ch == TJS_W('-') ||
+               ch == TJS_W(':') || ch == TJS_W('.');
+    }
+
+    static bool startsWith(const tjs_char *data, size_t len, size_t pos,
+                           const tjs_char *needle) {
+        size_t i = 0;
+        while(needle[i]) {
+            if(pos + i >= len || data[pos + i] != needle[i])
+                return false;
+            ++i;
+        }
+        return true;
+    }
+
+    static size_t findSequence(const tjs_char *data, size_t len, size_t pos,
+                               const tjs_char *needle) {
+        for(size_t i = pos; i < len; ++i) {
+            if(startsWith(data, len, i, needle))
+                return i;
+        }
+        return len;
+    }
+
+    static ttstr makeString(const tjs_char *begin, const tjs_char *end,
+                            bool decodeEntities = false) {
+        if(!decodeEntities)
+            return ttstr(begin, static_cast<tjs_int>(end - begin));
+        return TtstrFromChars(decodeXmlEntities(begin, end));
+    }
+
+    static std::basic_string<tjs_char>
+    decodeXmlEntities(const tjs_char *begin, const tjs_char *end) {
+        std::basic_string<tjs_char> out;
+        for(const tjs_char *p = begin; p < end; ++p) {
+            if(*p != TJS_W('&')) {
+                out.push_back(*p);
+                continue;
+            }
+            const tjs_char *semi = p + 1;
+            while(semi < end && *semi != TJS_W(';'))
+                ++semi;
+            if(semi >= end) {
+                out.push_back(*p);
+                continue;
+            }
+            std::basic_string<tjs_char> entity(p + 1, semi);
+            if(entity == std::basic_string<tjs_char>{ TJS_W('l'), TJS_W('t') })
+                out.push_back(TJS_W('<'));
+            else if(entity ==
+                    std::basic_string<tjs_char>{ TJS_W('g'), TJS_W('t') })
+                out.push_back(TJS_W('>'));
+            else if(entity == std::basic_string<tjs_char>{
+                                  TJS_W('a'), TJS_W('m'), TJS_W('p') })
+                out.push_back(TJS_W('&'));
+            else if(entity == std::basic_string<tjs_char>{
+                                  TJS_W('q'), TJS_W('u'), TJS_W('o'),
+                                  TJS_W('t') })
+                out.push_back(TJS_W('"'));
+            else if(entity == std::basic_string<tjs_char>{
+                                  TJS_W('a'), TJS_W('p'), TJS_W('o'),
+                                  TJS_W('s') })
+                out.push_back(TJS_W('\''));
+            else if(!entity.empty() && entity[0] == TJS_W('#')) {
+                tjs_uint32 code = 0;
+                size_t i = 1;
+                int base = 10;
+                if(i < entity.size() &&
+                   (entity[i] == TJS_W('x') || entity[i] == TJS_W('X'))) {
+                    base = 16;
+                    ++i;
+                }
+                for(; i < entity.size(); ++i) {
+                    tjs_char ch = entity[i];
+                    int digit = -1;
+                    if(ch >= TJS_W('0') && ch <= TJS_W('9'))
+                        digit = ch - TJS_W('0');
+                    else if(ch >= TJS_W('a') && ch <= TJS_W('f'))
+                        digit = ch - TJS_W('a') + 10;
+                    else if(ch >= TJS_W('A') && ch <= TJS_W('F'))
+                        digit = ch - TJS_W('A') + 10;
+                    if(digit < 0 || digit >= base) {
+                        code = 0;
+                        break;
+                    }
+                    code = code * base + static_cast<tjs_uint32>(digit);
+                }
+                if(code <= 0xffff) {
+                    out.push_back(static_cast<tjs_char>(code));
+                } else if(code <= 0x10ffff) {
+                    code -= 0x10000;
+                    out.push_back(static_cast<tjs_char>(0xd800 + (code >> 10)));
+                    out.push_back(static_cast<tjs_char>(0xdc00 + (code & 0x3ff)));
+                }
+            } else {
+                out.push_back(TJS_W('&'));
+                out.append(entity);
+                out.push_back(TJS_W(';'));
+            }
+            p = semi;
+        }
+        return out;
+    }
+
+    iTJSDispatch2 *resolveTarget(tjs_int numparams, tTJSVariant **param) {
+        if(numparams > 1 && param && param[1] &&
+           param[1]->Type() == tvtObject)
+            return param[1]->AsObjectNoAddRef();
+        if(target_.Type() == tvtObject)
+            return target_.AsObjectNoAddRef();
+        return owner_;
+    }
+
+    void mark(const ttstr &text, size_t pos, size_t count) {
+        const tjs_char *data = text.c_str();
+        currentLineNumber_ = 1;
+        currentColumnNumber_ = 0;
+        for(size_t i = 0; i < pos; ++i) {
+            if(data[i] == TJS_W('\n')) {
+                ++currentLineNumber_;
+                currentColumnNumber_ = 0;
+            } else {
+                ++currentColumnNumber_;
+            }
+        }
+        currentByteIndex_ = static_cast<tjs_int>(pos);
+        currentByteCount_ = static_cast<tjs_int>(count);
+    }
+
+    bool fail(const ttstr &text, size_t pos, const tjs_char *message) {
+        mark(text, pos, 0);
+        errorCode_ = 1;
+        errorString_ = message;
+        return false;
+    }
+
+    void call0(iTJSDispatch2 *target, const tjs_char *name) {
+        std::vector<tTJSVariant> args;
+        CallTjsMethodCompat(target, name, args);
+    }
+
+    void call1(iTJSDispatch2 *target, const tjs_char *name,
+               const tTJSVariant &arg) {
+        std::vector<tTJSVariant> args;
+        args.push_back(arg);
+        CallTjsMethodCompat(target, name, args);
+    }
+
+    bool parseText(const ttstr &text, iTJSDispatch2 *target) {
+        errorCode_ = 0;
+        errorString_.Clear();
+        currentByteIndex_ = currentByteCount_ = 0;
+        currentLineNumber_ = 1;
+        currentColumnNumber_ = 0;
+
+        const tjs_char *data = text.c_str();
+        const size_t len = static_cast<size_t>(text.GetLen());
+        size_t pos = 0;
+        while(pos < len) {
+            if(data[pos] != TJS_W('<')) {
+                size_t next = pos;
+                while(next < len && data[next] != TJS_W('<'))
+                    ++next;
+                if(next > pos) {
+                    mark(text, pos, next - pos);
+                    call1(target, TJS_W("characterData"),
+                          tTJSVariant(makeString(data + pos, data + next, true)));
+                }
+                pos = next;
+                continue;
+            }
+
+            if(startsWith(data, len, pos, TJS_W("<!--"))) {
+                size_t end = findSequence(data, len, pos + 4, TJS_W("-->"));
+                if(end >= len)
+                    return fail(text, pos, TJS_W("unterminated XML comment"));
+                mark(text, pos, end + 3 - pos);
+                call1(target, TJS_W("comment"),
+                      tTJSVariant(makeString(data + pos + 4, data + end)));
+                pos = end + 3;
+                continue;
+            }
+
+            if(startsWith(data, len, pos, TJS_W("<![CDATA["))) {
+                size_t end = findSequence(data, len, pos + 9, TJS_W("]]>"));
+                if(end >= len)
+                    return fail(text, pos, TJS_W("unterminated CDATA section"));
+                mark(text, pos, end + 3 - pos);
+                call0(target, TJS_W("startCdataSection"));
+                call1(target, TJS_W("characterData"),
+                      tTJSVariant(makeString(data + pos + 9, data + end)));
+                call0(target, TJS_W("endCdataSection"));
+                pos = end + 3;
+                continue;
+            }
+
+            if(startsWith(data, len, pos, TJS_W("<?"))) {
+                size_t end = findSequence(data, len, pos + 2, TJS_W("?>"));
+                if(end >= len)
+                    return fail(text, pos,
+                                TJS_W("unterminated processing instruction"));
+                size_t nameBegin = pos + 2;
+                size_t nameEnd = nameBegin;
+                while(nameEnd < end && !isSpace(data[nameEnd]))
+                    ++nameEnd;
+                size_t bodyBegin = nameEnd;
+                while(bodyBegin < end && isSpace(data[bodyBegin]))
+                    ++bodyBegin;
+                mark(text, pos, end + 2 - pos);
+                std::vector<tTJSVariant> args;
+                args.emplace_back(makeString(data + nameBegin, data + nameEnd));
+                args.emplace_back(makeString(data + bodyBegin, data + end));
+                CallTjsMethodCompat(target, TJS_W("processingInstruction"),
+                                    args);
+                pos = end + 2;
+                continue;
+            }
+
+            if(startsWith(data, len, pos, TJS_W("</"))) {
+                size_t cursor = pos + 2;
+                while(cursor < len && isSpace(data[cursor]))
+                    ++cursor;
+                size_t nameBegin = cursor;
+                while(cursor < len && isNameChar(data[cursor]))
+                    ++cursor;
+                size_t nameEnd = cursor;
+                while(cursor < len && data[cursor] != TJS_W('>'))
+                    ++cursor;
+                if(cursor >= len)
+                    return fail(text, pos, TJS_W("unterminated XML end tag"));
+                mark(text, pos, cursor + 1 - pos);
+                call1(target, TJS_W("endElement"),
+                      tTJSVariant(makeString(data + nameBegin, data + nameEnd)));
+                pos = cursor + 1;
+                continue;
+            }
+
+            if(startsWith(data, len, pos, TJS_W("<!"))) {
+                size_t end = pos + 2;
+                tjs_char quote = 0;
+                while(end < len) {
+                    if(quote) {
+                        if(data[end] == quote)
+                            quote = 0;
+                    } else if(data[end] == TJS_W('"') ||
+                              data[end] == TJS_W('\'')) {
+                        quote = data[end];
+                    } else if(data[end] == TJS_W('>')) {
+                        break;
+                    }
+                    ++end;
+                }
+                if(end >= len)
+                    return fail(text, pos, TJS_W("unterminated XML declaration"));
+                mark(text, pos, end + 1 - pos);
+                call1(target, TJS_W("defaultHandler"),
+                      tTJSVariant(makeString(data + pos, data + end + 1)));
+                pos = end + 1;
+                continue;
+            }
+
+            size_t cursor = pos + 1;
+            while(cursor < len && isSpace(data[cursor]))
+                ++cursor;
+            size_t nameBegin = cursor;
+            while(cursor < len && isNameChar(data[cursor]))
+                ++cursor;
+            size_t nameEnd = cursor;
+            if(nameBegin == nameEnd)
+                return fail(text, pos, TJS_W("invalid XML start tag"));
+
+            iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+            bool selfClosing = false;
+            bool tagClosed = false;
+            while(cursor < len) {
+                while(cursor < len && isSpace(data[cursor]))
+                    ++cursor;
+                if(cursor >= len)
+                    break;
+                if(data[cursor] == TJS_W('/')) {
+                    if(cursor + 1 < len && data[cursor + 1] == TJS_W('>')) {
+                        selfClosing = true;
+                        tagClosed = true;
+                        cursor += 2;
+                        break;
+                    }
+                    ++cursor;
+                    continue;
+                }
+                if(data[cursor] == TJS_W('>')) {
+                    tagClosed = true;
+                    ++cursor;
+                    break;
+                }
+
+                size_t attrNameBegin = cursor;
+                while(cursor < len && isNameChar(data[cursor]))
+                    ++cursor;
+                size_t attrNameEnd = cursor;
+                while(cursor < len && isSpace(data[cursor]))
+                    ++cursor;
+                std::basic_string<tjs_char> attrValue;
+                if(cursor < len && data[cursor] == TJS_W('=')) {
+                    ++cursor;
+                    while(cursor < len && isSpace(data[cursor]))
+                        ++cursor;
+                    if(cursor < len && (data[cursor] == TJS_W('"') ||
+                                        data[cursor] == TJS_W('\''))) {
+                        tjs_char quote = data[cursor++];
+                        size_t valueBegin = cursor;
+                        while(cursor < len && data[cursor] != quote)
+                            ++cursor;
+                        if(cursor >= len) {
+                            if(dict)
+                                dict->Release();
+                            return fail(text, pos,
+                                        TJS_W("unterminated XML attribute"));
+                        }
+                        attrValue =
+                            decodeXmlEntities(data + valueBegin, data + cursor);
+                        ++cursor;
+                    } else {
+                        size_t valueBegin = cursor;
+                        while(cursor < len && !isSpace(data[cursor]) &&
+                              data[cursor] != TJS_W('>'))
+                            ++cursor;
+                        attrValue =
+                            decodeXmlEntities(data + valueBegin, data + cursor);
+                    }
+                }
+                if(dict && attrNameBegin != attrNameEnd) {
+                    std::basic_string<tjs_char> attrName(data + attrNameBegin,
+                                                         data + attrNameEnd);
+                    tTJSVariant value(TtstrFromChars(attrValue));
+                    dict->PropSet(TJS_MEMBERENSURE, attrName.c_str(), nullptr,
+                                  &value, dict);
+                }
+            }
+
+            if(!tagClosed) {
+                if(dict)
+                    dict->Release();
+                return fail(text, pos, TJS_W("unterminated XML start tag"));
+            }
+
+            mark(text, pos, cursor - pos);
+            std::vector<tTJSVariant> args;
+            args.emplace_back(makeString(data + nameBegin, data + nameEnd));
+            if(dict) {
+                tTJSVariant attrs(dict, dict);
+                dict->Release();
+                args.push_back(attrs);
+            } else {
+                args.push_back(EmptyDictionaryCompat());
+            }
+            CallTjsMethodCompat(target, TJS_W("startElement"), args);
+            if(selfClosing)
+                call1(target, TJS_W("endElement"),
+                      tTJSVariant(makeString(data + nameBegin, data + nameEnd)));
+            pos = cursor;
+        }
+        return true;
+    }
+
+    iTJSDispatch2 *owner_ = nullptr;
+    tTJSVariant target_;
+    tjs_int errorCode_ = 0;
+    ttstr errorString_;
+    tjs_int currentByteIndex_ = 0;
+    tjs_int currentLineNumber_ = 1;
+    tjs_int currentColumnNumber_ = 0;
+    tjs_int currentByteCount_ = 0;
+};
+
+NCB_REGISTER_CLASS_DIFFER(XMLParser, XMLParserCompat) {
+    Factory(&XMLParserCompat::factory);
+    RawCallback(TJS_W("parse"), &Class::parse, 0);
+    RawCallback(TJS_W("parseStorage"), &Class::parseStorage, 0);
+    NCB_PROPERTY_RO(errorCode, getErrorCode);
+    NCB_PROPERTY_RO(errorString, getErrorString);
+    NCB_PROPERTY_RO(currentByteIndex, getCurrentByteIndex);
+    NCB_PROPERTY_RO(currentLineNumber, getCurrentLineNumber);
+    NCB_PROPERTY_RO(currentColumnNumber, getCurrentColumnNumber);
+    NCB_PROPERTY_RO(currentByteCount, getCurrentByteCount);
+}
+
+// ---------------------------------------------------------------------------
 // javascript.dll / wsh.dll
 // ---------------------------------------------------------------------------
 
@@ -1555,6 +2090,624 @@ NCB_ATTACH_CLASS(WshScriptsCompat, Scripts) {
                 TJS_STATICMEMBER);
     RawCallback(TJS_W("execStorageWSH"), &WshScriptsCompat::execStorageWSH,
                 TJS_STATICMEMBER);
+}
+
+// ---------------------------------------------------------------------------
+// flashPlayer.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("flashPlayer.dll")
+
+class FlashPlayerCompat {
+public:
+    static tjs_error factory(FlashPlayerCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *objthis) {
+        if(!result)
+            return TJS_S_OK;
+        tjs_int width = numparams > 0 && param && param[0]
+                            ? static_cast<tjs_int>(param[0]->AsInteger())
+                            : 0;
+        tjs_int height = numparams > 1 && param && param[1]
+                             ? static_cast<tjs_int>(param[1]->AsInteger())
+                             : 0;
+        *result = new FlashPlayerCompat(objthis, width, height);
+        return TJS_S_OK;
+    }
+
+    FlashPlayerCompat(iTJSDispatch2 *objthis, tjs_int width, tjs_int height) :
+        owner_(objthis), width_(width), height_(height) {}
+
+    bool clearMovie() {
+        movie_.Clear();
+        movieData_.Clear();
+        frameNum_ = 0;
+        playing_ = false;
+        return true;
+    }
+
+    bool initMovie(const tjs_char *storage) {
+        movie_ = storage ? storage : TJS_W("");
+        frameNum_ = 0;
+        readyState_ = movie_.IsEmpty() ? 0 : 4;
+        percentLoaded_ = movie_.IsEmpty() ? 0 : 100;
+        return !movie_.IsEmpty();
+    }
+
+    void setSize(tjs_int width, tjs_int height) {
+        width_ = width;
+        height_ = height;
+    }
+
+    bool hitTest(tjs_int x, tjs_int y) const {
+        return x >= 0 && y >= 0 && x < width_ && y < height_;
+    }
+
+    bool doKeyDown(tjs_int) { return false; }
+    bool doKeyUp(tjs_int) { return false; }
+    void doMouseEnter() {}
+    void doMouseLeave() {}
+    bool doMouseDown(tjs_int, tjs_int, tjs_int, tjs_int) { return false; }
+    bool doMouseMove(tjs_int, tjs_int, tjs_int) { return false; }
+    bool doMouseUp(tjs_int, tjs_int, tjs_int, tjs_int) { return false; }
+    bool doMouseWheel(tjs_int, tjs_int, tjs_int, tjs_int) { return false; }
+
+    tjs_int getReadyState() const { return readyState_; }
+    tjs_int getTotalFrames() const { return totalFrames_; }
+    bool getPlaying() const { return playing_; }
+    void setPlaying(bool value) { playing_ = value; }
+    tjs_int getQuality() const { return quality_; }
+    void setQuality(tjs_int value) { quality_ = value; }
+    tjs_int getScaleMode() const { return scaleMode_; }
+    void setScaleMode(tjs_int value) { scaleMode_ = value; }
+    tjs_int getAlignMode() const { return alignMode_; }
+    void setAlignMode(tjs_int value) { alignMode_ = value; }
+    tjs_int getBackgroundColor() const { return backgroundColor_; }
+    void setBackgroundColor(tjs_int value) { backgroundColor_ = value; }
+    bool getLoop() const { return loop_; }
+    void setLoop(bool value) { loop_ = value; }
+    ttstr getMovie() const { return movie_; }
+    void setMovie(const tjs_char *value) { initMovie(value); }
+    tjs_int getFrameNum() const { return frameNum_; }
+    void setFrameNum(tjs_int value) { frameNum_ = value; }
+
+    void setZoomRect(tjs_int, tjs_int, tjs_int, tjs_int) {}
+    void zoom(tjs_int) {}
+    void pan(tjs_int, tjs_int, tjs_int) {}
+    void play() { playing_ = true; }
+    void stop() { playing_ = false; }
+    void back() {
+        if(frameNum_ > 0)
+            --frameNum_;
+    }
+    void forward() { ++frameNum_; }
+    void rewind() { frameNum_ = 0; }
+    void stopPlay() { stop(); }
+    void gotoFrame(tjs_int frame) { frameNum_ = frame; }
+    tjs_int getCurrentFrame() const { return frameNum_; }
+    bool isPlaying() const { return playing_; }
+    tjs_int getPercentLoaded() const { return percentLoaded_; }
+    bool getFrameLoaded(tjs_int frame) const {
+        return totalFrames_ == 0 || frame <= totalFrames_;
+    }
+    ttstr getFlashVersion() const { return TJS_W("0,0,0,0"); }
+
+    ttstr getSAlign() const { return sAlign_; }
+    void setSAlign(const tjs_char *value) { sAlign_ = value ? value : TJS_W(""); }
+    bool getMenu() const { return menu_; }
+    void setMenu(bool value) { menu_ = value; }
+    ttstr getBase() const { return base_; }
+    void setBase(const tjs_char *value) { base_ = value ? value : TJS_W(""); }
+    ttstr getScale() const { return scale_; }
+    void setScale(const tjs_char *value) { scale_ = value ? value : TJS_W(""); }
+    bool getDeviceFont() const { return deviceFont_; }
+    void setDeviceFont(bool value) { deviceFont_ = value; }
+    bool getEmbedMovie() const { return embedMovie_; }
+    void setEmbedMovie(bool value) { embedMovie_ = value; }
+    ttstr getBgColor() const { return bgColor_; }
+    void setBgColor(const tjs_char *value) { bgColor_ = value ? value : TJS_W(""); }
+    ttstr getQuality2() const { return quality2_; }
+    void setQuality2(const tjs_char *value) {
+        quality2_ = value ? value : TJS_W("");
+    }
+
+    void loadMovie(tjs_int, const tjs_char *url) { initMovie(url); }
+    void tGotoFrame(const tjs_char *, tjs_int frame) { frameNum_ = frame; }
+    void tGotoLabel(const tjs_char *, const tjs_char *) {}
+    tjs_int tCurrentFrame(const tjs_char *) const { return frameNum_; }
+    ttstr tCurrentLabel(const tjs_char *) const { return ttstr(); }
+    void tPlay(const tjs_char *) { play(); }
+    void tStopPlay(const tjs_char *) { stop(); }
+    void setVariable(const tjs_char *, tTJSVariant) {}
+    tTJSVariant getVariable(const tjs_char *) const { return tTJSVariant(); }
+    void tSetProperty(const tjs_char *, tjs_int, const tjs_char *) {}
+    ttstr tGetProperty(const tjs_char *, tjs_int) const { return ttstr(); }
+    void tCallFrame(const tjs_char *, tjs_int) {}
+    void tCallLabel(const tjs_char *, const tjs_char *) {}
+    void tSetPropertyNum(const tjs_char *, tjs_int, tjs_real) {}
+    tjs_real tGetPropertyNum(const tjs_char *, tjs_int) const { return 0.0; }
+
+    ttstr getSWRemote() const { return swRemote_; }
+    void setSWRemote(const tjs_char *value) {
+        swRemote_ = value ? value : TJS_W("");
+    }
+    ttstr getFlashVars() const { return flashVars_; }
+    void setFlashVars(const tjs_char *value) {
+        flashVars_ = value ? value : TJS_W("");
+    }
+    ttstr getAllowScriptAccess() const { return allowScriptAccess_; }
+    void setAllowScriptAccess(const tjs_char *value) {
+        allowScriptAccess_ = value ? value : TJS_W("");
+    }
+    tTJSVariant getMovieData() const { return movieData_; }
+    void setMovieData(tTJSVariant value) { movieData_ = value; }
+    bool getSeamlessTabbing() const { return seamlessTabbing_; }
+    void setSeamlessTabbing(bool value) { seamlessTabbing_ = value; }
+    bool getProfile() const { return profile_; }
+    void setProfile(bool value) { profile_ = value; }
+    ttstr getProfileAddress() const { return profileAddress_; }
+    void setProfileAddress(const tjs_char *value) {
+        profileAddress_ = value ? value : TJS_W("");
+    }
+    tjs_int getProfilePort() const { return profilePort_; }
+    void setProfilePort(tjs_int value) { profilePort_ = value; }
+    void enforceLocalSecurity() {}
+    void disableLocalSecurity() {}
+
+    static tjs_error TJS_INTF_METHOD draw(tTJSVariant *result, tjs_int,
+                                          tTJSVariant **,
+                                          FlashPlayerCompat *self) {
+        if(!self)
+            return TJS_E_NATIVECLASSCRASH;
+        return ReturnBoolCompat(result, false);
+    }
+
+    static tjs_error TJS_INTF_METHOD callFunction(tTJSVariant *result,
+                                                  tjs_int numparams,
+                                                  tTJSVariant **param,
+                                                  FlashPlayerCompat *self) {
+        if(!self)
+            return TJS_E_NATIVECLASSCRASH;
+        self->lastTJSErrorMsg_.Clear();
+        if(numparams > 0 && param && param[0])
+            self->lastExternalCall_ = ttstr(*param[0]);
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD getLastTJSError(tTJSVariant *result,
+                                                     tjs_int, tTJSVariant **,
+                                                     FlashPlayerCompat *self) {
+        if(!self)
+            return TJS_E_NATIVECLASSCRASH;
+        if(result)
+            *result = self->lastTJSErrorMsg_;
+        return TJS_S_OK;
+    }
+
+private:
+    tTJSVariant owner_;
+    tjs_int width_ = 0;
+    tjs_int height_ = 0;
+    tjs_int readyState_ = 0;
+    tjs_int totalFrames_ = 0;
+    bool playing_ = false;
+    tjs_int quality_ = 0;
+    tjs_int scaleMode_ = 0;
+    tjs_int alignMode_ = 0;
+    tjs_int backgroundColor_ = 0;
+    bool loop_ = true;
+    ttstr movie_;
+    tjs_int frameNum_ = 0;
+    tjs_int percentLoaded_ = 0;
+    ttstr sAlign_;
+    bool menu_ = false;
+    ttstr base_;
+    ttstr scale_;
+    bool deviceFont_ = false;
+    bool embedMovie_ = false;
+    ttstr bgColor_;
+    ttstr quality2_;
+    ttstr swRemote_;
+    ttstr flashVars_;
+    ttstr allowScriptAccess_;
+    tTJSVariant movieData_;
+    bool seamlessTabbing_ = false;
+    bool profile_ = false;
+    ttstr profileAddress_;
+    tjs_int profilePort_ = 0;
+    ttstr lastTJSErrorMsg_;
+    ttstr lastExternalCall_;
+};
+
+NCB_REGISTER_CLASS_DIFFER(FlashPlayer, FlashPlayerCompat) {
+    Factory(&FlashPlayerCompat::factory);
+    NCB_METHOD(clearMovie);
+    NCB_METHOD(initMovie);
+    NCB_METHOD(setSize);
+    NCB_METHOD(hitTest);
+    RawCallback(TJS_W("draw"), &Class::draw, 0);
+    NCB_METHOD(doKeyDown);
+    NCB_METHOD(doKeyUp);
+    NCB_METHOD(doMouseEnter);
+    NCB_METHOD(doMouseLeave);
+    NCB_METHOD(doMouseDown);
+    NCB_METHOD(doMouseMove);
+    NCB_METHOD(doMouseUp);
+    NCB_METHOD(doMouseWheel);
+    NCB_PROPERTY_RO(readyState, getReadyState);
+    NCB_PROPERTY_RO(totalFrames, getTotalFrames);
+    NCB_PROPERTY(playing, getPlaying, setPlaying);
+    NCB_PROPERTY(quality, getQuality, setQuality);
+    NCB_PROPERTY(scaleMode, getScaleMode, setScaleMode);
+    NCB_PROPERTY(alighMode, getAlignMode, setAlignMode);
+    NCB_PROPERTY(backgroundColor, getBackgroundColor, setBackgroundColor);
+    NCB_PROPERTY(loop, getLoop, setLoop);
+    NCB_PROPERTY(movie, getMovie, setMovie);
+    NCB_PROPERTY(frameNum, getFrameNum, setFrameNum);
+    NCB_METHOD(setZoomRect);
+    NCB_METHOD(zoom);
+    NCB_METHOD(pan);
+    NCB_METHOD(play);
+    NCB_METHOD(stop);
+    NCB_METHOD(back);
+    NCB_METHOD(forward);
+    NCB_METHOD(rewind);
+    NCB_METHOD(stopPlay);
+    NCB_METHOD(gotoFrame);
+    NCB_PROPERTY_RO(currentFrame, getCurrentFrame);
+    NCB_METHOD(isPlaying);
+    NCB_PROPERTY_RO(percentLoaded, getPercentLoaded);
+    NCB_METHOD(getFrameLoaded);
+    NCB_PROPERTY_RO(flashVersion, getFlashVersion);
+    NCB_PROPERTY(sAlign, getSAlign, setSAlign);
+    NCB_PROPERTY(menu, getMenu, setMenu);
+    NCB_PROPERTY(base, getBase, setBase);
+    NCB_PROPERTY(scale, getScale, setScale);
+    NCB_PROPERTY(deviceFont, getDeviceFont, setDeviceFont);
+    NCB_PROPERTY(embedMovie, getEmbedMovie, setEmbedMovie);
+    NCB_PROPERTY(bgColor, getBgColor, setBgColor);
+    NCB_PROPERTY(quality2, getQuality2, setQuality2);
+    NCB_METHOD(loadMovie);
+    NCB_METHOD(tGotoFrame);
+    NCB_METHOD(tGotoLabel);
+    NCB_METHOD(tCurrentFrame);
+    NCB_METHOD(tCurrentLabel);
+    NCB_METHOD(tPlay);
+    NCB_METHOD(tStopPlay);
+    NCB_METHOD(setVariable);
+    NCB_METHOD(getVariable);
+    NCB_METHOD(tSetProperty);
+    NCB_METHOD(tGetProperty);
+    NCB_METHOD(tCallFrame);
+    NCB_METHOD(tCallLabel);
+    NCB_METHOD(tSetPropertyNum);
+    NCB_METHOD(tGetPropertyNum);
+    NCB_PROPERTY(swRemote, getSWRemote, setSWRemote);
+    NCB_PROPERTY(flashVars, getFlashVars, setFlashVars);
+    NCB_PROPERTY(allowScriptAccess, getAllowScriptAccess, setAllowScriptAccess);
+    NCB_PROPERTY(movieData, getMovieData, setMovieData);
+    NCB_PROPERTY(seamlessTabbing, getSeamlessTabbing, setSeamlessTabbing);
+    NCB_METHOD(enforceLocalSecurity);
+    NCB_PROPERTY(profile, getProfile, setProfile);
+    NCB_PROPERTY(profileAddress, getProfileAddress, setProfileAddress);
+    NCB_PROPERTY(profilePort, getProfilePort, setProfilePort);
+    NCB_METHOD(disableLocalSecurity);
+    RawCallback(TJS_W("callFunction"), &Class::callFunction, 0);
+    RawCallback(TJS_W("getLastTJSError"), &Class::getLastTJSError, 0);
+}
+
+// ---------------------------------------------------------------------------
+// gameswf.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("gameswf.dll")
+
+class SWFMovieCompat {
+public:
+    SWFMovieCompat() = default;
+
+    void load(const tjs_char *storage) {
+        storage_ = storage ? storage : TJS_W("");
+        loaded_ = !storage_.IsEmpty();
+        frame_ = 0;
+    }
+
+    bool update(tjs_int advance) {
+        if(playing_)
+            frame_ += advance;
+        return loaded_ && playing_;
+    }
+
+    void notifyMouse(tjs_int, tjs_int, tjs_int) {}
+    void play() { playing_ = true; }
+    void stop() { playing_ = false; }
+    void restart() {
+        frame_ = 0;
+        playing_ = true;
+    }
+    void back() {
+        if(frame_ > 0)
+            --frame_;
+    }
+    void next() { ++frame_; }
+    void gotoFrame(tjs_int frame) { frame_ = frame; }
+
+private:
+    ttstr storage_;
+    bool loaded_ = false;
+    bool playing_ = false;
+    tjs_int frame_ = 0;
+};
+
+NCB_REGISTER_CLASS_DIFFER(SWFMovie, SWFMovieCompat) {
+    NCB_CONSTRUCTOR(());
+    NCB_METHOD(load);
+    NCB_METHOD(update);
+    NCB_METHOD(notifyMouse);
+    NCB_METHOD(play);
+    NCB_METHOD(stop);
+    NCB_METHOD(restart);
+    NCB_METHOD(back);
+    NCB_METHOD(next);
+    NCB_METHOD(gotoFrame);
+}
+
+class LayerExSWFCompat {
+public:
+    explicit LayerExSWFCompat(iTJSDispatch2 *) {}
+
+    static tjs_error TJS_INTF_METHOD drawSWF(tTJSVariant *result, tjs_int,
+                                             tTJSVariant **,
+                                             iTJSDispatch2 *) {
+        return ReturnBoolCompat(result, false);
+    }
+};
+
+NCB_GET_INSTANCE_HOOK(LayerExSWFCompat) {
+    NCB_GET_INSTANCE_HOOK_CLASS() {}
+    ~NCB_GET_INSTANCE_HOOK_CLASS() {}
+    NCB_INSTANCE_GETTER(objthis) {
+        ClassT *obj = GetNativeInstance(objthis);
+        if(!obj)
+            SetNativeInstance(objthis, (obj = new ClassT(objthis)));
+        return obj;
+    }
+};
+
+NCB_ATTACH_CLASS_WITH_HOOK(LayerExSWFCompat, Layer) {
+    RawCallback(TJS_W("drawSWF"), &LayerExSWFCompat::drawSWF, 0);
+}
+
+// ---------------------------------------------------------------------------
+// squirrel.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("squirrel.dll")
+
+class ScriptsSquirrelCompat {
+public:
+    static tjs_error TJS_INTF_METHOD loadSQ(tTJSVariant *result,
+                                            tjs_int numparams,
+                                            tTJSVariant **param,
+                                            iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = *param[0];
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD loadStorageSQ(tTJSVariant *result,
+                                                   tjs_int numparams,
+                                                   tTJSVariant **param,
+                                                   iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        std::vector<tjs_uint8> bytes = ReadStorageBytes(ttstr(*param[0]));
+        if(result)
+            *result = Utf8BytesToTtstrCompat(bytes);
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD execSQ(tTJSVariant *result,
+                                            tjs_int numparams,
+                                            tTJSVariant **param,
+                                            iTJSDispatch2 *objthis) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        // A Squirrel VM is not linked on Android; keep probes non-fatal.
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD execStorageSQ(tTJSVariant *result,
+                                                   tjs_int numparams,
+                                                   tTJSVariant **param,
+                                                   iTJSDispatch2 *objthis) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        std::vector<tjs_uint8> bytes = ReadStorageBytes(ttstr(*param[0]));
+        ttstr text = Utf8BytesToTtstrCompat(bytes);
+        tTJSVariant script(text);
+        tTJSVariant *args[] = { &script };
+        return execSQ(result, 1, args, objthis);
+    }
+
+    static tjs_error TJS_INTF_METHOD callSQ(tTJSVariant *result,
+                                            tjs_int numparams,
+                                            tTJSVariant **,
+                                            iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD forkSQ(tTJSVariant *result,
+                                            tjs_int numparams,
+                                            tTJSVariant **,
+                                            iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = EmptyDictionaryCompat();
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD forkStorageSQ(tTJSVariant *result,
+                                                   tjs_int numparams,
+                                                   tTJSVariant **,
+                                                   iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = EmptyDictionaryCompat();
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD driveSQ(tTJSVariant *result, tjs_int,
+                                             tTJSVariant **, iTJSDispatch2 *) {
+        return ReturnIntCompat(result, 0);
+    }
+
+    static tjs_error TJS_INTF_METHOD triggerSQ(tTJSVariant *result,
+                                               tjs_int numparams,
+                                               tTJSVariant **,
+                                               iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD saveSQ(tTJSVariant *result,
+                                            tjs_int numparams,
+                                            tTJSVariant **param,
+                                            iTJSDispatch2 *) {
+        if(numparams < 2 || !param || !param[0] || !param[1])
+            return TJS_E_BADPARAMCOUNT;
+        ttstr text = ttstr(*param[1]);
+        std::string bytes = text.AsNarrowStdString();
+        WriteStorageBytes(ttstr(*param[0]),
+                          std::vector<tjs_uint8>(bytes.begin(), bytes.end()));
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD toSQString(tTJSVariant *result,
+                                                tjs_int numparams,
+                                                tTJSVariant **param,
+                                                iTJSDispatch2 *) {
+        if(numparams < 1 || !param || !param[0])
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = ttstr(*param[0]);
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD registerSQ(tTJSVariant *result,
+                                                tjs_int numparams,
+                                                tTJSVariant **,
+                                                iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD compileSQ(tTJSVariant *result,
+                                               tjs_int numparams,
+                                               tTJSVariant **,
+                                               iTJSDispatch2 *) {
+        if(numparams < 2)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD getThreadCountSQ(tTJSVariant *result,
+                                                      tjs_int, tTJSVariant **,
+                                                      iTJSDispatch2 *) {
+        return ReturnIntCompat(result, 0);
+    }
+
+    static tjs_error TJS_INTF_METHOD compareSQ(tTJSVariant *result,
+                                               tjs_int numparams,
+                                               tTJSVariant **param,
+                                               iTJSDispatch2 *) {
+        if(numparams < 2 || !param || !param[0] || !param[1])
+            return TJS_E_BADPARAMCOUNT;
+        ttstr lhs(*param[0]);
+        ttstr rhs(*param[1]);
+        return ReturnIntCompat(result, lhs == rhs ? 0 : (lhs < rhs ? -1 : 1));
+    }
+};
+
+NCB_ATTACH_CLASS(ScriptsSquirrelCompat, Scripts) {
+    RawCallback(TJS_W("loadSQ"), &ScriptsSquirrelCompat::loadSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("loadStorageSQ"), &ScriptsSquirrelCompat::loadStorageSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("execSQ"), &ScriptsSquirrelCompat::execSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("execStorageSQ"), &ScriptsSquirrelCompat::execStorageSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("forkSQ"), &ScriptsSquirrelCompat::forkSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("forkStorageSQ"), &ScriptsSquirrelCompat::forkStorageSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("driveSQ"), &ScriptsSquirrelCompat::driveSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("triggerSQ"), &ScriptsSquirrelCompat::triggerSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("callSQ"), &ScriptsSquirrelCompat::callSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("saveSQ"), &ScriptsSquirrelCompat::saveSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("toSQString"), &ScriptsSquirrelCompat::toSQString,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("registerSQ"), &ScriptsSquirrelCompat::registerSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("unregisterSQ"), &ScriptsSquirrelCompat::registerSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("compileSQ"), &ScriptsSquirrelCompat::compileSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("compileStorageSQ"), &ScriptsSquirrelCompat::compileSQ,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("getThreadCountSQ"),
+                &ScriptsSquirrelCompat::getThreadCountSQ, TJS_STATICMEMBER);
+    RawCallback(TJS_W("threadCountSQ"),
+                &ScriptsSquirrelCompat::getThreadCountSQ, (int)0,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("compareSQ"), &ScriptsSquirrelCompat::compareSQ,
+                TJS_STATICMEMBER);
+}
+
+class SQContinuousCompat {
+public:
+    explicit SQContinuousCompat(const tjs_char *) {}
+    void start() { running_ = true; }
+    void stop() { running_ = false; }
+
+private:
+    bool running_ = false;
+};
+
+class SQFunctionCompat {
+public:
+    explicit SQFunctionCompat(const tjs_char *) {}
+    static tjs_error TJS_INTF_METHOD call(tTJSVariant *result, tjs_int,
+                                          tTJSVariant **,
+                                          SQFunctionCompat *) {
+        return ReturnVoidCompat(result);
+    }
+};
+
+NCB_REGISTER_CLASS_DIFFER(SQContinuous, SQContinuousCompat) {
+    NCB_CONSTRUCTOR((const tjs_char *));
+    NCB_METHOD(start);
+    NCB_METHOD(stop);
+}
+
+NCB_REGISTER_CLASS_DIFFER(SQFunction, SQFunctionCompat) {
+    NCB_CONSTRUCTOR((const tjs_char *));
+    RawCallback(TJS_W("call"), &Class::call, 0);
 }
 
 // ---------------------------------------------------------------------------
@@ -1915,6 +3068,423 @@ NCB_REGISTER_CLASS_DIFFER(videoEncoder, VideoEncoderCompat) {
 }
 
 // ---------------------------------------------------------------------------
+// win32ole.dll / oleclass.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("win32ole.dll")
+
+class OleObjectCompat {
+public:
+    static tjs_error factory(OleObjectCompat **result, tjs_int,
+                             tTJSVariant **, iTJSDispatch2 *) {
+        if(result)
+            *result = new OleObjectCompat();
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD invoke(tTJSVariant *result, tjs_int,
+                                            tTJSVariant **,
+                                            OleObjectCompat *) {
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD set(tTJSVariant *result,
+                                         tjs_int numparams, tTJSVariant **,
+                                         OleObjectCompat *) {
+        if(numparams < 2)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD get(tTJSVariant *result,
+                                         tjs_int numparams, tTJSVariant **,
+                                         OleObjectCompat *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD addEvent(tTJSVariant *result,
+                                              tjs_int numparams,
+                                              tTJSVariant **,
+                                              OleObjectCompat *) {
+        if(numparams < 2)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD getConstant(tTJSVariant *result,
+                                                 tjs_int numparams,
+                                                 tTJSVariant **,
+                                                 OleObjectCompat *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnIntCompat(result, 0);
+    }
+};
+
+class ActiveXCompat : public OleObjectCompat {
+public:
+    static tjs_error factory(ActiveXCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        auto *obj = new ActiveXCompat();
+        if(numparams > 1 && param && param[1])
+            obj->left_ = static_cast<tjs_int>(param[1]->AsInteger());
+        if(numparams > 2 && param && param[2])
+            obj->top_ = static_cast<tjs_int>(param[2]->AsInteger());
+        if(numparams > 3 && param && param[3])
+            obj->width_ = static_cast<tjs_int>(param[3]->AsInteger());
+        if(numparams > 4 && param && param[4])
+            obj->height_ = static_cast<tjs_int>(param[4]->AsInteger());
+        *result = obj;
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD invoke(tTJSVariant *result, tjs_int,
+                                            tTJSVariant **, ActiveXCompat *) {
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD set(tTJSVariant *result,
+                                         tjs_int numparams, tTJSVariant **,
+                                         ActiveXCompat *) {
+        if(numparams < 2)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD get(tTJSVariant *result,
+                                         tjs_int numparams, tTJSVariant **,
+                                         ActiveXCompat *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD addEvent(tTJSVariant *result,
+                                              tjs_int numparams,
+                                              tTJSVariant **,
+                                              ActiveXCompat *) {
+        if(numparams < 2)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnVoidCompat(result);
+    }
+
+    static tjs_error TJS_INTF_METHOD getConstant(tTJSVariant *result,
+                                                 tjs_int numparams,
+                                                 tTJSVariant **,
+                                                 ActiveXCompat *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        return ReturnIntCompat(result, 0);
+    }
+
+    void setExternalUI() {}
+    void setPos(tjs_int left, tjs_int top) {
+        left_ = left;
+        top_ = top;
+    }
+    void setSize(tjs_int width, tjs_int height) {
+        width_ = width;
+        height_ = height;
+    }
+    bool getIsValidWindow() const { return false; }
+    bool getVisible() const { return visible_; }
+    void setVisible(bool value) { visible_ = value; }
+    tjs_int getLeft() const { return left_; }
+    void setLeft(tjs_int value) { left_ = value; }
+    tjs_int getTop() const { return top_; }
+    void setTop(tjs_int value) { top_ = value; }
+    tjs_int getWidth() const { return width_; }
+    void setWidth(tjs_int value) { width_ = value; }
+    tjs_int getHeight() const { return height_; }
+    void setHeight(tjs_int value) { height_ = value; }
+
+private:
+    bool visible_ = false;
+    tjs_int left_ = 0;
+    tjs_int top_ = 0;
+    tjs_int width_ = 100;
+    tjs_int height_ = 100;
+};
+
+class ScriptsOleCompat {
+public:
+    static tjs_error TJS_INTF_METHOD createOleClass(tTJSVariant *result,
+                                                    tjs_int numparams,
+                                                    tTJSVariant **,
+                                                    iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = ClassObjectCompat(TJS_W("WIN32OLE"));
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD createActiveXClass(tTJSVariant *result,
+                                                        tjs_int numparams,
+                                                        tTJSVariant **,
+                                                        iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = ClassObjectCompat(TJS_W("ActiveX"));
+        return TJS_S_OK;
+    }
+};
+
+NCB_REGISTER_CLASS_DIFFER(WIN32OLE, OleObjectCompat) {
+    Factory(&OleObjectCompat::factory);
+    RawCallback(TJS_W("invoke"), &Class::invoke, 0);
+    RawCallback(TJS_W("set"), &Class::set, 0);
+    RawCallback(TJS_W("get"), &Class::get, 0);
+    RawCallback(TJS_W("missing"), &Class::invoke, 0);
+    RawCallback(TJS_W("addEvent"), &Class::addEvent, 0);
+    RawCallback(TJS_W("getConstant"), &Class::getConstant, 0);
+}
+
+NCB_REGISTER_CLASS_DIFFER(ActiveX, ActiveXCompat) {
+    Factory(&ActiveXCompat::factory);
+    RawCallback(TJS_W("invoke"), &Class::invoke, 0);
+    RawCallback(TJS_W("set"), &Class::set, 0);
+    RawCallback(TJS_W("get"), &Class::get, 0);
+    RawCallback(TJS_W("missing"), &Class::invoke, 0);
+    RawCallback(TJS_W("addEvent"), &Class::addEvent, 0);
+    RawCallback(TJS_W("getConstant"), &Class::getConstant, 0);
+    NCB_METHOD(setExternalUI);
+    NCB_METHOD(setPos);
+    NCB_METHOD(setSize);
+    NCB_PROPERTY_RO(isValidWindow, getIsValidWindow);
+    NCB_PROPERTY(visible, getVisible, setVisible);
+    NCB_PROPERTY(left, getLeft, setLeft);
+    NCB_PROPERTY(top, getTop, setTop);
+    NCB_PROPERTY(width, getWidth, setWidth);
+    NCB_PROPERTY(height, getHeight, setHeight);
+}
+
+NCB_ATTACH_CLASS(ScriptsOleCompat, Scripts) {
+    RawCallback(TJS_W("createOleClass"), &ScriptsOleCompat::createOleClass,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("createActiveXClass"),
+                &ScriptsOleCompat::createActiveXClass, TJS_STATICMEMBER);
+}
+
+// ---------------------------------------------------------------------------
+// parser.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("parser.dll")
+
+class ParserCompat {
+public:
+    static tjs_error factory(ParserCompat **result, tjs_int, tTJSVariant **,
+                             iTJSDispatch2 *) {
+        if(result)
+            *result = new ParserCompat();
+        return TJS_S_OK;
+    }
+
+    void load(ttstr storage) {
+        script_ = Utf8BytesToTtstrCompat(ReadStorageBytes(storage));
+        pointer_ = 0;
+    }
+
+    tTJSVariant getNext() {
+        if(pointer_ >= script_.GetLen())
+            return tTJSVariant();
+
+        iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+        if(!dict)
+            return tTJSVariant();
+
+        ttstr ch(script_.c_str()[pointer_++]);
+        SetObjectValue(dict, TJS_W("ch"), tTJSVariant(ch));
+        tTJSVariant result(dict, dict);
+        dict->Release();
+        return result;
+    }
+
+private:
+    ttstr script_;
+    tjs_int pointer_ = 0;
+};
+
+NCB_REGISTER_CLASS_DIFFER(Parser, ParserCompat) {
+    Factory(&ParserCompat::factory);
+    NCB_METHOD(load);
+    NCB_METHOD(getNext);
+}
+
+// ---------------------------------------------------------------------------
+// magickpp.dll
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("magickpp.dll")
+
+class MagickGeometryCompat {
+public:
+    static tjs_error factory(MagickGeometryCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        auto *obj = new MagickGeometryCompat();
+        if(numparams > 0 && param && param[0])
+            obj->string_ = ttstr(*param[0]);
+        *result = obj;
+        return TJS_S_OK;
+    }
+    ttstr getString() const { return string_; }
+    void setString(ttstr value) { string_ = value; }
+
+private:
+    ttstr string_;
+};
+
+class MagickColorCompat {
+public:
+    static tjs_error factory(MagickColorCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        auto *obj = new MagickColorCompat();
+        if(numparams > 0 && param && param[0])
+            obj->string_ = ttstr(*param[0]);
+        *result = obj;
+        return TJS_S_OK;
+    }
+    ttstr getString() const { return string_; }
+    void setString(ttstr value) { string_ = value; }
+
+private:
+    ttstr string_;
+};
+
+class MagickCoderInfoCompat {
+public:
+    static tjs_error factory(MagickCoderInfoCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        auto *obj = new MagickCoderInfoCompat();
+        if(numparams > 0 && param && param[0])
+            obj->name_ = ttstr(*param[0]);
+        *result = obj;
+        return TJS_S_OK;
+    }
+    ttstr getName() const { return name_; }
+    bool getIsReadable() const { return false; }
+    bool getIsWritable() const { return false; }
+    bool getIsMultiFrame() const { return false; }
+
+private:
+    ttstr name_;
+};
+
+class MagickImageCompat {
+public:
+    static tjs_error factory(MagickImageCompat **result, tjs_int numparams,
+                             tTJSVariant **param, iTJSDispatch2 *) {
+        if(!result)
+            return TJS_S_OK;
+        auto *obj = new MagickImageCompat();
+        if(numparams > 0 && param && param[0])
+            obj->source_ = ttstr(*param[0]);
+        *result = obj;
+        return TJS_S_OK;
+    }
+
+    void read(ttstr storage) { source_ = storage; }
+    bool write(ttstr) { return false; }
+    void display(tTJSVariant = tTJSVariant()) {}
+    tjs_int getColumns() const { return 0; }
+    tjs_int getRows() const { return 0; }
+    ttstr getMagick() const { return ttstr(); }
+    void setMagick(ttstr) {}
+    ttstr getFileName() const { return source_; }
+    void setFileName(ttstr value) { source_ = value; }
+
+private:
+    ttstr source_;
+};
+
+class MagickPPCompat {
+public:
+    static tjs_error TJS_INTF_METHOD getVersion(tTJSVariant *result, tjs_int,
+                                                tTJSVariant **,
+                                                iTJSDispatch2 *) {
+        if(result)
+            *result = TJS_W("ImageMagick unavailable");
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD getSupports(tTJSVariant *result, tjs_int,
+                                                 tTJSVariant **,
+                                                 iTJSDispatch2 *) {
+        if(result)
+            *result = EmptyArrayCompat();
+        return TJS_S_OK;
+    }
+
+    static tjs_error TJS_INTF_METHOD readImages(tTJSVariant *result,
+                                                tjs_int numparams,
+                                                tTJSVariant **,
+                                                iTJSDispatch2 *) {
+        if(numparams < 1)
+            return TJS_E_BADPARAMCOUNT;
+        if(result)
+            *result = EmptyArrayCompat();
+        return TJS_S_OK;
+    }
+};
+
+NCB_REGISTER_SUBCLASS(MagickGeometryCompat) {
+    Factory(&MagickGeometryCompat::factory);
+    NCB_PROPERTY(string, getString, setString);
+}
+
+NCB_REGISTER_SUBCLASS(MagickColorCompat) {
+    Factory(&MagickColorCompat::factory);
+    NCB_PROPERTY(string, getString, setString);
+}
+
+NCB_REGISTER_SUBCLASS(MagickCoderInfoCompat) {
+    Factory(&MagickCoderInfoCompat::factory);
+    NCB_PROPERTY_RO(name, getName);
+    NCB_PROPERTY_RO(isReadable, getIsReadable);
+    NCB_PROPERTY_RO(isWritable, getIsWritable);
+    NCB_PROPERTY_RO(isMultiFrame, getIsMultiFrame);
+}
+
+NCB_REGISTER_SUBCLASS(MagickImageCompat) {
+    Factory(&MagickImageCompat::factory);
+    NCB_METHOD(read);
+    NCB_METHOD(write);
+    NCB_METHOD(display);
+    NCB_PROPERTY_RO(columns, getColumns);
+    NCB_PROPERTY_RO(rows, getRows);
+    NCB_PROPERTY(magick, getMagick, setMagick);
+    NCB_PROPERTY(fileName, getFileName, setFileName);
+}
+
+NCB_REGISTER_CLASS_DIFFER(MagickPP, MagickPPCompat) {
+    NCB_SUBCLASS(Geometry, MagickGeometryCompat);
+    NCB_SUBCLASS(Color, MagickColorCompat);
+    NCB_SUBCLASS(CoderInfo, MagickCoderInfoCompat);
+    NCB_SUBCLASS(Image, MagickImageCompat);
+    RawCallback(TJS_W("version"), &MagickPPCompat::getVersion, (int)0,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("supports"), &MagickPPCompat::getSupports, (int)0,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("readImages"), &MagickPPCompat::readImages,
+                TJS_STATICMEMBER);
+}
+
+// ---------------------------------------------------------------------------
 // Draw-device and low-value Win32 plugin compatibility.
 // ---------------------------------------------------------------------------
 
@@ -1990,6 +3560,169 @@ static void drawdeviceZAliasCompat() {
 
 static void gdiplusAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("layerExDraw.dll"));
+    TVPExecuteScript(TJS_W(
+        "if(typeof Layer != \"undefined\" && typeof GdiPlus != \"undefined\" && "
+        "Layer.__krkr2LayerExGdiPlusCompatInstalled === void) {"
+        "  Layer.__krkr2LayerExGdiPlusCompatInstalled = true;"
+        "  class __Krkr2LayerGdiBrush {"
+        "    var color = 0xffffffff;"
+        "    var __krkr2LayerGdiBrush = true;"
+        "    function __Krkr2LayerGdiBrush(argb=0xffffffff) { color = argb; }"
+        "    function setSolidBrush(argb) { color = argb; }"
+        "  };"
+        "  class __Krkr2LayerGdiPen {"
+        "    var color = 0xffffffff;"
+        "    var width = 1.0;"
+        "    var alignment = 0;"
+        "    var brush = void;"
+        "    var __krkr2LayerGdiPen = true;"
+        "    function __Krkr2LayerGdiPen(arg=0xffffffff, w=1.0) {"
+        "      try {"
+        "        if(arg !== void && arg.__krkr2LayerGdiBrush !== void) {"
+        "          brush = arg; color = arg.color;"
+        "        } else {"
+        "          color = arg;"
+        "        }"
+        "      } catch(e) { color = arg; }"
+        "      width = w;"
+        "    }"
+        "    function setAlignMent(value) { alignment = value; }"
+        "    function setAlignment(value) { alignment = value; }"
+        "    function setBrush(value) {"
+        "      brush = value;"
+        "      try { if(value.color !== void) color = value.color; } catch(e) {}"
+        "    }"
+        "    function setColor(value) { color = value; brush = void; }"
+        "    function setWidth(value) { width = value; }"
+        "  };"
+        "  Layer.Brush = __Krkr2LayerGdiBrush;"
+        "  Layer.Pen = __Krkr2LayerGdiPen;"
+        "  if(Layer.Font === void) Layer.Font = GdiPlus.Font;"
+        "  Layer.__krkr2GdiIsPen = function(v) {"
+        "    if(v === void) return false;"
+        "    try { return v.__krkr2LayerGdiPen !== void; } catch(e) { return false; }"
+        "  };"
+        "  Layer.__krkr2GdiIsBrush = function(v) {"
+        "    if(v === void) return false;"
+        "    try { return v.__krkr2LayerGdiBrush !== void; } catch(e) { return false; }"
+        "  };"
+        "  Layer.__krkr2GdiPenApp = function(pen) {"
+        "    var app = new GdiPlus.Appearance();"
+        "    var color = 0xffffffff; var width = 1.0;"
+        "    try {"
+        "      if(pen.brush !== void && pen.brush.color !== void) color = pen.brush.color;"
+        "      else if(pen.color !== void) color = pen.color;"
+        "      if(pen.width !== void) width = pen.width;"
+        "    } catch(e) {}"
+        "    app.addPen(color, width);"
+        "    return app;"
+        "  };"
+        "  Layer.__krkr2GdiBrushApp = function(brush) {"
+        "    var app = new GdiPlus.Appearance();"
+        "    var color = 0xffffffff;"
+        "    try { if(brush.color !== void) color = brush.color; } catch(e) {}"
+        "    app.addBrush(color);"
+        "    return app;"
+        "  };"
+        "  Layer.__krkr2GdiOrigDrawEllipse = Layer.drawEllipse;"
+        "  Layer.__krkr2GdiOrigDrawLine = Layer.drawLine;"
+        "  Layer.__krkr2GdiOrigDrawRectangle = Layer.drawRectangle;"
+        "  Layer.__krkr2GdiOrigDrawBezier = Layer.drawBezier;"
+        "  Layer.__krkr2GdiOrigDrawBeziers = Layer.drawBeziers;"
+        "  Layer.__krkr2GdiOrigDrawString = Layer.drawString;"
+        "  Layer.__krkr2GdiOrigDrawImage = Layer.drawImage;"
+        "  Layer.__krkr2GdiOrigDrawImageRect = Layer.drawImageRect;"
+        "  Layer.drawEllipse = function(a,b,c,d,e) {"
+        "    if(Layer.__krkr2GdiOrigDrawEllipse === void) return void;"
+        "    if(Layer.__krkr2GdiIsPen(a)) return "
+        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
+        "(Layer.__krkr2GdiPenApp(a), b, c, d, e);"
+        "    if(Layer.__krkr2GdiIsPen(e)) return "
+        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
+        "(Layer.__krkr2GdiPenApp(e), a, b, c, d);"
+        "    return (Layer.__krkr2GdiOrigDrawEllipse incontextof this)(*);"
+        "  };"
+        "  Layer.fillEllipse = function(a,b,c,d,e) {"
+        "    if(Layer.__krkr2GdiOrigDrawEllipse === void) return void;"
+        "    if(Layer.__krkr2GdiIsBrush(a)) return "
+        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
+        "(Layer.__krkr2GdiBrushApp(a), b, c, d, e);"
+        "    if(Layer.__krkr2GdiIsBrush(e)) return "
+        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
+        "(Layer.__krkr2GdiBrushApp(e), a, b, c, d);"
+        "    return void;"
+        "  };"
+        "  Layer.drawLine = function(a,b,c,d,e) {"
+        "    if(Layer.__krkr2GdiOrigDrawLine === void) return void;"
+        "    if(Layer.__krkr2GdiIsPen(a)) return "
+        "(Layer.__krkr2GdiOrigDrawLine incontextof this)"
+        "(Layer.__krkr2GdiPenApp(a), b, c, d, e);"
+        "    if(Layer.__krkr2GdiIsPen(e)) return "
+        "(Layer.__krkr2GdiOrigDrawLine incontextof this)"
+        "(Layer.__krkr2GdiPenApp(e), a, b, c, d);"
+        "    return (Layer.__krkr2GdiOrigDrawLine incontextof this)(*);"
+        "  };"
+        "  Layer.drawRectangle = function(a,b,c,d,e) {"
+        "    if(Layer.__krkr2GdiOrigDrawRectangle === void) return void;"
+        "    if(Layer.__krkr2GdiIsPen(a)) return "
+        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
+        "(Layer.__krkr2GdiPenApp(a), b, c, d, e);"
+        "    if(Layer.__krkr2GdiIsPen(e)) return "
+        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
+        "(Layer.__krkr2GdiPenApp(e), a, b, c, d);"
+        "    return (Layer.__krkr2GdiOrigDrawRectangle incontextof this)(*);"
+        "  };"
+        "  Layer.fillRectangle = function(a,b,c,d,e) {"
+        "    if(Layer.__krkr2GdiOrigDrawRectangle === void) return void;"
+        "    if(Layer.__krkr2GdiIsBrush(a)) return "
+        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
+        "(Layer.__krkr2GdiBrushApp(a), b, c, d, e);"
+        "    if(Layer.__krkr2GdiIsBrush(e)) return "
+        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
+        "(Layer.__krkr2GdiBrushApp(e), a, b, c, d);"
+        "    return void;"
+        "  };"
+        "  Layer.drawBezier = function(a,b,c,d,e,f,g,h,i) {"
+        "    if(Layer.__krkr2GdiOrigDrawBezier === void) return void;"
+        "    if(Layer.__krkr2GdiIsPen(a)) return "
+        "(Layer.__krkr2GdiOrigDrawBezier incontextof this)"
+        "(Layer.__krkr2GdiPenApp(a), b, c, d, e, f, g, h, i);"
+        "    if(Layer.__krkr2GdiIsPen(i)) return "
+        "(Layer.__krkr2GdiOrigDrawBezier incontextof this)"
+        "(Layer.__krkr2GdiPenApp(i), a, b, c, d, e, f, g, h);"
+        "    return (Layer.__krkr2GdiOrigDrawBezier incontextof this)(*);"
+        "  };"
+        "  Layer.drawBeziers = function(a,b) {"
+        "    if(Layer.__krkr2GdiOrigDrawBeziers === void) return void;"
+        "    if(Layer.__krkr2GdiIsPen(a)) return "
+        "(Layer.__krkr2GdiOrigDrawBeziers incontextof this)"
+        "(Layer.__krkr2GdiPenApp(a), b);"
+        "    if(Layer.__krkr2GdiIsPen(b)) return "
+        "(Layer.__krkr2GdiOrigDrawBeziers incontextof this)"
+        "(Layer.__krkr2GdiPenApp(b), a);"
+        "    return (Layer.__krkr2GdiOrigDrawBeziers incontextof this)(*);"
+        "  };"
+        "  Layer.drawString = function(a,b,c,d,e) {"
+        "    if(Layer.__krkr2GdiOrigDrawString === void) return void;"
+        "    if(Layer.__krkr2GdiIsBrush(e)) return "
+        "(Layer.__krkr2GdiOrigDrawString incontextof this)"
+        "(b, Layer.__krkr2GdiBrushApp(e), c, d, a);"
+        "    return (Layer.__krkr2GdiOrigDrawString incontextof this)(*);"
+        "  };"
+        "  Layer.drawImage = function(a,b,c,d,e,f,g) {"
+        "    if(typeof a == \"string\") {"
+        "      if(c === void && Layer.__krkr2GdiOrigDrawImage !== void) return "
+        "(Layer.__krkr2GdiOrigDrawImage incontextof this)(0, 0, a);"
+        "      if(g === void && Layer.__krkr2GdiOrigDrawImage !== void) return "
+        "(Layer.__krkr2GdiOrigDrawImage incontextof this)(b, c, a);"
+        "      if(Layer.__krkr2GdiOrigDrawImageRect !== void) return "
+        "(Layer.__krkr2GdiOrigDrawImageRect incontextof this)(b, c, a, d, e, f, g);"
+        "    }"
+        "    if(Layer.__krkr2GdiOrigDrawImage !== void) return "
+        "(Layer.__krkr2GdiOrigDrawImage incontextof this)(*);"
+        "    return void;"
+        "  };"
+        "}"));
 }
 
 static void oleclassAliasCompat() {
@@ -2010,7 +3743,7 @@ REGISTER_ALIAS_COMPAT_PLUGIN(layerExAgg_dll_compat, "layerExAgg.dll",
 REGISTER_ALIAS_COMPAT_PLUGIN(layerExCairo_dll_compat, "layerExCairo.dll",
                              layerExDrawAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(layerExGdiPlus_dll_compat, "layerExGdiPlus.dll",
-                             layerExDrawAliasCompat);
+                             gdiplusAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(layerExPerspective_dll_compat,
                              "layerExPerspective.dll",
                              layerExPerspectiveAliasCompat);
@@ -2034,13 +3767,8 @@ REGISTER_EMPTY_COMPAT_PLUGIN(utf8hack_dll_compat, "utf8hack.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(k2utf8hack_dll_compat, "k2utf8hack.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(wumsadp_dll_compat, "wumsadp.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(exceptiontest_dll_compat, "exceptiontest.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(flashPlayer_dll_compat, "flashPlayer.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(gameswf_dll_compat, "gameswf.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(simplebinder_dll_compat, "simplebinder.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(parser_dll_compat, "parser.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(squirrel_dll_compat, "squirrel.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(xpressive_dll_compat, "xpressive.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(magickpp_dll_compat, "magickpp.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(mkpj_dll_compat, "mkpj.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(zlib_dll_compat, "zlib.dll");
 
