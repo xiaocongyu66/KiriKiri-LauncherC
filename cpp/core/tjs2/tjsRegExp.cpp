@@ -313,134 +313,136 @@ namespace TJS {
                         TJS constructor
                     */
 
-                    if(numparams >=
-                       1){ tTJSNC_RegExp::Compile(numparams, param, _this);
-return TJS_S_OK;
-}
-TJS_END_NATIVE_CONSTRUCTOR_DECL(/*TJS class name*/ RegExp)
-//----------------------------------------------------------------------
-TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ compile) {
-    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
-                            /*var. type*/ tTJSNI_RegExp);
+                    if(numparams >= 1)
+                        tTJSNC_RegExp::Compile(numparams, param, _this);
 
-    /*
-        compiles given regular expression and flags.
-    */
+                    return TJS_S_OK;
+                }
+                TJS_END_NATIVE_CONSTRUCTOR_DECL(/*TJS class name*/ RegExp)
+                //----------------------------------------------------------------------
+                TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ compile) {
+                    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
+                                            /*var. type*/ tTJSNI_RegExp);
 
-    if(numparams < 1)
-        return TJS_E_BADPARAMCOUNT;
+                    /*
+                        compiles given regular expression and flags.
+                    */
 
-    tTJSNC_RegExp::Compile(numparams, param, _this);
+                    if(numparams < 1)
+                        return TJS_E_BADPARAMCOUNT;
 
-    return TJS_S_OK;
-}
-TJS_END_NATIVE_METHOD_DECL(/*func. name*/ compile)
-//----------------------------------------------------------------------
-TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ _compile) {
-    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
-                            /*var. type*/ tTJSNI_RegExp);
+                    tTJSNC_RegExp::Compile(numparams, param, _this);
 
-    /*
-        internal function; compiles given constant regular expression.
-        input expression is following format:
-        //flags/expression
-        where flags is flag letters ( [gil] )
-        and expression is a Regular Expression
-    */
+                    return TJS_S_OK;
+                }
+                TJS_END_NATIVE_METHOD_DECL(/*func. name*/ compile)
+                //----------------------------------------------------------------------
+                TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ _compile) {
+                    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
+                                            /*var. type*/ tTJSNI_RegExp);
 
-    if(numparams != 1)
-        return TJS_E_BADPARAMCOUNT;
+                    /*
+                        internal function; compiles given constant regular expression.
+                        input expression is following format:
+                        //flags/expression
+                        where flags is flag letters ( [gil] )
+                        and expression is a Regular Expression
+                    */
 
-    ttstr expr = *param[0];
+                    if(numparams != 1)
+                        return TJS_E_BADPARAMCOUNT;
 
-    const tjs_char *p = expr.c_str();
-    if(!p || !p[0])
-        return TJS_E_FAIL;
+                    ttstr expr = *param[0];
 
-    if(p[0] != TJS_W('/') || p[1] != TJS_W('/'))
-        return TJS_E_FAIL;
+                    const tjs_char *p = expr.c_str();
+                    if(!p || !p[0])
+                        return TJS_E_FAIL;
 
-    p += 2;
-    const tjs_char *exprstart = TJS_strchr(p, TJS_W('/'));
-    if(!exprstart)
-        return TJS_E_FAIL;
-    exprstart++;
+                    if(p[0] != TJS_W('/') || p[1] != TJS_W('/'))
+                        return TJS_E_FAIL;
 
-    tjs_uint32 flags = TJSGetRegExpFlagsFromString(p);
+                    p += 2;
+                    const tjs_char *exprstart = TJS_strchr(p, TJS_W('/'));
+                    if(!exprstart)
+                        return TJS_E_FAIL;
+                    exprstart++;
 
-    try {
-        if(_this->RegEx) {
-            onig_free(_this->RegEx);
-            _this->RegEx = nullptr;
-        }
-        TJSCompileRegExpOrThrow(&(_this->RegEx), ttstr(exprstart), flags);
-    } catch(std::exception &e) {
-        TJS_eTJSError(e.what());
-    }
+                    tjs_uint32 flags = TJSGetRegExpFlagsFromString(p);
 
-    _this->Flags = flags;
+                    try {
+                        if(_this->RegEx) {
+                            onig_free(_this->RegEx);
+                            _this->RegEx = nullptr;
+                        }
+                        TJSCompileRegExpOrThrow(&(_this->RegEx),
+                                                ttstr(exprstart), flags);
+                    } catch(std::exception &e) {
+                        TJS_eTJSError(e.what());
+                    }
 
-    return TJS_S_OK;
-}
-TJS_END_NATIVE_METHOD_DECL(/*func. name*/ _compile)
-//----------------------------------------------------------------------
-TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ test) {
-    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
-                            /*var. type*/ tTJSNI_RegExp);
+                    _this->Flags = flags;
 
-    /*
-        do the text searching.
-        return match found ( true ), or not found ( false ).
-        this function *changes* internal status.
-    */
+                    return TJS_S_OK;
+                }
+                TJS_END_NATIVE_METHOD_DECL(/*func. name*/ _compile)
+                //----------------------------------------------------------------------
+                TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ test) {
+                    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
+                                            /*var. type*/ tTJSNI_RegExp);
 
-    if(numparams < 1)
-        return TJS_E_BADPARAMCOUNT;
+                    /*
+                        do the text searching.
+                        return match found ( true ), or not found ( false ).
+                        this function *changes* internal status.
+                    */
 
-    ttstr target(*param[0]);
-    OnigRegion *region = onig_region_new();
-    bool matched = tTJSNC_RegExp::Exec(region, target, _this);
-    onig_region_free(region, 1);
+                    if(numparams < 1)
+                        return TJS_E_BADPARAMCOUNT;
 
-    tTJSNC_RegExp::LastRegExp = tTJSVariant(objthis, objthis);
+                    ttstr target(*param[0]);
+                    OnigRegion *region = onig_region_new();
+                    bool matched = tTJSNC_RegExp::Exec(region, target, _this);
+                    onig_region_free(region, 1);
 
-    if(result) {
-        *result = matched;
-    }
+                    tTJSNC_RegExp::LastRegExp = tTJSVariant(objthis, objthis);
 
-    return TJS_S_OK;
-}
-TJS_END_NATIVE_METHOD_DECL(/*func. name*/ test)
-//----------------------------------------------------------------------
-TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ match) {
-    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
-                            /*var. type*/ tTJSNI_RegExp);
+                    if(result) {
+                        *result = matched;
+                    }
 
-    /*
-        do the text searching.
-        this function is the same as test, except for its return
-       value. match returns an array that contains each matching part.
-        if match failed, returns empty array. eg.
-        any internal status will not be changed.
-    */
+                    return TJS_S_OK;
+                }
+                TJS_END_NATIVE_METHOD_DECL(/*func. name*/ test)
+                //----------------------------------------------------------------------
+                TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ match) {
+                    TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
+                                            /*var. type*/ tTJSNI_RegExp);
 
-    if(numparams < 1)
-        return TJS_E_BADPARAMCOUNT;
+                    /*
+                        do the text searching.
+                        this function is the same as test, except for its return
+                       value. match returns an array that contains each matching part.
+                        if match failed, returns empty array. eg.
+                        any internal status will not be changed.
+                    */
 
-    if(result) {
-        ttstr target(*param[0]);
-        OnigRegion *region = onig_region_new();
-        bool matched = tTJSNC_RegExp::Match(region, target, _this);
-        iTJSDispatch2 *array =
-            tTJSNC_RegExp::GetResultArray(matched, target, _this, region);
-        onig_region_free(region, 1);
-        *result = tTJSVariant(array, array);
-        array->Release();
-    }
+                    if(numparams < 1)
+                        return TJS_E_BADPARAMCOUNT;
 
-    return TJS_S_OK;
-}
-TJS_END_NATIVE_METHOD_DECL(/*func. name*/ match)
+                    if(result) {
+                        ttstr target(*param[0]);
+                        OnigRegion *region = onig_region_new();
+                        bool matched = tTJSNC_RegExp::Match(region, target, _this);
+                        iTJSDispatch2 *array = tTJSNC_RegExp::GetResultArray(
+                            matched, target, _this, region);
+                        onig_region_free(region, 1);
+                        *result = tTJSVariant(array, array);
+                        array->Release();
+                    }
+
+                    return TJS_S_OK;
+                }
+                TJS_END_NATIVE_METHOD_DECL(/*func. name*/ match)
 //----------------------------------------------------------------------
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ exec) {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
