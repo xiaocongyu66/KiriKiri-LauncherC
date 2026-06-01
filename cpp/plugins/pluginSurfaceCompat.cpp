@@ -8,6 +8,13 @@
 #include <minizip/zip.h>
 #include <sqlite3.h>
 
+#if __has_include(<curl/curl.h>)
+#include <curl/curl.h>
+#define KRKR2_PLUGIN_HAS_CURL 1
+#else
+#define KRKR2_PLUGIN_HAS_CURL 0
+#endif
+
 #if __has_include("tinyxml2/tinyxml2.h")
 #include "tinyxml2/tinyxml2.h"
 #define KRKR2_PLUGIN_HAS_TINYXML2 1
@@ -334,6 +341,18 @@ ttstr Utf8BytesToTtstrCompat(const std::vector<tjs_uint8> &bytes) {
     }
 
     return ttstr(std::string(data, data + length).c_str());
+}
+
+std::string TtstrToUtf8Compat(const ttstr &value) {
+    const tjs_char *src = value.c_str();
+    tjs_int len = TVPWideCharToUtf8String(src, nullptr);
+    if(len >= 0) {
+        std::vector<char> out(static_cast<size_t>(len) + 1);
+        TVPWideCharToUtf8String(src, out.data());
+        out[static_cast<size_t>(len)] = 0;
+        return std::string(out.data());
+    }
+    return value.AsNarrowStdString();
 }
 
 ttstr Utf8TextToTtstrCompat(const char *data, size_t length) {
@@ -799,6 +818,216 @@ NCB_ATTACH_CLASS(StoragesZipCompat, Storages) {
 #undef NCB_MODULE_NAME
 #define NCB_MODULE_NAME TJS_W("httprequest.dll")
 
+namespace {
+
+struct HttpCompatResponse {
+    tjs_int status = 0;
+    ttstr statusText;
+    std::map<ttstr, ttstr> headers;
+    std::vector<tjs_uint8> body;
+    ttstr contentType;
+    ttstr contentEncoding;
+};
+
+std::string TrimHttpAscii(std::string value) {
+    while(!value.empty() &&
+          std::isspace(static_cast<unsigned char>(value.front())))
+        value.erase(value.begin());
+    while(!value.empty() &&
+          std::isspace(static_cast<unsigned char>(value.back())))
+        value.pop_back();
+    return value;
+}
+
+ttstr HttpHeaderValueCompat(const std::map<ttstr, ttstr> &headers,
+                            const ttstr &name) {
+    for(const auto &entry : headers) {
+        if(TJS_stricmp(entry.first.c_str(), name.c_str()) == 0)
+            return entry.second;
+    }
+    return ttstr();
+}
+
+void ParseHttpContentType(HttpCompatResponse *response) {
+    if(!response)
+        return;
+    ttstr headerType = HttpHeaderValueCompat(response->headers,
+                                             TJS_W("Content-Type"));
+    if(!headerType.IsEmpty())
+        response->contentType = headerType;
+    response->contentEncoding.Clear();
+    std::string type = TtstrToUtf8Compat(response->contentType);
+    std::string lower = LowerAscii(type);
+    size_t charset = lower.find("charset=");
+    if(charset != std::string::npos) {
+        std::string enc = type.substr(charset + 8);
+        size_t semi = enc.find(';');
+        if(semi != std::string::npos)
+            enc.resize(semi);
+        enc = TrimHttpAscii(enc);
+        if(!enc.empty() &&
+           ((enc.front() == '"' && enc.back() == '"') ||
+            (enc.front() == '\'' && enc.back() == '\'')))
+            enc = enc.substr(1, enc.size() - 2);
+        response->contentEncoding = Utf8TextToTtstrCompat(enc.c_str(),
+                                                          enc.size());
+    }
+}
+
+#if KRKR2_PLUGIN_HAS_CURL
+size_t HttpCurlWriteBody(char *ptr, size_t size, size_t nmemb,
+                         void *userdata) {
+    auto *response = static_cast<HttpCompatResponse *>(userdata);
+    size_t bytes = size * nmemb;
+    if(response && ptr && bytes)
+        response->body.insert(response->body.end(),
+                              reinterpret_cast<tjs_uint8 *>(ptr),
+                              reinterpret_cast<tjs_uint8 *>(ptr) + bytes);
+    return bytes;
+}
+
+size_t HttpCurlWriteHeader(char *ptr, size_t size, size_t nmemb,
+                           void *userdata) {
+    auto *response = static_cast<HttpCompatResponse *>(userdata);
+    size_t bytes = size * nmemb;
+    if(!response || !ptr || !bytes)
+        return bytes;
+
+    std::string line(ptr, ptr + bytes);
+    while(!line.empty() && (line.back() == '\r' || line.back() == '\n'))
+        line.pop_back();
+    if(line.empty())
+        return bytes;
+
+    std::string lower = LowerAscii(line);
+    if(lower.rfind("http/", 0) == 0) {
+        size_t first = line.find(' ');
+        if(first != std::string::npos) {
+            size_t second = line.find(' ', first + 1);
+            if(second != std::string::npos)
+                response->statusText = Utf8TextToTtstrCompat(
+                    line.c_str() + second + 1, line.size() - second - 1);
+        }
+        return bytes;
+    }
+
+    size_t colon = line.find(':');
+    if(colon != std::string::npos) {
+        std::string name = TrimHttpAscii(line.substr(0, colon));
+        std::string value = TrimHttpAscii(line.substr(colon + 1));
+        response->headers[Utf8TextToTtstrCompat(name.c_str(), name.size())] =
+            Utf8TextToTtstrCompat(value.c_str(), value.size());
+    }
+    return bytes;
+}
+#endif
+
+bool HttpPerformCompat(const ttstr &method, const ttstr &url,
+                       const std::map<ttstr, ttstr> &requestHeaders,
+                       const std::vector<tjs_uint8> &requestBody,
+                       HttpCompatResponse *response, ttstr *error) {
+    if(response)
+        *response = HttpCompatResponse();
+#if KRKR2_PLUGIN_HAS_CURL
+    static bool curlInitialized = []() {
+        return curl_global_init(CURL_GLOBAL_DEFAULT) == CURLE_OK;
+    }();
+    if(!curlInitialized) {
+        if(error)
+            *error = TJS_W("curl initialization failed");
+        return false;
+    }
+
+    CURL *curl = curl_easy_init();
+    if(!curl) {
+        if(error)
+            *error = TJS_W("curl_easy_init failed");
+        return false;
+    }
+
+    std::string urlUtf8 = TtstrToUtf8Compat(url);
+    std::string methodUtf8 = TtstrToUtf8Compat(method);
+    std::string methodLower = LowerAscii(methodUtf8);
+    std::string body;
+    if(!requestBody.empty())
+        body.assign(reinterpret_cast<const char *>(requestBody.data()),
+                    requestBody.size());
+    curl_slist *headerList = nullptr;
+    for(const auto &entry : requestHeaders) {
+        std::string header = TtstrToUtf8Compat(entry.first);
+        header += ": ";
+        header += TtstrToUtf8Compat(entry.second);
+        headerList = curl_slist_append(headerList, header.c_str());
+    }
+
+    curl_easy_setopt(curl, CURLOPT_URL, urlUtf8.c_str());
+    curl_easy_setopt(curl, CURLOPT_FOLLOWLOCATION, 1L);
+    curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
+    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, HttpCurlWriteBody);
+    curl_easy_setopt(curl, CURLOPT_WRITEDATA, response);
+    curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, HttpCurlWriteHeader);
+    curl_easy_setopt(curl, CURLOPT_HEADERDATA, response);
+    curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+    curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 20L);
+    curl_easy_setopt(curl, CURLOPT_TIMEOUT, 120L);
+    if(headerList)
+        curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headerList);
+
+    if(methodLower == "post") {
+        curl_easy_setopt(curl, CURLOPT_POST, 1L);
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
+        curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
+                         static_cast<long>(body.size()));
+    } else if(methodLower == "head") {
+        curl_easy_setopt(curl, CURLOPT_NOBODY, 1L);
+    } else if(methodLower != "get" && !methodUtf8.empty()) {
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, methodUtf8.c_str());
+        if(!body.empty()) {
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
+            curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE,
+                             static_cast<long>(body.size()));
+        }
+    }
+
+    CURLcode code = curl_easy_perform(curl);
+    long status = 0;
+    curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+    if(response) {
+        response->status = static_cast<tjs_int>(status);
+        char *contentType = nullptr;
+        if(curl_easy_getinfo(curl, CURLINFO_CONTENT_TYPE, &contentType) ==
+               CURLE_OK &&
+           contentType)
+            response->contentType = Utf8TextToTtstrCompat(contentType);
+        ParseHttpContentType(response);
+    }
+
+    if(headerList)
+        curl_slist_free_all(headerList);
+    curl_easy_cleanup(curl);
+
+    if(code != CURLE_OK) {
+        if(response) {
+            response->status = 0;
+            response->statusText = Utf8TextToTtstrCompat(curl_easy_strerror(code));
+        }
+        if(error)
+            *error = response ? response->statusText
+                              : Utf8TextToTtstrCompat(curl_easy_strerror(code));
+        return false;
+    }
+    if(response && response->statusText.IsEmpty() && response->status > 0)
+        response->statusText = TJS_W("OK");
+    return true;
+#else
+    if(error)
+        *error = TJS_W("HTTP request is unavailable on this platform");
+    return false;
+#endif
+}
+
+} // namespace
+
 class HttpRequestCompat {
 public:
     enum ReadyState {
@@ -832,14 +1061,18 @@ public:
         return ReturnVoidCompat(result);
     }
 
-    void setRequestHeader(ttstr, ttstr) {}
+    void setRequestHeader(ttstr name, ttstr value) { requestHeaders_[name] = value; }
 
-    static tjs_error TJS_INTF_METHOD send(tTJSVariant *result, tjs_int,
-                                          tTJSVariant **,
+    static tjs_error TJS_INTF_METHOD send(tTJSVariant *result,
+                                          tjs_int numparams,
+                                          tTJSVariant **param,
                                           HttpRequestCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        self->completeUnavailable();
+        std::vector<tjs_uint8> body;
+        if(numparams > 0 && param && param[0])
+            body = VariantBytesVector(param[0]);
+        self->perform(body);
         return ReturnVoidCompat(result);
     }
 
@@ -854,13 +1087,13 @@ public:
 
     static tjs_error TJS_INTF_METHOD sendStorage(tTJSVariant *result,
                                                  tjs_int numparams,
-                                                 tTJSVariant **,
+                                                 tTJSVariant **param,
                                                  HttpRequestCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
-        if(numparams < 1)
+        if(numparams < 1 || !param || !param[0])
             return TJS_E_BADPARAMCOUNT;
-        self->completeUnavailable();
+        self->perform(ReadStorageBytes(ttstr(*param[0])));
         return ReturnVoidCompat(result);
     }
 
@@ -880,8 +1113,20 @@ public:
         statusText_ = TJS_W("cancelled");
     }
 
-    tTJSVariant getAllResponseHeaders() { return EmptyDictionaryCompat(); }
-    ttstr getResponseHeader(ttstr) { return ttstr(TJS_W("")); }
+    tTJSVariant getAllResponseHeaders() {
+        iTJSDispatch2 *dict = TJSCreateDictionaryObject();
+        for(const auto &entry : responseHeaders_) {
+            tTJSVariant value(entry.second);
+            dict->PropSet(TJS_MEMBERENSURE, entry.first.c_str(), nullptr,
+                          &value, dict);
+        }
+        tTJSVariant ret(dict, dict);
+        dict->Release();
+        return ret;
+    }
+    ttstr getResponseHeader(ttstr name) {
+        return HttpHeaderValueCompat(responseHeaders_, name);
+    }
 
     static tjs_error TJS_INTF_METHOD getResponseText(tTJSVariant *result,
                                                      tjs_int,
@@ -896,12 +1141,14 @@ public:
 
     tjs_int getReadyState() const { return readyState_; }
     tTJSVariant getResponse() { return responseText_; }
-    tTJSVariant getResponseData() { return EmptyOctetCompat(); }
+    tTJSVariant getResponseData() { return OctetCompat(responseData_); }
     tjs_int getStatus() const { return status_; }
     ttstr getStatusText() const { return statusText_; }
-    ttstr getContentType() const { return ttstr(TJS_W("")); }
-    ttstr getContentTypeEncoding() const { return ttstr(TJS_W("")); }
-    tjs_int64 getContentLength() const { return 0; }
+    ttstr getContentType() const { return contentType_; }
+    ttstr getContentTypeEncoding() const { return contentEncoding_; }
+    tjs_int64 getContentLength() const {
+        return static_cast<tjs_int64>(responseData_.size());
+    }
 
     static tjs_error TJS_INTF_METHOD encodeBase64(tTJSVariant *result,
                                                   tjs_int numparams,
@@ -932,16 +1179,35 @@ public:
     }
 
 private:
-    void completeUnavailable() {
+    static std::vector<tjs_uint8> VariantBytesVector(tTJSVariant *value) {
+        std::string bytes = VariantToBytes(value);
+        return std::vector<tjs_uint8>(bytes.begin(), bytes.end());
+    }
+
+    void perform(const std::vector<tjs_uint8> &body) {
+        readyState_ = SENT;
+        HttpCompatResponse response;
+        ttstr error;
+        bool ok = HttpPerformCompat(method_, url_, requestHeaders_, body,
+                                    &response, &error);
         readyState_ = LOADED;
-        status_ = 0;
-        statusText_ = TJS_W("HTTP request is unavailable on this platform");
-        responseText_.Clear();
+        status_ = response.status;
+        statusText_ = ok ? response.statusText : error;
+        responseHeaders_ = response.headers;
+        responseData_ = response.body;
+        responseText_ = Utf8BytesToTtstrCompat(responseData_);
+        contentType_ = response.contentType;
+        contentEncoding_ = response.contentEncoding;
     }
 
     ttstr method_;
     ttstr url_;
+    std::map<ttstr, ttstr> requestHeaders_;
+    std::map<ttstr, ttstr> responseHeaders_;
+    std::vector<tjs_uint8> responseData_;
     ttstr responseText_;
+    ttstr contentType_;
+    ttstr contentEncoding_;
     tjs_int readyState_ = UNINITIALIZED;
     tjs_int status_ = 0;
     ttstr statusText_;
@@ -1313,18 +1579,6 @@ void SqliteSetError(sqlite3 *db, tjs_int *code, ttstr *message, int fallback) {
         else
             *message = TJS_W("database is not open");
     }
-}
-
-std::string TtstrToUtf8Compat(const ttstr &value) {
-    const tjs_char *src = value.c_str();
-    tjs_int len = TVPWideCharToUtf8String(src, nullptr);
-    if(len >= 0) {
-        std::vector<char> out(static_cast<size_t>(len) + 1);
-        TVPWideCharToUtf8String(src, out.data());
-        out[static_cast<size_t>(len)] = 0;
-        return std::string(out.data());
-    }
-    return value.AsNarrowStdString();
 }
 
 int SqliteBindParam(sqlite3_stmt *stmt, const tTJSVariant &param, int pos) {
@@ -3383,30 +3637,53 @@ public:
         return ReturnVoidCompat(result);
     }
 
-    static tjs_error TJS_INTF_METHOD send(tTJSVariant *result, tjs_int,
-                                          tTJSVariant **,
+    static tjs_error TJS_INTF_METHOD send(tTJSVariant *result,
+                                          tjs_int numparams,
+                                          tTJSVariant **param,
                                           XMLHttpRequestCompat *self) {
         if(!self)
             return TJS_E_NATIVECLASSCRASH;
+        std::vector<tjs_uint8> body;
+        if(numparams > 0 && param && param[0]) {
+            std::string bytes = VariantToBytes(param[0]);
+            body.assign(bytes.begin(), bytes.end());
+        }
+        self->readyState_ = LOADING;
+        self->executeCallback();
+        HttpCompatResponse response;
+        ttstr error;
+        bool ok = HttpPerformCompat(self->method_, self->url_, self->headers_,
+                                    body, &response, &error);
         self->readyState_ = DONE;
-        self->status_ = 0;
-        self->statusText_ = TJS_W("XMLHttpRequest is unavailable on this platform");
-        self->response_.clear();
+        self->status_ = response.status;
+        self->statusText_ = ok ? response.statusText : error;
+        self->responseHeaders_ = response.headers;
+        self->response_ = response.body;
+        self->responseText_ = Utf8BytesToTtstrCompat(self->response_);
+        self->executeCallback();
         return ReturnVoidCompat(result);
     }
 
     void setRequestHeader(ttstr name, ttstr value) { headers_[name] = value; }
     void printRequestHeaders() {}
-    ttstr getResponseHeader(ttstr) { return ttstr(); }
+    ttstr getResponseHeader(ttstr name) {
+        return HttpHeaderValueCompat(responseHeaders_, name);
+    }
     void abort() {
         readyState_ = DONE;
         status_ = -1;
         statusText_ = TJS_W("cancelled");
     }
-    void executeCallback() {}
+    void executeCallback() {
+        if(onReadyStateChange_.Type() != tvtObject)
+            return;
+        tTJSVariantClosure callback =
+            onReadyStateChange_.AsObjectClosureNoAddRef();
+        callback.FuncCall(0, nullptr, nullptr, nullptr, 0, nullptr, nullptr);
+    }
 
     tjs_int getReadyState() const { return readyState_; }
-    tTJSVariant getResponseText() const { return EmptyOctetCompat(); }
+    tTJSVariant getResponseText() const { return responseText_; }
     tjs_int getStatus() const { return status_; }
     ttstr getStatusText() const { return statusText_; }
     tTJSVariant getOnReadyStateChange() const { return onReadyStateChange_; }
@@ -3416,7 +3693,9 @@ private:
     ttstr method_;
     ttstr url_;
     std::map<ttstr, ttstr> headers_;
+    std::map<ttstr, ttstr> responseHeaders_;
     std::vector<tjs_uint8> response_;
+    ttstr responseText_;
     tjs_int readyState_ = UNSENT;
     tjs_int status_ = 0;
     ttstr statusText_;

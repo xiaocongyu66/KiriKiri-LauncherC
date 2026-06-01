@@ -30,6 +30,7 @@
       "platform": "!android & !ios"
     },
     "cocos2dx",
+    "curl",
     {
       "name": "dirent",
       "platform": "windows"
