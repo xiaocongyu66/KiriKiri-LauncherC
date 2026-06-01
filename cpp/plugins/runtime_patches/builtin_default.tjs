@@ -119,6 +119,84 @@ if(!__krkr2_memberExists(global, "__krkr2_runtimePatchApplied")) {
         return text.substr(0, colonPos) + ":" + text.substr(colonPos + 1);
     }
 
+    function __krkr2_stripIndexedResourceScalePrefix(text=void) {
+        if(typeof text != "string")
+            return text;
+
+        var colonPos = text.indexOf(":");
+        var wideColonPos = text.indexOf("：");
+        if(colonPos < 0 || (wideColonPos >= 0 && wideColonPos < colonPos))
+            colonPos = wideColonPos;
+        if(colonPos <= 0)
+            return text;
+        if(!__krkr2_isAsciiScalePrefix(text, colonPos))
+            return text;
+        return text.substr(colonPos + 1);
+    }
+
+    function __krkr2_registerResourceAlias(alias=void, target=void) {
+        try {
+            if(typeof alias != "string" || typeof target != "string")
+                return;
+            alias = __krkr2_stripIndexedResourceScalePrefix(alias);
+            target = __krkr2_stripIndexedResourceScalePrefix(target);
+            if(alias == "" || target == "" || alias == target)
+                return;
+
+            var storages = __krkr2_memberValue(global, "Storages", void);
+            if(storages === void ||
+               typeof __krkr2_memberValue(storages, "registerResourceAlias", void) != "function")
+                return;
+            storages.registerResourceAlias(alias, target);
+        } catch(e) {}
+    }
+
+    function __krkr2_storageFileNameLower(storage=void) {
+        try {
+            if(typeof storage != "string")
+                return "";
+            var storages = __krkr2_memberValue(global, "Storages", void);
+            if(storages !== void &&
+               typeof __krkr2_memberValue(storages, "extractStorageName", void) == "function")
+                storage = storages.extractStorageName(storage);
+            return storage.toLowerCase();
+        } catch(e) {
+            return "";
+        }
+    }
+
+    function __krkr2_registerIndexedResourceAliases(storage=void, rows=void) {
+        try {
+            if(rows === void || typeof rows.count == "undefined")
+                return;
+
+            var file = __krkr2_storageFileNameLower(storage);
+            var isMulti = file.indexOf("imagemulti") >= 0;
+            var isNameMap = file.indexOf("imagenamemap") >= 0;
+            var isDiffMap = file.indexOf("imagediffmap") >= 0;
+            if(!isMulti && !isNameMap && !isDiffMap)
+                return;
+
+            for(var i = 0; i < rows.count; i++) {
+                var row = rows[i];
+                if(row === void || typeof row.count == "undefined" ||
+                   row.count < 2)
+                    continue;
+                var alias = row[0];
+                if(typeof alias != "string" || alias == "" ||
+                   alias.substr(0, 1) == "#")
+                    continue;
+
+                if(isMulti) {
+                    for(var j = 1; j < row.count; j++)
+                        __krkr2_registerResourceAlias(alias, row[j]);
+                } else {
+                    __krkr2_registerResourceAlias(alias, row[1]);
+                }
+            }
+        } catch(e) {}
+    }
+
     function __krkr2_installIndexedResourceConfigCompat() {
         if(__krkr2_memberExists(global, "__krkr2_indexedResourceConfigCompatApplied") &&
            global.__krkr2_indexedResourceConfigCompatApplied)
@@ -144,6 +222,7 @@ if(!__krkr2_memberExists(global, "__krkr2_runtimePatchApplied")) {
                         }
                     }
                 }
+                __krkr2_registerIndexedResourceAliases(storage, rows);
             } catch(e) {}
             return rows;
         };

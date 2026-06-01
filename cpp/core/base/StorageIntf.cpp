@@ -11,6 +11,7 @@
 #include "tjsCommHead.h"
 
 #include <algorithm>
+#include <map>
 #include <stdexcept>
 #include <memory>
 #include "StorageIntf.h"
@@ -908,6 +909,7 @@ tTJSHashCache<ttstr, ttstr> TVPAutoPathCache(TVP_DEFAULT_AUTOPATH_CACHE_NUM);
 tTJSHashTable<ttstr, ttstr, tTJSHashFunc<ttstr>, TVP_AUTO_PATH_HASH_SIZE>
     TVPAutoPathTable;
 bool AutoPathTableInit = false;
+static std::map<ttstr, std::vector<ttstr>> TVPResourceAliasTable;
 
 //---------------------------------------------------------------------------
 static void TVPClearAutoPathCache() {
@@ -1110,6 +1112,223 @@ static ttstr TVPGetPatchOverlayBaseName(tjs_int index) {
     return base;
 }
 
+static bool TVPStorageNameVectorContains(const std::vector<ttstr> &list,
+                                         const ttstr &name) {
+    return std::find(list.begin(), list.end(), name) != list.end();
+}
+
+static void TVPAppendUniqueStorageName(std::vector<ttstr> &list,
+                                       const ttstr &name) {
+    if(name.IsEmpty())
+        return;
+    if(!TVPStorageNameVectorContains(list, name))
+        list.push_back(name);
+}
+
+static bool TVPIsResourceAliasSpace(tjs_char ch) {
+    return ch <= TJS_W(' ') || ch == static_cast<tjs_char>(0x3000);
+}
+
+static ttstr TVPTrimResourceAliasToken(const ttstr &name) {
+    const tjs_char *s = name.c_str();
+    tjs_int len = name.GetLen();
+    tjs_int begin = 0;
+    tjs_int end = len;
+
+    while(begin < end && TVPIsResourceAliasSpace(s[begin]))
+        ++begin;
+    while(end > begin && TVPIsResourceAliasSpace(s[end - 1]))
+        --end;
+
+    if(begin == 0 && end == len)
+        return name;
+    return name.SubString(begin, end - begin);
+}
+
+static bool TVPIsAsciiScalePrefix(const ttstr &name, tjs_int colonPos) {
+    if(colonPos <= 0)
+        return false;
+
+    const tjs_char *s = name.c_str();
+    bool digitSeen = false;
+    bool dotSeen = false;
+    for(tjs_int i = 0; i < colonPos; ++i) {
+        tjs_char ch = s[i];
+        if(ch >= TJS_W('0') && ch <= TJS_W('9')) {
+            digitSeen = true;
+            continue;
+        }
+        if(ch == TJS_W('.') && !dotSeen) {
+            dotSeen = true;
+            continue;
+        }
+        return false;
+    }
+    return digitSeen;
+}
+
+static ttstr TVPStripResourceScalePrefix(const ttstr &name) {
+    ttstr token = TVPTrimResourceAliasToken(name);
+    const tjs_char *s = token.c_str();
+    tjs_int len = token.GetLen();
+
+    for(tjs_int i = 0; i < len; ++i) {
+        tjs_char ch = s[i];
+        if(ch != TJS_W(':') && ch != static_cast<tjs_char>(0xff1a))
+            continue;
+        if(!TVPIsAsciiScalePrefix(token, i))
+            return token;
+        return TVPTrimResourceAliasToken(token.SubString(i + 1, len - i - 1));
+    }
+    return token;
+}
+
+static bool TVPHasStoragePathDelimiter(const ttstr &name) {
+    const tjs_char *s = name.c_str();
+    while(*s) {
+        if(*s == TJS_W('/') || *s == TJS_W('\\') ||
+           *s == TVPArchiveDelimiter)
+            return true;
+        ++s;
+    }
+    return false;
+}
+
+static ttstr TVPResourceAliasKey(const ttstr &name) {
+    ttstr token = TVPStripResourceScalePrefix(name);
+    if(token.IsEmpty())
+        return {};
+
+    token = TVPExtractStorageName(token);
+    token = TVPChopStorageExt(token);
+    tTVPArchive::NormalizeInArchiveStorageName(token);
+    return token;
+}
+
+static bool TVPIsCompatImageExt(const ttstr &ext) {
+    if(ext.IsEmpty())
+        return true;
+
+    ttstr lower = ext;
+    lower.ToLowerCase();
+    return lower == TJS_W(".psd") || lower == TJS_W(".pbd") ||
+           lower == TJS_W(".psb") || lower == TJS_W(".png") ||
+           lower == TJS_W(".tlg") || lower == TJS_W(".tlg5") ||
+           lower == TJS_W(".tlg6") || lower == TJS_W(".jpg") ||
+           lower == TJS_W(".jpeg") || lower == TJS_W(".webp") ||
+           lower == TJS_W(".bmp") || lower == TJS_W(".dib") ||
+           lower == TJS_W(".jxr") || lower == TJS_W(".bpg") ||
+           lower == TJS_W(".pvr");
+}
+
+static void TVPAppendImageExtCandidates(std::vector<ttstr> &candidates,
+                                        const ttstr &base) {
+    static const tjs_char *const exts[] = {
+        TJS_W(".pbd"), TJS_W(".psb"),  TJS_W(".png"), TJS_W(".tlg"),
+        TJS_W(".tlg5"),TJS_W(".tlg6"), TJS_W(".jpg"), TJS_W(".jpeg"),
+        TJS_W(".webp"),TJS_W(".bmp"),  TJS_W(".jxr"), TJS_W(".bpg"),
+        TJS_W(".pvr"), nullptr,
+    };
+    for(const tjs_char *const *ext = exts; *ext; ++ext)
+        TVPAppendUniqueStorageName(candidates, base + *ext);
+}
+
+static void TVPAppendAliasTargetCandidates(std::vector<ttstr> &candidates,
+                                           const ttstr &requestName,
+                                           const ttstr &target) {
+    ttstr cleanTarget = TVPStripResourceScalePrefix(target);
+    if(cleanTarget.IsEmpty())
+        return;
+
+    ttstr candidateBase = TVPHasStoragePathDelimiter(cleanTarget)
+        ? cleanTarget
+        : TVPExtractStoragePath(requestName) + cleanTarget;
+
+    ttstr targetExt = TVPExtractStorageExt(candidateBase);
+    if(!targetExt.IsEmpty()) {
+        TVPAppendUniqueStorageName(candidates, candidateBase);
+        if(TVPIsCompatImageExt(targetExt))
+            TVPAppendImageExtCandidates(candidates,
+                                        TVPChopStorageExt(candidateBase));
+        return;
+    }
+
+    ttstr requestExt = TVPExtractStorageExt(requestName);
+    bool likelyImage = TVPIsCompatImageExt(requestExt);
+    if(!requestExt.IsEmpty())
+        TVPAppendUniqueStorageName(candidates, candidateBase + requestExt);
+    if(likelyImage)
+        TVPAppendImageExtCandidates(candidates, candidateBase);
+    TVPAppendUniqueStorageName(candidates, candidateBase);
+}
+
+static void TVPAppendResourceAliasCandidates(std::vector<ttstr> &candidates,
+                                             const ttstr &name) {
+    ttstr rootKey = TVPResourceAliasKey(name);
+    if(rootKey.IsEmpty())
+        return;
+
+    std::vector<ttstr> current;
+    std::vector<ttstr> seen;
+    current.push_back(rootKey);
+    seen.push_back(rootKey);
+
+    static const tjs_int maxAliasDepth = 8;
+    for(tjs_int depth = 0; depth < maxAliasDepth && !current.empty();
+        ++depth) {
+        std::vector<ttstr> next;
+        for(const auto &key : current) {
+            auto found = TVPResourceAliasTable.find(key);
+            if(found == TVPResourceAliasTable.end())
+                continue;
+
+            for(const auto &target : found->second) {
+                TVPAppendAliasTargetCandidates(candidates, name, target);
+
+                ttstr targetKey = TVPResourceAliasKey(target);
+                if(targetKey.IsEmpty() ||
+                   TVPStorageNameVectorContains(seen, targetKey))
+                    continue;
+                seen.push_back(targetKey);
+                next.push_back(targetKey);
+            }
+        }
+        current.swap(next);
+    }
+}
+
+static bool TVPRegisterStorageResourceAlias(const ttstr &alias,
+                                            const ttstr &target) {
+    ttstr key = TVPResourceAliasKey(alias);
+    ttstr cleanTarget = TVPStripResourceScalePrefix(target);
+    if(key.IsEmpty() || cleanTarget.IsEmpty())
+        return false;
+
+    ttstr targetKey = TVPResourceAliasKey(cleanTarget);
+    if(targetKey == key)
+        return false;
+
+    tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
+    auto &targets = TVPResourceAliasTable[key];
+    if(TVPStorageNameVectorContains(targets, cleanTarget))
+        return false;
+
+    targets.push_back(cleanTarget);
+    TVPAutoPathCache.Clear();
+
+#if defined(__ANDROID__)
+    static int s_aliasRegCount = 0;
+    ++s_aliasRegCount;
+    if(s_aliasRegCount <= 64 || (s_aliasRegCount & 0x3F) == 0) {
+        ttstr msg = TJS_W("[res] ALIAS_REG #") +
+            ttstr((tjs_int)s_aliasRegCount) + TJS_W(" '") + alias +
+            TJS_W("' -> '") + cleanTarget + TJS_W("'");
+        KR2_RES_LOG("%s", msg.AsStdString().c_str());
+    }
+#endif
+    return true;
+}
+
 static bool TVPIsExistentStorageNoSearchNoThrow(const ttstr &name) {
     try {
         return TVPIsExistentStorageNoSearchNoNormalize(name);
@@ -1168,16 +1387,16 @@ static std::vector<ttstr> TVPBuildCompatAlternateStorageNames(
     std::vector<ttstr> candidates;
 
     ttstr ext = TVPExtractStorageExt(name);
-    if(ext.IsEmpty())
-        return candidates;
-
-    ext.ToLowerCase();
-    if(ext == TJS_W(".psd")) {
+    ttstr lowerExt = ext;
+    lowerExt.ToLowerCase();
+    if(lowerExt == TJS_W(".psd")) {
         ttstr base = TVPChopStorageExt(name);
-        candidates.push_back(base + TJS_W(".pbd"));
-        candidates.push_back(base + TJS_W(".psb"));
-        candidates.push_back(base + TJS_W(".png"));
+        TVPAppendUniqueStorageName(candidates, base + TJS_W(".pbd"));
+        TVPAppendUniqueStorageName(candidates, base + TJS_W(".psb"));
+        TVPAppendUniqueStorageName(candidates, base + TJS_W(".png"));
+        TVPAppendUniqueStorageName(candidates, base + TJS_W(".tlg"));
     }
+    TVPAppendResourceAliasCandidates(candidates, name);
 
     return candidates;
 }
@@ -1676,6 +1895,21 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ removeAutoPath) {
     return TJS_S_OK;
 }
 TJS_END_NATIVE_STATIC_METHOD_DECL(/*func. name*/ removeAutoPath)
+//----------------------------------------------------------------------
+TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ registerResourceAlias) {
+    if(numparams < 2)
+        return TJS_E_BADPARAMCOUNT;
+
+    ttstr alias = *param[0];
+    ttstr target = *param[1];
+    bool registered = TVPRegisterStorageResourceAlias(alias, target);
+
+    if(result)
+        *result = (tjs_int)(registered ? 1 : 0);
+
+    return TJS_S_OK;
+}
+TJS_END_NATIVE_STATIC_METHOD_DECL(/*func. name*/ registerResourceAlias)
 //----------------------------------------------------------------------
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ getFullPath) {
     if(numparams < 1)
