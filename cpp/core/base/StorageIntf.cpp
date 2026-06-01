@@ -1163,25 +1163,84 @@ static void TVPInitializePatchOverlayRoots() {
     }
 }
 
-static ttstr TVPFindPatchOverlayStorage(const ttstr &normalized) {
-    TVPInitializePatchOverlayRoots();
+static std::vector<ttstr> TVPBuildCompatAlternateStorageNames(
+    const ttstr &name) {
+    std::vector<ttstr> candidates;
 
+    ttstr ext = TVPExtractStorageExt(name);
+    if(ext.IsEmpty())
+        return candidates;
+
+    ext.ToLowerCase();
+    if(ext == TJS_W(".psd")) {
+        ttstr base = TVPChopStorageExt(name);
+        candidates.push_back(base + TJS_W(".pbd"));
+        candidates.push_back(base + TJS_W(".psb"));
+        candidates.push_back(base + TJS_W(".png"));
+    }
+
+    return candidates;
+}
+
+static void TVPLogCompatAlternateResolved(const ttstr &requested,
+                                          const ttstr &resolved) {
+#if defined(__ANDROID__)
+    static int s_altResolveCount = 0;
+    ++s_altResolveCount;
+    if(s_altResolveCount <= 64 || (s_altResolveCount & 0x3F) == 0) {
+        ttstr msg = TJS_W("[res] ALT_RESOLVE #") +
+            ttstr((tjs_int)s_altResolveCount) + TJS_W(" '") + requested +
+            TJS_W("' -> '") + resolved + TJS_W("'");
+        KR2_RES_LOG("%s", msg.AsStdString().c_str());
+    }
+#else
+    (void)requested;
+    (void)resolved;
+#endif
+}
+
+static ttstr TVPFindPatchOverlayStorageByNames(
+    const std::vector<ttstr> &storageNames) {
+    TVPInitializePatchOverlayRoots();
+    if(storageNames.empty())
+        return {};
+
+    for(const auto &root : TVPPatchOverlayRootState.DirectoryRoots) {
+        for(const auto &storageName : storageNames) {
+            ttstr candidate = root + storageName;
+            if(TVPIsExistentStorageNoSearchNoThrow(candidate))
+                return candidate;
+        }
+    }
+
+    for(const auto &root : TVPPatchOverlayRootState.ArchiveRoots) {
+        for(const auto &storageName : storageNames) {
+            ttstr candidate = root + storageName;
+            if(TVPIsExistentStorageNoSearchNoThrow(candidate))
+                return candidate;
+        }
+    }
+
+    return {};
+}
+
+static ttstr TVPFindPatchOverlayStorage(const ttstr &normalized) {
     ttstr storageName = TVPExtractStorageName(normalized);
     if(storageName.IsEmpty())
         return {};
 
-    for(const auto &root : TVPPatchOverlayRootState.DirectoryRoots) {
-        ttstr candidate = root + storageName;
-        if(TVPIsExistentStorageNoSearchNoThrow(candidate))
-            return candidate;
-    }
+    std::vector<ttstr> names;
+    names.push_back(storageName);
+    return TVPFindPatchOverlayStorageByNames(names);
+}
 
-    for(const auto &root : TVPPatchOverlayRootState.ArchiveRoots) {
-        ttstr candidate = root + storageName;
-        if(TVPIsExistentStorageNoSearchNoThrow(candidate))
-            return candidate;
+static ttstr TVPFindAutoPathStorageByNames(
+    const std::vector<ttstr> &storageNames) {
+    for(const auto &storageName : storageNames) {
+        ttstr *result = TVPAutoPathTable.Find(storageName);
+        if(result)
+            return *result + storageName;
     }
-
     return {};
 }
 //---------------------------------------------------------------------------
@@ -1240,14 +1299,45 @@ ttstr TVPGetPlacedPath(const ttstr &name) {
     // search through auto path table
 
     ttstr storagename = TVPExtractStorageName(normalized);
+    std::vector<ttstr> exactStorageNames;
+    exactStorageNames.push_back(storagename);
 
     TVPRebuildAutoPathTable(); // ensure auto path table
-    ttstr *result = TVPAutoPathTable.Find(storagename);
-    if(result) {
-        // found in table
-        ttstr found = *result + storagename;
-        TVPAutoPathCache.Add(name, found);
-        return found;
+    ttstr autopathed = TVPFindAutoPathStorageByNames(exactStorageNames);
+    if(!autopathed.IsEmpty()) {
+        TVPAutoPathCache.Add(name, autopathed);
+        return autopathed;
+    }
+
+    std::vector<ttstr> alternateNames =
+        TVPBuildCompatAlternateStorageNames(normalized);
+    if(!alternateNames.empty()) {
+        std::vector<ttstr> alternateStorageNames =
+            TVPBuildCompatAlternateStorageNames(storagename);
+
+        ttstr patchAlternate =
+            TVPFindPatchOverlayStorageByNames(alternateStorageNames);
+        if(!patchAlternate.IsEmpty()) {
+            TVPAutoPathCache.Add(name, patchAlternate);
+            TVPLogCompatAlternateResolved(name, patchAlternate);
+            return patchAlternate;
+        }
+
+        for(const auto &candidate : alternateNames) {
+            if(TVPIsExistentStorageNoSearchNoThrow(candidate)) {
+                TVPAutoPathCache.Add(name, candidate);
+                TVPLogCompatAlternateResolved(name, candidate);
+                return candidate;
+            }
+        }
+
+        ttstr autopathedAlternate =
+            TVPFindAutoPathStorageByNames(alternateStorageNames);
+        if(!autopathedAlternate.IsEmpty()) {
+            TVPAutoPathCache.Add(name, autopathedAlternate);
+            TVPLogCompatAlternateResolved(name, autopathedAlternate);
+            return autopathedAlternate;
+        }
     }
 
     // not found

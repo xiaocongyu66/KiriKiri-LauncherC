@@ -18,6 +18,18 @@
 if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
     global.__krkr2_runtimePatchApplied = true;
 
+    // Win32 dialog result constants used by several commercial titles.
+    // TJS throws on missing bare global members inside dictionary literals,
+    // so define the common IDs up front.
+    if(typeof IDOK == "undefined") global.IDOK = 1;
+    if(typeof IDCANCEL == "undefined") global.IDCANCEL = 2;
+    if(typeof IDABORT == "undefined") global.IDABORT = 3;
+    if(typeof IDRETRY == "undefined") global.IDRETRY = 4;
+    if(typeof IDIGNORE == "undefined") global.IDIGNORE = 5;
+    if(typeof IDYES == "undefined") global.IDYES = 6;
+    if(typeof IDNO == "undefined") global.IDNO = 7;
+    if(typeof IDCLOSE == "undefined") global.IDCLOSE = 8;
+
     // Some patch scripts touch this namespace before the relevant game
     // scripts create it. Do not pre-create Motion here: the native
     // motionplayer.dll plugin owns that namespace.
@@ -83,7 +95,8 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined") {
     }
 
     function __krkr2_installIndexedResourceConfigCompat() {
-        if(global.__krkr2_indexedResourceConfigCompatApplied)
+        if(typeof global.__krkr2_indexedResourceConfigCompatApplied != "undefined" &&
+           global.__krkr2_indexedResourceConfigCompatApplied)
             return;
         if(typeof global.loadConfigFile != "function")
             return;
