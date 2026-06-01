@@ -43,6 +43,7 @@ find_package(unrar CONFIG REQUIRED)
 find_package(LibArchive REQUIRED)
 find_package(SDL2 CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
+find_package(lz4 CONFIG REQUIRED)
 find_package(cocos2dx CONFIG REQUIRED)
 include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
 fix_cocos2dx_android_cpufeatures_include()
@@ -52,6 +53,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     unrar::unrar
     LibArchive::LibArchive
     zstd::libzstd
+    lz4::lz4
 
     $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
     $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>

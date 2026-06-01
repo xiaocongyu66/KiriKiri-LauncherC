@@ -1,6 +1,9 @@
 #pragma once
 #include "tjsObject.h"
 
+void TVPLoadXP3FilterScript(bool searchArchives);
+void TVPSetXP3FilterScript(ttstr content);
+
 class CBinaryAccessor : public tTJSDispatch {
     unsigned int m_length;
     unsigned int m_curPos;

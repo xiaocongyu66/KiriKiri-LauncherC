@@ -1,5 +1,6 @@
 #include "ncbind.hpp"
 #include "XP3Archive.h"
+#include "StorageIntf.h"
 #include "SystemIntf.h"
 #include "tjsNative.h"
 #include <assert.h>
@@ -547,21 +548,42 @@ void TVPSetXP3FilterScript(ttstr content) {
     sXP3FilterScript = content;
 }
 
-static void PostRegistCallback() {
-    ttstr path = TVPGetAppPath() + TJS_W("xp3filter.tjs");
-    if(TVPIsExistentStorageNoSearch(path)) {
-        iTJSTextReadStream *stream = TVPCreateTextStreamForRead(path, "");
-        try {
-            stream->Read(sXP3FilterScript, 0);
-        } catch(...) {
-            stream->Destruct();
-            throw;
+void TVPLoadXP3FilterScript(bool searchArchives) {
+    const ttstr appPath = TVPGetAppPath();
+    ttstr paths[] = {
+        appPath + TJS_W("xp3filter.tjs"),
+        appPath + TJS_W("compat/xp3filter.tjs"),
+    };
+
+    ttstr place;
+    for(const ttstr &path : paths) {
+        if(searchArchives) {
+            place = TVPGetPlacedPath(path);
+        } else if(TVPIsExistentStorageNoSearch(path)) {
+            place = path;
         }
-        stream->Destruct();
-        //    AddXP3Decoder();
-        TVPSetXP3ArchiveExtractionFilter(TVPXP3ArchiveExtractionFilterWrapper);
-        TVPSetXP3ArchiveContentFilter(TVPXP3ArchiveContentFilterWrapper);
+        if(!place.IsEmpty())
+            break;
     }
+
+    if(place.IsEmpty())
+        return;
+
+    ttstr content;
+    iTJSTextReadStream *stream = TVPCreateTextStreamForRead(place, TJS_W(""));
+    try {
+        stream->Read(content, 0);
+    } catch(...) {
+        stream->Destruct();
+        throw;
+    }
+    stream->Destruct();
+    TVPSetXP3FilterScript(content);
+    TVPAddLog(ttstr(TJS_W("[xp3filter] loaded ")) + place);
+}
+
+static void PostRegistCallback() {
+    TVPLoadXP3FilterScript(false);
     // TVPSetXP3ArchiveExtractionFilter(TVPXP3ArchiveExtractionFilter);
 }
 

@@ -43,6 +43,7 @@ USING_NS_CC;
 
 enum SCENE_ORDER {
     GAME_SCENE_ORDER,
+    GAME_POST_DRAW_ORDER,
     GAME_CONSOLE_ORDER,
     GAME_WINMGR_ORDER, // also for the virtual mouse cursor
     GAME_MENU_ORDER,
@@ -79,8 +80,46 @@ static Label *_fpsLabel = nullptr;
 #endif
 
 static void (*_postUpdate)() = nullptr;
+static void (*_postDrawHook)() = nullptr;
 
 void TVPSetPostUpdateEvent(void (*f)()) { _postUpdate = f; }
+void TVPSetPostDrawHook(void (*hook)()) { _postDrawHook = hook; }
+
+class TVPPostDrawHookNode : public cocos2d::Node {
+public:
+    static TVPPostDrawHookNode *create() {
+        auto *ret = new TVPPostDrawHookNode;
+        if(ret && ret->init()) {
+            ret->autorelease();
+            return ret;
+        }
+        delete ret;
+        return nullptr;
+    }
+
+    bool init() override {
+        if(!Node::init())
+            return false;
+        _drawCommand.func = []() {
+            if(_postDrawHook)
+                _postDrawHook();
+        };
+        return true;
+    }
+
+    void draw(cocos2d::Renderer *renderer, const cocos2d::Mat4 &transform,
+              uint32_t flags) override {
+        (void)transform;
+        (void)flags;
+        if(!_postDrawHook)
+            return;
+        _drawCommand.init(_globalZOrder);
+        renderer->addCommand(&_drawCommand);
+    }
+
+private:
+    cocos2d::CustomCommand _drawCommand;
+};
 
 static void _refadeMouseCursor() {
     _mouseCursor->stopAllActions();
@@ -1910,6 +1949,7 @@ void TVPMainScene::initialize() {
     // GameNode->setRotation(-90);
     // GameNode->setPosition(getContentSize() / 2);
     addChild(GameNode, GAME_SCENE_ORDER);
+    GameNode->addChild(TVPPostDrawHookNode::create(), GAME_POST_DRAW_ORDER);
 
     EventListenerKeyboard *keylistener = EventListenerKeyboard::create();
     keylistener->onKeyPressed = CC_CALLBACK_2(TVPMainScene::onKeyPressed, this);

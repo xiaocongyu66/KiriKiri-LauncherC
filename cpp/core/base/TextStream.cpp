@@ -86,18 +86,20 @@ public:
             std::uint8_t m = raw[2];
             if(m == 0 || m == 1) {
                 // 解密 UTF-16 数据
-                const auto *src =
-                    reinterpret_cast<const char16_t *>(raw.data() + 4);
-                size_t len = (size - 4) / 2;
+                if(size < 5)
+                    TVPThrowExceptionMessage(TVPUnsupportedCipherMode, name);
+                size_t len = (size - 5) / 2;
                 _buffer.resize(len);
                 for(size_t i = 0; i < len; i++) {
-                    char16_t ch = src[i];
+                    const size_t pos = 5 + i * 2;
+                    char16_t ch = static_cast<char16_t>(
+                        raw[pos] | (static_cast<std::uint16_t>(raw[pos + 1])
+                                    << 8));
                     if(m == 0) {
                         if(ch >= 0x20)
                             ch ^= (((ch & 0xfe) << 8) ^ 1);
                     } else if(m == 1) {
-                        ch =
-                            ((ch & 0xaaaaaaaa) >> 1) | ((ch & 0x55555555) << 1);
+                        ch = ((ch & 0xaaaa) >> 1) | ((ch & 0x5555) << 1);
                     }
                     _buffer[i] = ch;
                 }

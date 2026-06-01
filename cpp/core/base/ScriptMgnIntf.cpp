@@ -401,6 +401,7 @@ class tTVPTJSGCCallback : public tTVPCompactEventCallbackIntf {
 // cpp/plugins/. They must be reachable from TVPInitScriptEngine /
 // TVPExecuteStartupScript below.
 void TVPEnsureKirikiroidCompatibilityPatch();
+void TVPLoadXP3FilterScript(bool searchArchives);
 void TVPRunRuntimeCompatibilityPatches();
 void TVPRegisterVoiceEffectStubs();
 //---------------------------------------------------------------------------
@@ -726,9 +727,13 @@ void TVPExecuteStorage(const ttstr &name, tTJSVariant *result,
                        bool isexpression, const tjs_char *modestr) {
     TVPExecuteStorage(name, nullptr, result, isexpression, modestr);
 }
+#include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstring>
 #include <fstream>
 #include <limits>
+#include <lz4.h>
 #include <tjsBinarySerializer.h>
 #include <tjsByteCodeLoader.h>
 #include <vector>
@@ -1044,6 +1049,456 @@ static tjs_uint32 TVPReadPbdU32(const std::vector<tjs_uint8> &data, size_t pos,
            (static_cast<tjs_uint32>(data[pos + 3]) << 24);
 }
 
+static tjs_uint16 TVPReadLE16(const tjs_uint8 *data) {
+    return static_cast<tjs_uint16>(data[0]) |
+           (static_cast<tjs_uint16>(data[1]) << 8);
+}
+
+static tjs_uint32 TVPReadLE32(const tjs_uint8 *data) {
+    return static_cast<tjs_uint32>(data[0]) |
+           (static_cast<tjs_uint32>(data[1]) << 8) |
+           (static_cast<tjs_uint32>(data[2]) << 16) |
+           (static_cast<tjs_uint32>(data[3]) << 24);
+}
+
+static void TVPWriteLE32(tjs_uint8 *data, tjs_uint32 value) {
+    data[0] = static_cast<tjs_uint8>(value);
+    data[1] = static_cast<tjs_uint8>(value >> 8);
+    data[2] = static_cast<tjs_uint8>(value >> 16);
+    data[3] = static_cast<tjs_uint8>(value >> 24);
+}
+
+static tjs_uint32 TVPRotl32(tjs_uint32 value, int shift) {
+    return (value << shift) | (value >> (32 - shift));
+}
+
+static void TVPBlake2sCompress(tjs_uint32 h[8], const tjs_uint8 block[64],
+                               tjs_uint64 counter, bool last) {
+    static const tjs_uint32 iv[8] = {
+        0x6A09E667u, 0xBB67AE85u, 0x3C6EF372u, 0xA54FF53Au,
+        0x510E527Fu, 0x9B05688Cu, 0x1F83D9ABu, 0x5BE0CD19u
+    };
+    static const tjs_uint8 sigma[10][16] = {
+        { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15 },
+        { 14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3 },
+        { 11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4 },
+        { 7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8 },
+        { 9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13 },
+        { 2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9 },
+        { 12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11 },
+        { 13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10 },
+        { 6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5 },
+        { 10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0 }
+    };
+
+    tjs_uint32 m[16];
+    for(int i = 0; i < 16; ++i)
+        m[i] = TVPReadLE32(block + i * 4);
+
+    tjs_uint32 v[16];
+    for(int i = 0; i < 8; ++i) {
+        v[i] = h[i];
+        v[i + 8] = iv[i];
+    }
+    v[12] ^= static_cast<tjs_uint32>(counter);
+    v[13] ^= static_cast<tjs_uint32>(counter >> 32);
+    if(last) {
+        v[14] = ~v[14];
+    }
+
+#define TVP_BLAKE2S_G(a, b, c, d, x, y) \
+    do { \
+        v[(a)] = v[(a)] + v[(b)] + (x); \
+        v[(d)] = TVPRotl32(v[(d)] ^ v[(a)], 16); \
+        v[(c)] = v[(c)] + v[(d)]; \
+        v[(b)] = TVPRotl32(v[(b)] ^ v[(c)], 20); \
+        v[(a)] = v[(a)] + v[(b)] + (y); \
+        v[(d)] = TVPRotl32(v[(d)] ^ v[(a)], 24); \
+        v[(c)] = v[(c)] + v[(d)]; \
+        v[(b)] = TVPRotl32(v[(b)] ^ v[(c)], 25); \
+    } while(false)
+
+    for(int round = 0; round < 10; ++round) {
+        const tjs_uint8 *s = sigma[round];
+        TVP_BLAKE2S_G(0, 4, 8, 12, m[s[0]], m[s[1]]);
+        TVP_BLAKE2S_G(1, 5, 9, 13, m[s[2]], m[s[3]]);
+        TVP_BLAKE2S_G(2, 6, 10, 14, m[s[4]], m[s[5]]);
+        TVP_BLAKE2S_G(3, 7, 11, 15, m[s[6]], m[s[7]]);
+        TVP_BLAKE2S_G(0, 5, 10, 15, m[s[8]], m[s[9]]);
+        TVP_BLAKE2S_G(1, 6, 11, 12, m[s[10]], m[s[11]]);
+        TVP_BLAKE2S_G(2, 7, 8, 13, m[s[12]], m[s[13]]);
+        TVP_BLAKE2S_G(3, 4, 9, 14, m[s[14]], m[s[15]]);
+    }
+
+#undef TVP_BLAKE2S_G
+
+    for(int i = 0; i < 8; ++i)
+        h[i] ^= v[i] ^ v[i + 8];
+}
+
+static void TVPBlake2sKeyed32(const tjs_uint8 *data, size_t size,
+                              const tjs_uint8 *key, size_t keySize,
+                              tjs_uint8 out[32]) {
+    static const tjs_uint32 iv[8] = {
+        0x6A09E667u, 0xBB67AE85u, 0x3C6EF372u, 0xA54FF53Au,
+        0x510E527Fu, 0x9B05688Cu, 0x1F83D9ABu, 0x5BE0CD19u
+    };
+
+    tjs_uint32 h[8];
+    for(int i = 0; i < 8; ++i)
+        h[i] = iv[i];
+    h[0] ^= 0x01010000u ^ (static_cast<tjs_uint32>(keySize) << 8) ^ 32u;
+
+    std::array<tjs_uint8, 64> buffer{};
+    size_t buffered = 0;
+    tjs_uint64 counter = 0;
+
+    auto update = [&](const tjs_uint8 *src, size_t len) {
+        if(len == 0)
+            return;
+
+        if(buffered + len > buffer.size()) {
+            const size_t fill = buffer.size() - buffered;
+            if(fill != 0) {
+                std::memcpy(buffer.data() + buffered, src, fill);
+                src += fill;
+                len -= fill;
+            }
+            counter += buffer.size();
+            TVPBlake2sCompress(h, buffer.data(), counter, false);
+            buffered = 0;
+        }
+
+        while(len > buffer.size()) {
+            counter += buffer.size();
+            TVPBlake2sCompress(h, src, counter, false);
+            src += buffer.size();
+            len -= buffer.size();
+        }
+
+        if(len != 0) {
+            std::memcpy(buffer.data() + buffered, src, len);
+            buffered += len;
+        }
+    };
+
+    if(keySize != 0) {
+        buffer.fill(0);
+        std::memcpy(buffer.data(), key, std::min<size_t>(keySize, buffer.size()));
+        buffered = buffer.size();
+    }
+
+    update(data, size);
+
+    std::fill(buffer.begin() + static_cast<std::ptrdiff_t>(buffered),
+              buffer.end(), 0);
+    counter += buffered;
+    TVPBlake2sCompress(h, buffer.data(), counter, true);
+
+    for(int i = 0; i < 8; ++i)
+        TVPWriteLE32(out + i * 4, h[i]);
+}
+
+static tjs_uint32 TVPXXHash32(const tjs_uint8 *data, size_t size,
+                              tjs_uint32 seed) {
+    constexpr tjs_uint32 prime1 = 0x9E3779B1u;
+    constexpr tjs_uint32 prime2 = 0x85EBCA77u;
+    constexpr tjs_uint32 prime3 = 0xC2B2AE3Du;
+    constexpr tjs_uint32 prime4 = 0x27D4EB2Fu;
+    constexpr tjs_uint32 prime5 = 0x165667B1u;
+
+    const tjs_uint8 *p = data;
+    const tjs_uint8 *end = data + size;
+    tjs_uint32 h = 0;
+
+    if(size >= 16) {
+        const tjs_uint8 *limit = end - 16;
+        tjs_uint32 v1 = seed + prime1 + prime2;
+        tjs_uint32 v2 = seed + prime2;
+        tjs_uint32 v3 = seed;
+        tjs_uint32 v4 = seed - prime1;
+        do {
+            v1 = TVPRotl32(v1 + TVPReadLE32(p) * prime2, 13) * prime1;
+            p += 4;
+            v2 = TVPRotl32(v2 + TVPReadLE32(p) * prime2, 13) * prime1;
+            p += 4;
+            v3 = TVPRotl32(v3 + TVPReadLE32(p) * prime2, 13) * prime1;
+            p += 4;
+            v4 = TVPRotl32(v4 + TVPReadLE32(p) * prime2, 13) * prime1;
+            p += 4;
+        } while(p <= limit);
+        h = TVPRotl32(v1, 1) + TVPRotl32(v2, 7) +
+            TVPRotl32(v3, 12) + TVPRotl32(v4, 18);
+    } else {
+        h = seed + prime5;
+    }
+
+    h += static_cast<tjs_uint32>(size);
+    while(p + 4 <= end) {
+        h = TVPRotl32(h + TVPReadLE32(p) * prime3, 17) * prime4;
+        p += 4;
+    }
+    while(p < end) {
+        h = TVPRotl32(h + static_cast<tjs_uint32>(*p) * prime5, 11) * prime1;
+        ++p;
+    }
+
+    h ^= h >> 15;
+    h *= prime2;
+    h ^= h >> 13;
+    h *= prime3;
+    h ^= h >> 16;
+    return h;
+}
+
+static void TVPChaChaBlock(const tjs_uint8 key[32], tjs_uint64 nonce,
+                           tjs_uint64 counter, int rounds,
+                           tjs_uint8 out[64]) {
+    static const tjs_uint8 sigma[16] = {
+        'e', 'x', 'p', 'a', 'n', 'd', ' ', '3',
+        '2', '-', 'b', 'y', 't', 'e', ' ', 'k'
+    };
+
+    tjs_uint32 state[16];
+    for(int i = 0; i < 4; ++i)
+        state[i] = TVPReadLE32(sigma + i * 4);
+    for(int i = 0; i < 8; ++i)
+        state[i + 4] = TVPReadLE32(key + i * 4);
+    state[12] = static_cast<tjs_uint32>(counter);
+    state[13] = static_cast<tjs_uint32>(counter >> 32);
+    state[14] = static_cast<tjs_uint32>(nonce);
+    state[15] = static_cast<tjs_uint32>(nonce >> 32);
+
+    tjs_uint32 z[16];
+    std::memcpy(z, state, sizeof(z));
+
+#define TVP_CHACHA_QR(a, b, c, d) \
+    do { \
+        z[(a)] += z[(b)]; z[(d)] = TVPRotl32(z[(d)] ^ z[(a)], 16); \
+        z[(c)] += z[(d)]; z[(b)] = TVPRotl32(z[(b)] ^ z[(c)], 12); \
+        z[(a)] += z[(b)]; z[(d)] = TVPRotl32(z[(d)] ^ z[(a)], 8); \
+        z[(c)] += z[(d)]; z[(b)] = TVPRotl32(z[(b)] ^ z[(c)], 7); \
+    } while(false)
+
+    for(int i = 0; i < rounds; i += 2) {
+        TVP_CHACHA_QR(0, 4, 8, 12);
+        TVP_CHACHA_QR(1, 5, 9, 13);
+        TVP_CHACHA_QR(2, 6, 10, 14);
+        TVP_CHACHA_QR(3, 7, 11, 15);
+        TVP_CHACHA_QR(0, 5, 10, 15);
+        TVP_CHACHA_QR(1, 6, 11, 12);
+        TVP_CHACHA_QR(2, 7, 8, 13);
+        TVP_CHACHA_QR(3, 4, 9, 14);
+    }
+
+#undef TVP_CHACHA_QR
+
+    for(int i = 0; i < 16; ++i)
+        TVPWriteLE32(out + i * 4, z[i] + state[i]);
+}
+
+static bool TVPGetPbdCryptoParams(tjs_uint16 cryptoMode, int &rounds,
+                                  int &tableCount) {
+    switch(cryptoMode) {
+        case 1:
+            rounds = 8;
+            tableCount = 16;
+            return true;
+        case 2:
+            rounds = 12;
+            tableCount = 8;
+            return true;
+        case 3:
+            rounds = 20;
+            tableCount = 4;
+            return true;
+        case 4:
+            rounds = 8;
+            tableCount = 1;
+            return true;
+        case 5:
+            rounds = 12;
+            tableCount = 1;
+            return true;
+        case 6:
+            rounds = 20;
+            tableCount = 1;
+            return true;
+        default:
+            return false;
+    }
+}
+
+static bool TVPDecryptPbdPayload(const ttstr &place,
+                                 std::vector<tjs_uint8> &payload,
+                                 tjs_uint16 cryptoMode, tjs_uint32 seed,
+                                 const tjs_uint8 *iv, size_t ivSize) {
+    if(cryptoMode == 0 || payload.empty())
+        return true;
+
+    int rounds = 0;
+    int tableCount = 0;
+    if(!TVPGetPbdCryptoParams(cryptoMode, rounds, tableCount)) {
+        KR2_SCR_LOG("[res] PBD unsupported crypto '%s' crypto=%d",
+                    place.AsStdString().c_str(), (int)cryptoMode);
+        return false;
+    }
+
+    tjs_uint8 seedKey[4];
+    TVPWriteLE32(seedKey, seed);
+
+    tjs_uint8 key[32];
+    TVPBlake2sKeyed32(iv, ivSize, seedKey, sizeof(seedKey), key);
+
+    const tjs_uint32 nonceLow = TVPXXHash32(iv, ivSize, seed);
+    tjs_uint32 tableSeed = 0xFFFFFFFFu;
+    if(tableCount > 1) {
+        if(nonceLow != seed)
+            tableSeed = nonceLow ^ seed;
+        else if(seed != 0)
+            tableSeed = seed;
+    }
+    const tjs_uint64 nonce =
+        (static_cast<tjs_uint64>(seed) << 32) | nonceLow;
+
+    const size_t tableBytes = static_cast<size_t>(tableCount) * 64u;
+    std::vector<tjs_uint8> table(tableBytes);
+    tjs_uint64 counter = 0;
+    size_t tablePos = tableBytes;
+
+    for(size_t i = 0; i < payload.size(); ++i) {
+        if(tablePos >= tableBytes) {
+            TVPChaChaBlock(key, nonce, counter++, rounds, table.data());
+
+            if(tableCount > 1) {
+                const size_t wordCount = tableBytes / sizeof(tjs_uint32);
+                for(size_t word = 16; word < wordCount; ++word) {
+                    tjs_uint32 s =
+                        TVPReadLE32(table.data() + (word - 16) * 4);
+                    const tjs_uint32 mixed = ((s << 13) ^ s);
+                    s = (mixed >> 17) ^ mixed;
+                    s = (32u * s) ^ s;
+                    if(s == 0)
+                        s = tableSeed;
+                    TVPWriteLE32(table.data() + word * 4, s);
+                }
+            }
+
+            tablePos = 0;
+        }
+
+        payload[i] ^= table[tablePos++];
+    }
+
+    return true;
+}
+
+static bool TVPDecompressPbdLz4Blocks(const ttstr &place,
+                                      const std::vector<tjs_uint8> &input,
+                                      std::vector<tjs_uint8> &output) {
+    constexpr int blockLimit = 0x100000;
+    std::vector<tjs_uint8> decodeBuffer(blockLimit);
+    std::vector<tjs_uint8> dictBuffer(blockLimit);
+
+    size_t pos = 0;
+    int dictSize = 0;
+    output.clear();
+
+    while(pos < input.size()) {
+        if(input.size() - pos < 2)
+            return false;
+
+        const tjs_uint16 encodedSize = TVPReadLE16(input.data() + pos);
+        pos += 2;
+        if(encodedSize == 0 || encodedSize > input.size() - pos)
+            return false;
+
+        const int decodedSize = LZ4_decompress_safe_usingDict(
+            reinterpret_cast<const char *>(input.data() + pos),
+            reinterpret_cast<char *>(decodeBuffer.data()), encodedSize,
+            blockLimit, reinterpret_cast<const char *>(dictBuffer.data()),
+            dictSize);
+        if(decodedSize < 0) {
+            KR2_SCR_LOG("[res] PBD LZ4 block decode failed '%s' block=%u",
+                        place.AsStdString().c_str(), (unsigned)encodedSize);
+            return false;
+        }
+
+        output.insert(output.end(), decodeBuffer.begin(),
+                      decodeBuffer.begin() + decodedSize);
+        std::memcpy(dictBuffer.data(), decodeBuffer.data(), decodedSize);
+        dictSize = decodedSize;
+        pos += encodedSize;
+    }
+
+    return !output.empty();
+}
+
+static bool TVPDecompressPbdLz4Sized(const ttstr &place,
+                                     const std::vector<tjs_uint8> &input,
+                                     bool bigEndian,
+                                     std::vector<tjs_uint8> &output) {
+    if(input.size() < 4)
+        return false;
+
+    const tjs_uint32 outputSize = bigEndian
+                                      ? ((static_cast<tjs_uint32>(input[0])
+                                          << 24) |
+                                         (static_cast<tjs_uint32>(input[1])
+                                          << 16) |
+                                         (static_cast<tjs_uint32>(input[2])
+                                          << 8) |
+                                         static_cast<tjs_uint32>(input[3]))
+                                      : TVPReadLE32(input.data());
+    if(outputSize == 0 ||
+       outputSize > static_cast<tjs_uint32>(256u * 1024u * 1024u)) {
+        return false;
+    }
+
+    output.resize(outputSize);
+    const int decoded = LZ4_decompress_safe(
+        reinterpret_cast<const char *>(input.data() + 4),
+        reinterpret_cast<char *>(output.data()), static_cast<int>(input.size() - 4),
+        static_cast<int>(output.size()));
+    if(decoded != static_cast<int>(output.size())) {
+        KR2_SCR_LOG("[res] PBD LZ4 sized decode failed '%s' decoded=%d size=%u",
+                    place.AsStdString().c_str(), decoded, outputSize);
+        output.clear();
+        return false;
+    }
+    return true;
+}
+
+static bool TVPBuildPbdPayload(const ttstr &place,
+                               const std::vector<tjs_uint8> &data,
+                               size_t payloadOffset, bool bigEndian,
+                               tjs_uint8 compressMode,
+                               tjs_uint16 cryptoMode, tjs_uint32 seed,
+                               const tjs_uint8 *iv, size_t ivSize,
+                               std::vector<tjs_uint8> &payload) {
+    if(payloadOffset >= data.size())
+        return false;
+
+    std::vector<tjs_uint8> raw(data.begin() + payloadOffset, data.end());
+    if(!TVPDecryptPbdPayload(place, raw, cryptoMode, seed, iv, ivSize))
+        return false;
+
+    if(compressMode == 'n') {
+        payload.swap(raw);
+        return true;
+    }
+
+    if(compressMode == '4') {
+        if(TVPDecompressPbdLz4Blocks(place, raw, payload))
+            return true;
+        return TVPDecompressPbdLz4Sized(place, raw, bigEndian, payload);
+    }
+
+    KR2_SCR_LOG("[res] PBD unsupported compression '%s' comp=%d",
+                place.AsStdString().c_str(), (int)compressMode);
+    return false;
+}
+
 static bool TVPTryLoadPbdTJSVariant(const ttstr &place,
                                     const tjs_char *modestr,
                                     tTJSVariant *result) {
@@ -1101,15 +1556,21 @@ static bool TVPTryLoadPbdTJSVariant(const ttstr &place,
     if(payloadOffset >= data.size())
         return false;
 
-    if(compressMode != 'n' || cryptoMode != 0) {
-        KR2_SCR_LOG("[res] PBD unsupported mode '%s' comp=%d crypto=%d",
+    if(cryptoMode != 0) {
+        KR2_SCR_LOG("[res] PBD crypto flag '%s' comp=%d crypto=%d iv=%u; "
+                    "trying payload decode",
                     place.AsStdString().c_str(), (int)compressMode,
-                    (int)cryptoMode);
+                    (int)cryptoMode, (unsigned)ivLength);
+    }
+
+    std::vector<tjs_uint8> payload;
+    if(!TVPBuildPbdPayload(place, data, payloadOffset, bigEndian, compressMode,
+                           cryptoMode, seed, data.data() + 16u, ivLength,
+                           payload)) {
         return false;
     }
 
-    tTVPPbdVariantReader reader(data.data() + payloadOffset,
-                                data.size() - payloadOffset, bigEndian, seed);
+    tTVPPbdVariantReader reader(payload.data(), payload.size(), bigEndian, seed);
     tTJSVariant value;
     if(!reader.ReadVariant(value)) {
         KR2_SCR_LOG("[res] PBD decode failed '%s'",
@@ -1387,6 +1848,7 @@ static bool TVPExecuteStorageWithAfterInitCompatibility(const ttstr &name,
 //---------------------------------------------------------------------------
 void TVPExecuteStartupScript() {
     TVPEnsureKirikiroidCompatibilityPatch();
+    TVPLoadXP3FilterScript(true);
     // patch.tjs 実行より前に走時補正を入れておく。これにより、
     // ゲーム自前 patch.tjs が voiceeffect.tjs などで失敗しても
     // 後続のフック (storeVoiceMap など) で Member not found を出さない。

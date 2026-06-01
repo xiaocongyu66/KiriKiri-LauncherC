@@ -1871,6 +1871,10 @@ namespace TJS {
         tjs_error hr;
         tTJSVariantClosure clo = ra_code2->AsObjectClosureNoAddRef();
         tTJSVariant *ra_code3 = TJS_GET_VM_REG_ADDR(ra, code[3]);
+        if(ra_code3->Type() == tvtVoid) {
+            TJS_GET_VM_REG_ADDR(ra, code[1])->Clear();
+            return;
+        }
         if(ra_code3->Type() != tvtInteger) {
             tTJSVariantString *str = ra_code3->AsString();
 

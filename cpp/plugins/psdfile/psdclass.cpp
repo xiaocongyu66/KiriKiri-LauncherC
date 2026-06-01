@@ -79,6 +79,17 @@ public:
     operator const char *() const { return (const char *)_data; }
 };
 
+static bool PSDHasExplicitExtension(const ttstr &filename) {
+    const tjs_char *p = filename.c_str();
+    const tjs_char *dot = TJS_strrchr(p, TJS_W('.'));
+    if(!dot)
+        return false;
+
+    const tjs_char *slash = TJS_strrchr(p, TJS_W('/'));
+    const tjs_char *backslash = TJS_strrchr(p, TJS_W('\\'));
+    return (!slash || dot > slash) && (!backslash || dot > backslash);
+}
+
 /**
  * コンストラクタ
  */
@@ -122,10 +133,22 @@ tTJSVariant PSD::getSelf() { return tTJSVariant(objthis, objthis); }
  * @return ロードに成功したら true
  */
 bool PSD::load(const tjs_char *filename) {
-    ttstr file = TVPGetPlacedPath(filename);
+    ttstr requested(filename);
+    ttstr storageName(requested);
+    ttstr file = TVPGetPlacedPath(storageName);
+    if(!file.length() && !PSDHasExplicitExtension(requested)) {
+        ttstr withExt = requested + TJS_W(".psd");
+        file = TVPGetPlacedPath(withExt);
+        if(file.length())
+            storageName = withExt;
+    }
+
     if(!file.length()) {
         // 見つからなかったのでローカルパスとみなして読み込む
-        psd::PSDFile::load(NarrowString(filename));
+        if(!PSDHasExplicitExtension(requested))
+            psd::PSDFile::load(NarrowString(requested + TJS_W(".psd")));
+        if(!isLoaded)
+            psd::PSDFile::load(NarrowString(requested));
     } else {
 #ifdef LOAD_MEMORY
         if(!wcschr(file.c_str(), '>')) {

@@ -1475,6 +1475,10 @@ void tTJSNI_KAGParser::ClearCallStack() {
 static void TVPKAGSetOrderedParam(iTJSDispatch2 *dic, iTJSDispatch2 *taglist,
                                   tjs_int &taglistCount, const ttstr &name,
                                   tTJSVariant &value) {
+    static ttstr taglistName(TJSMapGlobalStringMap(TJS_W("taglist")));
+    if(name == taglistName)
+        return;
+
     dic->PropSetByVS(TJS_MEMBERENSURE, name.AsVariantStringNoAddRef(), &value,
                      dic);
     if(taglist) {
@@ -1602,7 +1606,7 @@ parse_start:
 
         iTJSDispatch2 *taglist = TJSCreateArrayObject();
         tTJSVariant taglistValue(taglist, taglist);
-        DicObj->PropSetByVS(TJS_MEMBERENSURE,
+        DicObj->PropSetByVS(TJS_MEMBERENSURE | TJS_HIDDENMEMBER,
                             __taglist_name.AsVariantStringNoAddRef(),
                             &taglistValue, DicObj);
         taglist->Release();
@@ -2483,6 +2487,9 @@ parse_start:
                     value.FixLen();
                 }
             }
+
+            if(attribname == __taglist_name)
+                continue;
 
             // special attibute processing
             bool store = true;

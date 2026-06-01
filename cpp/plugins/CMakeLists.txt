@@ -184,7 +184,7 @@ if(KRKR2_ENABLE_LIVE2D)
         target_link_libraries(krkr2_cubism_framework PUBLIC
             "${KRKR2_LIVE2D_CORE_LIB}"
             EGL
-            GLESv2)
+            GLESv3)
 
         target_sources(${PROJECT_NAME} PRIVATE
             live2d/krkrlive2d.cpp
@@ -201,7 +201,7 @@ if(KRKR2_ENABLE_LIVE2D)
             LibArchive::LibArchive
             PNG::PNG
             EGL
-            GLESv2)
+            GLESv3)
     endif()
 endif()
 
