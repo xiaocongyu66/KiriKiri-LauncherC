@@ -75,18 +75,44 @@ jobs:
               body = e.read().decode("utf-8", errors="replace")
               print(f"Live2D SDK API error: {body[:240]}")
               raise
+
+          contents_req = urllib.request.Request(
+              "https://api.github.com/repos/xiaocongyu66/KiriKiri-Live2D-SDK/contents/Core/include/Live2DCubismCore.h",
+              headers={
+                  "Accept": "application/vnd.github+json",
+                  "Authorization": f"Bearer {token}",
+                  "X-GitHub-Api-Version": "2022-11-28",
+              },
+          )
+          try:
+              with urllib.request.urlopen(contents_req, timeout=30) as resp:
+                  print(f"Live2D SDK contents API status: {resp.status}")
+          except urllib.error.HTTPError as e:
+              print(f"Live2D SDK contents API status: {e.code}")
+              body = e.read().decode("utf-8", errors="replace")
+              print(f"Live2D SDK contents API error: {body[:240]}")
+              raise
           PY
 
-          LIVE2D_SDK_URL="https://x-access-token:${SDK_FETCH_TOKEN}@github.com/xiaocongyu66/KiriKiri-Live2D-SDK.git"
+          LIVE2D_AUTH_HEADER="$(python3 - <<'PY'
+          import base64
+          import os
+          token = os.environ["SDK_FETCH_TOKEN"]
+          auth = base64.b64encode(f"x-access-token:{token}".encode("utf-8")).decode("ascii")
+          print(f"AUTHORIZATION: basic {auth}")
+          PY
+          )"
+          LIVE2D_SDK_URL="https://github.com/xiaocongyu66/KiriKiri-Live2D-SDK.git"
 
-          git submodule sync --recursive
-          git ls-remote "$LIVE2D_SDK_URL" HEAD >/dev/null
-          git config submodule.third_party/live2d-sdk.url "$LIVE2D_SDK_URL"
-          git submodule update --init --depth 1 third_party/live2d-sdk
+          git -c "http.https://github.com/.extraheader=${LIVE2D_AUTH_HEADER}" \
+            ls-remote "$LIVE2D_SDK_URL" HEAD >/dev/null
+          rm -rf third_party/live2d-sdk
+          git -c "http.https://github.com/.extraheader=${LIVE2D_AUTH_HEADER}" \
+            clone --depth 1 "$LIVE2D_SDK_URL" third_party/live2d-sdk
 
           test -f third_party/live2d-sdk/Core/include/Live2DCubismCore.h
           test -f third_party/live2d-sdk/Core/lib/android/arm64-v8a/libLive2DCubismCore.a
-          echo "Live2D Core SDK submodule ready."
+          echo "Live2D Core SDK ready."
 
       - name: Free disk space
         run: |
