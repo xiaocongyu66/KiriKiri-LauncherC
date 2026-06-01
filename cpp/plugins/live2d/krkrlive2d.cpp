@@ -1082,13 +1082,45 @@ private:
     void BlitFBOToTarget(GLint targetFBO, GLint vpX, GLint vpY,
                          GLsizei vpW, GLsizei vpH) {
         EnsureBlitProgram();
-        if (!blitProgram_ || !fboTex_) return;
+        if (!blitProgram_ || !fboTex_ || locPos_ < 0 ||
+            locTex_ < 0 || locScale_ < 0)
+            return;
+
+        GLint prevFbo = 0;
+        GLint prevViewport[4] = { 0, 0, 0, 0 };
+        GLint prevProgram = 0;
+        GLint prevActiveTexture = 0;
+        GLint prevTexture0 = 0;
+        GLint prevArrayBuffer = 0;
+        GLint prevBlendSrcRGB = GL_ONE;
+        GLint prevBlendDstRGB = GL_ZERO;
+        GLint prevBlendSrcAlpha = GL_ONE;
+        GLint prevBlendDstAlpha = GL_ZERO;
+        GLboolean prevBlend = glIsEnabled(GL_BLEND);
+        GLboolean prevDepthTest = glIsEnabled(GL_DEPTH_TEST);
+        GLboolean prevScissorTest = glIsEnabled(GL_SCISSOR_TEST);
+        GLboolean prevDepthMask = GL_TRUE;
+        GLint prevAttribEnabled = 0;
+
+        glGetIntegerv(GL_FRAMEBUFFER_BINDING, &prevFbo);
+        glGetIntegerv(GL_VIEWPORT, prevViewport);
+        glGetIntegerv(GL_CURRENT_PROGRAM, &prevProgram);
+        glGetIntegerv(GL_ACTIVE_TEXTURE, &prevActiveTexture);
+        glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &prevArrayBuffer);
+        glGetIntegerv(GL_BLEND_SRC_RGB, &prevBlendSrcRGB);
+        glGetIntegerv(GL_BLEND_DST_RGB, &prevBlendDstRGB);
+        glGetIntegerv(GL_BLEND_SRC_ALPHA, &prevBlendSrcAlpha);
+        glGetIntegerv(GL_BLEND_DST_ALPHA, &prevBlendDstAlpha);
+        glGetBooleanv(GL_DEPTH_WRITEMASK, &prevDepthMask);
+        glGetVertexAttribiv(locPos_, GL_VERTEX_ATTRIB_ARRAY_ENABLED,
+                            &prevAttribEnabled);
 
         glBindFramebuffer(GL_FRAMEBUFFER, targetFBO);
         glViewport(vpX, vpY, vpW, vpH);
 
         glUseProgram(blitProgram_);
         glActiveTexture(GL_TEXTURE0);
+        glGetIntegerv(GL_TEXTURE_BINDING_2D, &prevTexture0);
         glBindTexture(GL_TEXTURE_2D, fboTex_);
         glUniform1i(locTex_, 0);
 
@@ -1108,16 +1140,41 @@ private:
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         glDisable(GL_DEPTH_TEST);
+        glDisable(GL_SCISSOR_TEST);
         glDepthMask(GL_FALSE);
 
         static const float quad[] = { -1,-1, 1,-1, -1,1, 1,1 };
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
         glEnableVertexAttribArray(locPos_);
         glVertexAttribPointer(locPos_, 2, GL_FLOAT, GL_FALSE, 0, quad);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glDisableVertexAttribArray(locPos_);
+        if (prevAttribEnabled)
+            glEnableVertexAttribArray(locPos_);
+        else
+            glDisableVertexAttribArray(locPos_);
 
-        glBindTexture(GL_TEXTURE_2D, 0);
-        glUseProgram(0);
+        glBindBuffer(GL_ARRAY_BUFFER, prevArrayBuffer);
+        glBindTexture(GL_TEXTURE_2D, prevTexture0);
+        glActiveTexture(prevActiveTexture);
+        glUseProgram(prevProgram);
+        glBindFramebuffer(GL_FRAMEBUFFER, prevFbo);
+        glViewport(prevViewport[0], prevViewport[1],
+                   prevViewport[2], prevViewport[3]);
+        glBlendFuncSeparate(prevBlendSrcRGB, prevBlendDstRGB,
+                            prevBlendSrcAlpha, prevBlendDstAlpha);
+        if (prevBlend)
+            glEnable(GL_BLEND);
+        else
+            glDisable(GL_BLEND);
+        if (prevDepthTest)
+            glEnable(GL_DEPTH_TEST);
+        else
+            glDisable(GL_DEPTH_TEST);
+        if (prevScissorTest)
+            glEnable(GL_SCISSOR_TEST);
+        else
+            glDisable(GL_SCISSOR_TEST);
+        glDepthMask(prevDepthMask);
     }
 
     bool loaded_ = false;
