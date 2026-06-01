@@ -35,6 +35,48 @@ void TVPInGameMenuForm::bindBodyController(const Node *allNodes) {
     }
 }
 
+void TVPInGameMenuForm::rearrangeLayout() {
+    iTVPBaseForm::rearrangeLayout();
+
+    auto *scene = TVPMainScene::GetInstance();
+    if(!scene)
+        return;
+
+    const Size sceneSize = scene->getUINodeSize();
+    const float scale = scene->getUIScale();
+    const float headerHeight = sceneSize.height * 0.1f;
+    setAnchorPoint(Vec2::ZERO);
+    setPosition(Vec2::ZERO);
+    setContentSize(sceneSize);
+
+    Node *headerRoot = NaviBar.Root ? NaviBar.Root->getParent() : nullptr;
+    if(!headerRoot)
+        headerRoot = NaviBar.Root;
+    if(headerRoot) {
+        headerRoot->setAnchorPoint(Vec2::ZERO);
+        headerRoot->setPosition(Vec2(0, sceneSize.height - headerHeight));
+        headerRoot->setLocalZOrder(1);
+        headerRoot->setVisible(true);
+    }
+
+    if(RootNode) {
+        RootNode->setAnchorPoint(Vec2::ZERO);
+        RootNode->setPosition(Vec2::ZERO);
+        RootNode->setLocalZOrder(0);
+        RootNode->setVisible(true);
+    }
+
+    if(_list) {
+        _list->setAnchorPoint(Vec2::ZERO);
+        _list->setPosition(Vec2::ZERO);
+        _list->setContentSize(Size(sceneSize.width / scale,
+                                   (sceneSize.height - headerHeight) / scale));
+        _list->setTouchEnabled(true);
+        _list->setVisible(true);
+        _list->requestDoLayout();
+    }
+}
+
 void TVPInGameMenuForm::initMenu(const std::string &title,
                                  tTJSNI_MenuItem *item) {
     _list->removeAllItems();

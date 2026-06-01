@@ -12,6 +12,7 @@
 #include "base/CCDirector.h"
 #include "platform/CCGLView.h"
 #include "Platform.h"
+#include <algorithm>
 
 using namespace cocos2d;
 using namespace cocos2d::ui;
@@ -20,11 +21,12 @@ const float _shrinkSpd = 700; // px/sec
 const float _expandSpd = 700; // px/sec
 const float _handlerFadeInTime = 0.15f;
 const float _handlerFadeOutTime = 0.35f;
+const GLubyte _handlerMinVisibleOpacity = 64;
 
 TVPGameMainMenu::TVPGameMainMenu(GLubyte opa) {
     _shrinked = false;
     _hitted = false;
-    _handler_inactive_opacity = opa;
+    _handler_inactive_opacity = std::max(opa, _handlerMinVisibleOpacity);
 }
 
 TVPGameMainMenu *TVPGameMainMenu::create(GLubyte opa) {

@@ -2631,9 +2631,8 @@ private:
         tinyxml2::XMLError ret = doc.Parse(utf8.c_str(), utf8.size());
         if(ret != tinyxml2::XML_SUCCESS) {
             errorCode_ = static_cast<tjs_int>(ret);
-            const char *message = doc.ErrorStr();
-            errorString_ = message ? Utf8TextToTtstrCompat(message)
-                                   : TJS_W("XML parse error");
+            errorString_ =
+                TJS_W("XML parse error: ") + ttstr(static_cast<tjs_int>(ret));
             return false;
         }
 

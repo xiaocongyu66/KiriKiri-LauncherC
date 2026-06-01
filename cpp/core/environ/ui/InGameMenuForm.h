@@ -11,6 +11,7 @@ public:
     void bindHeaderController(const Node *allNodes) override;
     void bindBodyController(const Node *allNodes) override;
     void bindFooterController(const Node *allNodes) override {}
+    void rearrangeLayout() override;
 
     void initMenu(const std::string &title, tTJSNI_MenuItem *item);
 
