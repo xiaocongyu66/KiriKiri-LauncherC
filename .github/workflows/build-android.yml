@@ -30,6 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          persist-credentials: false
           lfs: true
 
       - name: Init private Live2D SDK submodule
