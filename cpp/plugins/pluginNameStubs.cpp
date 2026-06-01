@@ -539,3 +539,15 @@ NCB_PRE_REGIST_CALLBACK(wumultitrack_stub);
 #define NCB_MODULE_NAME TJS_W("wvdecoder.dll")
 static void wvdecoder_stub() {}
 NCB_PRE_REGIST_CALLBACK(wvdecoder_stub);
+
+// ---------------------------------------------------------------------------
+// MSDF font renderer placeholder.
+// Some titles attempt to link msdfrender.dll while also carrying pre-rendered
+// atlas files and a script-side fallback. Resolving the module name keeps the
+// fallback path quiet without pretending to implement the Windows renderer.
+// ---------------------------------------------------------------------------
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("msdfrender.dll")
+static void msdfrender_stub() {}
+NCB_PRE_REGIST_CALLBACK(msdfrender_stub);
