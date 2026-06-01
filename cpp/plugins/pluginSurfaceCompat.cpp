@@ -1980,6 +1980,22 @@ static void adjustMoniAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("adjustMonitor.dll"));
 }
 
+static void krrlichtAliasCompat() {
+    ncbAutoRegister::LoadModule(TJS_W("drawdeviceIrrlicht.dll"));
+}
+
+static void drawdeviceZAliasCompat() {
+    ncbAutoRegister::LoadModule(TJS_W("drawdeviceZ_D3D9.dll"));
+}
+
+static void gdiplusAliasCompat() {
+    ncbAutoRegister::LoadModule(TJS_W("layerExDraw.dll"));
+}
+
+static void oleclassAliasCompat() {
+    ncbAutoRegister::LoadModule(TJS_W("win32ole.dll"));
+}
+
 #define REGISTER_EMPTY_COMPAT_PLUGIN(tag, name) \
     static ncbCallbackAutoRegister tag(         \
         TJS_W(name), ncbAutoRegister::PreRegist, EmptyPluginCompat, nullptr)
@@ -2002,6 +2018,14 @@ REGISTER_ALIAS_COMPAT_PLUGIN(wmrdump_dll_compat, "wmrdump.dll",
                              wmrdumpAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(adjustMoni_dll_compat, "AdjustMoni.dll",
                              adjustMoniAliasCompat);
+REGISTER_ALIAS_COMPAT_PLUGIN(krrlicht_dll_compat, "krrlicht.dll",
+                             krrlichtAliasCompat);
+REGISTER_ALIAS_COMPAT_PLUGIN(drawdeviceZ_dll_compat, "drawdeviceZ.dll",
+                             drawdeviceZAliasCompat);
+REGISTER_ALIAS_COMPAT_PLUGIN(gdiplus_dll_compat, "gdiplus.dll",
+                             gdiplusAliasCompat);
+REGISTER_ALIAS_COMPAT_PLUGIN(oleclass_dll_compat, "oleclass.dll",
+                             oleclassAliasCompat);
 
 REGISTER_EMPTY_COMPAT_PLUGIN(layerExBase_dll_compat, "layerExBase.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(libjpeg_dll_compat, "libjpeg.dll");
@@ -2012,6 +2036,13 @@ REGISTER_EMPTY_COMPAT_PLUGIN(wumsadp_dll_compat, "wumsadp.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(exceptiontest_dll_compat, "exceptiontest.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(flashPlayer_dll_compat, "flashPlayer.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(gameswf_dll_compat, "gameswf.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(simplebinder_dll_compat, "simplebinder.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(parser_dll_compat, "parser.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(squirrel_dll_compat, "squirrel.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(xpressive_dll_compat, "xpressive.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(magickpp_dll_compat, "magickpp.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(mkpj_dll_compat, "mkpj.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(zlib_dll_compat, "zlib.dll");
 
 #undef REGISTER_ALIAS_COMPAT_PLUGIN
 #undef REGISTER_EMPTY_COMPAT_PLUGIN
