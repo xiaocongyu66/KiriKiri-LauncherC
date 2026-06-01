@@ -63,7 +63,9 @@ struct Live2DRenderTarget {
 };
 Live2DRenderTarget g_live2dRenderTarget;
 
-extern void TVPSetPostDrawHook(void (*hook)());
+static void TVPSetPostDrawHook(void (*hook)()) {
+    (void)hook;
+}
 
 // Registered Layer from krkrgles.cpp — used to blit Live2D content
 extern iTJSDispatch2 *KrkrGLES_GetRegisteredLayer();

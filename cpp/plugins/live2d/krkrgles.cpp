@@ -974,69 +974,17 @@ static iTJSDispatch2 *FindLayerInParams(tjs_int n, tTJSVariant **p) {
 }
 
 // ---------------------------------------------------------------------------
-// GPU fast path: blit FBO → Layer's native GL texture via glBlitFramebuffer.
-// Returns true if GPU path was used, false if not available.
-// Uses native C++ calls instead of TJS dispatch for performance.
+// Reserved GPU fast path. The current Layer texture implementation does not
+// expose a native GL texture, so the GLES2-safe CPU copy path is used.
 // ---------------------------------------------------------------------------
 static bool CopyFBOToLayerGPU(GLuint srcFbo, GLsizei srcW, GLsizei srcH,
                               tTJSNI_Layer *layerNI, GLint prevFbo) {
-    tTVPBaseTexture *img = layerNI->GetMainImage();
-    if (!img) return false;
-    auto *tex = img->GetTexture();
-    if (!tex) return false;
-
-    GLuint layerTexId = tex->GetNativeGLTextureId();
-    if (layerTexId == 0) return false;
-
-    GLsizei intW = static_cast<GLsizei>(tex->GetInternalWidth());
-    GLsizei intH = static_cast<GLsizei>(tex->GetInternalHeight());
-    if (intW <= 0 || intH <= 0) return false;
-
-    GLsizei layerW = static_cast<GLsizei>(layerNI->GetWidth());
-    GLsizei layerH = static_cast<GLsizei>(layerNI->GetHeight());
-
-    static GLuint s_dstFbo = 0;
-    static GLuint s_lastAttachedTex = 0;
-
-    if (!s_dstFbo) glGenFramebuffers(1, &s_dstFbo);
-
-    if (layerTexId != s_lastAttachedTex) {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_dstFbo);
-        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
-                               GL_TEXTURE_2D, layerTexId, 0);
-        if (glCheckFramebufferStatus(GL_DRAW_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
-            s_lastAttachedTex = 0;
-            glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-            return false;
-        }
-        s_lastAttachedTex = layerTexId;
-    } else {
-        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, s_dstFbo);
-    }
-
-    glBindFramebuffer(GL_READ_FRAMEBUFFER, srcFbo);
-
-    GLsizei blitW = (layerW < srcW) ? layerW : srcW;
-    GLsizei blitH = (layerH < srcH) ? layerH : srcH;
-
-#if defined(__ANDROID__)
-    // Android: no Y flip so Live2D appears right-side up
-    glBlitFramebuffer(0, 0, blitW, blitH, 0, 0, blitW, blitH,
-                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
-#else
-    glBlitFramebuffer(0, 0, blitW, blitH,
-                      0, blitH, blitW, 0,
-                      GL_COLOR_BUFFER_BIT, GL_NEAREST);
-#endif
-
-    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-
-    tex->InvalidatePixelCache();
-    layerNI->SetImageModified(true);
-
-    tTVPRect rc(0, 0, blitW, blitH);
-    layerNI->Update(rc);
-    return true;
+    (void)srcFbo;
+    (void)srcW;
+    (void)srcH;
+    (void)layerNI;
+    (void)prevFbo;
+    return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1086,47 +1034,9 @@ static void ConvertRGBA_to_BGRA(const uint8_t *src, GLsizei srcW, GLsizei srcH,
 }
 
 // ---------------------------------------------------------------------------
-// PBO double-buffer state for async glReadPixels.
-// Uses two PBOs: one receives the current frame's async read while the
-// other provides the previous frame's data via glMapBufferRange.
-// Introduces one frame of latency but eliminates GPU pipeline stalls.
-// ---------------------------------------------------------------------------
-struct PBOState {
-    GLuint pbo[2] = {};
-    int idx = 0;
-    GLsizei w = 0, h = 0;
-    bool primed = false;
-    bool disabled = false;
-
-    bool EnsureSize(GLsizei newW, GLsizei newH) {
-        if (disabled) return false;
-        if (newW == w && newH == h && pbo[0]) return true;
-        if (pbo[0]) { glDeleteBuffers(2, pbo); pbo[0] = pbo[1] = 0; }
-        while (glGetError() != GL_NO_ERROR) {}
-        glGenBuffers(2, pbo);
-        size_t sz = static_cast<size_t>(newW) * newH * 4;
-        for (int i = 0; i < 2; ++i) {
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, pbo[i]);
-            glBufferData(GL_PIXEL_PACK_BUFFER, static_cast<GLsizeiptr>(sz),
-                         nullptr, GL_STREAM_READ);
-        }
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-        if (glGetError() != GL_NO_ERROR) {
-            if (pbo[0]) glDeleteBuffers(2, pbo);
-            pbo[0] = pbo[1] = 0;
-            disabled = true;
-            GLES_LOGW("PBO creation failed, falling back to sync glReadPixels");
-            return false;
-        }
-        w = newW; h = newH; primed = false;
-        return true;
-    }
-};
-
-// ---------------------------------------------------------------------------
 // CPU fallback: read pixels from GL FBO → TJS Layer bitmap.
 // GL outputs RGBA bottom-up; krkr2 Layer CPU buffer uses BGRA top-down.
-// Uses PBO double-buffering when available (GLES 3.0+) to avoid stalls.
+// Uses synchronous glReadPixels for the GLES2 build path.
 // ---------------------------------------------------------------------------
 static bool CopyFBOToLayerCPU(GLuint fbo, GLsizei srcW, GLsizei srcH,
                               tTJSNI_Layer *layerNI, GLint prevFbo) {
@@ -1140,53 +1050,14 @@ static bool CopyFBOToLayerCPU(GLuint fbo, GLsizei srcW, GLsizei srcH,
     tjs_int copyW = (layerW < srcW) ? layerW : srcW;
     tjs_int copyH = (layerH < srcH) ? layerH : srcH;
 
-    static PBOState s_pbo;
-    const uint8_t *srcPixels = nullptr;
-    bool mapped = false;
+    static std::vector<uint8_t> s_rgba;
+    size_t needed = static_cast<size_t>(srcW) * srcH * 4;
+    if (s_rgba.size() < needed) s_rgba.resize(needed);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glReadPixels(0, 0, srcW, srcH, GL_RGBA, GL_UNSIGNED_BYTE, s_rgba.data());
+    glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
 
-    if (s_pbo.EnsureSize(srcW, srcH)) {
-        int readIdx = s_pbo.idx;
-        int mapIdx  = 1 - s_pbo.idx;
-
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, s_pbo.pbo[readIdx]);
-        glReadPixels(0, 0, srcW, srcH, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-
-        if (s_pbo.primed) {
-            glBindBuffer(GL_PIXEL_PACK_BUFFER, s_pbo.pbo[mapIdx]);
-            srcPixels = static_cast<const uint8_t *>(
-                glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0,
-                                 static_cast<GLsizeiptr>(srcW) * srcH * 4,
-                                 GL_MAP_READ_BIT));
-            if (srcPixels) {
-                mapped = true;
-            } else {
-                glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-            }
-        }
-
-        s_pbo.primed = true;
-        s_pbo.idx = 1 - s_pbo.idx;
-    }
-
-    if (!srcPixels) {
-        static std::vector<uint8_t> s_rgba;
-        size_t needed = static_cast<size_t>(srcW) * srcH * 4;
-        if (s_rgba.size() < needed) s_rgba.resize(needed);
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
-        glReadPixels(0, 0, srcW, srcH, GL_RGBA, GL_UNSIGNED_BYTE, s_rgba.data());
-        glBindFramebuffer(GL_FRAMEBUFFER, static_cast<GLuint>(prevFbo));
-        srcPixels = s_rgba.data();
-    }
-
-    ConvertRGBA_to_BGRA(srcPixels, srcW, srcH, dst, pitch, copyW, copyH);
-
-    if (mapped) {
-        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
-        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    }
+    ConvertRGBA_to_BGRA(s_rgba.data(), srcW, srcH, dst, pitch, copyW, copyH);
 
     tTVPRect rc(0, 0, copyW, copyH);
     layerNI->Update(rc);
