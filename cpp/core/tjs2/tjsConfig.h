@@ -64,6 +64,8 @@ namespace TJS {
 
     tjs_char *TJS_strchr(const tjs_char *string, tjs_char ch);
 
+    tjs_char *TJS_strrchr(const tjs_char *string, int ch);
+
     void *TJS_malloc(size_t n);
 
     void *TJS_realloc(void *buf, size_t n);
