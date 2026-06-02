@@ -30,6 +30,7 @@
 #include "RenderManager.h"
 #include "ConfigManager/GlobalConfigManager.h"
 #include "ConfigManager/LocaleConfigManager.h"
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <thread>
@@ -161,6 +162,10 @@ static bool TVPDecodeImageWithFFmpeg(tTJSBinaryStream *src,
             avcodec_free_context(&codecContext);
         return false;
     }
+    int numThreads = TVPGetProcessorNum();
+    numThreads = std::max(1, std::min(numThreads, 8));
+    codecContext->thread_count = numThreads;
+    codecContext->thread_safe_callbacks = 1;
 
     bool decoded = false;
     if(avcodec_open2(codecContext, codec, nullptr) >= 0) {

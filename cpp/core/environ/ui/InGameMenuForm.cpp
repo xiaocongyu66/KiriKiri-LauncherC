@@ -79,6 +79,9 @@ void TVPInGameMenuForm::rearrangeLayout() {
 
 void TVPInGameMenuForm::initMenu(const std::string &title,
                                  tTJSNI_MenuItem *item) {
+    if(!_list || !tTJSNI_BaseMenuItem::IsLiveInstance(item))
+        return;
+
     _list->removeAllItems();
     if(_title) {
         if(title.empty()) {
@@ -96,6 +99,8 @@ void TVPInGameMenuForm::initMenu(const std::string &title,
     for(int i = 0; i < count; ++i) {
         tTJSNI_MenuItem *subitem =
             static_cast<tTJSNI_MenuItem *>(item->GetChildren().at(i));
+        if(!tTJSNI_BaseMenuItem::IsLiveInstance(subitem))
+            continue;
         ttstr caption;
         subitem->GetCaption(caption);
         if(caption.IsEmpty() || caption == TJS_W("+"))
@@ -110,6 +115,10 @@ void TVPInGameMenuForm::initMenu(const std::string &title,
 cocos2d::ui::Widget *
 TVPInGameMenuForm::createMenuItem(int idx, tTJSNI_MenuItem *item,
                                   const std::string &caption) {
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(item))
+        return Csd::createSeperateItem(1.0f, 1.0f,
+                                       Color4F(0, 0, 0, 0));
+
     iPreferenceItem *ret = nullptr;
     const cocos2d::Size &size = _list->getContentSize();
     if(!item->GetChildren().empty()) {
@@ -155,6 +164,8 @@ TVPInGameMenuForm::createMenuItem(int idx, tTJSNI_MenuItem *item,
 }
 
 void TVPShowPopMenu(tTJSNI_MenuItem *menu) {
-    TVPMainScene::GetInstance()->pushUIForm(
-        TVPInGameMenuForm::create(std::string(), menu));
+    auto *scene = TVPMainScene::GetInstance();
+    if(!scene || !tTJSNI_BaseMenuItem::IsLiveInstance(menu))
+        return;
+    scene->pushUIForm(TVPInGameMenuForm::create(std::string(), menu));
 }

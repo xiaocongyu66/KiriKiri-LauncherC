@@ -162,7 +162,7 @@ namespace {
         } // Key is useless
         static tPreferenceScreen *GetSubPreferenceInfo() {
             std::string renderer =
-                PreferenceGetValueString("renderer", "opengl");
+                PreferenceGetValueString("renderer", "software");
             if(renderer == "opengl")
                 return &OpenglOptPreference;
             else if(renderer == "software")
@@ -308,7 +308,7 @@ namespace {
                                                { "30", "30" },
                                                { "15", "15" } }),
             new tTVPPreferenceInfoSelectList(
-                "preference_select_renderer", "renderer", "opengl",
+                "preference_select_renderer", "renderer", "software",
                 { { "preference_opengl", "opengl" },
                   { "preference_software", "software" } }),
             new tTVPPreferenceInfoRendererSubPref("preference_renderer_opt"),
@@ -344,6 +344,11 @@ namespace {
                                            "hide_android_sys_btn", false),
             new tTVPPreferenceInfoCheckBox("preference_ffmpeg_image_decoder",
                                            "ffmpeg_image_decoder", false),
+            new tTVPPreferenceInfoSelectList(
+                "preference_ffmpeg_decode_mode", "ffmpeg_decode_mode",
+                "software",
+                { { "preference_ffmpeg_decode_software", "software" },
+                  { "preference_ffmpeg_decode_hardware", "hardware" } }),
 #endif
             new tTVPPreferenceInfoResetDefaultSkin("preference_reset_def_skin"),
 

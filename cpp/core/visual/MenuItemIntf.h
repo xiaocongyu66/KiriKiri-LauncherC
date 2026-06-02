@@ -33,7 +33,7 @@ struct ObjectVector : public std::vector<T *> { // thread safe vector
         tTJSSpinLockHolder holder(Lock);
         if(std::find(this->begin(), this->end(), object) != this->end())
             return false;
-        if(idx == -1)
+        if(idx < 0 || idx >= static_cast<tjs_int>(this->size()))
             this->push_back(object);
         else
             this->insert(this->begin() + idx, object);
@@ -74,18 +74,22 @@ protected:
 
 public:
     tTJSNI_BaseMenuItem();
+    ~tTJSNI_BaseMenuItem() override;
     tjs_error Construct(tjs_int numparams, tTJSVariant **param,
                         iTJSDispatch2 *tjs_obj) override;
     void Invalidate() override;
 
 public:
     static tTJSNI_MenuItem *CastFromVariant(const tTJSVariant &from);
+    [[nodiscard]] static bool
+    IsLiveInstance(const tTJSNI_BaseMenuItem *item);
 
 protected:
     [[nodiscard]] virtual bool
     CanDeliverEvents() const = 0; // must be implemented in each platforms
 
 protected:
+    bool AttachChild(tTJSNI_BaseMenuItem *item, tjs_int index);
     void AddChild(tTJSNI_BaseMenuItem *item);
     void RemoveChild(tTJSNI_BaseMenuItem *item);
 

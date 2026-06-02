@@ -129,6 +129,8 @@ protected:
     bool m_requestSkipDeint;
     int m_codecControlFlags;
     bool m_interlaced;
+    bool m_usingMediaCodecDecoder;
+    bool m_disableMediaCodecForCurrentStream;
     double m_DAR;
     CDVDStreamInfo m_hints;
     CDVDCodecOptions m_options;

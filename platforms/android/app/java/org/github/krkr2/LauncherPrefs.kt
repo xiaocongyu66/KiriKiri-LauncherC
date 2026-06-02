@@ -15,11 +15,15 @@ object LauncherPrefs {
     private const val KEY_LANGUAGE = "language"
     private const val KEY_FORCE_LANDSCAPE = "force_landscape"
     private const val KEY_USE_FFMPEG_IMAGE_DECODER = "use_ffmpeg_image_decoder"
+    private const val KEY_FFMPEG_DECODE_MODE = "ffmpeg_decode_mode"
     private const val KEY_FILE_LOG_ENABLED = "file_log_enabled"
     private const val KEY_FILE_LOG_AUTO_CLEANUP = "file_log_auto_cleanup"
     private const val KEY_FILE_LOG_RETENTION_DAYS = "file_log_retention_days"
     private const val KEY_ACTIVE_LOG_FILE = "active_log_file"
     const val ENGINE_KEY_FFMPEG_IMAGE_DECODER = "ffmpeg_image_decoder"
+    const val ENGINE_KEY_FFMPEG_DECODE_MODE = "ffmpeg_decode_mode"
+    const val FFMPEG_DECODE_MODE_SOFTWARE = "software"
+    const val FFMPEG_DECODE_MODE_HARDWARE = "hardware"
     // Maximum directory depth GameScanner walks below the configured root
     // before giving up. Deeper trees take quadratically longer, especially
     // when MANAGE_EXTERNAL_STORAGE is granted and the root happens to be
@@ -74,6 +78,28 @@ object LauncherPrefs {
         KrkrPrefsStore.setBool(context, ENGINE_KEY_FFMPEG_IMAGE_DECODER, enabled)
         writeLauncherLog(context, "FFmpeg image decoder enabled=$enabled")
     }
+
+    fun getFfmpegDecodeMode(context: Context): String {
+        val mode = LauncherSettingsDb.getString(
+            context,
+            KEY_FFMPEG_DECODE_MODE,
+            KrkrPrefsStore.getString(context, ENGINE_KEY_FFMPEG_DECODE_MODE, FFMPEG_DECODE_MODE_SOFTWARE),
+        )
+        return normalizeFfmpegDecodeMode(mode)
+    }
+
+    fun getFfmpegDecodeModeCode(context: Context): Int =
+        if (getFfmpegDecodeMode(context) == FFMPEG_DECODE_MODE_HARDWARE) 1 else 0
+
+    fun setFfmpegDecodeMode(context: Context, mode: String) {
+        val normalized = normalizeFfmpegDecodeMode(mode)
+        LauncherSettingsDb.setString(context, KEY_FFMPEG_DECODE_MODE, normalized)
+        KrkrPrefsStore.setString(context, ENGINE_KEY_FFMPEG_DECODE_MODE, normalized)
+        writeLauncherLog(context, "FFmpeg decode mode=$normalized")
+    }
+
+    private fun normalizeFfmpegDecodeMode(mode: String): String =
+        if (mode == FFMPEG_DECODE_MODE_HARDWARE) FFMPEG_DECODE_MODE_HARDWARE else FFMPEG_DECODE_MODE_SOFTWARE
 
     fun getFileLogEnabled(context: Context): Boolean =
         LauncherSettingsDb.getBoolean(context, KEY_FILE_LOG_ENABLED, true)

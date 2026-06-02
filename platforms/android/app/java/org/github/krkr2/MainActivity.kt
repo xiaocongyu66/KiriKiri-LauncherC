@@ -37,7 +37,9 @@ class MainActivity : KR2Activity() {
 
         val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
+        val ffmpegDecodeMode = LauncherPrefs.getFfmpegDecodeMode(this)
         KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)
+        KR2Activity.setFFmpegDecodeMode(LauncherPrefs.getFfmpegDecodeModeCode(this))
 
         val lp = window.attributes
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
@@ -56,7 +58,7 @@ class MainActivity : KR2Activity() {
 
         LauncherPrefs.writeLauncherLog(
             this,
-            "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot ffmpegImageDecoder=$useFfmpegImageDecoder nativeLogFile=$nativeLogFile"
+            "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot ffmpegImageDecoder=$useFfmpegImageDecoder ffmpegDecodeMode=$ffmpegDecodeMode nativeLogFile=$nativeLogFile"
         )
 
         SDLAudioManager.nativeSetupJNI()

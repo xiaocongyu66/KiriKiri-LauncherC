@@ -10,6 +10,7 @@
 extern "C" {
 #include "libavutil/opt.h"
 }
+#include "FFmpegCompat.h"
 
 #if defined(TARGET_DARWIN)
 #include "cores/AudioEngine/Utils/AEUtil.h"

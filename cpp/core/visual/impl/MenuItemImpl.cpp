@@ -151,7 +151,10 @@ bool tTJSNI_MenuItem::CanDeliverEvents() const {
             enabled = false;
             break;
         }
-        item = dynamic_cast<const tTJSNI_MenuItem *>(item->GetParent());
+        tTJSNI_BaseMenuItem *parent = item->GetParent();
+        if(!tTJSNI_BaseMenuItem::IsLiveInstance(parent))
+            break;
+        item = dynamic_cast<const tTJSNI_MenuItem *>(parent);
     }
     return enabled;
 }
@@ -168,12 +171,7 @@ void tTJSNI_MenuItem::Insert(tTJSNI_MenuItem *item, tjs_int index) {
     // 	if(MenuItem && item->MenuItem)
     // 	{
     // 		MenuItem->Insert(index, item->MenuItem);
-    if(Children.Add(item, index)) {
-        ChildrenArrayValid = false;
-        if(item->Owner)
-            item->Owner->AddRef();
-        item->Parent = this;
-    }
+    AttachChild(item, index);
     // AddChild(item);
     // }
 }
@@ -196,7 +194,7 @@ void *tTJSNI_MenuItem::GetMenuItemHandleForPlugin() const {
 }
 //---------------------------------------------------------------------------
 tjs_int tTJSNI_MenuItem::GetIndex() const {
-    if(!Parent)
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(Parent))
         return 0;
     // if(!MenuItem) return 0;
     // return MenuItem->getMenuIndex();
@@ -226,10 +224,12 @@ void tTJSNI_MenuItem::GetCaption(ttstr &caption) const {
 void tTJSNI_MenuItem::SetChecked(bool b) {
     // if(!MenuItem) return;
     // MenuItem->setChecked (b);
-    if(b && IsRadio && Parent) {
+    if(b && IsRadio && tTJSNI_BaseMenuItem::IsLiveInstance(Parent)) {
         for(tTJSNI_BaseMenuItem *_item : Parent->Children) {
+            if(!tTJSNI_BaseMenuItem::IsLiveInstance(_item))
+                continue;
             auto *item = dynamic_cast<tTJSNI_MenuItem *>(_item);
-            if(item->IsRadio && item->GroupIndex == GroupIndex)
+            if(item && item->IsRadio && item->GroupIndex == GroupIndex)
                 item->IsChecked = false;
         }
     }

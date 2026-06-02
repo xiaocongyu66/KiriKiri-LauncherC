@@ -6,6 +6,7 @@
 extern "C" {
 #include "libavcodec/avcodec.h"
 }
+#include "FFmpegCompat.h"
 
 NS_KRMOVIE_BEGIN
 void DemuxPacket::Free(DemuxPacket *pPacket) {

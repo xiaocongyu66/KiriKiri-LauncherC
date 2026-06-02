@@ -10,6 +10,7 @@
 #endif
 
 #include "RenderFormats.h"
+#include "FFmpegDecodeConfig.h"
 
 #ifdef HAVE_LIBVDPAU
 #include "VDPAU.h"
@@ -34,11 +35,13 @@ extern "C" {
 #include "libavfilter/buffersrc.h"
 #include "libavutil/pixdesc.h"
 }
+#include "FFmpegCompat.h"
 
 #include "Clock.h"
 #include "CodecUtils.h"
 #include <cstdlib>
 #include <algorithm>
+#include <cstring>
 
 NS_KRMOVIE_BEGIN
 enum DecoderState {
@@ -57,6 +60,43 @@ enum EFilterFlags {
     FILTER_DEINTERLACE_HALFED = 0x20, //< do half rate deinterlacing
     FILTER_ROTATE = 0x40, //< rotate image according to the codec hints
 };
+
+static bool TVPIsAndroidFFmpegHardwareDecodeAvailable() {
+#if defined(__ANDROID__) || defined(ANDROID) || defined(TARGET_ANDROID)
+    return true;
+#else
+    return false;
+#endif
+}
+
+static const char *TVPGetAndroidMediaCodecDecoderName(AVCodecID codecId) {
+    switch(codecId) {
+        case AV_CODEC_ID_H264:
+            return "h264_mediacodec";
+        case AV_CODEC_ID_HEVC:
+            return "hevc_mediacodec";
+        case AV_CODEC_ID_MPEG2VIDEO:
+            return "mpeg2_mediacodec";
+        case AV_CODEC_ID_MPEG4:
+            return "mpeg4_mediacodec";
+        case AV_CODEC_ID_VP8:
+            return "vp8_mediacodec";
+        case AV_CODEC_ID_VP9:
+            return "vp9_mediacodec";
+        default:
+            return nullptr;
+    }
+}
+
+static bool TVPIsMediaCodecDecoder(const AVCodec *codec) {
+    return codec && codec->name && std::strstr(codec->name, "_mediacodec");
+}
+
+static bool TVPIsRenderableSoftwareFrame(const AVFrame *frame) {
+    if(!frame)
+        return false;
+    return CDVDCodecUtils::EFormatFromPixfmt(frame->format) != RENDER_FMT_NONE;
+}
 
 CDVDVideoCodecFFmpeg::CDropControl::CDropControl() { Reset(true); }
 
@@ -258,6 +298,8 @@ CDVDVideoCodecFFmpeg::CDVDVideoCodecFFmpeg(CProcessInfo &processInfo) :
     m_skippedDeint = 0;
     m_droppedFrames = 0;
     m_interlaced = false;
+    m_usingMediaCodecDecoder = false;
+    m_disableMediaCodecForCurrentStream = false;
     m_DAR = 1.0;
 }
 
@@ -268,7 +310,9 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints,
     m_hints = hints;
     m_options = options;
 
-    AVCodec *pCodec;
+    AVCodec *pCodec = nullptr;
+    bool useMediaCodecDecoder = false;
+    m_usingMediaCodecDecoder = false;
 
     m_iOrientation = hints.orientation;
 
@@ -285,7 +329,19 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints,
     m_formats.push_back(AV_PIX_FMT_NONE); /* always add none to get a terminated
                                              list in ffmpeg world */
 
-    pCodec = avcodec_find_decoder(hints.codec);
+    if(!hints.software && !m_disableMediaCodecForCurrentStream &&
+       TVPPreferFFmpegHardwareDecode() &&
+       TVPIsAndroidFFmpegHardwareDecodeAvailable()) {
+        if(const char *decoderName =
+               TVPGetAndroidMediaCodecDecoderName(hints.codec)) {
+            pCodec = avcodec_find_decoder_by_name(decoderName);
+            useMediaCodecDecoder = TVPIsMediaCodecDecoder(pCodec);
+        }
+    }
+
+    if(!pCodec)
+        pCodec = avcodec_find_decoder(hints.codec);
+    m_usingMediaCodecDecoder = useMediaCodecDecoder;
 
     if(pCodec == nullptr) {
         //    CLog::Log(LOGDEBUG,"CDVDVideoCodecFFmpeg::Open() Unable
@@ -310,47 +366,52 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints,
     // setup threading model
     if(!hints.software) {
         bool tryhw = false;
+        if(useMediaCodecDecoder) {
+            m_pCodecContext->thread_count = 1;
+            m_decoderState = STATE_SW_SINGLE;
+        } else {
 #ifdef HAVE_LIBVDPAU
-        if(CSettings::GetInstance().GetBool(
-               CSettings::SETTING_VIDEOPLAYER_USEVDPAU))
-            tryhw = true;
+            if(CSettings::GetInstance().GetBool(
+                   CSettings::SETTING_VIDEOPLAYER_USEVDPAU))
+                tryhw = true;
 #endif
 #ifdef HAVE_LIBVA
-        if(CSettings::GetInstance().GetBool(
-               CSettings::SETTING_VIDEOPLAYER_USEVAAPI))
-            tryhw = true;
+            if(CSettings::GetInstance().GetBool(
+                   CSettings::SETTING_VIDEOPLAYER_USEVAAPI))
+                tryhw = true;
 #endif
 #ifdef HAS_DX
-        if(CSettings::GetInstance().GetBool(
-               CSettings::SETTING_VIDEOPLAYER_USEDXVA2))
-            tryhw = true;
+            if(CSettings::GetInstance().GetBool(
+                   CSettings::SETTING_VIDEOPLAYER_USEDXVA2))
+                tryhw = true;
 #endif
 #ifdef TARGET_DARWIN
-        if(CSettings::GetInstance().GetBool(
-               CSettings::SETTING_VIDEOPLAYER_USEVTB))
-            tryhw = true;
+            if(CSettings::GetInstance().GetBool(
+                   CSettings::SETTING_VIDEOPLAYER_USEVTB))
+                tryhw = true;
 #endif
 #ifdef HAS_MMAL
-        tryhw = true;
+            tryhw = true;
 #endif
-        if(tryhw && m_decoderState == STATE_NONE) {
-            m_decoderState = STATE_HW_SINGLE;
-        } else {
-            int num_threads = TVPGetProcessorNum() * 3 / 2;
-            num_threads = std::max(1, std::min(num_threads, 16));
-            m_pCodecContext->thread_count = num_threads;
-            m_pCodecContext->thread_safe_callbacks = 1;
-            m_decoderState = STATE_SW_MULTI;
-            //      CLog::Log(LOGDEBUG, "CDVDVideoCodecFFmpeg - open
-            //      frame threaded with %d threads", num_threads);
+            if(tryhw && m_decoderState == STATE_NONE) {
+                m_decoderState = STATE_HW_SINGLE;
+            } else {
+                int num_threads = TVPGetProcessorNum() * 3 / 2;
+                num_threads = std::max(1, std::min(num_threads, 16));
+                m_pCodecContext->thread_count = num_threads;
+                m_pCodecContext->thread_safe_callbacks = 1;
+                m_decoderState = STATE_SW_MULTI;
+                //      CLog::Log(LOGDEBUG, "CDVDVideoCodecFFmpeg - open
+                //      frame threaded with %d threads", num_threads);
+            }
         }
     } else
         m_decoderState = STATE_SW_SINGLE;
 
-#if defined(TARGET_DARWIN_IOS)
+#if defined(CODEC_FLAG_EMU_EDGE) && defined(TARGET_DARWIN_IOS)
     // ffmpeg with enabled neon will crash and burn if this is enabled
     m_pCodecContext->flags &= CODEC_FLAG_EMU_EDGE;
-#else
+#elif defined(CODEC_FLAG_EMU_EDGE)
     if(pCodec->id != AV_CODEC_ID_H264 && pCodec->capabilities & CODEC_CAP_DR1 &&
        pCodec->id != AV_CODEC_ID_VP8)
         m_pCodecContext->flags |= CODEC_FLAG_EMU_EDGE;
@@ -404,6 +465,11 @@ bool CDVDVideoCodecFFmpeg::Open(CDVDStreamInfo &hints,
         //    CLog::Log(LOGDEBUG,"CDVDVideoCodecFFmpeg::Open() Unable
         //    to open codec");
         avcodec_free_context(&m_pCodecContext);
+        if(useMediaCodecDecoder) {
+            m_disableMediaCodecForCurrentStream = true;
+            m_usingMediaCodecDecoder = false;
+            return Open(hints, options);
+        }
         return false;
     }
 
@@ -614,6 +680,11 @@ int CDVDVideoCodecFFmpeg::Decode(uint8_t *pData, int iSize, double dts,
         m_iLastKeyframe = m_pCodecContext->has_b_frames + 2;
 
     if(len < 0) {
+        if(m_usingMediaCodecDecoder) {
+            m_disableMediaCodecForCurrentStream = true;
+            av_frame_unref(m_pDecodedFrame);
+            return VC_REOPEN;
+        }
         if(m_pHardware) {
             int result = m_pHardware->Check(m_pCodecContext);
             if(result & VC_NOBUFFER) {
@@ -659,6 +730,13 @@ int CDVDVideoCodecFFmpeg::Decode(uint8_t *pData, int iSize, double dts,
     if(!m_started) {
         av_frame_unref(m_pDecodedFrame);
         return VC_BUFFER;
+    }
+
+    if(m_usingMediaCodecDecoder &&
+       !TVPIsRenderableSoftwareFrame(m_pDecodedFrame)) {
+        m_disableMediaCodecForCurrentStream = true;
+        av_frame_unref(m_pDecodedFrame);
+        return VC_REOPEN;
     }
 
     if(m_pDecodedFrame->interlaced_frame)

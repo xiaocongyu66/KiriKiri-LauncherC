@@ -9,6 +9,7 @@
 #include "environ/ConfigManager/GlobalConfigManager.h"
 #include "environ/Application.h"
 #include "environ/NativeLog.h"
+#include "common/FFmpegDecodeConfig.h"
 
 /*******************************************************************************
                  Functions called by JNI
@@ -102,6 +103,17 @@ Java_org_tvp_kirikiri2_KR2Activity_setUseFFmpegImageDecoder(JNIEnv *, jclass,
     try {
         spdlog::info("FFmpeg image decoder enabled={}",
                      enabled == JNI_TRUE ? 1 : 0);
+    } catch(...) {
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_KR2Activity_setFFmpegDecodeMode(JNIEnv *, jclass,
+                                                       jint mode) {
+    TVPSetFFmpegDecodeMode(static_cast<int>(mode));
+    try {
+        spdlog::info("FFmpeg decode mode={}",
+                     TVPFFmpegDecodeModeName(TVPGetFFmpegDecodeMode()));
     } catch(...) {
     }
 }

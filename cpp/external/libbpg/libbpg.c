@@ -29,6 +29,7 @@
 #include <libavutil/opt.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/common.h>
+#include "../../core/common/FFmpegCompat.h"
 
 /* The following global defines are used:
    - USE_VAR_BIT_DEPTH : support of bit depth > 8 bits

@@ -41,6 +41,9 @@ object KrkrPrefsCaptions {
         "preference_remember_last_path" to "Remember last path",
         "preference_hide_android_sys_btn" to "Hide system buttons",
         "preference_ffmpeg_image_decoder" to "FFmpeg image decoder",
+        "preference_ffmpeg_decode_mode" to "FFmpeg decode mode",
+        "preference_ffmpeg_decode_software" to "Software",
+        "preference_ffmpeg_decode_hardware" to "Hardware first",
 
         // Software renderer
         "preference_multi_draw_thread" to "Draw threads",
@@ -98,6 +101,9 @@ object KrkrPrefsCaptions {
         "preference_remember_last_path" to "记住上次路径",
         "preference_hide_android_sys_btn" to "隐藏系统按键",
         "preference_ffmpeg_image_decoder" to "FFmpeg 图片解码",
+        "preference_ffmpeg_decode_mode" to "FFmpeg 解码模式",
+        "preference_ffmpeg_decode_software" to "软解",
+        "preference_ffmpeg_decode_hardware" to "硬解优先",
 
         // Software renderer
         "preference_multi_draw_thread" to "绘制线程",

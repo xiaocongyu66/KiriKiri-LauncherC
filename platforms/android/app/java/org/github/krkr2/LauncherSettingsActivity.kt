@@ -151,6 +151,7 @@ private fun SettingsScreen(
     var pathInput by remember { mutableStateOf(LauncherPrefs.getGameRoot(context)) }
     var scanDepth by remember { mutableStateOf(LauncherPrefs.getScanDepth(context)) }
     var useFfmpegImageDecoder by remember { mutableStateOf(LauncherPrefs.getUseFfmpegImageDecoder(context)) }
+    var ffmpegDecodeMode by remember { mutableStateOf(LauncherPrefs.getFfmpegDecodeMode(context)) }
     var fileLogEnabled by remember { mutableStateOf(LauncherPrefs.getFileLogEnabled(context)) }
     var fileLogAutoCleanup by remember { mutableStateOf(LauncherPrefs.getFileLogAutoCleanup(context)) }
     var fileLogRetentionDays by remember { mutableStateOf(LauncherPrefs.getFileLogRetentionDays(context)) }
@@ -212,6 +213,11 @@ private fun SettingsScreen(
                         useFfmpegImageDecoder = enabled
                         LauncherPrefs.setUseFfmpegImageDecoder(context, enabled)
                     },
+                    ffmpegDecodeMode = ffmpegDecodeMode,
+                    onFfmpegDecodeModeChange = { mode ->
+                        ffmpegDecodeMode = mode
+                        LauncherPrefs.setFfmpegDecodeMode(context, mode)
+                    },
                     onOpenDiagnostics = onOpenDiagnostics,
                     onLaunchOriginal = onLaunchOriginal,
                     onExportBackup = {
@@ -262,6 +268,11 @@ private fun SettingsScreen(
                     onUseFfmpegImageDecoderChange = { enabled ->
                         useFfmpegImageDecoder = enabled
                         LauncherPrefs.setUseFfmpegImageDecoder(context, enabled)
+                    },
+                    ffmpegDecodeMode = ffmpegDecodeMode,
+                    onFfmpegDecodeModeChange = { mode ->
+                        ffmpegDecodeMode = mode
+                        LauncherPrefs.setFfmpegDecodeMode(context, mode)
                     },
                     onOpenDiagnostics = onOpenDiagnostics,
                     onLaunchOriginal = onLaunchOriginal,
@@ -398,6 +409,8 @@ private fun SettingsContent(
     onOpenRenderSettings: () -> Unit,
     useFfmpegImageDecoder: Boolean,
     onUseFfmpegImageDecoderChange: (Boolean) -> Unit,
+    ffmpegDecodeMode: String,
+    onFfmpegDecodeModeChange: (String) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onLaunchOriginal: () -> Unit,
     onExportBackup: () -> Unit,
@@ -414,7 +427,15 @@ private fun SettingsContent(
         when (dest) {
             SettingsDest.Library -> LibrarySettings(text, compact, pathInput, onPathChange, scanDepth, onScanDepthChange, statusLine, onSaveAndScan, onRefresh, onGrantStorage)
             SettingsDest.Display -> DisplaySettings(text, compact, onLangChange)
-            SettingsDest.Engine -> EngineSettings(text, compact, onOpenRenderSettings, useFfmpegImageDecoder, onUseFfmpegImageDecoderChange)
+            SettingsDest.Engine -> EngineSettings(
+                text,
+                compact,
+                onOpenRenderSettings,
+                useFfmpegImageDecoder,
+                onUseFfmpegImageDecoderChange,
+                ffmpegDecodeMode,
+                onFfmpegDecodeModeChange,
+            )
             SettingsDest.Tools -> ToolsSettings(
                 text,
                 compact,
@@ -519,9 +540,34 @@ private fun EngineSettings(
     onOpenRenderSettings: () -> Unit,
     useFfmpegImageDecoder: Boolean,
     onUseFfmpegImageDecoderChange: (Boolean) -> Unit,
+    ffmpegDecodeMode: String,
+    onFfmpegDecodeModeChange: (String) -> Unit,
 ) {
     SettingsPanel(text.settingsEngine, Icons.Default.Tune, compact) {
         RowSetting(Icons.Default.Tune, text.renderSettings, text.renderSettingsHint, onClick = onOpenRenderSettings)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        RowSetting(
+            Icons.Default.Settings,
+            text.ffmpegDecodeMode,
+            text.ffmpegDecodeModeHint,
+            trailing = {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton(onClick = { onFfmpegDecodeModeChange(LauncherPrefs.FFMPEG_DECODE_MODE_SOFTWARE) }) {
+                        Text(
+                            text.ffmpegDecodeSoftware,
+                            color = if (ffmpegDecodeMode == LauncherPrefs.FFMPEG_DECODE_MODE_SOFTWARE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    TextButton(onClick = { onFfmpegDecodeModeChange(LauncherPrefs.FFMPEG_DECODE_MODE_HARDWARE) }) {
+                        Text(
+                            text.ffmpegDecodeHardware,
+                            color = if (ffmpegDecodeMode == LauncherPrefs.FFMPEG_DECODE_MODE_HARDWARE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            },
+            showChevron = false,
+        )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         RowSetting(
             Icons.Default.Settings,

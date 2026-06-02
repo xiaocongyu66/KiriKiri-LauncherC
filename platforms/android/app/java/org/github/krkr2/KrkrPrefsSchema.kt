@@ -83,7 +83,7 @@ object KrkrPrefsSchema {
             PrefItem.Select(
                 key = "renderer",
                 captionRes = "preference_select_renderer",
-                default = "opengl",
+                default = "software",
                 options = listOf(
                     "preference_opengl" to "opengl",
                     "preference_software" to "software",
@@ -108,6 +108,15 @@ object KrkrPrefsSchema {
             PrefItem.Bool("remember_last_path", "preference_remember_last_path", true),
             PrefItem.Bool("hide_android_sys_btn", "preference_hide_android_sys_btn", false),
             PrefItem.Bool("ffmpeg_image_decoder", "preference_ffmpeg_image_decoder", false),
+            PrefItem.Select(
+                key = "ffmpeg_decode_mode",
+                captionRes = "preference_ffmpeg_decode_mode",
+                default = "software",
+                options = listOf(
+                    "preference_ffmpeg_decode_software" to "software",
+                    "preference_ffmpeg_decode_hardware" to "hardware",
+                ),
+            ),
         ),
     )
 

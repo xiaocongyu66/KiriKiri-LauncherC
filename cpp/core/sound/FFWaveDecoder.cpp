@@ -21,6 +21,7 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 };
+#include "FFmpegCompat.h"
 
 class FFWaveDecoder : public tTVPWaveDecoder // decoder interface
 {
@@ -308,8 +309,10 @@ bool FFWaveDecoder::SetStream(const ttstr &url) {
     avctx->codec_id = codec->id;
     avctx->workaround_bugs = /*workaround_bugs*/ 1;
     avctx->error_concealment = 3;
+#if defined(CODEC_FLAG_EMU_EDGE)
     if(codec->capabilities & CODEC_CAP_DR1)
         avctx->flags |= CODEC_FLAG_EMU_EDGE;
+#endif
 
     if(avcodec_open2(avctx, codec, nullptr) < 0) {
         return false;

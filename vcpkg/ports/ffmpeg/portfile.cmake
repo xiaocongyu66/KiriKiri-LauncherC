@@ -2,11 +2,7 @@ vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ffmpeg/ffmpeg
     REF "n${VERSION}"
-    SHA512 c3b49fe521d3eb946c130a6ad2d199130483e7c01545e53acef316e4c923f768540057e2c0ce2655aaaafc55872e02f045fe59f5a477d1c5b8985ef14c6bd3df
-    PATCHES
-        0001-android-ffmpeg.patch
-        0001-operand-shr-error.patch
-        0001-fixed-mac.patch
+    SHA512 ccd79de9a570d6168ff2ee28061c3637a39963512a3e44b438a4a14a92865d5e91ed7d2f98a360826ac389e96d0ff3eb9f27b88164e6846d35efa0a817c0ff7b
 )
 
 if(SOURCE_PATH MATCHES " ")

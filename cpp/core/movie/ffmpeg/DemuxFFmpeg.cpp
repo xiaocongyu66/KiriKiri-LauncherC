@@ -4,6 +4,7 @@ extern "C" {
 #include "libavutil/dict.h"
 #include "libavutil/opt.h"
 }
+#include "FFmpegCompat.h"
 
 #include "Clock.h"
 #include "DemuxPacket.h"
