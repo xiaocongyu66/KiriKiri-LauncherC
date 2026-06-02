@@ -86,6 +86,7 @@ object KrkrPrefsSchema {
                 default = "software",
                 options = listOf(
                     "preference_opengl" to "opengl",
+                    "preference_angle" to "angle",
                     "preference_software" to "software",
                 ),
             ),

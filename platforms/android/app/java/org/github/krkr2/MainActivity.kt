@@ -28,6 +28,7 @@ class MainActivity : KR2Activity() {
     private var orientationListener: android.view.OrientationEventListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        AngleDriverController.configureBeforeGl(this)
         super.setEnableVirtualButton(false)
         super.onCreate(savedInstanceState)
 

@@ -4893,6 +4893,8 @@ iTVPRenderManager *TVPGetRenderManager() {
         ttstr str =
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
+        if(str == TJS_W("angle"))
+            str = TJS_W("opengl");
         _RenderManager = TVPGetRenderManager(str);
     }
     return _RenderManager;

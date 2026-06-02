@@ -5,6 +5,7 @@
     <Item id="preference_output_log" text="Output Log"/>
     <Item id="preference_select_renderer" text="Select Renderer"/>
     <Item id="preference_opengl" text="OpenGL(Experimental)"/>
+    <Item id="preference_angle" text="ANGLE(OpenGL via system driver)"/>
     <Item id="preference_software" text="Software"/>
     <Item id="preference_renderer_opt" text="Advanced Renderer Option"/>
     <Item id="preference_soft_renderer_opt" text="Soft Renderer Option"/>

@@ -553,7 +553,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
                     fallback = text.launchFileAuto,
                     expanded = rendererMenuOpen,
                     onExpandedChange = { rendererMenuOpen = it },
-                    options = listOf(text.launchFileAuto to "", engineCaption(text, "preference_opengl") to "opengl", engineCaption(text, "preference_software") to "software"),
+                    options = listOf(text.launchFileAuto to "", engineCaption(text, "preference_opengl") to "opengl", engineCaption(text, "preference_angle") to "angle", engineCaption(text, "preference_software") to "software"),
                     onSelect = { raw -> renderer = raw; LauncherPrefs.setGameEnginePref(context, game.gameDir, "renderer", raw) },
                 )
                 GameSelectSetting(
