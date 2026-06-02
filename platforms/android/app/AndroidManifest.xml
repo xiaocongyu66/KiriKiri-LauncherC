@@ -74,7 +74,8 @@
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="true"
             android:screenOrientation="userLandscape"
-            android:launchMode="singleTask"
+            android:launchMode="singleTop"
+            android:process=":game"
             android:theme="@style/Theme.KR2"
             android:windowSoftInputMode="adjustPan"
             tools:ignore="DiscouragedApi">

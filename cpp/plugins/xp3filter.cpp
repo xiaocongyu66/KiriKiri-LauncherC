@@ -8,6 +8,7 @@
 #include "tjsDebug.h"
 #include "xp3filter.h"
 #include "ThreadIntf.h"
+#include <atomic>
 #include <memory>
 #include <thread>
 
@@ -298,6 +299,27 @@ tjs_error CBinaryAccessor::FuncXor(tjs_int numparams, tTJSVariant **param) {
 
 static bool _ManagedDecoderInited = false;
 static bool _ManagedFilterInited = false;
+static std::atomic<int> sXP3FilterExceptionCount {0};
+
+static bool TVPXP3FilterShouldBypass() {
+    return sXP3FilterExceptionCount.load(std::memory_order_relaxed) >= 64;
+}
+
+static void TVPLogXP3FilterException(const ttstr &phase, const ttstr &name,
+                                     const ttstr &message) {
+    const int count =
+        sXP3FilterExceptionCount.fetch_add(1, std::memory_order_relaxed) + 1;
+    if(count <= 16 || count == 64) {
+        ttstr line = TJS_W("[xp3filter] ") + phase + TJS_W(" failed");
+        if(!name.IsEmpty())
+            line += TJS_W(" for '") + name + TJS_W("'");
+        if(!message.IsEmpty())
+            line += TJS_W(": ") + message;
+        if(count == 64)
+            line += TJS_W(" (bypassing xp3filter after repeated failures)");
+        TVPAddLog(line);
+    }
+}
 
 struct XP3FilterDecoder {
     tTJS *ScriptEngine = new tTJS();
@@ -469,26 +491,39 @@ tjs_int TVPXP3ArchiveContentFilterWrapper(const ttstr &filepath,
                                           tTJSVariant *ctx) {
     if(!_ManagedFilterInited)
         return 0;
-
-    XP3FilterDecoder *decoder = FetchXP3Decoder();
-    if(!decoder->ManagedFilter.Object)
+    if(TVPXP3FilterShouldBypass())
         return 0;
-    tTJSVariant FilePath(filepath);
-    tTJSVariant ArcName(archivename);
-    tTJSVariant FileSize((tjs_int64)filesize);
-    tTJSVariant *vars[] = { &FilePath, &ArcName, &FileSize };
-    tTJSVariant result;
-    decoder->ManagedFilter.FuncCall(0, nullptr, nullptr, &result,
-                                    sizeof(vars) / sizeof(vars[0]), vars,
-                                    nullptr);
-    tjs_int ret = 0;
-    if(result.Type() == tvtObject) {
-        iTJSDispatch2 *arr = result.AsObjectNoAddRef();
-        ncbPropAccessor a(arr);
-        ret = a.GetValue(0, ncbTypedefs::Tag<tjs_int>());
-        *ctx = a.GetValue(1, ncbTypedefs::Tag<tTJSVariant>());
+
+    try {
+        XP3FilterDecoder *decoder = FetchXP3Decoder();
+        if(!decoder->ManagedFilter.Object)
+            return 0;
+        tTJSVariant FilePath(filepath);
+        tTJSVariant ArcName(archivename);
+        tTJSVariant FileSize((tjs_int64)filesize);
+        tTJSVariant *vars[] = { &FilePath, &ArcName, &FileSize };
+        tTJSVariant result;
+        decoder->ManagedFilter.FuncCall(0, nullptr, nullptr, &result,
+                                        sizeof(vars) / sizeof(vars[0]), vars,
+                                        nullptr);
+        tjs_int ret = 0;
+        if(result.Type() == tvtObject) {
+            iTJSDispatch2 *arr = result.AsObjectNoAddRef();
+            ncbPropAccessor a(arr);
+            ret = a.GetValue(0, ncbTypedefs::Tag<tjs_int>());
+            *ctx = a.GetValue(1, ncbTypedefs::Tag<tTJSVariant>());
+        }
+        return ret;
+    } catch(eTJSError &e) {
+        TVPLogXP3FilterException(TJS_W("content filter"), filepath,
+                                 e.GetMessage());
+    } catch(std::exception &e) {
+        TVPLogXP3FilterException(TJS_W("content filter"), filepath,
+                                 ttstr(e.what()));
+    } catch(...) {
+        TVPLogXP3FilterException(TJS_W("content filter"), filepath, ttstr());
     }
-    return ret;
+    return 0;
 }
 
 void TVP_tTVPXP3ArchiveExtractionFilter_CONVENTION
@@ -497,37 +532,50 @@ TVPXP3ArchiveExtractionFilterWrapper(tTVPXP3ExtractionFilterInfo *info,
     if(info->SizeOfSelf != sizeof(tTVPXP3ExtractionFilterInfo))
         TVPThrowExceptionMessage(
             TJS_W("Incompatible tTVPXP3ExtractionFilterInfo size"));
-    XP3FilterDecoder *decoder = FetchXP3Decoder();
-    if(decoder->ManagedDecoder.Object) {
-        tTJSVariant FileHash = (tjs_int64)info->FileHash;
-        tTJSVariant Offset = (tjs_int64)info->Offset;
-        CBinaryAccessor *buf = new CBinaryAccessor(
-            (unsigned char *)info->Buffer, info->BufferSize);
-        tTJSVariant Buffer(buf);
-        buf->Release();
-        tTJSVariant BufferSize((tjs_int64)info->BufferSize);
-        tTJSVariant FileName(info->FileName);
-        tTJSVariant *vars[] = { &FileHash,   &Offset,   &Buffer,
-                                &BufferSize, &FileName, ctx };
+    if(TVPXP3FilterShouldBypass())
+        return;
+    try {
+        XP3FilterDecoder *decoder = FetchXP3Decoder();
+        if(decoder->ManagedDecoder.Object) {
+            tTJSVariant FileHash = (tjs_int64)info->FileHash;
+            tTJSVariant Offset = (tjs_int64)info->Offset;
+            CBinaryAccessor *buf = new CBinaryAccessor(
+                (unsigned char *)info->Buffer, info->BufferSize);
+            tTJSVariant Buffer(buf);
+            buf->Release();
+            tTJSVariant BufferSize((tjs_int64)info->BufferSize);
+            tTJSVariant FileName(info->FileName);
+            tTJSVariant *vars[] = { &FileHash,   &Offset,   &Buffer,
+                                    &BufferSize, &FileName, ctx };
 #if defined(WIN32) && defined(CHECK_CXDEC)
-        unsigned char *pBackup = new unsigned char[info->BufferSize],
-                      *pBuffer = (unsigned char *)info->Buffer;
-        memcpy(pBackup, info->Buffer, info->BufferSize);
+            unsigned char *pBackup = new unsigned char[info->BufferSize],
+                          *pBuffer = (unsigned char *)info->Buffer;
+            memcpy(pBackup, info->Buffer, info->BufferSize);
 #endif
-        decoder->ManagedDecoder.FuncCall(0, nullptr, nullptr, nullptr,
-                                         sizeof(vars) / sizeof(vars[0]), vars,
-                                         nullptr);
+            decoder->ManagedDecoder.FuncCall(
+                0, nullptr, nullptr, nullptr,
+                sizeof(vars) / sizeof(vars[0]), vars, nullptr);
 #if defined(WIN32) && defined(CHECK_CXDEC)
-        cxdec_decode(&dec_callback, info->FileHash, info->Offset, pBackup,
-                     info->BufferSize);
-        for(int i = 0; i < info->BufferSize; ++i) {
-            if(pBackup[i] != pBuffer[i]) {
-                assert(false);
-                break;
+            cxdec_decode(&dec_callback, info->FileHash, info->Offset, pBackup,
+                         info->BufferSize);
+            for(int i = 0; i < info->BufferSize; ++i) {
+                if(pBackup[i] != pBuffer[i]) {
+                    assert(false);
+                    break;
+                }
             }
-        }
-        delete[] pBackup;
+            delete[] pBackup;
 #endif
+        }
+    } catch(eTJSError &e) {
+        TVPLogXP3FilterException(TJS_W("extraction filter"), info->FileName,
+                                 e.GetMessage());
+    } catch(std::exception &e) {
+        TVPLogXP3FilterException(TJS_W("extraction filter"), info->FileName,
+                                 ttstr(e.what()));
+    } catch(...) {
+        TVPLogXP3FilterException(TJS_W("extraction filter"), info->FileName,
+                                 ttstr());
     }
 }
 
@@ -538,6 +586,7 @@ void TVPSetXP3FilterScript(ttstr content) {
         }
         _thread_decoders.clear();
     }
+    sXP3FilterExceptionCount.store(0, std::memory_order_relaxed);
     if(content.IsEmpty()) {
         TVPSetXP3ArchiveExtractionFilter(nullptr);
         TVPSetXP3ArchiveContentFilter(nullptr);

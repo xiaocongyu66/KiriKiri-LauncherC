@@ -31,10 +31,6 @@ class MainActivity : KR2Activity() {
         super.setEnableVirtualButton(false)
         super.onCreate(savedInstanceState)
 
-        if (!isTaskRoot) {
-            return
-        }
-
         val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
         KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)

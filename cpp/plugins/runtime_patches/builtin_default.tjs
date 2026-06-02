@@ -173,7 +173,9 @@ if(!__krkr2_memberExists(global, "__krkr2_runtimePatchApplied")) {
             var isMulti = file.indexOf("imagemulti") >= 0;
             var isNameMap = file.indexOf("imagenamemap") >= 0;
             var isDiffMap = file.indexOf("imagediffmap") >= 0;
-            if(!isMulti && !isNameMap && !isDiffMap)
+            var isDressMap = file.indexOf("imagedressmap") >= 0;
+            var isPropMap = file.indexOf("imagepropmap") >= 0;
+            if(!isMulti && !isNameMap && !isDiffMap && !isDressMap && !isPropMap)
                 return;
 
             for(var i = 0; i < rows.count; i++) {
@@ -191,6 +193,71 @@ if(!__krkr2_memberExists(global, "__krkr2_runtimePatchApplied")) {
                         __krkr2_registerResourceAlias(alias, row[j]);
                 } else {
                     __krkr2_registerResourceAlias(alias, row[1]);
+                }
+            }
+        } catch(e) {}
+    }
+
+    function __krkr2_indexStorageExists(storage=void) {
+        try {
+            var storages = __krkr2_memberValue(global, "Storages", void);
+            if(storages === void ||
+               typeof __krkr2_memberValue(storages, "isExistentStorage", void) != "function")
+                return false;
+            return storages.isExistentStorage(storage) ? true : false;
+        } catch(e) {
+            return false;
+        }
+    }
+
+    function __krkr2_tryLoadIndexedResourceConfig(storage=void) {
+        try {
+            if(typeof storage != "string" || storage == "")
+                return;
+            if(!__krkr2_indexStorageExists(storage))
+                return;
+            if(typeof __krkr2_memberValue(global, "__krkr2_loadConfigFile_indexedResourceCompat", void) != "function")
+                return;
+
+            var rows = void;
+            try {
+                rows = global.__krkr2_loadConfigFile_indexedResourceCompat("", storage, ",");
+            } catch(e1) {
+                try {
+                    rows = global.__krkr2_loadConfigFile_indexedResourceCompat(storage, ",");
+                } catch(e2) {
+                    try {
+                        rows = global.__krkr2_loadConfigFile_indexedResourceCompat(storage);
+                    } catch(e3) {
+                        rows = void;
+                    }
+                }
+            }
+            __krkr2_registerIndexedResourceAliases(storage, rows);
+        } catch(e) {}
+    }
+
+    function __krkr2_scanCommonIndexedResourceConfigs() {
+        try {
+            if(!__krkr2_memberExists(global, "__krkr2_indexedResourceConfigScanAttempts"))
+                global.__krkr2_indexedResourceConfigScanAttempts = 0;
+            if(global.__krkr2_indexedResourceConfigScanAttempts >= 8)
+                return;
+            global.__krkr2_indexedResourceConfigScanAttempts++;
+
+            var dirs = ["", "main/", "data/main/"];
+            var bases = [
+                "imagemulti",
+                "imagenamemap",
+                "imagediffmap",
+                "imagedressmap",
+                "imagepropmap"
+            ];
+            var exts = [".txt", ".csv", ".tsv", ".ini"];
+            for(var d = 0; d < dirs.count; d++) {
+                for(var b = 0; b < bases.count; b++) {
+                    for(var e = 0; e < exts.count; e++)
+                        __krkr2_tryLoadIndexedResourceConfig(dirs[d] + bases[b] + exts[e]);
                 }
             }
         } catch(e) {}
@@ -222,14 +289,19 @@ if(!__krkr2_memberExists(global, "__krkr2_runtimePatchApplied")) {
                     }
                 }
                 __krkr2_registerIndexedResourceAliases(storage, rows);
+                __krkr2_scanCommonIndexedResourceConfigs();
             } catch(e) {}
             return rows;
         };
+        __krkr2_scanCommonIndexedResourceConfigs();
     }
 
     function __krkr2_tryInstallIndexedResourceCompat() {
         try {
             __krkr2_installIndexedResourceConfigCompat();
+            if(__krkr2_memberExists(global, "__krkr2_indexedResourceConfigCompatApplied") &&
+               global.__krkr2_indexedResourceConfigCompatApplied)
+                __krkr2_scanCommonIndexedResourceConfigs();
         } catch(e) {}
     }
 
