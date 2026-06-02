@@ -686,6 +686,11 @@ static bool sameEncodingName(const std::string &encoding,
     return i == encoding.size() && expected[i] == 0;
 }
 
+static bool sameEncodingName(const std::string &encoding,
+                             const std::string &expected) {
+    return sameEncodingName(encoding, expected.c_str());
+}
+
 struct EncodingAlias {
     const char *alias;
     const char *canonical;
