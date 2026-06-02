@@ -4,7 +4,7 @@ extern "C" {
 #include "libavutil/dict.h"
 #include "libavutil/opt.h"
 }
-#include "FFmpegCompat.h"
+#include "FFmpegApi.h"
 
 #include "Clock.h"
 #include "DemuxPacket.h"
@@ -30,7 +30,7 @@ static const struct StereoModeConversionMap WmvToInternalStereoModeMap[] = {
     {}
 };
 
-#define FF_MAX_EXTRADATA_SIZE ((1 << 28) - FF_INPUT_BUFFER_PADDING_SIZE)
+#define FF_MAX_EXTRADATA_SIZE ((1 << 28) - AV_INPUT_BUFFER_PADDING_SIZE)
 #define FFMPEG_FILE_BUFFER_SIZE 32768 // default reading size for ffmpeg
 
 static bool TVPCodecParVideoReady(const AVCodecParameters *par) {

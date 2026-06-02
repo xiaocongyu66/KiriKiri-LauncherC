@@ -597,50 +597,60 @@ AVSampleFormat CAEUtil::GetAVSampleFormat(AEDataFormat format) {
     }
 }
 
-uint64_t CAEUtil::GetAVChannel(enum AEChannel aechannel) {
+AVChannel CAEUtil::GetAVChannel(enum AEChannel aechannel) {
     switch(aechannel) {
         case AE_CH_FL:
-            return AV_CH_FRONT_LEFT;
+            return AV_CHAN_FRONT_LEFT;
         case AE_CH_FR:
-            return AV_CH_FRONT_RIGHT;
+            return AV_CHAN_FRONT_RIGHT;
         case AE_CH_FC:
-            return AV_CH_FRONT_CENTER;
+            return AV_CHAN_FRONT_CENTER;
         case AE_CH_LFE:
-            return AV_CH_LOW_FREQUENCY;
+            return AV_CHAN_LOW_FREQUENCY;
         case AE_CH_BL:
-            return AV_CH_BACK_LEFT;
+            return AV_CHAN_BACK_LEFT;
         case AE_CH_BR:
-            return AV_CH_BACK_RIGHT;
+            return AV_CHAN_BACK_RIGHT;
         case AE_CH_FLOC:
-            return AV_CH_FRONT_LEFT_OF_CENTER;
+            return AV_CHAN_FRONT_LEFT_OF_CENTER;
         case AE_CH_FROC:
-            return AV_CH_FRONT_RIGHT_OF_CENTER;
+            return AV_CHAN_FRONT_RIGHT_OF_CENTER;
         case AE_CH_BC:
-            return AV_CH_BACK_CENTER;
+            return AV_CHAN_BACK_CENTER;
         case AE_CH_SL:
-            return AV_CH_SIDE_LEFT;
+            return AV_CHAN_SIDE_LEFT;
         case AE_CH_SR:
-            return AV_CH_SIDE_RIGHT;
+            return AV_CHAN_SIDE_RIGHT;
         case AE_CH_TC:
-            return AV_CH_TOP_CENTER;
+            return AV_CHAN_TOP_CENTER;
         case AE_CH_TFL:
-            return AV_CH_TOP_FRONT_LEFT;
+            return AV_CHAN_TOP_FRONT_LEFT;
         case AE_CH_TFC:
-            return AV_CH_TOP_FRONT_CENTER;
+            return AV_CHAN_TOP_FRONT_CENTER;
         case AE_CH_TFR:
-            return AV_CH_TOP_FRONT_RIGHT;
+            return AV_CHAN_TOP_FRONT_RIGHT;
         case AE_CH_TBL:
-            return AV_CH_TOP_BACK_LEFT;
+            return AV_CHAN_TOP_BACK_LEFT;
         case AE_CH_TBC:
-            return AV_CH_TOP_BACK_CENTER;
+            return AV_CHAN_TOP_BACK_CENTER;
         case AE_CH_TBR:
-            return AV_CH_TOP_BACK_RIGHT;
+            return AV_CHAN_TOP_BACK_RIGHT;
         default:
-            return 0;
+            return AV_CHAN_NONE;
     }
 }
 
 int CAEUtil::GetAVChannelIndex(enum AEChannel aechannel, uint64_t layout) {
-    return av_get_channel_layout_channel_index(layout, GetAVChannel(aechannel));
+    const AVChannel channel = GetAVChannel(aechannel);
+    if(channel == AV_CHAN_NONE || !layout)
+        return -1;
+
+    AVChannelLayout channelLayout{};
+    if(av_channel_layout_from_mask(&channelLayout, layout) < 0)
+        return -1;
+    const int index =
+        av_channel_layout_index_from_channel(&channelLayout, channel);
+    av_channel_layout_uninit(&channelLayout);
+    return index;
 }
 NS_KRMOVIE_END

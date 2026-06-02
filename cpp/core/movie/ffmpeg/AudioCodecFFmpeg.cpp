@@ -10,7 +10,7 @@
 extern "C" {
 #include "libavutil/opt.h"
 }
-#include "FFmpegCompat.h"
+#include "FFmpegApi.h"
 
 #if defined(TARGET_DARWIN)
 #include "cores/AudioEngine/Utils/AEUtil.h"
@@ -64,8 +64,7 @@ bool CDVDAudioCodecFFmpeg::Open(CDVDStreamInfo &hints,
     m_pCodecContext->debug = 0;
     m_pCodecContext->workaround_bugs = 1;
 
-    if(pCodec->capabilities & CODEC_CAP_TRUNCATED)
-        m_pCodecContext->flags |= CODEC_FLAG_TRUNCATED;
+    m_pCodecContext->flags2 |= AV_CODEC_FLAG2_CHUNKS;
 
     m_matrixEncoding = AV_MATRIX_ENCODING_NONE;
     m_channels = 0;
@@ -80,7 +79,7 @@ bool CDVDAudioCodecFFmpeg::Open(CDVDStreamInfo &hints,
 
     if(hints.extradata && hints.extrasize > 0) {
         m_pCodecContext->extradata = (uint8_t *)av_mallocz(
-            hints.extrasize + FF_INPUT_BUFFER_PADDING_SIZE);
+            hints.extrasize + AV_INPUT_BUFFER_PADDING_SIZE);
         if(m_pCodecContext->extradata) {
             m_pCodecContext->extradata_size = hints.extrasize;
             memcpy(m_pCodecContext->extradata, hints.extradata,
@@ -315,8 +314,8 @@ void CDVDAudioCodecFFmpeg::BuildChannelMap() {
         layout = contextLayout;
     else {
         //    CLog::Log(LOGINFO, "CDVDAudioCodecFFmpeg::GetChannelMap
-        //    - FFmpeg reported %d channels, but the layout contains
-        //    %d ignoring", m_pCodecContext->channels, bits);
+        //    - FFmpeg reported %d audio channels, but the layout contains
+        //    %d ignoring", channels, bits);
         AVChannelLayout defaultLayout{};
         av_channel_layout_default(&defaultLayout, channels);
         layout = TVPFFmpegChannelLayoutMask(&defaultLayout);

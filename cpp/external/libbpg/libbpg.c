@@ -29,7 +29,7 @@
 #include <libavutil/opt.h>
 #include <libavcodec/avcodec.h>
 #include <libavutil/common.h>
-#include "../../core/common/FFmpegCompat.h"
+#include "../../core/common/FFmpegApi.h"
 
 /* The following global defines are used:
    - USE_VAR_BIT_DEPTH : support of bit depth > 8 bits
@@ -397,7 +397,7 @@ static int hevc_write_frame(AVCodecContext *avctx,
     avpkt.data = (uint8_t *)buf;
     avpkt.size = buf_len;
     /* avoid using uninitialized data */
-    memset(buf + buf_len, 0, FF_INPUT_BUFFER_PADDING_SIZE);
+    memset(buf + buf_len, 0, AV_INPUT_BUFFER_PADDING_SIZE);
     ret = avcodec_send_packet(avctx, &avpkt);
     if (ret < 0)
         return -1;
@@ -476,14 +476,14 @@ static int hevc_decode_frame_internal(BPGDecoderContext *s,
     }
     
     if (s->alpha_dec_ctx) {
-        if (dyn_buf_resize(abuf, abuf->len + FF_INPUT_BUFFER_PADDING_SIZE) < 0)
+        if (dyn_buf_resize(abuf, abuf->len + AV_INPUT_BUFFER_PADDING_SIZE) < 0)
             goto fail;
         ret = hevc_write_frame(s->alpha_dec_ctx, s->alpha_frame, abuf->buf, abuf->len);
         if (ret < 0)
             goto fail;
     }
 
-    if (dyn_buf_resize(cbuf, cbuf->len + FF_INPUT_BUFFER_PADDING_SIZE) < 0)
+    if (dyn_buf_resize(cbuf, cbuf->len + AV_INPUT_BUFFER_PADDING_SIZE) < 0)
         goto fail;
     ret = hevc_write_frame(s->dec_ctx, s->frame, cbuf->buf, cbuf->len);
     if (ret < 0)

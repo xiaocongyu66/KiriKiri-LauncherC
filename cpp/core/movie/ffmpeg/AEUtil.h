@@ -5,6 +5,7 @@
 #include <math.h>
 
 extern "C" {
+#include "libavutil/channel_layout.h"
 #include "libavutil/samplefmt.h"
 }
 
@@ -202,7 +203,7 @@ public:
 
     static AVSampleFormat GetAVSampleFormat(AEDataFormat format);
 
-    static uint64_t GetAVChannel(enum AEChannel aechannel);
+    static AVChannel GetAVChannel(enum AEChannel aechannel);
 
     static int GetAVChannelIndex(enum AEChannel aechannel, uint64_t layout);
 };

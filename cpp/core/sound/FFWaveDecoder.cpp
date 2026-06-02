@@ -21,7 +21,7 @@ extern "C" {
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 };
-#include "FFmpegCompat.h"
+#include "FFmpegApi.h"
 
 class FFWaveDecoder : public tTVPWaveDecoder // decoder interface
 {

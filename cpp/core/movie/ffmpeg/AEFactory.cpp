@@ -4,6 +4,7 @@
 #include "Clock.h"
 
 extern "C" {
+#include <libavutil/channel_layout.h>
 #include <libswresample/swresample.h>
 }
 
@@ -118,12 +119,24 @@ class CAEStreamAL : public IAEStream {
                 bitsPerSample = 16;
                 break;
         }
-        swr_ctx = swr_alloc_set_opts(
-            nullptr, layout, swr_tgtFormat, audioFormat.m_sampleRate, layout,
-            srcFormat, audioFormat.m_sampleRate, 0, nullptr);
+        AVChannelLayout channelLayout{};
+        if(layout)
+            av_channel_layout_from_mask(&channelLayout, layout);
+        if(channelLayout.nb_channels <= 0)
+            av_channel_layout_default(&channelLayout,
+                                      audioFormat.m_channelLayout.Count());
+
+        SwrContext *resampler = nullptr;
+        int result = swr_alloc_set_opts2(
+            &resampler, &channelLayout, swr_tgtFormat,
+            audioFormat.m_sampleRate, &channelLayout, srcFormat,
+            audioFormat.m_sampleRate, 0, nullptr);
+        av_channel_layout_uninit(&channelLayout);
+        swr_ctx = resampler;
         tgt_frameSize = av_get_bytes_per_sample(swr_tgtFormat) *
             m_format.m_channelLayout.Count();
-        int result = swr_init(swr_ctx);
+        if(result >= 0)
+            result = swr_init(swr_ctx);
         assert(swr_ctx && result >= 0);
         return bitsPerSample;
     }

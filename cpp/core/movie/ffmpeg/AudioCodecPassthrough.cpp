@@ -135,7 +135,7 @@ int CDVDAudioCodecPassthrough::Decode(uint8_t *pData, int iSize, double dts,
     }
 
     if(!m_dataSize)
-        return used + skip;
+        return used;
 
     if(m_dataSize) {
         m_format.m_dataFormat = AE_FMT_RAW;
