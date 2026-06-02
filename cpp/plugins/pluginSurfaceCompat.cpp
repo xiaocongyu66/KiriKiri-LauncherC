@@ -4687,6 +4687,12 @@ REGISTER_EMPTY_COMPAT_PLUGIN(nativeclasstest_dll_compat,
 REGISTER_EMPTY_COMPAT_PLUGIN(exceptest_dll_compat, "exceptest.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(drawdevice_dll_compat, "drawdevice.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(gdidrawdevice_dll_compat, "gdidrawdevice.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(kaichotrans_dll_compat, "KaichoTrans.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(layerExAlpha_dll_compat, "layerExAlpha.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(layerExShimmer_dll_compat, "layerExShimmer.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(util_generic_dll_compat, "util_generic.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(util_graph_dll_compat, "util_graph.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(util_system_dll_compat, "util_system.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(utf8hack_dll_compat, "utf8hack.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(k2utf8hack_dll_compat, "k2utf8hack.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(wumsadp_dll_compat, "wumsadp.dll");
