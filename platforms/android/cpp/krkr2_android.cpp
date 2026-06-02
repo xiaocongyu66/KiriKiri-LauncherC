@@ -47,7 +47,7 @@ static bool DumpFilter(void *data) {
 
     TVPInitializeNativeLogging();
 
-#if defined(ANDROID)
+#if defined(ANDROID) && defined(KRKR2_ENABLE_TJS_DOBBY_HOOK)
     TJS::TVPInstallKrkrHook();
     try {
         spdlog::info("[hook] install requested, installed={}",

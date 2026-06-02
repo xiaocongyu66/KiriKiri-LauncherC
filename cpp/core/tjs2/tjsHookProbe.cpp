@@ -2,6 +2,18 @@
 
 #if defined(ANDROID)
 
+#if !defined(KRKR2_ENABLE_TJS_DOBBY_HOOK)
+
+namespace TJS {
+
+void TVPInstallKrkrHook() {}
+
+bool TVPIsKrkrHookInstalled() { return false; }
+
+} // namespace TJS
+
+#else
+
 #include <android/log.h>
 #include <dlfcn.h>
 #include <mutex>
@@ -161,5 +173,7 @@ void TVPInstallKrkrHook() {
 bool TVPIsKrkrHookInstalled() { return g_hook_installed; }
 
 } // namespace TJS
+
+#endif // KRKR2_ENABLE_TJS_DOBBY_HOOK
 
 #endif

@@ -27,6 +27,11 @@ object GameScanner {
     private val coverNames = listOf(
         "cover", "icon", "title", "thumb", "thumbnail", "package", "bg", "background", "main"
     )
+    private val launchExts = setOf("xp3", "tjs", "ks")
+    private val preferredLaunchNames = listOf(
+        "startup.tjs", "start.tjs", "data.xp3", "startup.xp3", "start.xp3",
+        "main.xp3", "game.xp3", "first.ks", "scenario.ks",
+    )
     private val nativeAvailable: Boolean = runCatching {
         System.loadLibrary("krkr2")
         true
@@ -183,18 +188,17 @@ object GameScanner {
     }
 
     private fun chooseLaunchFile(children: List<File>): File? {
-        val order = listOf("startup.tjs", "start.tjs", "data.xp3")
-        return order.firstNotNullOfOrNull { name -> children.firstOrNull { it.name.equals(name, true) } }
-            ?: children.firstOrNull { it.isFile && it.extension.equals("xp3", true) }
-            ?: children.firstOrNull { it.isFile && it.extension.equals("ks", true) }
+        return children.asSequence()
+            .filter { it.isFile && it.extension.lowercase(Locale.ROOT) in launchExts }
+            .minWithOrNull(compareBy<File> { launchRank(it) }.thenBy { it.name.lowercase(Locale.ROOT) })
     }
 
     /**
      * Enumerate every plausible launch entry under [dir]. Used by the
      * per-game settings sheet so the user can pick a non-default boot file
      * (e.g. `startup.xp3`, `初始化.xp3`, a hand-written `.tjs`). Sorted
-     * with engine-canonical names first, then by extension priority, then
-     * alphabetically — so the obvious entry sits at the top.
+     * with engine-canonical names first, then likely boot archives/scripts,
+     * then asset archives, so the obvious entry sits at the top.
      */
     fun listLaunchCandidates(dir: File): List<File> {
         if (!dir.exists() || !dir.isDirectory) return emptyList()
@@ -211,28 +215,58 @@ object GameScanner {
     }
 
     private fun listLaunchCandidatesKotlin(dir: File): List<File> {
-        val preferred = listOf("startup.tjs", "start.tjs", "data.xp3")
         return runCatching {
             dir.walkTopDown()
                 .filter { file ->
-                    file.isFile && file.extension.lowercase(Locale.ROOT) in setOf("xp3", "tjs", "ks") &&
+                    file.isFile && file.extension.lowercase(Locale.ROOT) in launchExts &&
                         file.relativeTo(dir).invariantSeparatorsPath.count { it == '/' } <= 3
                 }
                 .sortedWith(compareBy<File> { file ->
-                    val name = file.name.lowercase(Locale.ROOT)
-                    val idx = preferred.indexOf(name)
-                    if (idx >= 0) idx else 100 + extPriority(file.extension.lowercase(Locale.ROOT))
+                    launchRank(file, dir)
                 }.thenBy { it.relativeTo(dir).invariantSeparatorsPath.lowercase(Locale.ROOT) })
                 .take(80)
                 .toList()
         }.getOrDefault(emptyList())
     }
 
-    private fun extPriority(ext: String): Int = when (ext) {
-        "xp3" -> 0
-        "tjs" -> 1
-        "ks" -> 2
-        else -> 3
+    private fun launchRank(file: File, root: File? = null): Int {
+        val name = file.name.lowercase(Locale.ROOT)
+        val preferredIndex = preferredLaunchNames.indexOf(name)
+        if (preferredIndex >= 0) return preferredIndex
+
+        val ext = file.extension.lowercase(Locale.ROOT)
+        val base = file.nameWithoutExtension.lowercase(Locale.ROOT)
+        val baseRank = when (ext) {
+            "xp3" -> when {
+                base == "boot" -> 20
+                base == "main" || base == "game" || base == "scenario" || base == "script" -> 30
+                base.startsWith("data") -> 40
+                isAssetArchiveBase(base) -> 300
+                else -> 80
+            }
+            "tjs" -> if (base == "main" || base == "boot" || base == "game") 60 else 90
+            "ks" -> if (base == "first" || base == "scenario") 70 else 100
+            else -> 500
+        }
+        val depthPenalty = root?.let {
+            runCatching { file.relativeTo(it).invariantSeparatorsPath.count { ch -> ch == '/' } }.getOrDefault(0)
+        } ?: 0
+        return baseRank + depthPenalty * 20
+    }
+
+    private fun isAssetArchiveBase(base: String): Boolean {
+        return base == "patch" ||
+            base.startsWith("patch") ||
+            base == "bg" ||
+            base.startsWith("bg") ||
+            base.contains("image") ||
+            base.contains("voice") ||
+            base.contains("sound") ||
+            base.contains("audio") ||
+            base.contains("music") ||
+            base.contains("movie") ||
+            base.contains("video") ||
+            base.contains("effect")
     }
 
     private fun File.runCatchingReadText(): String? = runCatching { readText() }.getOrNull()

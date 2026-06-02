@@ -446,6 +446,82 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         return resolved;
     }
 
+    static private boolean isLaunchExtension(String extension) {
+        return extension.equals("xp3") || extension.equals("tjs") || extension.equals("ks");
+    }
+
+    static private String extensionLower(File file) {
+        String name = file.getName();
+        int pos = name.lastIndexOf('.');
+        if(pos < 0 || pos + 1 >= name.length()) return "";
+        return name.substring(pos + 1).toLowerCase(Locale.ROOT);
+    }
+
+    static private String baseLower(File file) {
+        String name = file.getName();
+        int pos = name.lastIndexOf('.');
+        if(pos >= 0) name = name.substring(0, pos);
+        return name.toLowerCase(Locale.ROOT);
+    }
+
+    static private int preferredLaunchIndex(String nameLower) {
+        switch(nameLower) {
+            case "startup.tjs": return 0;
+            case "start.tjs": return 1;
+            case "data.xp3": return 2;
+            case "startup.xp3": return 3;
+            case "start.xp3": return 4;
+            case "main.xp3": return 5;
+            case "game.xp3": return 6;
+            case "first.ks": return 7;
+            case "scenario.ks": return 8;
+            default: return -1;
+        }
+    }
+
+    static private boolean isAssetArchiveBase(String base) {
+        return base.equals("patch") ||
+                base.startsWith("patch") ||
+                base.equals("bg") ||
+                base.startsWith("bg") ||
+                base.contains("image") ||
+                base.contains("voice") ||
+                base.contains("sound") ||
+                base.contains("audio") ||
+                base.contains("music") ||
+                base.contains("movie") ||
+                base.contains("video") ||
+                base.contains("effect");
+    }
+
+    static private int launchRank(File file) {
+        String name = file.getName().toLowerCase(Locale.ROOT);
+        int preferred = preferredLaunchIndex(name);
+        if(preferred >= 0) return preferred;
+
+        String extension = extensionLower(file);
+        String base = baseLower(file);
+        if(extension.equals("xp3")) {
+            if(base.equals("boot")) return 20;
+            if(base.equals("main") || base.equals("game") ||
+                    base.equals("scenario") || base.equals("script")) {
+                return 30;
+            }
+            if(base.startsWith("data")) return 40;
+            if(isAssetArchiveBase(base)) return 300;
+            return 80;
+        }
+        if(extension.equals("tjs")) {
+            if(base.equals("main") || base.equals("boot") || base.equals("game")) return 60;
+            return 90;
+        }
+        if(extension.equals("ks")) {
+            if(base.equals("first") || base.equals("scenario")) return 70;
+            return 100;
+        }
+        return 500;
+    }
+
     static private String resolveLaunchGamePath() {
         if(sInstance == null || sInstance.getIntent() == null) return "";
         String launchFile = sInstance.getIntent().getStringExtra("extra_launch_file");
@@ -475,12 +551,18 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         if(data.exists() && data.isFile()) return data.getAbsolutePath();
         File[] files = dir.listFiles();
         if(files != null) {
+            ArrayList<File> candidates = new ArrayList<>();
             for(File f : files) {
-                String name = f.getName().toLowerCase(Locale.ROOT);
-                if(f.isFile() && (name.endsWith(".xp3") || name.endsWith(".ks"))) {
-                    return f.getAbsolutePath();
+                if(f.isFile() && isLaunchExtension(extensionLower(f))) {
+                    candidates.add(f);
                 }
             }
+            candidates.sort((lhs, rhs) -> {
+                int rank = Integer.compare(launchRank(lhs), launchRank(rhs));
+                if(rank != 0) return rank;
+                return lhs.getName().compareToIgnoreCase(rhs.getName());
+            });
+            if(!candidates.isEmpty()) return candidates.get(0).getAbsolutePath();
         }
         android.util.Log.w("KR2-Launch", "no bootable entry under: " + path);
         return "";

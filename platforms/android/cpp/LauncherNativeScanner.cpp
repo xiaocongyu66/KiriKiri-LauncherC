@@ -333,23 +333,75 @@ std::string ChooseBackgroundPath(const std::vector<FileInfo> &images) {
     return LargestImagePath(images);
 }
 
-std::string ChooseLaunchFile(const std::vector<FileInfo> &children) {
-    static const std::array<const char *, 3> canonical = {
-        "startup.tjs", "start.tjs", "data.xp3",
+bool StartsWith(const std::string &value, const char *prefix) {
+    return value.rfind(prefix, 0) == 0;
+}
+
+int PreferredLaunchIndex(const std::string &nameLower) {
+    static const std::array<const char *, 9> preferred = {
+        "startup.tjs", "start.tjs", "data.xp3", "startup.xp3",
+        "start.xp3", "main.xp3", "game.xp3", "first.ks",
+        "scenario.ks",
     };
-    for(const char *name : canonical) {
-        const auto it = std::find_if(children.begin(), children.end(),
-                                     [name](const FileInfo &child) {
-                                         return child.isFile &&
-                                                child.lowerName == name;
-                                     });
-        if(it != children.end()) return it->path;
+    for(size_t i = 0; i < preferred.size(); ++i) {
+        if(nameLower == preferred[i]) return static_cast<int>(i);
     }
-    for(const FileInfo &child : children)
-        if(child.isFile && child.extension == "xp3") return child.path;
-    for(const FileInfo &child : children)
-        if(child.isFile && child.extension == "ks") return child.path;
-    return {};
+    return -1;
+}
+
+bool IsAssetArchiveBase(const std::string &base) {
+    return base == "patch" || StartsWith(base, "patch") ||
+           base == "bg" || StartsWith(base, "bg") ||
+           base.find("image") != std::string::npos ||
+           base.find("voice") != std::string::npos ||
+           base.find("sound") != std::string::npos ||
+           base.find("audio") != std::string::npos ||
+           base.find("music") != std::string::npos ||
+           base.find("movie") != std::string::npos ||
+           base.find("video") != std::string::npos ||
+           base.find("effect") != std::string::npos;
+}
+
+int LaunchNamePriority(const std::string &nameLower,
+                       const std::string &extension) {
+    const int preferred = PreferredLaunchIndex(nameLower);
+    if(preferred >= 0) return preferred;
+
+    const std::string base = NameWithoutExtensionLower(nameLower);
+    if(extension == "xp3") {
+        if(base == "boot") return 20;
+        if(base == "main" || base == "game" || base == "scenario" ||
+           base == "script") {
+            return 30;
+        }
+        if(StartsWith(base, "data")) return 40;
+        if(IsAssetArchiveBase(base)) return 300;
+        return 80;
+    }
+    if(extension == "tjs") {
+        if(base == "main" || base == "boot" || base == "game") return 60;
+        return 90;
+    }
+    if(extension == "ks") {
+        if(base == "first" || base == "scenario") return 70;
+        return 100;
+    }
+    return 500;
+}
+
+std::string ChooseLaunchFile(const std::vector<FileInfo> &children) {
+    const FileInfo *best = nullptr;
+    int bestRank = 0;
+    for(const FileInfo &child : children) {
+        if(!child.isFile || !IsLaunchExtension(child.extension)) continue;
+        const int rank = LaunchNamePriority(child.lowerName, child.extension);
+        if(!best || rank < bestRank ||
+           (rank == bestRank && child.lowerName < best->lowerName)) {
+            best = &child;
+            bestRank = rank;
+        }
+    }
+    return best ? best->path : std::string();
 }
 
 NativeGameEntry BuildGameEntry(const std::string &dir,
@@ -429,21 +481,13 @@ std::vector<NativeGameEntry> ScanGames(const std::string &root, int maxDepth,
     return games;
 }
 
-int ExtensionPriority(const std::string &extension) {
-    if(extension == "xp3") return 0;
-    if(extension == "tjs") return 1;
-    if(extension == "ks") return 2;
-    return 3;
-}
-
 int LaunchRank(const LaunchCandidate &candidate) {
-    static const std::array<const char *, 3> canonical = {
-        "startup.tjs", "start.tjs", "data.xp3",
-    };
-    for(size_t i = 0; i < canonical.size(); ++i) {
-        if(candidate.nameLower == canonical[i]) return static_cast<int>(i);
+    int depthPenalty = 0;
+    for(char ch : candidate.relative) {
+        if(ch == '/') depthPenalty += 20;
     }
-    return 100 + ExtensionPriority(candidate.extension);
+    return LaunchNamePriority(candidate.nameLower, candidate.extension) +
+           depthPenalty;
 }
 
 std::string RelativePath(const std::string &root, const std::string &path) {
