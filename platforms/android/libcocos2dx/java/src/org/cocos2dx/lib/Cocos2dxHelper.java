@@ -486,19 +486,6 @@ public class Cocos2dxHelper {
     }
     
     public static void terminateProcess() {
-        try {
-            Class<?> activityClass = Class.forName("org.tvp.kirikiri2.KR2Activity");
-            Activity activity = (Activity) activityClass
-                    .getMethod("GetInstance")
-                    .invoke(null);
-            if (activity != null) {
-                activity.runOnUiThread(activity::finish);
-                return;
-            }
-        } catch (Throwable ignored) {
-            // Fall through to the original hard kill when the KR2 activity is
-            // not available, for example during very early startup failures.
-        }
         android.os.Process.killProcess(android.os.Process.myPid());
     }
 

@@ -116,10 +116,6 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     @Override
     public void onDestroy() {
         super.onDestroy();
-        sInstance = null;
-        // MainActivity runs in the isolated :game process. Exiting here only
-        // tears down native engine state for the game process; the launcher
-        // process remains alive underneath and is resumed by Android.
         System.exit(0);
     }
 
@@ -359,11 +355,6 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static public void exit() {
-        KR2Activity activity = sInstance;
-        if (activity != null) {
-            activity.runOnUiThread(activity::finish);
-            return;
-        }
         System.exit(0);
     }
 
