@@ -53,6 +53,33 @@ TEST_CASE("text stream reads bomless cp932 scripts") {
     REQUIRE(got.find(u"filename:'\u548c\u594fa'") != std::u16string::npos);
 }
 
+TEST_CASE("text stream reads bomless utf16le scripts") {
+    const auto path =
+        std::filesystem::temp_directory_path() / "krkr2_utf16le_text_test.tjs";
+    const unsigned char utf16leText[] = {
+        'f', 0, 'i', 0, 'l', 0, 'e', 0, 'n', 0, 'a', 0, 'm', 0, 'e', 0,
+        ':', 0, '\'', 0, 't', 0, 'e', 0, 's', 0, 't', 0, '\'', 0, '\r', 0,
+        '\n', 0,
+    };
+
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(utf16leText),
+                  sizeof(utf16leText));
+    }
+
+    ttstr text;
+    auto *stream = TVPCreateTextStreamForRead(path.string().c_str(), "");
+    stream->Read(text, 0);
+    delete stream;
+    std::filesystem::remove(path);
+
+    const std::u16string got(
+        reinterpret_cast<const char16_t *>(text.c_str()),
+        static_cast<size_t>(text.GetLen()));
+    REQUIRE(got.find(u"filename:'test'") != std::u16string::npos);
+}
+
 
 TEST_CASE("exec tjs2 script") {
     const auto tvPScriptEngine = new tTJS();

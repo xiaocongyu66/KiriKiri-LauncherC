@@ -27,6 +27,40 @@ static bool hasNonAsciiBytes(const unsigned char *raw, size_t size) {
     return false;
 }
 
+static bool isAsciiTextByte(unsigned char ch) {
+    return ch == '\t' || ch == '\r' || ch == '\n' ||
+           (ch >= 0x20 && ch <= 0x7e);
+}
+
+static bool looksLikeUTF16Endian(const unsigned char *raw, size_t size,
+                                 bool bigEndian) {
+    if(size < 8)
+        return false;
+
+    const size_t pairs = size / 2;
+    size_t asciiUnits = 0;
+    size_t expectedZeroBytes = 0;
+    size_t oppositeZeroBytes = 0;
+
+    for(size_t i = 0; i + 1 < size; i += 2) {
+        const unsigned char first = raw[i];
+        const unsigned char second = raw[i + 1];
+        const unsigned char high = bigEndian ? first : second;
+        const unsigned char low = bigEndian ? second : first;
+
+        if(high == 0) {
+            ++expectedZeroBytes;
+            if(isAsciiTextByte(low))
+                ++asciiUnits;
+        }
+        if(low == 0)
+            ++oppositeZeroBytes;
+    }
+
+    return asciiUnits >= 4 && asciiUnits * 4 >= pairs &&
+           expectedZeroBytes > oppositeZeroBytes * 2;
+}
+
 static bool isUtf8Continuation(unsigned char ch) {
     return (ch & 0xc0) == 0x80;
 }
@@ -145,12 +179,72 @@ static bool isLegacyCJKEncodingGuess(const std::string &encoding) {
            sameEncodingName(encoding, "SHIFT-JIS") ||
            sameEncodingName(encoding, "SJIS") ||
            sameEncodingName(encoding, "CP932") ||
+           sameEncodingName(encoding, "WINDOWS-31J") ||
            sameEncodingName(encoding, "CP936") ||
            sameEncodingName(encoding, "GBK") ||
            sameEncodingName(encoding, "GB18030") ||
            sameEncodingName(encoding, "BIG5") ||
            sameEncodingName(encoding, "EUC-JP") ||
+           sameEncodingName(encoding, "ISO-2022-JP") ||
            sameEncodingName(encoding, "EUC-KR");
+}
+
+static std::string canonicalEncodingName(const std::string &encoding) {
+    if(sameEncodingName(encoding, "SHIFT_JIS") ||
+       sameEncodingName(encoding, "SHIFT-JIS") ||
+       sameEncodingName(encoding, "SJIS") ||
+       sameEncodingName(encoding, "CP932") ||
+       sameEncodingName(encoding, "WINDOWS-31J")) {
+        return "CP932";
+    }
+    if(sameEncodingName(encoding, "CP936") ||
+       sameEncodingName(encoding, "GBK") ||
+       sameEncodingName(encoding, "GB2312")) {
+        return "GBK";
+    }
+    if(sameEncodingName(encoding, "GB18030"))
+        return "GB18030";
+    if(sameEncodingName(encoding, "BIG5") ||
+       sameEncodingName(encoding, "BIG-5")) {
+        return "BIG5";
+    }
+    if(sameEncodingName(encoding, "EUC-JP") ||
+       sameEncodingName(encoding, "EUCJP")) {
+        return "EUC-JP";
+    }
+    if(sameEncodingName(encoding, "ISO-2022-JP") ||
+       sameEncodingName(encoding, "ISO2022JP")) {
+        return "ISO-2022-JP";
+    }
+    if(sameEncodingName(encoding, "EUC-KR") ||
+       sameEncodingName(encoding, "EUCKR")) {
+        return "EUC-KR";
+    }
+    if(sameEncodingName(encoding, "UTF-16LE") ||
+       sameEncodingName(encoding, "UTF16LE")) {
+        return "UTF-16LE";
+    }
+    if(sameEncodingName(encoding, "UTF-16BE") ||
+       sameEncodingName(encoding, "UTF16BE")) {
+        return "UTF-16BE";
+    }
+    if(sameEncodingName(encoding, "UTF-16") ||
+       sameEncodingName(encoding, "UTF16")) {
+        return "UTF-16";
+    }
+    if(sameEncodingName(encoding, "UTF-8") ||
+       sameEncodingName(encoding, "UTF8")) {
+        return "UTF-8";
+    }
+    if(sameEncodingName(encoding, "ASCII") ||
+       sameEncodingName(encoding, "US-ASCII")) {
+        return "ASCII";
+    }
+    if(sameEncodingName(encoding, "WINDOWS-1252") ||
+       sameEncodingName(encoding, "ISO-8859-1")) {
+        return "WINDOWS-1252";
+    }
+    return encoding;
 }
 
 std::string checkTextEncoding(const void *buf, size_t size,
@@ -182,6 +276,11 @@ std::string checkTextEncoding(const void *buf, size_t size,
         encoding = "UTF-8";
     } else {
         const bool hasNonAscii = hasNonAsciiBytes(raw, size);
+        if(looksLikeUTF16Endian(raw, size, false))
+            return "UTF-16LE";
+        if(looksLikeUTF16Endian(raw, size, true))
+            return "UTF-16BE";
+
         bool hasUtf8Multibyte = false;
         if(hasNonAscii && isValidUtf8(raw, size, hasUtf8Multibyte) &&
            hasUtf8Multibyte) {
@@ -194,14 +293,10 @@ std::string checkTextEncoding(const void *buf, size_t size,
         uchardet_data_end(ud);
         encoding = uchardet_get_charset(ud);
         uchardet_delete(ud);
+        encoding = canonicalEncodingName(encoding);
 
-        if(sameEncodingName(encoding, "SHIFT_JIS") ||
-           sameEncodingName(encoding, "SHIFT-JIS") ||
-           sameEncodingName(encoding, "SJIS") ||
-           sameEncodingName(encoding, "CP932")) {
-            encoding = "CP932";
-        } else if(hasNonAscii && looksLikeCP932(raw, size) &&
-                  !isLegacyCJKEncodingGuess(encoding)) {
+        if(hasNonAscii && looksLikeCP932(raw, size) &&
+           !isLegacyCJKEncodingGuess(encoding)) {
             // Short KiriKiri scripts are often CP932 and can be misdetected
             // as a western single-byte charset. Accepting that guess turns
             // bytes like CP932 "和" (98 61) into mojibake and breaks storage
@@ -391,8 +486,9 @@ public:
             spdlog::warn("primary text decode failed (encoding={}): {}",
                          encoding, e.what());
             static const char *const kFallbackCharsets[] = {
-                "CP932", "SHIFT_JIS", "CP936",   "GBK",
-                "BIG5",  "EUC-JP",    "EUC-KR",  nullptr,
+                "CP932", "SHIFT_JIS", "WINDOWS-31J", "EUC-JP",
+                "ISO-2022-JP", "CP936", "GBK", "GB18030",
+                "BIG5", "EUC-KR", nullptr,
             };
             const char *src_begin =
                 reinterpret_cast<const char *>(raw.data());
