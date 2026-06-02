@@ -1,14 +1,20 @@
 #pragma once
 
+#ifdef __cplusplus
 #include <cstdint>
 
 extern "C" {
+#else
+#include <stdint.h>
+#endif
 #include <libavcodec/avcodec.h>
 #include <libavcodec/codec_par.h>
 #include <libavutil/channel_layout.h>
 #include <libavutil/frame.h>
 #include <libavutil/version.h>
+#ifdef __cplusplus
 }
+#endif
 
 #ifndef FF_INPUT_BUFFER_PADDING_SIZE
 #ifdef AV_INPUT_BUFFER_PADDING_SIZE
@@ -48,6 +54,7 @@ extern "C" {
 #define FF_QSCALE_TYPE_H264 2
 #endif
 
+#ifdef __cplusplus
 inline int TVPFFmpegFrameChannels(const AVFrame *frame) {
     if(!frame)
         return 0;
@@ -93,3 +100,4 @@ inline uint64_t TVPFFmpegCodecParChannelLayout(const AVCodecParameters *par) {
 inline int64_t TVPFFmpegFrameBestEffortTimestamp(const AVFrame *frame) {
     return frame ? frame->best_effort_timestamp : AV_NOPTS_VALUE;
 }
+#endif
