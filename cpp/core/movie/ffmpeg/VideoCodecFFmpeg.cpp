@@ -1013,8 +1013,8 @@ int CDVDVideoCodecFFmpeg::FilterOpen(const std::string &filters, bool scale) {
         return -1;
     }
 
-    AVFilter *srcFilter = avfilter_get_by_name("buffer");
-    AVFilter *outFilter = avfilter_get_by_name(
+    const AVFilter *srcFilter = avfilter_get_by_name("buffer");
+    const AVFilter *outFilter = avfilter_get_by_name(
         "buffersink"); // should be last filter in the graph for now
 
     char args[128];
