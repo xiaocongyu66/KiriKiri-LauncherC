@@ -61,6 +61,7 @@ KiriKiri LauncherC 是面向 KiriKiri2 / KAG / TJS2 游戏的跨平台兼容运�
 - [插件资源](#插件资源)
 - [可选组件与第三方许可](#可选组件与第三方许可)
 - [致谢](#致谢)
+- [联系我们](#联系我们)
 - [许可证](#许可证)
 
 ## 支持平台
@@ -236,6 +237,12 @@ KiriKiri LauncherC 的开发参考并受益于多个 KiriKiri / KrKr 相关开�
 * [AetherKiri/AetherKiri](https://github.com/AetherKiri/AetherKiri)
 
 如果后续从其他项目移植或改写具体模块，会在对应源码、提交记录或文档中保留必要的来源与许可证说明。
+
+---
+
+## 联系我们
+
+如需反馈兼容性问题、提交可复现日志或讨论项目维护事项，可以发送邮件到：`xiaocongyu1@qq.com`
 
 ---
 

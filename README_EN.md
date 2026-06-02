@@ -60,6 +60,7 @@ Supported encodings include:
 - [Supported Games](#supported-games)
 - [Plugin Resources](#plugin-resources)
 - [Acknowledgements](#acknowledgements)
+- [Contact](#contact)
 - [License](#license)
 
 ## Supported Platforms
@@ -224,6 +225,12 @@ KiriKiri LauncherC is informed by and benefits from several open-source projects
 * [AetherKiri/AetherKiri](https://github.com/AetherKiri/AetherKiri)
 
 When code or behavior is ported or rewritten from another project, the relevant source files, commits, or documentation should preserve the required origin and license notes.
+
+---
+
+## Contact
+
+For compatibility reports, reproducible logs, or project maintenance discussions, email: `xiaocongyu1@qq.com`
 
 ---
 
