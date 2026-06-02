@@ -90,7 +90,6 @@ void CDVDAudioCodecPassthrough::Dispose() {
 int CDVDAudioCodecPassthrough::Decode(uint8_t *pData, int iSize, double dts,
                                       double pts) {
     int used = 0;
-    int skip = 0;
     if(m_backlogSize) {
         m_dataSize = m_bufferSize;
         unsigned int consumed = m_parser.AddData(m_backlogBuffer, m_backlogSize,
@@ -101,20 +100,6 @@ int CDVDAudioCodecPassthrough::Decode(uint8_t *pData, int iSize, double dts,
                     m_backlogSize - consumed);
         }
         m_backlogSize -= consumed;
-    }
-
-    // get rid of potential side data
-    if(pData) {
-        AVPacket pkt{};
-        pkt.data = pData;
-        pkt.size = iSize;
-        int didSplit = av_packet_split_side_data(&pkt);
-        if(didSplit) {
-            skip = iSize - pkt.size;
-            pData = pkt.data;
-            iSize = pkt.size;
-            av_packet_free_side_data(&pkt);
-        }
     }
 
     if(pData) {
@@ -132,7 +117,7 @@ int CDVDAudioCodecPassthrough::Decode(uint8_t *pData, int iSize, double dts,
 
     if(pData && !m_backlogSize) {
         if(iSize <= 0)
-            return used + skip;
+            return used;
 
         m_dataSize = m_bufferSize;
         used = m_parser.AddData(pData, iSize, &m_buffer, &m_dataSize);
@@ -182,7 +167,7 @@ int CDVDAudioCodecPassthrough::Decode(uint8_t *pData, int iSize, double dts,
             m_dataSize = 0;
     }
 
-    return used + skip;
+    return used;
 }
 
 void CDVDAudioCodecPassthrough::GetData(DVDAudioFrame &frame) {

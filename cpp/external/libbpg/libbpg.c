@@ -558,14 +558,10 @@ static int hevc_decode_frame(BPGDecoderContext *s,
 static void hevc_decode_end(BPGDecoderContext *s)
 {
     if (s->alpha_dec_ctx) {
-        avcodec_close(s->alpha_dec_ctx);
-        av_free(s->alpha_dec_ctx);
-        s->alpha_dec_ctx = NULL;
+        avcodec_free_context(&s->alpha_dec_ctx);
     }
     if (s->dec_ctx) {
-        avcodec_close(s->dec_ctx);
-        av_free(s->dec_ctx);
-        s->dec_ctx = NULL;
+        avcodec_free_context(&s->dec_ctx);
     }
 }
 
