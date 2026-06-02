@@ -3,14 +3,64 @@
 // source url: https://github.com/wamsoft/scriptsEx/blob
 //
 #include "ncbind.hpp"
-#include <vector>
 #include <algorithm>
+#include <cassert>
+#include <limits>
+#include <vector>
 #include "PluginImpl.h"
 #include "TextStream.h"
 #include "BinaryStream.h"
 #include "tjsBinarySerializer.h"
 
 #define NCB_MODULE_NAME TJS_W("ScriptsEx.dll")
+
+template<typename CHAR, typename MASK>
+int bitap_fuzzy_bitwise_search(const CHAR *text, const size_t text_len,
+                               const CHAR *pattern, const size_t pattern_len,
+                               size_t k, size_t maskbits) {
+    typedef std::numeric_limits<MASK> MaskLimit;
+    static_assert(MaskLimit::is_integer && !MaskLimit::is_signed &&
+                      (MaskLimit::radix == 2),
+                  "MASK must be unsigned integer type");
+
+    if(!text || !text_len || !pattern)
+        return -3;
+    if(!pattern_len)
+        return 0;
+    if(pattern_len >= MaskLimit::digits)
+        return -2;
+
+    const size_t char_mask = (size_t)((1uLL << maskbits) - 1);
+    const MASK eop = (MASK)(1uLL << pattern_len);
+
+    typedef std::vector<MASK> MaskTable;
+    MaskTable R(k + 1, (MASK)~1uLL);
+    MaskTable pattern_mask(char_mask + 1, (MASK)~0uLL);
+
+    for(size_t i = 0; i < pattern_len; ++i)
+        pattern_mask[char_mask & pattern[i]] &= (MASK) ~(1uLL << i);
+
+    for(size_t i = 0; i < text_len; ++i) {
+        MASK old_Rd1 = R[0];
+        const MASK text_mask = pattern_mask[char_mask & text[i]];
+
+        R[0] |= text_mask;
+        R[0] <<= 1;
+
+        for(size_t d = 1; d <= k; ++d) {
+            const MASK tmp = R[d];
+            R[d] = (old_Rd1 & (R[d] | text_mask)) << 1;
+            old_Rd1 = tmp;
+        }
+
+        if(0 == (R[k] & eop)) {
+            const int result = (int)(1 + i - pattern_len);
+            assert(result >= 0);
+            return result;
+        }
+    }
+    return -1;
+}
 
 static bool TJS_USERENTRY
 
@@ -245,6 +295,12 @@ public:
     static tjs_error safeEvalStorage(tTJSVariant *result, tjs_int numparams,
                                      tTJSVariant **param,
                                      iTJSDispatch2 *objthis);
+
+    //----------------------------------------------------------------------
+    // あいまい文字列検索（bitapアルゴリズムによる）
+    static tjs_error stringFuzzySearch(tTJSVariant *result, tjs_int numparams,
+                                       tTJSVariant **param,
+                                       iTJSDispatch2 *objthis);
 
 private:
     /**
@@ -967,6 +1023,36 @@ tjs_error ScriptsAdd::safeEvalStorage(tTJSVariant *result, tjs_int numparams,
     return TJS_S_OK;
 }
 //----------------------------------------------------------------------
+// あいまい文字列検索（bitapアルゴリズムによる）
+tjs_error ScriptsAdd::stringFuzzySearch(tTJSVariant *result, tjs_int numparams,
+                                        tTJSVariant **param,
+                                        iTJSDispatch2 *objthis) {
+    if(numparams < 3)
+        return TJS_E_BADPARAMCOUNT;
+
+    ttstr text(*param[0]);
+    ttstr pattern(*param[1]);
+    tjs_int const maxign = *param[2];
+    tjs_int const chbits =
+        (numparams > 3 && param[3]->Type() != tvtVoid) ? (int)(*param[3]) : 7;
+
+    tjs_int const plen = pattern.length();
+    if(plen >= 64 || maxign < 0 || chbits <= 0 || chbits > 16)
+        return TJS_E_INVALIDPARAM;
+
+    tjs_int index = 0;
+    if(plen < 32) {
+        index = bitap_fuzzy_bitwise_search<tjs_char, tjs_uint32>(
+            text.c_str(), text.length(), pattern.c_str(), plen, maxign, chbits);
+    } else {
+        index = bitap_fuzzy_bitwise_search<tjs_char, tjs_uint64>(
+            text.c_str(), text.length(), pattern.c_str(), plen, maxign, chbits);
+    }
+    if(result)
+        *result = index;
+    return TJS_S_OK;
+}
+//----------------------------------------------------------------------
 // KBAD100 .pbd データパックを Dictionary/Array として読み込む
 // wamsoft 私有 KAG 引擎扩展。limelight 等游戏的 touchuibar.pbd 等加载需要。
 static tjs_error loadDataPack(tTJSVariant *result,
@@ -1058,6 +1144,8 @@ NCB_ATTACH_CLASS(ScriptsAdd, Scripts) {
     Variant(TJS_W("pfStaticMember"), TJS_STATICMEMBER);
 
     RawCallback(TJS_W("safeEvalStorage"), &ScriptsAdd::safeEvalStorage,
+                TJS_STATICMEMBER);
+    RawCallback(TJS_W("stringFuzzySearch"), &ScriptsAdd::stringFuzzySearch,
                 TJS_STATICMEMBER);
     RawCallback(TJS_W("loadDataPack"), &loadDataPack, TJS_STATICMEMBER);
 };

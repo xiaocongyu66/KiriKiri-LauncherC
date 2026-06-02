@@ -1,6 +1,18 @@
 #include "ncbind.hpp"
 #include "TransIntf.h"
 
+#include "extrans_impl/mosaic.h"
+#include "extrans_impl/ripple.h"
+#include "extrans_impl/rotatetrans.h"
+#include "extrans_impl/turn.h"
+#include "extrans_impl/wave.h"
+
+#include <iterator>
+#include <utility>
+#include <vector>
+
+namespace {
+
 class tExtransFallbackProvider : public iTVPTransHandlerProvider {
     tjs_int RefCount;
     ttstr Name;
@@ -51,18 +63,94 @@ public:
     }
 };
 
+using RegisterProvider = void (*)();
+using UnregisterProvider = void (*)();
+
+struct tExtransProviderRegistration {
+    const tjs_char *Name;
+    RegisterProvider Register;
+    UnregisterProvider Unregister;
+    bool Active = false;
+};
+
+static tExtransProviderRegistration g_extransProviders[] = {
+    {TJS_W("wave"), RegisterWaveTransHandlerProvider,
+     UnregisterWaveTransHandlerProvider, false},
+    {TJS_W("mosaic"), RegisterMosaicTransHandlerProvider,
+     UnregisterMosaicTransHandlerProvider, false},
+    {TJS_W("turn"), RegisterTurnTransHandlerProvider,
+     UnregisterTurnTransHandlerProvider, false},
+    {TJS_W("rotatezoom"), RegisterRotateTransHandlerProvider,
+     UnregisterRotateTransHandlerProvider, false},
+    {TJS_W("ripple"), RegisterRippleTransHandlerProvider,
+     UnregisterRippleTransHandlerProvider, false},
+};
+
+static std::vector<std::pair<iTVPTransHandlerProvider *, const tjs_char *>>
+    g_extransFallbackProviders;
+
+static bool HasTransProvider(const tjs_char *name) {
+    iTVPTransHandlerProvider *provider = TVPFindTransHandlerProvider(name);
+    if(provider) {
+        provider->Release();
+        return true;
+    }
+    return false;
+}
+
+static void RegisterRealProvider(tExtransProviderRegistration &entry) {
+    if(entry.Active || HasTransProvider(entry.Name))
+        return;
+    try {
+        entry.Register();
+        entry.Active = true;
+    } catch(...) {
+        entry.Active = false;
+    }
+}
+
+static void UnregisterRealProvider(tExtransProviderRegistration &entry) {
+    if(!entry.Active)
+        return;
+    try {
+        entry.Unregister();
+    } catch(...) {
+    }
+    entry.Active = false;
+}
+
 static void AddExtransProvider(const tjs_char *name,
                                const tjs_char *fallback_name) {
+    if(HasTransProvider(name))
+        return;
     iTVPTransHandlerProvider *provider =
         new tExtransFallbackProvider(name, fallback_name);
     try {
         TVPAddTransHandlerProvider(provider);
+        g_extransFallbackProviders.emplace_back(provider, name);
     } catch(...) {
         provider->Release();
     }
 }
 
+static void RemoveFallbackProviders() {
+    for(auto it = g_extransFallbackProviders.rbegin();
+        it != g_extransFallbackProviders.rend(); ++it) {
+        try {
+            TVPRemoveTransHandlerProvider(it->first);
+        } catch(...) {
+        }
+        it->first->Release();
+    }
+    g_extransFallbackProviders.clear();
+}
+
 static void extrans_init() {
+    for(auto &entry : g_extransProviders)
+        RegisterRealProvider(entry);
+
+    // Rotate provider registers all three names as a group. If registration
+    // fails for any reason, keep script-visible names working with crossfade.
     AddExtransProvider(TJS_W("wave"), TJS_W("crossfade"));
     AddExtransProvider(TJS_W("mosaic"), TJS_W("crossfade"));
     AddExtransProvider(TJS_W("turn"), TJS_W("crossfade"));
@@ -72,6 +160,15 @@ static void extrans_init() {
     AddExtransProvider(TJS_W("ripple"), TJS_W("crossfade"));
 }
 
+static void extrans_done() {
+    RemoveFallbackProviders();
+    for(auto it = std::rbegin(g_extransProviders);
+        it != std::rend(g_extransProviders); ++it)
+        UnregisterRealProvider(*it);
+}
+
+} // namespace
+
 // Lightweight compatibility modules. extrans registers transition names
 // provided by the original plugin and maps them to the stable built-in
 // transition pipeline; the audio/image entries keep Plugins.link() probes
@@ -79,6 +176,7 @@ static void extrans_init() {
 
 #define NCB_MODULE_NAME TJS_W("extrans.dll")
 NCB_PRE_REGIST_CALLBACK(extrans_init);
+NCB_POST_UNREGIST_CALLBACK(extrans_done);
 
 #undef NCB_MODULE_NAME
 #define NCB_MODULE_NAME TJS_W("wuvorbis.dll")

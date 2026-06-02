@@ -22,6 +22,13 @@ target_sources(${PROJECT_NAME} PRIVATE
     xp3filter.cpp
     textrender.cpp
     extrans.cpp
+    extrans_impl/mosaic.cpp
+    extrans_impl/ripple.cpp
+    extrans_impl/rotatebase.cpp
+    extrans_impl/rotatetrans.cpp
+    extrans_impl/turn.cpp
+    extrans_impl/turntrans_table.cpp
+    extrans_impl/wave.cpp
     layerExSave.cpp
     shrinkCopy.cpp
     PackinOne.cpp
@@ -116,7 +123,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 
 add_definitions(-D__STDC_CONSTANT_MACROS -DTJS_TEXT_OUT_CRLF)
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2PLUGIN_PATH} ${KRKR2PLUGIN_PATH}/simplebinder})
+target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2PLUGIN_PATH} ${KRKR2PLUGIN_PATH}/simplebinder)
 target_link_libraries(${PROJECT_NAME} PUBLIC krkr2core minizip)
 
 option(KRKR2_ENABLE_LIVE2D "Build the optional Live2D Cubism plugin when its SDK is complete" ON)

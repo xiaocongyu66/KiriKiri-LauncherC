@@ -259,7 +259,7 @@ namespace PSB {
             }
 
             if(LOGGER && ShouldTracePsbResourceKey(info.debugKey)) {
-                LOGGER->info(
+                LOGGER->debug(
                     "psb build: key={} decodedAlign={} decodedSize={} rawSize={}",
                     info.debugKey, decodedAlign, src->size(), rawSrc.size());
             }
@@ -891,7 +891,7 @@ namespace PSB {
                     media.add(archiveKey + "/" + name, resource);
                     if(logger && logged < 40 &&
                        ShouldTracePsbResourceKey(archiveKey)) {
-                        logger->info("psb register: {}/{}", archiveKey, name);
+                        logger->debug("psb register: {}/{}", archiveKey, name);
                         ++logged;
                     }
                 }
@@ -915,7 +915,7 @@ namespace PSB {
                 media.add(archiveKey + "/" + name, resource, image);
                 if(logger && logged < 120 &&
                    ShouldTracePsbResourceKey(archiveKey)) {
-                    logger->info("psb register: {}/{}", archiveKey, name);
+                    logger->debug("psb register: {}/{}", archiveKey, name);
                     ++logged;
                 }
             }
@@ -942,7 +942,7 @@ namespace PSB {
                             }
                         }
                     }
-                    logger->info("PSB objectTree for {}: {}", archiveKey, objNames);
+                    logger->debug("PSB objectTree for {}: {}", archiveKey, objNames);
                 }
 
                 if(objectTree) {
@@ -952,13 +952,13 @@ namespace PSB {
                     if(!positions.empty()) {
                         size_t count = positions.size();
                         media.addLayerPositions(archiveKey, std::move(positions));
-                        if(logger) logger->info("Stored {} layer positions for {}",
+                        if(logger) logger->debug("Stored {} layer positions for {}",
                             count, archiveKey);
                     }
                     if(!buttons.empty()) {
                         size_t count = buttons.size();
                         media.addButtonBounds(archiveKey, std::move(buttons));
-                        if(logger) logger->info("Stored {} button bounds for {}",
+                        if(logger) logger->debug("Stored {} button bounds for {}",
                             count, archiveKey);
                     }
                 }
@@ -1293,7 +1293,7 @@ namespace PSB {
         }
         if(LOGGER && ShouldTracePsbResourceKey(resolvedKey)) {
             const uint32_t header = HeaderLE32(res->data);
-            LOGGER->info(
+            LOGGER->debug(
                 "psb open: key={} hasMeta={} w={} h={} type={} palType={} pal={} compress={} raw={} header=0x{:08x}",
                 resolvedKey, hasImageInfo ? 1 : 0, imageInfo.width,
                 imageInfo.height, imageInfo.type, imageInfo.paletteType,
@@ -1303,7 +1303,7 @@ namespace PSB {
         if(!convertedImage && hasImageInfo && !IsSupportedImageHeader(res->data)) {
             convertedImage = BuildBmpFromRaw(imageInfo, res);
             if(LOGGER && ShouldTracePsbResourceKey(resolvedKey)) {
-                LOGGER->info(
+                LOGGER->debug(
                     "psb open: convert key={} ok={} converted={} type={}",
                     resolvedKey, convertedImage ? 1 : 0,
                     convertedImage ? convertedImage->size() : 0,
@@ -1327,7 +1327,7 @@ namespace PSB {
             convertedImage ? *convertedImage : res->data;
         if(LOGGER && ShouldTracePsbResourceKey(resolvedKey)) {
             const uint32_t outHeader = HeaderLE32(streamBytes);
-            LOGGER->info("psb open: return key={} size={} header=0x{:08x}",
+            LOGGER->debug("psb open: return key={} size={} header=0x{:08x}",
                          resolvedKey, streamBytes.size(), outHeader);
         }
         auto *memoryStream = new tTVPMemoryStream();

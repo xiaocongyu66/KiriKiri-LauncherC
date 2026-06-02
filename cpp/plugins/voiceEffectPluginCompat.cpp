@@ -32,6 +32,9 @@
 // plugins; for now keep gameplay running.
 
 #include <atomic>
+#include <mutex>
+#include <string>
+#include <unordered_set>
 
 #include <spdlog/spdlog.h>
 #include "tjsCommHead.h"
@@ -561,7 +564,9 @@ extern "C" iTJSDispatch2 *TVPGetCompatPermissiveStub() {
 // ---------------------------------------------------------------------------
 namespace {
 std::atomic<int> g_missingLogCount{0};
-constexpr int kMissingLogMax = 800;
+std::mutex g_missingLogMutex;
+std::unordered_set<std::string> g_missingLoggedNames;
+constexpr size_t kMissingUniqueLogMax = 160;
 
 bool IsKnownTypeofProbeName(const tjs_char *name) {
     if(!name)
@@ -629,9 +634,20 @@ extern "C" void TVPCompatLogMissingMember(const tjs_char *membername) {
         return;
     if(IsKnownTypeofProbeName(membername))
         return;
-    int n = g_missingLogCount.fetch_add(1, std::memory_order_relaxed);
-    if(n >= kMissingLogMax)
-        return;
+
     ttstr name(membername);
-    KR2_DIAG("[krkr][missing] %s", name.AsStdString().c_str());
+    std::string nameString = name.AsStdString();
+    {
+        std::lock_guard<std::mutex> lock(g_missingLogMutex);
+        if(g_missingLoggedNames.find(nameString) != g_missingLoggedNames.end())
+            return;
+        if(g_missingLoggedNames.size() >= kMissingUniqueLogMax)
+            return;
+        g_missingLoggedNames.insert(nameString);
+    }
+
+    int n = g_missingLogCount.fetch_add(1, std::memory_order_relaxed);
+    if(n >= static_cast<int>(kMissingUniqueLogMax))
+        return;
+    KR2_DIAG("[krkr][missing] %s", nameString.c_str());
 }

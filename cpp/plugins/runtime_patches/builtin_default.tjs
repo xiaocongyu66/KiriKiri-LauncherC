@@ -15,53 +15,62 @@
 // drop a script into `<gamedir>/compat/*.tjs` instead.
 // ==========================================================================
 
-function __krkr2_isString(value=void) {
-    var type = typeof value;
-    return type == "string" || type == "String";
-}
-
-function __krkr2_hasGlobal(name=void) {
+function __krkr2_memberExists(obj=void, name=void) {
     try {
-        return __krkr2_isString(name) && typeof global[name] != "undefined";
+        if(obj === void)
+            return false;
+        return typeof obj[name] != "undefined";
     } catch(e) {
         return false;
     }
 }
 
+function __krkr2_memberValue(obj=void, name=void, fallback=void) {
+    try {
+        return __krkr2_memberExists(obj, name) ? obj[name] : fallback;
+    } catch(e) {
+        return fallback;
+    }
+}
+
+function __krkr2_setGlobalIfMissing(name=void, value=void) {
+    if(!__krkr2_memberExists(global, name))
+        global[name] = value;
+}
+
 // Win32 dialog result constants used by several commercial titles. Keep these
 // outside the one-shot guard because some games execute their own patch stages
 // before this file and may partially initialize the runtime marker.
-if(typeof global.IDOK == "undefined") global.IDOK = 1;
-if(typeof global.IDCANCEL == "undefined") global.IDCANCEL = 2;
-if(typeof global.IDABORT == "undefined") global.IDABORT = 3;
-if(typeof global.IDRETRY == "undefined") global.IDRETRY = 4;
-if(typeof global.IDIGNORE == "undefined") global.IDIGNORE = 5;
-if(typeof global.IDYES == "undefined") global.IDYES = 6;
-if(typeof global.IDNO == "undefined") global.IDNO = 7;
-if(typeof global.IDCLOSE == "undefined") global.IDCLOSE = 8;
+__krkr2_setGlobalIfMissing("IDOK", 1);
+__krkr2_setGlobalIfMissing("IDCANCEL", 2);
+__krkr2_setGlobalIfMissing("IDABORT", 3);
+__krkr2_setGlobalIfMissing("IDRETRY", 4);
+__krkr2_setGlobalIfMissing("IDIGNORE", 5);
+__krkr2_setGlobalIfMissing("IDYES", 6);
+__krkr2_setGlobalIfMissing("IDNO", 7);
+__krkr2_setGlobalIfMissing("IDCLOSE", 8);
 
-if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
-   !global.__krkr2_runtimePatchApplied) {
+if(!__krkr2_memberExists(global, "__krkr2_runtimePatchApplied")) {
     global.__krkr2_runtimePatchApplied = true;
 
     // Some patch scripts touch this namespace before the relevant game
     // scripts create it. Do not pre-create Motion here: the native
     // motionplayer.dll plugin owns that namespace.
-    if(typeof global.ENV_context == "undefined")
-        global.ENV_context = %[];
+    global.ENV_context = __krkr2_memberValue(global, "ENV_context", void) === void
+        ? %[] : global.ENV_context;
 
     // PackinOne / append-data compatibility. Several KAG3 titles probe these
     // helpers during early config loading even when the real plugin is not
     // linked yet. Return benign defaults and let real game/plugin definitions
     // win whenever they exist.
-    if(typeof global.makeDataPackDigest == "undefined") {
+    if(!__krkr2_memberExists(global, "makeDataPackDigest")) {
         function __krkr2_makeDataPackDigest(a=void, b=void, c=void, d=void) {
             return "";
         }
         global.makeDataPackDigest = __krkr2_makeDataPackDigest;
     }
 
-    if(typeof global.AppendDataConfig == "undefined") {
+    if(!__krkr2_memberExists(global, "AppendDataConfig")) {
         var __krkr2_appendDataConfig = %[
             "min" => void,
             "max" => void,
@@ -75,7 +84,7 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
     }
 
     function __krkr2_isAsciiScalePrefix(text=void, colonPos=void) {
-        if(!__krkr2_isString(text))
+        if(typeof text != "string")
             return false;
         if(colonPos === void)
             colonPos = text.indexOf("：");
@@ -99,7 +108,7 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
     }
 
     function __krkr2_normalizeIndexedResourceCell(text=void) {
-        if(!__krkr2_isString(text))
+        if(typeof text != "string")
             return text;
         var colonPos = text.indexOf("：");
         if(colonPos <= 0)
@@ -110,7 +119,7 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
     }
 
     function __krkr2_stripIndexedResourceScalePrefix(text=void) {
-        if(!__krkr2_isString(text))
+        if(typeof text != "string")
             return text;
 
         var colonPos = text.indexOf(":");
@@ -126,27 +135,29 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
 
     function __krkr2_registerResourceAlias(alias=void, target=void) {
         try {
-            if(!__krkr2_isString(alias) || !__krkr2_isString(target))
+            if(typeof alias != "string" || typeof target != "string")
                 return;
             alias = __krkr2_stripIndexedResourceScalePrefix(alias);
             target = __krkr2_stripIndexedResourceScalePrefix(target);
             if(alias == "" || target == "" || alias == target)
                 return;
 
-            if(!__krkr2_hasGlobal("Storages") ||
-               typeof global.Storages.registerResourceAlias == "undefined")
+            var storages = __krkr2_memberValue(global, "Storages", void);
+            if(storages === void ||
+               typeof __krkr2_memberValue(storages, "registerResourceAlias", void) != "function")
                 return;
-            global.Storages.registerResourceAlias(alias, target);
+            storages.registerResourceAlias(alias, target);
         } catch(e) {}
     }
 
     function __krkr2_storageFileNameLower(storage=void) {
         try {
-            if(!__krkr2_isString(storage))
+            if(typeof storage != "string")
                 return "";
-            if(__krkr2_hasGlobal("Storages") &&
-               typeof global.Storages.extractStorageName != "undefined")
-                storage = global.Storages.extractStorageName(storage);
+            var storages = __krkr2_memberValue(global, "Storages", void);
+            if(storages !== void &&
+               typeof __krkr2_memberValue(storages, "extractStorageName", void) == "function")
+                storage = storages.extractStorageName(storage);
             return storage.toLowerCase();
         } catch(e) {
             return "";
@@ -171,7 +182,7 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
                    row.count < 2)
                     continue;
                 var alias = row[0];
-                if(!__krkr2_isString(alias) || alias == "" ||
+                if(typeof alias != "string" || alias == "" ||
                    alias.substr(0, 1) == "#")
                     continue;
 
@@ -186,10 +197,10 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
     }
 
     function __krkr2_installIndexedResourceConfigCompat() {
-        if(typeof global.__krkr2_indexedResourceConfigCompatApplied != "undefined" &&
+        if(__krkr2_memberExists(global, "__krkr2_indexedResourceConfigCompatApplied") &&
            global.__krkr2_indexedResourceConfigCompatApplied)
             return;
-        if(typeof global.loadConfigFile == "undefined")
+        if(typeof __krkr2_memberValue(global, "loadConfigFile", void) != "function")
             return;
 
         global.__krkr2_indexedResourceConfigCompatApplied = true;
@@ -224,14 +235,14 @@ if(typeof global.__krkr2_runtimePatchApplied == "undefined" ||
 
     __krkr2_tryInstallIndexedResourceCompat();
 
-    if(__krkr2_hasGlobal("Scripts") &&
-       typeof global.Scripts.execStorage != "undefined" &&
-       typeof global.Scripts.__krkr2_indexedResourceCompatExecStorage == "undefined") {
-        global.Scripts.__krkr2_indexedResourceCompatExecStorage =
-            global.Scripts.execStorage;
-        global.Scripts.execStorage = function(name=void) {
-            var ret =
-                global.Scripts.__krkr2_indexedResourceCompatExecStorage(*);
+    var __krkr2_scripts = __krkr2_memberValue(global, "Scripts", void);
+    if(__krkr2_scripts !== void &&
+       typeof __krkr2_memberValue(__krkr2_scripts, "execStorage", void) == "function" &&
+       !__krkr2_memberExists(__krkr2_scripts, "__krkr2_indexedResourceCompatExecStorage")) {
+        __krkr2_scripts.__krkr2_indexedResourceCompatExecStorage =
+            __krkr2_scripts.execStorage;
+        __krkr2_scripts.execStorage = function(name=void) {
+            var ret = __krkr2_scripts.__krkr2_indexedResourceCompatExecStorage(*);
             __krkr2_tryInstallIndexedResourceCompat();
             return ret;
         };

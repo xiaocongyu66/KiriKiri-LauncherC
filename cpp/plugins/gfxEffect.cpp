@@ -19,20 +19,41 @@
 
 #define NCB_MODULE_NAME TJS_W("gfxEffect.dll")
 
+static bool GfxCompatHasGlobal(const tjs_char *name) {
+    iTJSDispatch2 *global = TVPGetScriptDispatch();
+    if(!global)
+        return false;
+    tjs_error hr = global->IsValid(TJS_IGNOREPROP, name, nullptr, global);
+    global->Release();
+    return hr == TJS_S_TRUE;
+}
+
+static void GfxCompatInstallClassIfMissing(const tjs_char *name,
+                                           const tjs_char *script) {
+    if(!GfxCompatHasGlobal(name))
+        TVPExecuteScript(script);
+}
+
 static void InitPlugin_GFXEffect() {
-    TVPExecuteScript(
+    GfxCompatInstallClassIfMissing(
+        TJS_W("gfxFire"),
         TJS_W("class gfxFire {")
-        TJS_W("  function gfxFire() {")
-        TJS_W("  }")
-        TJS_W("  function finalize() {")
-        TJS_W("  }")
-        TJS_W("};")
+        TJS_W("  function gfxFire() {}")
+        TJS_W("  function finalize() {}")
+        TJS_W("};"));
+    GfxCompatInstallClassIfMissing(
+        TJS_W("gfxEffect"),
         TJS_W("class gfxEffect {")
-        TJS_W("  function gfxEffect() {")
-        TJS_W("  }")
-        TJS_W("  function finalize() {")
-        TJS_W("  }")
+        TJS_W("  function gfxEffect() {}")
+        TJS_W("  function finalize() {}")
         TJS_W("};"));
 }
 
 NCB_PRE_REGIST_CALLBACK(InitPlugin_GFXEffect);
+
+#undef NCB_MODULE_NAME
+#define NCB_MODULE_NAME TJS_W("gfxFire.dll")
+static void InitPlugin_GFXFire() {
+    InitPlugin_GFXEffect();
+}
+NCB_PRE_REGIST_CALLBACK(InitPlugin_GFXFire);

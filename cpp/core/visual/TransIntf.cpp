@@ -222,7 +222,6 @@ tjs_error tTVPScanLineProviderForBaseBitmap::GetHeight(/*in*/ tjs_int *height) {
         *height = Bitmap->GetHeight();
     return TJS_S_OK;
 }
-#if 0
 //---------------------------------------------------------------------------
 tjs_error
 	tTVPScanLineProviderForBaseBitmap::GetPixelFormat(/*out*/tjs_int *bpp)
@@ -268,7 +267,6 @@ tjs_error
 	return TJS_S_OK;
 }
 //---------------------------------------------------------------------------
-#endif
 
 iTVPTexture2D *tTVPScanLineProviderForBaseBitmap::GetTexture() {
     return Bitmap->GetTexture();

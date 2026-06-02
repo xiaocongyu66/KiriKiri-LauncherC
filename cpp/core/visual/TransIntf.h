@@ -88,14 +88,12 @@ public:
 
     tjs_error GetWidth(/*in*/ tjs_int *width) override;
     tjs_error GetHeight(/*in*/ tjs_int *height) override;
-#if 0
 	tjs_error GetPixelFormat(/*out*/tjs_int *bpp);
 	tjs_error GetPitchBytes(/*out*/tjs_int *pitch);
 	tjs_error GetScanLine(/*in*/tjs_int line,
 			/*out*/const void ** scanline);
 	tjs_error GetScanLineForWrite(/*in*/tjs_int line,
 			/*out*/void ** scanline);
-#endif
     iTVPTexture2D *GetTexture() override;
     iTVPTexture2D *GetTextureForRender() override;
 };

@@ -4477,169 +4477,162 @@ static void drawdeviceZAliasCompat() {
 
 static void gdiplusAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("layerExDraw.dll"));
-    TVPExecuteScript(TJS_W(
-        "if(typeof Layer != \"undefined\" && typeof GdiPlus != \"undefined\" && "
-        "Layer.__krkr2LayerExGdiPlusCompatInstalled === void) {"
-        "  Layer.__krkr2LayerExGdiPlusCompatInstalled = true;"
-        "  class __Krkr2LayerGdiBrush {"
-        "    var color = 0xffffffff;"
-        "    var __krkr2LayerGdiBrush = true;"
-        "    function __Krkr2LayerGdiBrush(argb=0xffffffff) { color = argb; }"
-        "    function setSolidBrush(argb) { color = argb; }"
-        "  };"
-        "  class __Krkr2LayerGdiPen {"
-        "    var color = 0xffffffff;"
-        "    var width = 1.0;"
-        "    var alignment = 0;"
-        "    var brush = void;"
-        "    var __krkr2LayerGdiPen = true;"
-        "    function __Krkr2LayerGdiPen(arg=0xffffffff, w=1.0) {"
-        "      try {"
-        "        if(arg !== void && arg.__krkr2LayerGdiBrush !== void) {"
-        "          brush = arg; color = arg.color;"
-        "        } else {"
-        "          color = arg;"
-        "        }"
-        "      } catch(e) { color = arg; }"
-        "      width = w;"
-        "    }"
-        "    function setAlignMent(value) { alignment = value; }"
-        "    function setAlignment(value) { alignment = value; }"
-        "    function setBrush(value) {"
-        "      brush = value;"
-        "      try { if(value.color !== void) color = value.color; } catch(e) {}"
-        "    }"
-        "    function setColor(value) { color = value; brush = void; }"
-        "    function setWidth(value) { width = value; }"
-        "  };"
-        "  Layer.Brush = __Krkr2LayerGdiBrush;"
-        "  Layer.Pen = __Krkr2LayerGdiPen;"
-        "  if(Layer.Font === void) Layer.Font = GdiPlus.Font;"
-        "  Layer.__krkr2GdiIsPen = function(v) {"
-        "    if(v === void) return false;"
-        "    try { return v.__krkr2LayerGdiPen !== void; } catch(e) { return false; }"
-        "  };"
-        "  Layer.__krkr2GdiIsBrush = function(v) {"
-        "    if(v === void) return false;"
-        "    try { return v.__krkr2LayerGdiBrush !== void; } catch(e) { return false; }"
-        "  };"
-        "  Layer.__krkr2GdiPenApp = function(pen) {"
-        "    var app = new GdiPlus.Appearance();"
-        "    var color = 0xffffffff; var width = 1.0;"
-        "    try {"
-        "      if(pen.brush !== void && pen.brush.color !== void) color = pen.brush.color;"
-        "      else if(pen.color !== void) color = pen.color;"
-        "      if(pen.width !== void) width = pen.width;"
-        "    } catch(e) {}"
-        "    app.addPen(color, width);"
-        "    return app;"
-        "  };"
-        "  Layer.__krkr2GdiBrushApp = function(brush) {"
-        "    var app = new GdiPlus.Appearance();"
-        "    var color = 0xffffffff;"
-        "    try { if(brush.color !== void) color = brush.color; } catch(e) {}"
-        "    app.addBrush(color);"
-        "    return app;"
-        "  };"
-        "  Layer.__krkr2GdiOrigDrawEllipse = Layer.drawEllipse;"
-        "  Layer.__krkr2GdiOrigDrawLine = Layer.drawLine;"
-        "  Layer.__krkr2GdiOrigDrawRectangle = Layer.drawRectangle;"
-        "  Layer.__krkr2GdiOrigDrawBezier = Layer.drawBezier;"
-        "  Layer.__krkr2GdiOrigDrawBeziers = Layer.drawBeziers;"
-        "  Layer.__krkr2GdiOrigDrawString = Layer.drawString;"
-        "  Layer.__krkr2GdiOrigDrawImage = Layer.drawImage;"
-        "  Layer.__krkr2GdiOrigDrawImageRect = Layer.drawImageRect;"
-        "  Layer.drawEllipse = function(a,b,c,d,e) {"
-        "    if(Layer.__krkr2GdiOrigDrawEllipse === void) return void;"
-        "    if(Layer.__krkr2GdiIsPen(a)) return "
-        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
-        "(Layer.__krkr2GdiPenApp(a), b, c, d, e);"
-        "    if(Layer.__krkr2GdiIsPen(e)) return "
-        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
-        "(Layer.__krkr2GdiPenApp(e), a, b, c, d);"
-        "    return (Layer.__krkr2GdiOrigDrawEllipse incontextof this)(*);"
-        "  };"
-        "  Layer.fillEllipse = function(a,b,c,d,e) {"
-        "    if(Layer.__krkr2GdiOrigDrawEllipse === void) return void;"
-        "    if(Layer.__krkr2GdiIsBrush(a)) return "
-        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
-        "(Layer.__krkr2GdiBrushApp(a), b, c, d, e);"
-        "    if(Layer.__krkr2GdiIsBrush(e)) return "
-        "(Layer.__krkr2GdiOrigDrawEllipse incontextof this)"
-        "(Layer.__krkr2GdiBrushApp(e), a, b, c, d);"
-        "    return void;"
-        "  };"
-        "  Layer.drawLine = function(a,b,c,d,e) {"
-        "    if(Layer.__krkr2GdiOrigDrawLine === void) return void;"
-        "    if(Layer.__krkr2GdiIsPen(a)) return "
-        "(Layer.__krkr2GdiOrigDrawLine incontextof this)"
-        "(Layer.__krkr2GdiPenApp(a), b, c, d, e);"
-        "    if(Layer.__krkr2GdiIsPen(e)) return "
-        "(Layer.__krkr2GdiOrigDrawLine incontextof this)"
-        "(Layer.__krkr2GdiPenApp(e), a, b, c, d);"
-        "    return (Layer.__krkr2GdiOrigDrawLine incontextof this)(*);"
-        "  };"
-        "  Layer.drawRectangle = function(a,b,c,d,e) {"
-        "    if(Layer.__krkr2GdiOrigDrawRectangle === void) return void;"
-        "    if(Layer.__krkr2GdiIsPen(a)) return "
-        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
-        "(Layer.__krkr2GdiPenApp(a), b, c, d, e);"
-        "    if(Layer.__krkr2GdiIsPen(e)) return "
-        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
-        "(Layer.__krkr2GdiPenApp(e), a, b, c, d);"
-        "    return (Layer.__krkr2GdiOrigDrawRectangle incontextof this)(*);"
-        "  };"
-        "  Layer.fillRectangle = function(a,b,c,d,e) {"
-        "    if(Layer.__krkr2GdiOrigDrawRectangle === void) return void;"
-        "    if(Layer.__krkr2GdiIsBrush(a)) return "
-        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
-        "(Layer.__krkr2GdiBrushApp(a), b, c, d, e);"
-        "    if(Layer.__krkr2GdiIsBrush(e)) return "
-        "(Layer.__krkr2GdiOrigDrawRectangle incontextof this)"
-        "(Layer.__krkr2GdiBrushApp(e), a, b, c, d);"
-        "    return void;"
-        "  };"
-        "  Layer.drawBezier = function(a,b,c,d,e,f,g,h,i) {"
-        "    if(Layer.__krkr2GdiOrigDrawBezier === void) return void;"
-        "    if(Layer.__krkr2GdiIsPen(a)) return "
-        "(Layer.__krkr2GdiOrigDrawBezier incontextof this)"
-        "(Layer.__krkr2GdiPenApp(a), b, c, d, e, f, g, h, i);"
-        "    if(Layer.__krkr2GdiIsPen(i)) return "
-        "(Layer.__krkr2GdiOrigDrawBezier incontextof this)"
-        "(Layer.__krkr2GdiPenApp(i), a, b, c, d, e, f, g, h);"
-        "    return (Layer.__krkr2GdiOrigDrawBezier incontextof this)(*);"
-        "  };"
-        "  Layer.drawBeziers = function(a,b) {"
-        "    if(Layer.__krkr2GdiOrigDrawBeziers === void) return void;"
-        "    if(Layer.__krkr2GdiIsPen(a)) return "
-        "(Layer.__krkr2GdiOrigDrawBeziers incontextof this)"
-        "(Layer.__krkr2GdiPenApp(a), b);"
-        "    if(Layer.__krkr2GdiIsPen(b)) return "
-        "(Layer.__krkr2GdiOrigDrawBeziers incontextof this)"
-        "(Layer.__krkr2GdiPenApp(b), a);"
-        "    return (Layer.__krkr2GdiOrigDrawBeziers incontextof this)(*);"
-        "  };"
-        "  Layer.drawString = function(a,b,c,d,e) {"
-        "    if(Layer.__krkr2GdiOrigDrawString === void) return void;"
-        "    if(Layer.__krkr2GdiIsBrush(e)) return "
-        "(Layer.__krkr2GdiOrigDrawString incontextof this)"
-        "(b, Layer.__krkr2GdiBrushApp(e), c, d, a);"
-        "    return (Layer.__krkr2GdiOrigDrawString incontextof this)(*);"
-        "  };"
-        "  Layer.drawImage = function(a,b,c,d,e,f,g) {"
-        "    if(typeof a == \"string\") {"
-        "      if(c === void && Layer.__krkr2GdiOrigDrawImage !== void) return "
-        "(Layer.__krkr2GdiOrigDrawImage incontextof this)(0, 0, a);"
-        "      if(g === void && Layer.__krkr2GdiOrigDrawImage !== void) return "
-        "(Layer.__krkr2GdiOrigDrawImage incontextof this)(b, c, a);"
-        "      if(Layer.__krkr2GdiOrigDrawImageRect !== void) return "
-        "(Layer.__krkr2GdiOrigDrawImageRect incontextof this)(b, c, a, d, e, f, g);"
-        "    }"
-        "    if(Layer.__krkr2GdiOrigDrawImage !== void) return "
-        "(Layer.__krkr2GdiOrigDrawImage incontextof this)(*);"
-        "    return void;"
-        "  };"
-        "}"));
+    TVPExecuteScript(TJS_W(R"KRKR2(
+(function() {
+  if(typeof Layer == "undefined" || typeof GdiPlus == "undefined") return;
+  function __krkr2GdiGet(obj, name) {
+    try {
+      if(typeof obj[name] == "undefined") return void;
+      return obj[name];
+    } catch(e) { return void; }
+  }
+  function __krkr2GdiSet(obj, name, value) {
+    try { obj[name] = value; } catch(e) {}
+  }
+  if(__krkr2GdiGet(Layer, "__krkr2LayerExGdiPlusCompatInstalled") !== void)
+    return;
+  __krkr2GdiSet(Layer, "__krkr2LayerExGdiPlusCompatInstalled", true);
+  class __Krkr2LayerGdiBrush {
+    var color = 0xffffffff;
+    var __krkr2LayerGdiBrush = true;
+    function __Krkr2LayerGdiBrush(argb=0xffffffff) { color = argb; }
+    function setSolidBrush(argb) { color = argb; }
+  };
+  class __Krkr2LayerGdiPen {
+    var color = 0xffffffff;
+    var width = 1.0;
+    var alignment = 0;
+    var brush = void;
+    var __krkr2LayerGdiPen = true;
+    function __Krkr2LayerGdiPen(arg=0xffffffff, w=1.0) {
+      try {
+        if(arg !== void && arg.__krkr2LayerGdiBrush !== void) {
+          brush = arg; color = arg.color;
+        } else {
+          color = arg;
+        }
+      } catch(e) { color = arg; }
+      width = w;
+    }
+    function setAlignMent(value) { alignment = value; }
+    function setAlignment(value) { alignment = value; }
+    function setBrush(value) {
+      brush = value;
+      try { if(value.color !== void) color = value.color; } catch(e) {}
+    }
+    function setColor(value) { color = value; brush = void; }
+    function setWidth(value) { width = value; }
+  };
+  __krkr2GdiSet(Layer, "Brush", __Krkr2LayerGdiBrush);
+  __krkr2GdiSet(Layer, "Pen", __Krkr2LayerGdiPen);
+  if(__krkr2GdiGet(Layer, "Font") === void)
+    __krkr2GdiSet(Layer, "Font", __krkr2GdiGet(GdiPlus, "Font"));
+  var __krkr2GdiIsPen = function(v) {
+    if(v === void) return false;
+    try { return v.__krkr2LayerGdiPen !== void; } catch(e) { return false; }
+  };
+  var __krkr2GdiIsBrush = function(v) {
+    if(v === void) return false;
+    try { return v.__krkr2LayerGdiBrush !== void; } catch(e) { return false; }
+  };
+  var __krkr2GdiPenApp = function(pen) {
+    var app = new GdiPlus.Appearance();
+    var color = 0xffffffff; var width = 1.0;
+    try {
+      if(pen.brush !== void && pen.brush.color !== void) color = pen.brush.color;
+      else if(pen.color !== void) color = pen.color;
+      if(pen.width !== void) width = pen.width;
+    } catch(e) {}
+    app.addPen(color, width);
+    return app;
+  };
+  var __krkr2GdiBrushApp = function(brush) {
+    var app = new GdiPlus.Appearance();
+    var color = 0xffffffff;
+    try { if(brush.color !== void) color = brush.color; } catch(e) {}
+    app.addBrush(color);
+    return app;
+  };
+  __krkr2GdiSet(Layer, "__krkr2GdiIsPen", __krkr2GdiIsPen);
+  __krkr2GdiSet(Layer, "__krkr2GdiIsBrush", __krkr2GdiIsBrush);
+  __krkr2GdiSet(Layer, "__krkr2GdiPenApp", __krkr2GdiPenApp);
+  __krkr2GdiSet(Layer, "__krkr2GdiBrushApp", __krkr2GdiBrushApp);
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawEllipse", __krkr2GdiGet(Layer, "drawEllipse"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawLine", __krkr2GdiGet(Layer, "drawLine"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawRectangle", __krkr2GdiGet(Layer, "drawRectangle"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawBezier", __krkr2GdiGet(Layer, "drawBezier"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawBeziers", __krkr2GdiGet(Layer, "drawBeziers"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawString", __krkr2GdiGet(Layer, "drawString"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawImage", __krkr2GdiGet(Layer, "drawImage"));
+  __krkr2GdiSet(Layer, "__krkr2GdiOrigDrawImageRect", __krkr2GdiGet(Layer, "drawImageRect"));
+  __krkr2GdiSet(Layer, "drawEllipse", function(a,b,c,d,e) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawEllipse");
+    if(orig === void) return void;
+    if(__krkr2GdiIsPen(a)) return (orig incontextof this)(__krkr2GdiPenApp(a), b, c, d, e);
+    if(__krkr2GdiIsPen(e)) return (orig incontextof this)(__krkr2GdiPenApp(e), a, b, c, d);
+    return (orig incontextof this)(*);
+  });
+  __krkr2GdiSet(Layer, "fillEllipse", function(a,b,c,d,e) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawEllipse");
+    if(orig === void) return void;
+    if(__krkr2GdiIsBrush(a)) return (orig incontextof this)(__krkr2GdiBrushApp(a), b, c, d, e);
+    if(__krkr2GdiIsBrush(e)) return (orig incontextof this)(__krkr2GdiBrushApp(e), a, b, c, d);
+    return void;
+  });
+  __krkr2GdiSet(Layer, "drawLine", function(a,b,c,d,e) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawLine");
+    if(orig === void) return void;
+    if(__krkr2GdiIsPen(a)) return (orig incontextof this)(__krkr2GdiPenApp(a), b, c, d, e);
+    if(__krkr2GdiIsPen(e)) return (orig incontextof this)(__krkr2GdiPenApp(e), a, b, c, d);
+    return (orig incontextof this)(*);
+  });
+  __krkr2GdiSet(Layer, "drawRectangle", function(a,b,c,d,e) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawRectangle");
+    if(orig === void) return void;
+    if(__krkr2GdiIsPen(a)) return (orig incontextof this)(__krkr2GdiPenApp(a), b, c, d, e);
+    if(__krkr2GdiIsPen(e)) return (orig incontextof this)(__krkr2GdiPenApp(e), a, b, c, d);
+    return (orig incontextof this)(*);
+  });
+  __krkr2GdiSet(Layer, "fillRectangle", function(a,b,c,d,e) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawRectangle");
+    if(orig === void) return void;
+    if(__krkr2GdiIsBrush(a)) return (orig incontextof this)(__krkr2GdiBrushApp(a), b, c, d, e);
+    if(__krkr2GdiIsBrush(e)) return (orig incontextof this)(__krkr2GdiBrushApp(e), a, b, c, d);
+    return void;
+  });
+  __krkr2GdiSet(Layer, "drawBezier", function(a,b,c,d,e,f,g,h,i) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawBezier");
+    if(orig === void) return void;
+    if(__krkr2GdiIsPen(a)) return (orig incontextof this)(__krkr2GdiPenApp(a), b, c, d, e, f, g, h, i);
+    if(__krkr2GdiIsPen(i)) return (orig incontextof this)(__krkr2GdiPenApp(i), a, b, c, d, e, f, g, h);
+    return (orig incontextof this)(*);
+  });
+  __krkr2GdiSet(Layer, "drawBeziers", function(a,b) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawBeziers");
+    if(orig === void) return void;
+    if(__krkr2GdiIsPen(a)) return (orig incontextof this)(__krkr2GdiPenApp(a), b);
+    if(__krkr2GdiIsPen(b)) return (orig incontextof this)(__krkr2GdiPenApp(b), a);
+    return (orig incontextof this)(*);
+  });
+  __krkr2GdiSet(Layer, "drawString", function(a,b,c,d,e) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawString");
+    if(orig === void) return void;
+    if(__krkr2GdiIsBrush(e)) return (orig incontextof this)(b, __krkr2GdiBrushApp(e), c, d, a);
+    return (orig incontextof this)(*);
+  });
+  __krkr2GdiSet(Layer, "drawImage", function(a,b,c,d,e,f,g) {
+    var orig = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawImage");
+    var origRect = __krkr2GdiGet(Layer, "__krkr2GdiOrigDrawImageRect");
+    if(typeof a == "string") {
+      if(c === void && orig !== void) return (orig incontextof this)(0, 0, a);
+      if(g === void && orig !== void) return (orig incontextof this)(b, c, a);
+      if(origRect !== void) return (origRect incontextof this)(b, c, a, d, e, f, g);
+    }
+    if(orig !== void) return (orig incontextof this)(*);
+    return void;
+  });
+})();
+)KRKR2"));
 }
 
 static void oleclassAliasCompat() {
