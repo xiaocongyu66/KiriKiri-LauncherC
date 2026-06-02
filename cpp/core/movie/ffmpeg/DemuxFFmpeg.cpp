@@ -1058,7 +1058,7 @@ bool CDVDDemuxFFmpeg::SeekTime(int time, bool backwords, double *startpts) {
             ret = 0;
 
         if(ret >= 0)
-            UpdateCurrentPTS();
+            m_currentPts = DVD_MSEC_TO_TIME(time);
     }
 
     // 	if (m_currentPts == DVD_NOPTS_VALUE)
@@ -1099,10 +1099,16 @@ void CDVDDemuxFFmpeg::UpdateCurrentPTS() {
     int idx = av_find_default_stream_index(m_pFormatContext);
     if(idx >= 0) {
         AVStream *stream = m_pFormatContext->streams[idx];
-        if(stream && stream->cur_dts != (int64_t)AV_NOPTS_VALUE) {
-            double ts = ConvertTimestamp(stream->cur_dts, stream->time_base.den,
-                                         stream->time_base.num);
-            m_currentPts = ts;
+        if(!stream)
+            return;
+
+        if(stream->start_time != (int64_t)AV_NOPTS_VALUE) {
+            m_currentPts = ConvertTimestamp(stream->start_time,
+                                            stream->time_base.den,
+                                            stream->time_base.num);
+        } else if(m_pFormatContext->start_time != (int64_t)AV_NOPTS_VALUE) {
+            m_currentPts = (double)m_pFormatContext->start_time *
+                DVD_TIME_BASE / AV_TIME_BASE;
         }
     }
 }
