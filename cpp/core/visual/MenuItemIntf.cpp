@@ -149,7 +149,7 @@ tTJSNI_MenuItem *tTJSNI_BaseMenuItem::CastFromVariant(const tTJSVariant &from) {
                TJS_NIS_GETINSTANCE, tTJSNC_MenuItem::ClassID,
                (iTJSNativeInstance **)&menuitem)))
             TVPThrowExceptionMessage(TVPSpecifyMenuItem);
-        if(!IsLiveInstance(menuitem) || !menuitem->Owner)
+        if(!IsLiveInstance(menuitem))
             TVPThrowExceptionMessage(TVPSpecifyMenuItem);
         return menuitem;
     }
@@ -161,7 +161,7 @@ bool tTJSNI_BaseMenuItem::AttachChild(tTJSNI_BaseMenuItem *item,
                                       tjs_int index) {
     if(!IsLiveInstance(this) || !IsLiveInstance(item))
         return false;
-    if(!Owner || !item->Owner || item == this)
+    if(item == this)
         return false;
 
     tjs_int guard = 0;
@@ -263,7 +263,7 @@ iTJSDispatch2 *tTJSNI_BaseMenuItem::GetChildrenArrayNoAddRef() {
             tjs_int itemcount = 0;
             for(tjs_int i = 0; i < count; i++) {
                 tTJSNI_BaseMenuItem *item = Children.at(i);
-                if(!IsLiveInstance(item) || !item->Owner)
+                if(!IsLiveInstance(item))
                     continue;
 
                 iTJSDispatch2 *dsp = item->Owner;
@@ -294,7 +294,7 @@ void tTJSNI_BaseMenuItem::OnClick() {
             break;
         item = parent;
     }
-    if(!item || !item->Window)
+    if(!item || !item->Window || !Owner)
         return;
     if(!item->Window->CanDeliverEvents())
         return;
@@ -341,8 +341,7 @@ TJS_END_NATIVE_CONSTRUCTOR_DECL(/*TJS class name*/ MenuItem)
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ add) {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
                             /*var. type*/ tTJSNI_MenuItem);
-    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this) ||
-       !_this->GetOwnerNoAddRef())
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this))
         return TJS_E_INVALIDOBJECT;
     if(numparams < 1)
         return TJS_E_BADPARAMCOUNT;
@@ -355,8 +354,7 @@ TJS_END_NATIVE_METHOD_DECL(/*func. name*/ add)
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ insert) {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
                             /*var. type*/ tTJSNI_MenuItem);
-    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this) ||
-       !_this->GetOwnerNoAddRef())
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this))
         return TJS_E_INVALIDOBJECT;
     if(numparams < 2)
         return TJS_E_BADPARAMCOUNT;
@@ -370,8 +368,7 @@ TJS_END_NATIVE_METHOD_DECL(/*func. name*/ insert)
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ remove) {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
                             /*var. type*/ tTJSNI_MenuItem);
-    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this) ||
-       !_this->GetOwnerNoAddRef())
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this))
         return TJS_E_INVALIDOBJECT;
     if(numparams < 1)
         return TJS_E_BADPARAMCOUNT;
@@ -385,8 +382,7 @@ TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ popup) // not trackPopup
 {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
                             /*var. type*/ tTJSNI_MenuItem);
-    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this) ||
-       !_this->GetOwnerNoAddRef())
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this))
         return TJS_E_INVALIDOBJECT;
     if(numparams < 3)
         return TJS_E_BADPARAMCOUNT;
@@ -407,8 +403,7 @@ TJS_END_NATIVE_METHOD_DECL(/*func. name*/ popup) // not trackPopup
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ onClick) {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
                             /*var. type*/ tTJSNI_MenuItem);
-    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this) ||
-       !_this->GetOwnerNoAddRef())
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this))
         return TJS_E_INVALIDOBJECT;
 
     tTJSVariantClosure obj = _this->GetActionOwnerNoAddRef();
@@ -424,8 +419,7 @@ TJS_END_NATIVE_METHOD_DECL(/*func. name*/ onClick)
 TJS_BEGIN_NATIVE_METHOD_DECL(/*func. name*/ fireClick) {
     TJS_GET_NATIVE_INSTANCE(/*var. name*/ _this,
                             /*var. type*/ tTJSNI_MenuItem);
-    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this) ||
-       !_this->GetOwnerNoAddRef())
+    if(!tTJSNI_BaseMenuItem::IsLiveInstance(_this))
         return TJS_E_INVALIDOBJECT;
 
     _this->OnClick();
