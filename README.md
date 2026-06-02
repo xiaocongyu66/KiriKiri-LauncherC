@@ -4,11 +4,11 @@
 
 ## 项目介绍
 
-KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器。项目目标不是只做一个简单的游戏入口，而是把 KiriKiri2/TJS2 运行时、资源系统、渲染、音频、视频、插件兼容层和平台启动器整理成可维护的 C++ 架构，让更多旧游戏能在 Android、Windows、Linux 和 macOS 上继续运行。
+KiriKiri LauncherC 是面向 KiriKiri2 / KAG / TJS2 游戏的跨平台兼容运行环境和启动器。项目目标不是只提供一个游戏入口，而是把脚本运行时、资源系统、图像与视频解码、音频输出、插件兼容层、渲染后端和平台启动器整理成可维护的 C++/CMake 工程，让更多依赖旧版吉里吉里生态的游戏能在 Android、Windows、Linux 和 macOS 上继续运行。
 
-本项目 fork 自 [2468785842/krkr2](https://github.com/2468785842/krkr2)，并在其模块化架构基础上继续维护和适配：核心运行时被拆分到 `cpp/core`，平台入口集中在 `platforms`，插件兼容代码集中在 `cpp/plugins`，依赖和交叉编译由 CMake、vcpkg overlay ports/triplets 以及 Android Gradle 工程统一驱动。Android 端同时接入 SDL/Cocos2d-x 平台层、Breakpad、Dobby hook 和移动端资源路径适配；桌面端保留 Windows、Linux、macOS 入口，方便验证核心兼容行为。
+本项目 fork 自 [2468785842/krkr2](https://github.com/2468785842/krkr2)，并在其模块化架构基础上继续工程化和兼容性维护：核心运行时位于 `cpp/core`，平台入口集中在 `platforms`，内置插件和兼容补丁集中在 `cpp/plugins`，依赖和交叉编译由 CMake、vcpkg overlay ports/triplets 以及 Android Gradle 工程统一驱动。Android 端接入 Cocos2d-x/SDL 平台层、Breakpad、Dobby hook、oneTBB、mimalloc、移动端资源路径和 per-game 偏好配置；桌面端保留 Windows、Linux、macOS 入口，方便验证核心行为和跨平台构建。
 
-项目目前重点补齐真实游戏会依赖的行为，包括 XP3/ZIP/TAR 等资源读取、TJS2/KAG 脚本执行、OpenGL/Cocos2d-x 渲染桥接、FFmpeg 音视频、PSD/PSB/EMote/motionplayer、layerEx 系列插件、Kirikiroid 兼容补丁、运行时 TJS patch、移动端输入与存储路径等。不同游戏的兼容性仍会受到脚本写法、插件组合、封包格式和平台差异影响，欢迎用可复现日志和测试游戏反馈问题。
+项目当前重点是补齐真实游戏会依赖的行为，而不是只跑通最小示例：XP3/ZIP/TAR/7z 等资源与归档读取、TJS2/KAG 脚本执行、软件渲染与 OpenGL/GLES/ANGLE/ANGLE-VK 路径、Native Vulkan 探测、FFmpeg 音视频、PSD/PSB/EMote/motionplayer、layerEx 系列插件、Kirikiroid 兼容补丁、运行时 TJS patch、移动端输入、字体、存储路径和崩溃日志。不同游戏的兼容性仍会受到脚本写法、插件组合、封包格式、渲染路径和平台差异影响，欢迎用可复现日志和测试游戏反馈问题。
 
 ## 架构概览
 
@@ -21,17 +21,35 @@ KiriKiri LauncherC 是面向吉里吉里 / KAG 游戏的跨平台兼容启动器
 ## 当前开发重点
 
 - 提升 Android 端启动、存储、输入、渲染和崩溃诊断的稳定性。
+- 完善软件渲染、OpenGL/GLES、ANGLE、ANGLE-VK 的选择与回退；Native Vulkan 目前已有探测和选项，完整 Vulkan RenderManager 仍在后续实现范围内。
 - 补全真实游戏常用插件，特别是 motionplayer、PSB/PSD、layerEx 和 Kirikiroid 兼容行为。
 - 可选接入 Live2D Cubism：插件桥接源码已入库，但需要通过本机 SDK 路径提供 Cubism Core 头文件和对应 ABI 静态库后才会参与 Android 构建。
 - 保持插件静态注册、whole-archive/force-load 链接策略和运行时 patch 可维护。
 - 修复 CI、vcpkg 二进制缓存、NDK/CMake 版本和跨平台构建差异。
 - 在移植或改写其他项目实现时保留来源、许可证和必要的兼容说明。
 
+## 文本编码与角色资源修复
+
+已修复一类由脚本文本编码误判引起的兼容问题：部分游戏的 `.ks`、`.tjs`、`.stand` 等脚本使用无 BOM 的 CP932/Shift_JIS 或其他旧式本地编码。如果这些脚本被误判为西文单字节编码，脚本中的角色名、差分名、立绘文件名或模型资源名会被读成乱码，进而导致部分游戏的全部角色模型、部分角色模型、立绘或表情差分无法显示。当前文本流读取会先处理 BOM、UTF、ISO-2022 escape 和 uchardet 结果，再参考 ICU/uchardet 的多字节编码规则做 CJK 结构识别；主解码失败时会使用 oneTBB 并发验证多编码 fallback，并按优先级选择可读取的编码。
+
+当前覆盖的语言和区域包括：日文、简体中文、繁体中文、韩文、英文、西欧/中欧/北欧/土耳其/波罗的海语言、俄语/乌克兰语/保加利亚语等西里尔文字、希腊语、希伯来语、阿拉伯语、泰语、越南语、亚美尼亚语、格鲁吉亚语、哈萨克语、老挝语，以及部分 DOS、Macintosh 和区域性旧代码页。
+
+支持的编码包括：
+
+- Unicode / 基础文本：`ASCII`, `UTF-8`, `UTF-16`, `UTF-16LE`, `UTF-16BE`, `UTF-32`, `UTF-32LE`, `UTF-32BE`
+- 日文：`CP932`, `Shift_JIS`, `Windows-31J`, `EUC-JP`, `ISO-2022-JP`, `ISO-2022-JP-1`, `ISO-2022-JP-2`
+- 中文：`GB18030`, `GBK`, `CP936`, `GB2312`, `EUC-CN`, `HZ-GB-2312`, `Big5`, `CP950`, `Big5-HKSCS`, `EUC-TW`, `ISO-2022-CN`, `ISO-2022-CN-EXT`
+- 韩文：`EUC-KR`, `CP949`, `UHC`, `JOHAB`, `ISO-2022-KR`
+- 西欧/中欧/土耳其/波罗的海：`Windows-1250`, `Windows-1252`, `Windows-1254`, `Windows-1257`, `ISO-8859-1`, `ISO-8859-2`, `ISO-8859-3`, `ISO-8859-4`, `ISO-8859-9`, `ISO-8859-10`, `ISO-8859-13`, `ISO-8859-14`, `ISO-8859-15`, `ISO-8859-16`, `CP852`, `Mac-CentralEurope`
+- 西里尔/希腊/希伯来/阿拉伯：`Windows-1251`, `Windows-1253`, `Windows-1255`, `Windows-1256`, `ISO-8859-5`, `ISO-8859-6`, `ISO-8859-7`, `ISO-8859-8`, `ISO-8859-8-I`, `KOI8-R`, `KOI8-U`, `KOI8-RU`, `CP866`, `Mac-Cyrillic`
+- 泰语/越南语/其他旧编码：`Windows-874`, `TIS-620`, `ISO-8859-11`, `Windows-1258`, `VISCII`, `TCVN`, `CP437`, `CP850`, `CP858`, `Macintosh`, `ARMSCII-8`, `PT154`, `RK1048`, `Georgian-Academy`, `Georgian-PS`, `CP855`, `CP857`, `CP860`, `CP861`, `CP862`, `CP863`, `CP864`, `CP865`, `CP869`, `CP1125`, `ISO-IR-111`, `HP-ROMAN8`, `CP1133`
+
 ## 目录
 
 - [项目介绍](#项目介绍)
 - [架构概览](#架构概览)
 - [当前开发重点](#当前开发重点)
+- [文本编码与角色资源修复](#文本编码与角色资源修复)
 - [支持平台](#支持平台)
 - [依赖构建工具](#依赖构建工具)
 - [编译环境配置](#编译环境配置)
