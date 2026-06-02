@@ -75,6 +75,7 @@ object GameCache {
             .edit()
             .putString(KEY_ENTRIES, arr.toString())
             .apply()
+        GamePrefsDb.pruneMissingGames(context)
     }
 
     fun getCachedRoot(context: Context): String? {

@@ -72,7 +72,7 @@ object KrkrPrefsSchema {
     val ROOT = Section(
         titleRes = "preference_title",
         items = listOf(
-            PrefItem.Bool("outputlog", "preference_output_log", true),
+            PrefItem.Bool("outputlog", "preference_output_log", false),
             PrefItem.Bool("showfps", "preference_show_fps", false),
             PrefItem.Select(
                 key = "fps_limit",

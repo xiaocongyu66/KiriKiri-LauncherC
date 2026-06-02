@@ -95,7 +95,7 @@ struct tTVPFFmpegImage {
 
 static void TVPInitFFmpegImageDecoder() {
     static std::once_flag once;
-    std::call_once(once, []() { avcodec_register_all(); });
+    std::call_once(once, []() {});
 }
 
 static AVCodecID TVPGuessFFmpegImageCodec(const tjs_uint8 *header) {
@@ -149,7 +149,7 @@ static bool TVPDecodeImageWithFFmpeg(tTJSBinaryStream *src,
     if(!TVPReadFFmpegImageStream(src, &input))
         return false;
 
-    AVCodec *codec = avcodec_find_decoder(codecId);
+    const AVCodec *codec = avcodec_find_decoder(codecId);
     if(!codec)
         return false;
 
@@ -165,43 +165,48 @@ static bool TVPDecodeImageWithFFmpeg(tTJSBinaryStream *src,
     int numThreads = TVPGetProcessorNum();
     numThreads = std::max(1, std::min(numThreads, 8));
     codecContext->thread_count = numThreads;
-    codecContext->thread_safe_callbacks = 1;
 
     bool decoded = false;
     if(avcodec_open2(codecContext, codec, nullptr) >= 0) {
-        AVPacket packet;
-        av_init_packet(&packet);
+        AVPacket packet{};
         packet.data = input.data();
         packet.size =
             static_cast<int>(input.size() - AV_INPUT_BUFFER_PADDING_SIZE);
 
         int gotPicture = 0;
-        int decodedBytes =
-            avcodec_decode_video2(codecContext, frame, &gotPicture, &packet);
-        if(decodedBytes >= 0 && !gotPicture) {
-            AVPacket flushPacket;
-            av_init_packet(&flushPacket);
-            flushPacket.data = nullptr;
-            flushPacket.size = 0;
-            avcodec_decode_video2(codecContext, frame, &gotPicture,
-                                  &flushPacket);
+        if(avcodec_send_packet(codecContext, &packet) >= 0) {
+            int receiveRet = avcodec_receive_frame(codecContext, frame);
+            if(receiveRet == AVERROR(EAGAIN)) {
+                avcodec_send_packet(codecContext, nullptr);
+                receiveRet = avcodec_receive_frame(codecContext, frame);
+            }
+            gotPicture = receiveRet == 0 ? 1 : 0;
         }
 
-        if(gotPicture && codecContext->width > 0 && codecContext->height > 0 &&
-           codecContext->width < 65536 && codecContext->height < 65536 &&
-           codecContext->pix_fmt != AV_PIX_FMT_NONE) {
+        const int frameWidth = frame->width > 0 ? frame->width
+                                                : codecContext->width;
+        const int frameHeight = frame->height > 0 ? frame->height
+                                                  : codecContext->height;
+        const AVPixelFormat frameFormat =
+            frame->format != AV_PIX_FMT_NONE
+                ? static_cast<AVPixelFormat>(frame->format)
+                : codecContext->pix_fmt;
+
+        if(gotPicture && frameWidth > 0 && frameHeight > 0 &&
+           frameWidth < 65536 && frameHeight < 65536 &&
+           frameFormat != AV_PIX_FMT_NONE) {
             const bool grayscale = mode == glmGrayscale;
             const AVPixelFormat dstFormat =
                 grayscale ? AV_PIX_FMT_GRAY8 : AV_PIX_FMT_RGBA;
             const int bytesPerPixel = grayscale ? 1 : 4;
-            const int width = codecContext->width;
-            const int height = codecContext->height;
+            const int width = frameWidth;
+            const int height = frameHeight;
             const int dstStride = width * bytesPerPixel;
             const size_t outputSize =
                 static_cast<size_t>(dstStride) * static_cast<size_t>(height);
 
             SwsContext *sws = sws_getContext(
-                width, height, codecContext->pix_fmt, width, height, dstFormat,
+                width, height, frameFormat, width, height, dstFormat,
                 SWS_FAST_BILINEAR, nullptr, nullptr, nullptr);
             if(sws) {
                 image->Pixels.assign(outputSize, 0);
@@ -213,7 +218,7 @@ static bool TVPDecodeImageWithFFmpeg(tTJSBinaryStream *src,
                 sws_freeContext(sws);
                 if(scaled == height) {
                     const AVPixFmtDescriptor *desc =
-                        av_pix_fmt_desc_get(codecContext->pix_fmt);
+                        av_pix_fmt_desc_get(frameFormat);
                     image->Width = width;
                     image->Height = height;
                     image->Grayscale = grayscale;

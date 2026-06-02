@@ -4,6 +4,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.database.sqlite.SQLiteOpenHelper
+import java.io.File
 import java.util.UUID
 
 /**
@@ -34,6 +35,10 @@ object GamePrefsDb {
     private const val COL_LAST_LAUNCH_MS = "last_launch_ms"
 
     private class Helper(context: Context) : SQLiteOpenHelper(context, DB_NAME, null, DB_VERSION) {
+        override fun onConfigure(db: SQLiteDatabase) {
+            db.setForeignKeyConstraintsEnabled(true)
+        }
+
         override fun onCreate(db: SQLiteDatabase) {
             db.execSQL(
                 """
@@ -196,6 +201,38 @@ object GamePrefsDb {
                 """.trimIndent(),
                 arrayOf(uuid, millis)
             )
+        }
+    }
+
+    fun pruneMissingGames(context: Context): Int {
+        db(context).use { writable ->
+            val missing = mutableListOf<String>()
+            writable.rawQuery(
+                "SELECT $COL_UUID, $COL_STABLE_PATH FROM $TABLE_GAMES",
+                emptyArray()
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val uuid = cursor.getString(0)
+                    val stablePath = cursor.getString(1)
+                    if (!File(stablePath).exists()) missing += uuid
+                }
+            }
+            if (missing.isEmpty()) return 0
+
+            writable.beginTransaction()
+            try {
+                missing.forEach { uuid ->
+                    val where = "$COL_UUID = ?"
+                    val args = arrayOf(uuid)
+                    writable.delete(TABLE_KV, where, args)
+                    writable.delete(TABLE_STATS, where, args)
+                    writable.delete(TABLE_GAMES, where, args)
+                }
+                writable.setTransactionSuccessful()
+            } finally {
+                writable.endTransaction()
+            }
+            return missing.size
         }
     }
 

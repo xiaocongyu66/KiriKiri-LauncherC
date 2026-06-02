@@ -1,5 +1,6 @@
 #include "NativeLog.h"
 
+#include <atomic>
 #include <cstdarg>
 #include <cstdio>
 #include <exception>
@@ -23,6 +24,7 @@
 namespace {
     std::mutex gLogMutex;
     bool gLogInitialized = false;
+    std::atomic_bool gRenderProbeLoggingEnabled{ false };
     std::string gLogFilePath;
 
     constexpr const char *kLoggerNames[] = {
@@ -79,7 +81,10 @@ namespace {
         return sinks;
     }
 
-    void ApplySinksLocked(const std::vector<spdlog::sink_ptr> &sinks) {
+    void ApplySinksLocked(const std::vector<spdlog::sink_ptr> &sinks,
+                          bool verboseLoggingEnabled) {
+        const auto logLevel = verboseLoggingEnabled ? spdlog::level::debug
+                                                    : spdlog::level::warn;
         for(const auto *name : kLoggerNames) {
             auto logger = spdlog::get(name);
             if(!logger) {
@@ -90,13 +95,14 @@ namespace {
                 auto &loggerSinks = logger->sinks();
                 loggerSinks.assign(sinks.begin(), sinks.end());
             }
-            logger->flush_on(spdlog::level::info);
+            logger->set_level(logLevel);
+            logger->flush_on(spdlog::level::warn);
         }
         if(auto core = spdlog::get("core")) {
             spdlog::set_default_logger(core);
         }
-        spdlog::set_level(spdlog::level::debug);
-        spdlog::flush_on(spdlog::level::info);
+        spdlog::set_level(logLevel);
+        spdlog::flush_on(spdlog::level::warn);
         gLogInitialized = true;
     }
 
@@ -115,17 +121,20 @@ void TVPInitializeNativeLogging() {
     std::lock_guard<std::mutex> lock(gLogMutex);
     if(gLogInitialized)
         return;
+    gRenderProbeLoggingEnabled.store(false, std::memory_order_release);
     gLogFilePath.clear();
     auto sinks = BuildSinks(false, gLogFilePath);
-    ApplySinksLocked(sinks);
+    ApplySinksLocked(sinks, false);
 }
 
 void TVPConfigureNativeLogging(bool fileLoggingEnabled,
                                const std::string &logFilePath) {
     std::lock_guard<std::mutex> lock(gLogMutex);
+    gRenderProbeLoggingEnabled.store(fileLoggingEnabled,
+                                     std::memory_order_release);
     gLogFilePath = fileLoggingEnabled ? logFilePath : std::string();
     auto sinks = BuildSinks(fileLoggingEnabled, gLogFilePath);
-    ApplySinksLocked(sinks);
+    ApplySinksLocked(sinks, fileLoggingEnabled);
     try {
         spdlog::info("native file logging enabled={} path={}",
                      fileLoggingEnabled ? 1 : 0, gLogFilePath);
@@ -146,6 +155,9 @@ void TVPNativeLogInfo(const char *tag, const char *message) {
 }
 
 extern "C" void KR2RenderProbeWriteF(const char *fmt, ...) {
+    if(!gRenderProbeLoggingEnabled.load(std::memory_order_acquire))
+        return;
+
     char buf[1024];
     va_list ap;
     va_start(ap, fmt);

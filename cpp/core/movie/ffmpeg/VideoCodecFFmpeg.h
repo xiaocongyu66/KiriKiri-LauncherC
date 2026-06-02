@@ -5,11 +5,14 @@
 #include "VideoCodec.h"
 #include "Ref.h"
 
+#include <vector>
+
 extern "C" {
 #include "libavfilter/avfilter.h"
 #include "libavcodec/avcodec.h"
 #include "libavformat/avformat.h"
 #include "libavutil/avutil.h"
+#include "libavutil/hwcontext.h"
 #include "libswscale/swscale.h"
 }
 
@@ -94,6 +97,14 @@ protected:
 
     void UpdateName();
 
+    bool SetupHardwareDevice(const AVCodec *codec);
+
+    void ClearHardwareDevice();
+
+    bool TransferHardwareFrame();
+
+    const char *HardwareDeviceName() const;
+
     AVFrame *m_pFrame;
     AVFrame *m_pDecodedFrame;
     AVCodecContext *m_pCodecContext;
@@ -131,6 +142,12 @@ protected:
     bool m_interlaced;
     bool m_usingMediaCodecDecoder;
     bool m_disableMediaCodecForCurrentStream;
+    bool m_usingFFmpegHardwareDevice;
+    bool m_disableFFmpegHardwareForCurrentStream;
+    bool m_decoderDraining;
+    AVBufferRef *m_hwDeviceCtx;
+    AVPixelFormat m_hwPixelFormat;
+    AVHWDeviceType m_hwDeviceType;
     double m_DAR;
     CDVDStreamInfo m_hints;
     CDVDCodecOptions m_options;

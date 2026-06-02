@@ -105,8 +105,7 @@ int CDVDAudioCodecPassthrough::Decode(uint8_t *pData, int iSize, double dts,
 
     // get rid of potential side data
     if(pData) {
-        AVPacket pkt;
-        av_init_packet(&pkt);
+        AVPacket pkt{};
         pkt.data = pData;
         pkt.size = iSize;
         int didSplit = av_packet_split_side_data(&pkt);

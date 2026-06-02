@@ -4,9 +4,14 @@
 #include <atomic>
 #include <optional>
 #include <algorithm>
+#include <chrono>
 #include <cstring>
+#include <filesystem>
 #include <memory>
+#include <mutex>
 #include <string>
+#include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "TextStream.h"
@@ -15,6 +20,7 @@
 #include <oneapi/tbb/blocked_range.h>
 #include <oneapi/tbb/parallel_for.h>
 #include <opencv2/core/hal/interface.h>
+#include <sqlite3.h>
 #include <spdlog/spdlog.h>
 
 #include "MsgIntf.h"
@@ -22,8 +28,226 @@
 #include "tjsError.h"
 #include "CharacterSet.h"
 #include "BinaryStream.h"
+#include "Platform.h"
+#include "StorageIntf.h"
 
 static std::string G_DefaultReadEncoding = "UTF-8";
+static std::mutex G_ReadEncodingCacheMutex;
+static std::unordered_map<std::string, std::string> G_ReadEncodingCache;
+static std::unordered_set<std::string> G_ReadEncodingCacheLoadedGames;
+static bool G_ReadEncodingPersistentCachePruned = false;
+
+static std::string canonicalEncodingName(const std::string &encoding);
+
+static std::string trimTrailingPathSeparators(std::string path) {
+    while(path.size() > 1 && (path.back() == '/' || path.back() == '\\'))
+        path.pop_back();
+    return path;
+}
+
+static std::string getCurrentGameEncodingCachePath() {
+    try {
+        const ttstr appPath = TVPGetAppPath();
+        const ttstr nativePath = TVPGetLocallyAccessibleName(appPath);
+        std::string key = !nativePath.IsEmpty() ? nativePath.AsStdString()
+                                                : appPath.AsStdString();
+        return trimTrailingPathSeparators(key);
+    } catch(...) {
+        return "";
+    }
+}
+
+static std::string getReadEncodingMemoryKey(const std::string &gamePath) {
+    return gamePath.empty() ? std::string("<process>") : gamePath;
+}
+
+static bool isPrunableLocalGamePath(const std::string &path) {
+    return !path.empty() && path.find("://") == std::string::npos &&
+        path.find('>') == std::string::npos;
+}
+
+static bool localGamePathExists(const std::string &path) {
+    if(!isPrunableLocalGamePath(path))
+        return true;
+    std::error_code ec;
+    return std::filesystem::exists(std::filesystem::u8path(path), ec);
+}
+
+static std::string getReadEncodingCacheDbPath() {
+    try {
+        const ttstr prefPath = TVPGetInternalPreferencePath();
+        std::filesystem::path dir =
+            std::filesystem::u8path(prefPath.AsStdString());
+        std::error_code ec;
+        std::filesystem::create_directories(dir, ec);
+        return (dir / "krkr2_text_encoding_cache.sqlite3").u8string();
+    } catch(...) {
+        return "";
+    }
+}
+
+static bool execEncodingCacheSql(sqlite3 *db, const char *sql) {
+    char *err = nullptr;
+    const int rc = sqlite3_exec(db, sql, nullptr, nullptr, &err);
+    if(err)
+        sqlite3_free(err);
+    return rc == SQLITE_OK;
+}
+
+static sqlite3 *openReadEncodingCacheDb() {
+    const std::string dbPath = getReadEncodingCacheDbPath();
+    if(dbPath.empty())
+        return nullptr;
+
+    sqlite3 *db = nullptr;
+    if(sqlite3_open_v2(dbPath.c_str(), &db,
+                       SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE |
+                           SQLITE_OPEN_FULLMUTEX,
+                       nullptr) != SQLITE_OK) {
+        if(db)
+            sqlite3_close(db);
+        return nullptr;
+    }
+
+    sqlite3_busy_timeout(db, 100);
+    execEncodingCacheSql(db, "PRAGMA journal_mode=WAL");
+    execEncodingCacheSql(db, "PRAGMA synchronous=NORMAL");
+    if(!execEncodingCacheSql(
+           db,
+           "CREATE TABLE IF NOT EXISTS text_encoding_cache ("
+           "game_path TEXT PRIMARY KEY,"
+           "encoding TEXT NOT NULL,"
+           "updated_at INTEGER NOT NULL)")) {
+        sqlite3_close(db);
+        return nullptr;
+    }
+    return db;
+}
+
+static void pruneMissingReadEncodingCacheRowsLocked(sqlite3 *db) {
+    if(G_ReadEncodingPersistentCachePruned)
+        return;
+    G_ReadEncodingPersistentCachePruned = true;
+
+    sqlite3_stmt *stmt = nullptr;
+    if(sqlite3_prepare_v2(db, "SELECT game_path FROM text_encoding_cache", -1,
+                          &stmt, nullptr) != SQLITE_OK) {
+        return;
+    }
+
+    std::vector<std::string> missingPaths;
+    while(sqlite3_step(stmt) == SQLITE_ROW) {
+        const unsigned char *raw = sqlite3_column_text(stmt, 0);
+        if(!raw)
+            continue;
+        std::string path(reinterpret_cast<const char *>(raw));
+        if(isPrunableLocalGamePath(path) && !localGamePathExists(path))
+            missingPaths.push_back(path);
+    }
+    sqlite3_finalize(stmt);
+
+    if(missingPaths.empty())
+        return;
+
+    sqlite3_stmt *del = nullptr;
+    if(sqlite3_prepare_v2(
+           db, "DELETE FROM text_encoding_cache WHERE game_path = ?", -1, &del,
+           nullptr) != SQLITE_OK) {
+        return;
+    }
+    for(const auto &path : missingPaths) {
+        sqlite3_reset(del);
+        sqlite3_clear_bindings(del);
+        sqlite3_bind_text(del, 1, path.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_step(del);
+    }
+    sqlite3_finalize(del);
+}
+
+static void deleteReadEncodingCacheRowLocked(sqlite3 *db,
+                                             const std::string &gamePath) {
+    sqlite3_stmt *stmt = nullptr;
+    if(sqlite3_prepare_v2(
+           db, "DELETE FROM text_encoding_cache WHERE game_path = ?", -1, &stmt,
+           nullptr) != SQLITE_OK) {
+        return;
+    }
+    sqlite3_bind_text(stmt, 1, gamePath.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+}
+
+static std::string loadPersistentReadEncodingLocked(
+    const std::string &gamePath) {
+    if(gamePath.empty())
+        return "";
+
+    sqlite3 *db = openReadEncodingCacheDb();
+    if(!db)
+        return "";
+
+    pruneMissingReadEncodingCacheRowsLocked(db);
+    if(isPrunableLocalGamePath(gamePath) && !localGamePathExists(gamePath)) {
+        deleteReadEncodingCacheRowLocked(db, gamePath);
+        sqlite3_close(db);
+        return "";
+    }
+
+    sqlite3_stmt *stmt = nullptr;
+    std::string encoding;
+    if(sqlite3_prepare_v2(
+           db,
+           "SELECT encoding FROM text_encoding_cache WHERE game_path = ?", -1,
+           &stmt, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, gamePath.c_str(), -1, SQLITE_TRANSIENT);
+        if(sqlite3_step(stmt) == SQLITE_ROW) {
+            const unsigned char *raw = sqlite3_column_text(stmt, 0);
+            if(raw)
+                encoding = canonicalEncodingName(
+                    reinterpret_cast<const char *>(raw));
+        }
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+    return encoding;
+}
+
+static void storePersistentReadEncodingLocked(const std::string &gamePath,
+                                              const std::string &encoding) {
+    if(gamePath.empty() || encoding.empty())
+        return;
+    if(isPrunableLocalGamePath(gamePath) && !localGamePathExists(gamePath)) {
+        if(sqlite3 *db = openReadEncodingCacheDb()) {
+            deleteReadEncodingCacheRowLocked(db, gamePath);
+            sqlite3_close(db);
+        }
+        return;
+    }
+
+    sqlite3 *db = openReadEncodingCacheDb();
+    if(!db)
+        return;
+    pruneMissingReadEncodingCacheRowsLocked(db);
+
+    sqlite3_stmt *stmt = nullptr;
+    if(sqlite3_prepare_v2(
+           db,
+           "INSERT OR REPLACE INTO text_encoding_cache "
+           "(game_path, encoding, updated_at) VALUES (?, ?, ?)",
+           -1, &stmt, nullptr) == SQLITE_OK) {
+        const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             std::chrono::system_clock::now().time_since_epoch())
+                             .count();
+        sqlite3_bind_text(stmt, 1, gamePath.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, encoding.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 3, static_cast<sqlite3_int64>(now));
+        sqlite3_step(stmt);
+        sqlite3_finalize(stmt);
+    }
+
+    sqlite3_close(db);
+}
 
 static bool hasNonAsciiBytes(const unsigned char *raw, size_t size) {
     for(size_t i = 0; i < size; ++i) {
@@ -749,9 +973,85 @@ static size_t fallbackCharsetCount() {
     return count;
 }
 
-static const char *findFirstWorkingFallbackCharset(const char *src_begin,
-                                                   const char *src_end) {
-    const size_t count = fallbackCharsetCount();
+static void addEncodingCandidate(std::vector<std::string> &candidates,
+                                 const std::string &encoding) {
+    if(encoding.empty() || sameEncodingName(encoding, "ASCII"))
+        return;
+
+    const std::string canonical = canonicalEncodingName(encoding);
+    for(const auto &candidate : candidates) {
+        if(sameEncodingName(candidate, canonical))
+            return;
+    }
+    candidates.push_back(canonical);
+}
+
+static bool canDecodeWithCharset(const char *src_begin, const char *src_end,
+                                 const std::string &encoding) {
+    if(encoding.empty() || sameEncodingName(encoding, "ASCII"))
+        return false;
+
+    try {
+        std::wstring wide =
+            boost::locale::conv::to_utf<wchar_t>(
+                src_begin, src_end, encoding, boost::locale::conv::stop);
+        return !wide.empty();
+    } catch(...) {
+        return false;
+    }
+}
+
+static std::string getCachedReadEncoding() {
+    const std::string gamePath = getCurrentGameEncodingCachePath();
+    const std::string cacheKey = getReadEncodingMemoryKey(gamePath);
+
+    std::lock_guard<std::mutex> lock(G_ReadEncodingCacheMutex);
+    auto it = G_ReadEncodingCache.find(cacheKey);
+    if(it != G_ReadEncodingCache.end())
+        return it->second;
+
+    if(!gamePath.empty() &&
+       G_ReadEncodingCacheLoadedGames.find(gamePath) ==
+           G_ReadEncodingCacheLoadedGames.end()) {
+        G_ReadEncodingCacheLoadedGames.insert(gamePath);
+        std::string persistent = loadPersistentReadEncodingLocked(gamePath);
+        if(!persistent.empty()) {
+            G_ReadEncodingCache[cacheKey] = persistent;
+            return persistent;
+        }
+    }
+
+    return "";
+}
+
+static void setCachedReadEncoding(const std::string &encoding) {
+    if(encoding.empty())
+        return;
+    const std::string canonical = canonicalEncodingName(encoding);
+    const std::string gamePath = getCurrentGameEncodingCachePath();
+    const std::string cacheKey = getReadEncodingMemoryKey(gamePath);
+
+    std::lock_guard<std::mutex> lock(G_ReadEncodingCacheMutex);
+    G_ReadEncodingCache[cacheKey] = canonical;
+    if(!gamePath.empty()) {
+        G_ReadEncodingCacheLoadedGames.insert(gamePath);
+        storePersistentReadEncodingLocked(gamePath, canonical);
+    }
+}
+
+static std::string findFirstWorkingTextEncoding(const char *src_begin,
+                                                const char *src_end,
+                                                const std::string &preferred) {
+    std::vector<std::string> candidates;
+    candidates.reserve(fallbackCharsetCount() + 1);
+    addEncodingCandidate(candidates, preferred);
+    for(const char *const *cs = kFallbackCharsets; *cs; ++cs)
+        addEncodingCandidate(candidates, *cs);
+
+    const size_t count = candidates.size();
+    if(count == 0)
+        return "";
+
     std::vector<unsigned char> valid(count, 0);
     std::atomic<size_t> bestIndex{ count };
 
@@ -763,11 +1063,7 @@ static const char *findFirstWorkingFallbackCharset(const char *src_begin,
                     continue;
 
                 try {
-                    std::wstring wide =
-                        boost::locale::conv::to_utf<wchar_t>(
-                            src_begin, src_end, kFallbackCharsets[i],
-                            boost::locale::conv::stop);
-                    if(wide.empty())
+                    if(!canDecodeWithCharset(src_begin, src_end, candidates[i]))
                         continue;
 
                     valid[i] = 1;
@@ -785,9 +1081,9 @@ static const char *findFirstWorkingFallbackCharset(const char *src_begin,
 
     for(size_t i = 0; i < count; ++i) {
         if(valid[i])
-            return kFallbackCharsets[i];
+            return candidates[i];
     }
-    return nullptr;
+    return "";
 }
 
 std::string checkTextEncoding(const void *buf, size_t size,
@@ -843,15 +1139,39 @@ std::string checkTextEncoding(const void *buf, size_t size,
         uchardet_delete(ud);
         encoding = canonicalEncodingName(encoding);
 
-        if(hasNonAscii && !isLegacyCJKEncodingGuess(encoding)) {
+        if(hasNonAscii) {
+            const char *src_begin =
+                reinterpret_cast<const char *>(raw);
+            const char *src_end =
+                reinterpret_cast<const char *>(raw + size);
             const std::string legacyCJKEncoding =
-                detectLegacyCJKEncoding(raw, size);
+                !isLegacyCJKEncodingGuess(encoding)
+                    ? detectLegacyCJKEncoding(raw, size)
+                    : std::string();
+            const std::string preferredEncoding =
+                !legacyCJKEncoding.empty() ? legacyCJKEncoding : encoding;
+            const std::string cachedEncoding = getCachedReadEncoding();
+            if(!cachedEncoding.empty() &&
+               (sameEncodingName(cachedEncoding, preferredEncoding) ||
+                (!isLegacyCJKEncodingGuess(encoding) &&
+                 isLegacyCJKEncodingGuess(cachedEncoding))) &&
+               canDecodeWithCharset(src_begin, src_end, cachedEncoding)) {
+                return cachedEncoding;
+            }
+
             if(!legacyCJKEncoding.empty()) {
                 // Short KiriKiri scripts often contain only a few CJK names in
                 // otherwise ASCII control text. uchardet may report those as a
                 // western single-byte charset; prefer a structurally valid CJK
                 // stream in that case so storage names do not become mojibake.
                 encoding = legacyCJKEncoding;
+            }
+
+            const std::string validated =
+                findFirstWorkingTextEncoding(src_begin, src_end, encoding);
+            if(!validated.empty()) {
+                encoding = validated;
+                setCachedReadEncoding(encoding);
             }
         } else if(!hasNonAscii && sameEncodingName(encoding, "WINDOWS-1252")) {
             encoding = "ASCII";
@@ -1041,8 +1361,9 @@ public:
                 reinterpret_cast<const char *>(raw.data() + raw.size());
             bool decoded = false;
 
-            if(const char *fallback =
-                   findFirstWorkingFallbackCharset(src_begin, src_end)) {
+            const std::string fallback =
+                findFirstWorkingTextEncoding(src_begin, src_end, "");
+            if(!fallback.empty()) {
                 try {
                     std::wstring wide =
                         boost::locale::conv::to_utf<wchar_t>(

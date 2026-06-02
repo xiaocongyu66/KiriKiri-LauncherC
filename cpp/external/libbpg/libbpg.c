@@ -391,19 +391,20 @@ static int hevc_write_frame(AVCodecContext *avctx,
                             AVFrame *frame,
                             uint8_t *buf, int buf_len)
 {
-    AVPacket avpkt;
-    int len, got_frame;
+    AVPacket avpkt = { 0 };
+    int ret;
 
-    av_init_packet(&avpkt);
     avpkt.data = (uint8_t *)buf;
     avpkt.size = buf_len;
     /* avoid using uninitialized data */
     memset(buf + buf_len, 0, FF_INPUT_BUFFER_PADDING_SIZE);
-    len = avcodec_decode_video2(avctx, frame, &got_frame, &avpkt);
-    if (len < 0 || !got_frame)
+    ret = avcodec_send_packet(avctx, &avpkt);
+    if (ret < 0)
         return -1;
-    else
-        return 0;
+    ret = avcodec_receive_frame(avctx, frame);
+    if (ret < 0)
+        return -1;
+    return 0;
 }
 
 static int hevc_decode_frame_internal(BPGDecoderContext *s,

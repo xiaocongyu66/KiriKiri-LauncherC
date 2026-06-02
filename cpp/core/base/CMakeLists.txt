@@ -46,6 +46,7 @@ find_package(SDL2 CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
 find_package(cocos2dx CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
 include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
 fix_cocos2dx_android_cpufeatures_include()
 
@@ -60,4 +61,5 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
     $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
     cocos2dx::cocos2d
+    unofficial::sqlite3::sqlite3
 )

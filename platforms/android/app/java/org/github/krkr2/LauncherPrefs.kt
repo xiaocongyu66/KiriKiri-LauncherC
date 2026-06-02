@@ -102,7 +102,7 @@ object LauncherPrefs {
         if (mode == FFMPEG_DECODE_MODE_HARDWARE) FFMPEG_DECODE_MODE_HARDWARE else FFMPEG_DECODE_MODE_SOFTWARE
 
     fun getFileLogEnabled(context: Context): Boolean =
-        LauncherSettingsDb.getBoolean(context, KEY_FILE_LOG_ENABLED, true)
+        LauncherSettingsDb.getBoolean(context, KEY_FILE_LOG_ENABLED, false)
 
     fun setFileLogEnabled(context: Context, enabled: Boolean) {
         LauncherSettingsDb.setBoolean(context, KEY_FILE_LOG_ENABLED, enabled)

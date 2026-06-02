@@ -166,7 +166,7 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
         // picture of whether content is being produced at all.
         static int s_dcCount = 0;
         ++s_dcCount;
-        if(s_dcCount <= 32 || (s_dcCount & 0x7F) == 0) {
+	        if(s_dcCount <= 8 || (s_dcCount & 0x3FF) == 0) {
             iTVPTexture2D *tex = nullptr;
             tjs_int bw = 0, bh = 0;
             int fmt = -1;
@@ -1199,8 +1199,8 @@ void tTVPLayerManager::UpdateToDrawDevice() {
                 "LayerMgr::UpdateToDrawDevice#FIRST primary=(null)");
         }
     }
-    // Dump again any time hasImage flips, and a periodic re-dump every 256
-    // frames so we can track "did the script eventually load something".
+	    // Dump again any time hasImage flips, then keep sparse periodic samples
+	    // so file logging does not stall Android rendering.
     if(Primary) {
         int hi = Primary->GetHasImage() ? 1 : 0;
         if(hi != s_lastHasImage) {
@@ -1210,13 +1210,13 @@ void tTVPLayerManager::UpdateToDrawDevice() {
             KR2RenderProbeWriteF("LayerTree#transition (rooted at primary):");
             dumpLayerTree(Primary, "Tx");
             s_lastHasImage = hi;
-        } else if((s_count & 0xFF) == 0) {
+	        } else if((s_count & 0x7FF) == 0) {
             KR2RenderProbeWriteF("LayerTree#%d (rooted at primary):", s_count);
             dumpLayerTree(Primary, "Tp");
         }
     }
-    if((s_count <= 8) ||
-       (s_count & 0x3F) == 0) {
+	    if((s_count <= 8) ||
+	       (s_count & 0x3FF) == 0) {
         KR2RenderProbeWriteF("LayerMgr::UpdateToDrawDevice#%d noPrimary=%d "
                              "primarySize=%ux%u hasImage=%d",
                              s_count, s_noprimary,

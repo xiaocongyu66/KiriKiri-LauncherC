@@ -550,7 +550,6 @@ void tTVPBasicDrawDevice::Show() {
     static int s_nullBuf = 0;
     static int s_nullTex = 0;
     static int s_okFrames = 0;
-    static int s_lastOkFrames = -1;
     ++s_callCount;
     if(s_callCount == 1) {
         // First-call beacon — confirms the cocos2d render thread actually
@@ -599,18 +598,12 @@ void tTVPBasicDrawDevice::Show() {
         ++s_nullWindow;
     }
     // Sample early frames densely (every frame for the first 8 calls so we
-    // can see the ok transition), then space out exponentially to avoid
-    // log spam in steady state.
+    // can see the ok transition), then keep only sparse steady-state probes.
     bool shouldLog = false;
     if(s_callCount <= 8 ||
        s_callCount == 16 || s_callCount == 32 || s_callCount == 64 ||
        s_callCount == 128 ||
-       (s_callCount & 0xFF) == 0) {
-        shouldLog = true;
-    } else if(s_okFrames != s_lastOkFrames) {
-        // Also re-log whenever ok counter ticked since last sample — that
-        // tells us "ok grew from 0 to N" which is the transition we care
-        // about.
+       (s_callCount & 0x3FF) == 0) {
         shouldLog = true;
     }
     if(shouldLog) {
@@ -618,7 +611,6 @@ void tTVPBasicDrawDevice::Show() {
                  "managers=%zu",
                  s_callCount, s_okFrames, s_nullWindow, s_nullForm,
                  s_nullBuf, s_nullTex, Managers.size());
-        s_lastOkFrames = s_okFrames;
     }
 }
 #if 0
