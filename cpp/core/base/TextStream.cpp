@@ -510,6 +510,8 @@ static const char *findCanonicalEncodingAlias(const std::string &encoding) {
         {"ISO8859-9", "ISO-8859-9"},
         {"ISO-8859-10", "ISO-8859-10"},
         {"ISO8859-10", "ISO-8859-10"},
+        {"ISO-8859-11", "ISO-8859-11"},
+        {"ISO8859-11", "ISO-8859-11"},
         {"ISO-8859-13", "ISO-8859-13"},
         {"ISO8859-13", "ISO-8859-13"},
         {"ISO-8859-14", "ISO-8859-14"},
@@ -731,9 +733,9 @@ static const char *const kFallbackCharsets[] = {
     "WINDOWS-1255", "ISO-8859-8", "ISO-8859-8-I", "WINDOWS-1256",
     "ISO-8859-6",
     // Thai / Vietnamese / other legacy code pages
-    "WINDOWS-874", "TIS-620", "WINDOWS-1258", "VISCII", "TCVN",
-    "CP437", "CP850", "CP858", "MACINTOSH", "ARMSCII-8", "PT154",
-    "RK1048", "GEORGIAN-ACADEMY", "GEORGIAN-PS",
+    "WINDOWS-874", "TIS-620", "ISO-8859-11", "WINDOWS-1258", "VISCII",
+    "TCVN", "CP437", "CP850", "CP858", "MACINTOSH", "ARMSCII-8",
+    "PT154", "RK1048", "GEORGIAN-ACADEMY", "GEORGIAN-PS",
     // Additional DOS / regional encodings kept late to avoid false positives.
     "CP855", "CP857", "CP860", "CP861", "CP862", "CP863", "CP864",
     "CP865", "CP869", "CP1125", "ISO-IR-111", "HP-ROMAN8", "CP1133",
