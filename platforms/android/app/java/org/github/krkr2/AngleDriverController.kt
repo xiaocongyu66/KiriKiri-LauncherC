@@ -47,7 +47,7 @@ object AngleDriverController {
             val updated = mergeDriverSelection(pkgs, values, packageName, desiredDriver)
             if (!canWriteGlobalSettings(context)) {
                 if (useAngle) {
-                    log(context, "${angleModeName(useAngleVk)} requested but WRITE_SECURE_SETTINGS is not granted; using platform GLES unless ANGLE is already enabled")
+                    log(context, "${angleModeName(useAngleVk)} requested but WRITE_SECURE_SETTINGS is not granted; Android only allows per-app ANGLE changes from system/developer settings or adb-granted debug installs, so platform GLES will be used unless ANGLE is already enabled for ${context.packageName}")
                 } else {
                     log(context, "ANGLE renderer disabled but WRITE_SECURE_SETTINGS is not granted; leaving system driver selection unchanged")
                 }
@@ -128,7 +128,7 @@ object AngleDriverController {
 
     private fun logSettingsWriteFailure(context: Context, message: String, throwable: Throwable) {
         if (throwable is SecurityException) {
-            log(context, "$message: WRITE_SECURE_SETTINGS is not granted")
+            log(context, "$message: WRITE_SECURE_SETTINGS is not granted; Android restricts per-app ANGLE control to system/developer settings or adb-granted debug installs")
         } else {
             log(context, message, throwable)
         }

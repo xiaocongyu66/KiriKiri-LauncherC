@@ -1,6 +1,7 @@
 #include "ncbind.hpp"
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #define NCB_MODULE_NAME TJS_W("multiimage.dll")
@@ -71,9 +72,34 @@ static std::vector<TjsString> SplitImageMultiLine(const TjsString &line) {
     return tokens;
 }
 
+static TjsString ToLowerString(const TjsString &src) {
+    ttstr value(src.c_str(), static_cast<tjs_int>(src.size()));
+    value.ToLowerCase();
+    return TjsString(value.c_str(), value.length());
+}
+
+static size_t FindScaleSeparator(const TjsString &token) {
+    const size_t halfWidth = token.find(TJS_W(':'));
+    const size_t fullWidth = token.find(static_cast<tjs_char>(0xff1a));
+    if(halfWidth == TjsString::npos)
+        return fullWidth;
+    if(fullWidth == TjsString::npos)
+        return halfWidth;
+    return std::min(halfWidth, fullWidth);
+}
+
+static TjsString NormalizeScaleSeparators(const TjsString &src) {
+    TjsString normalized = src;
+    for(tjs_char &ch : normalized) {
+        if(ch == static_cast<tjs_char>(0xff1a))
+            ch = TJS_W(':');
+    }
+    return normalized;
+}
+
 static bool ParseScalePrefix(const TjsString &token, tjs_real &scale,
                              TjsString &file) {
-    const size_t colon = token.find(TJS_W(':'));
+    const size_t colon = FindScaleSeparator(token);
     if(colon == TjsString::npos || colon == 0)
         return false;
 
@@ -119,25 +145,126 @@ static bool ParseScalePrefix(const TjsString &token, tjs_real &scale,
     if(rest.empty())
         return false;
 
-    scale = value;
+    scale = value / 100.0;
     file = rest;
     return true;
 }
 
-static tTJSVariant MakeImageMultiEntry(const TjsString &token) {
-    tjs_real scale = 100;
-    TjsString file = token;
-    ParseScalePrefix(token, scale, file);
+static tTJSVariant MakeImageMultiEntry(const TjsString &token, bool first) {
+    tjs_real scale = first ? 1.0 : 0.0;
+    bool hasScale = first;
+    TjsString file = ToLowerString(Trim(token));
+    if(ParseScalePrefix(file, scale, file))
+        hasScale = true;
 
     iTJSDispatch2 *dict = TJSCreateDictionaryObject();
     tTJSVariant fileVar(ttstr(file.c_str(), file.size()));
-    tTJSVariant scaleVar(scale);
+    tTJSVariant scaleVar;
+    if(hasScale)
+        scaleVar = scale;
     dict->PropSet(TJS_MEMBERENSURE, TJS_W("file"), nullptr, &fileVar, dict);
     dict->PropSet(TJS_MEMBERENSURE, TJS_W("scale"), nullptr, &scaleVar, dict);
 
     tTJSVariant ret(dict, dict);
     dict->Release();
     return ret;
+}
+
+static bool GetObjectCount(iTJSDispatch2 *object, tjs_int &count) {
+    if(!object)
+        return false;
+
+    tTJSVariant countVar;
+    if(TJS_FAILED(object->PropGet(TJS_IGNOREPROP, TJS_W("count"), nullptr,
+                                  &countVar, object))) {
+        return false;
+    }
+
+    count = static_cast<tjs_int>(countVar);
+    return count >= 0;
+}
+
+static void AppendTextRows(const TjsString &content,
+                           std::vector<std::vector<TjsString>> &rows) {
+    size_t lineStart = 0;
+    while(lineStart <= content.size()) {
+        size_t lineEnd = lineStart;
+        while(lineEnd < content.size() && content[lineEnd] != TJS_W('\r') &&
+              content[lineEnd] != TJS_W('\n')) {
+            ++lineEnd;
+        }
+
+        TjsString line = Trim(content.substr(lineStart, lineEnd - lineStart));
+        if(!line.empty() && line[0] == 0xfeff)
+            line = Trim(line.substr(1));
+
+        if(!line.empty() && line[0] != TJS_W('#')) {
+            std::vector<TjsString> tokens = SplitImageMultiLine(line);
+            tokens.erase(std::remove_if(tokens.begin(), tokens.end(),
+                                        [](const TjsString &v) {
+                                            return Trim(v).empty();
+                                        }),
+                         tokens.end());
+            if(tokens.size() >= 2)
+                rows.push_back(std::move(tokens));
+        }
+
+        if(lineEnd >= content.size())
+            break;
+        lineStart = lineEnd + 1;
+        if(lineEnd + 1 < content.size() && content[lineEnd] == TJS_W('\r') &&
+           content[lineEnd + 1] == TJS_W('\n')) {
+            lineStart = lineEnd + 2;
+        }
+    }
+}
+
+static bool AppendVariantRows(tTJSVariant &input,
+                              std::vector<std::vector<TjsString>> &rows) {
+    if(input.Type() != tvtObject)
+        return false;
+
+    iTJSDispatch2 *object = input.AsObjectNoAddRef();
+    tjs_int rowCount = 0;
+    if(!GetObjectCount(object, rowCount))
+        return false;
+
+    for(tjs_int i = 0; i < rowCount; ++i) {
+        tTJSVariant rowVar;
+        if(TJS_FAILED(object->PropGetByNum(TJS_IGNOREPROP, i, &rowVar,
+                                           object))) {
+            continue;
+        }
+
+        if(rowVar.Type() == tvtObject) {
+            iTJSDispatch2 *rowObject = rowVar.AsObjectNoAddRef();
+            tjs_int columnCount = 0;
+            if(GetObjectCount(rowObject, columnCount)) {
+                std::vector<TjsString> row;
+                for(tjs_int j = 0; j < columnCount; ++j) {
+                    tTJSVariant cellVar;
+                    if(TJS_FAILED(rowObject->PropGetByNum(TJS_IGNOREPROP, j,
+                                                          &cellVar,
+                                                          rowObject))) {
+                        continue;
+                    }
+                    ttstr cell(cellVar);
+                    TjsString token = Trim(TjsString(cell.c_str(),
+                                                     cell.length()));
+                    if(!token.empty())
+                        row.push_back(std::move(token));
+                }
+                if(row.size() >= 2)
+                    rows.push_back(std::move(row));
+                continue;
+            }
+        }
+
+        ttstr rowText(rowVar);
+        AppendTextRows(TjsString(rowText.c_str(), rowText.length()), rows);
+    }
+
+    return true;
 }
 
 static tjs_error ImagemultiLoadInfo(tTJSVariant *result, tjs_int numparams,
@@ -154,56 +281,53 @@ static tjs_error ImagemultiLoadInfo(tTJSVariant *result, tjs_int numparams,
             return TJS_S_OK;
         }
 
-        ttstr text(*param[0]);
-        TjsString content(text.c_str(), text.length());
-        size_t lineStart = 0;
+        std::vector<std::vector<TjsString>> rows;
+        if(!AppendVariantRows(*param[0], rows)) {
+            ttstr text(*param[0]);
+            AppendTextRows(TjsString(text.c_str(), text.length()), rows);
+        }
+
         tjs_int groupIndex = 0;
 
-        while(lineStart <= content.size()) {
-            size_t lineEnd = lineStart;
-            while(lineEnd < content.size() && content[lineEnd] != TJS_W('\r') &&
-                  content[lineEnd] != TJS_W('\n')) {
-                ++lineEnd;
-            }
+        for(const auto &tokens : rows) {
+            iTJSDispatch2 *rawGroup = TJSCreateArrayObject();
+            iTJSDispatch2 *parsedGroup = TJSCreateArrayObject();
+            try {
+                tjs_int rawIndex = 0;
+                tjs_int parsedIndex = 0;
+                for(size_t i = 0; i < tokens.size(); ++i) {
+                    TjsString token = NormalizeScaleSeparators(Trim(tokens[i]));
+                    tTJSVariant rawValue(ttstr(token.c_str(), token.size()));
+                    rawGroup->PropSetByNum(TJS_MEMBERENSURE, rawIndex++,
+                                           &rawValue, rawGroup);
 
-            TjsString line = Trim(content.substr(lineStart, lineEnd - lineStart));
-            if(!line.empty() && line[0] == 0xfeff)
-                line = Trim(line.substr(1));
-
-            if(!line.empty() && line[0] != TJS_W('#')) {
-                std::vector<TjsString> tokens = SplitImageMultiLine(line);
-                tokens.erase(std::remove_if(tokens.begin(), tokens.end(),
-                                            [](const TjsString &v) {
-                                                return Trim(v).empty();
-                                            }),
-                             tokens.end());
-
-                if(tokens.size() >= 2) {
-                    iTJSDispatch2 *group = TJSCreateArrayObject();
-                    try {
-                        tjs_int itemIndex = 0;
-                        for(const auto &token : tokens) {
-                            tTJSVariant item = MakeImageMultiEntry(token);
-                            group->PropSetByNum(TJS_MEMBERENSURE, itemIndex++,
-                                                &item, group);
-                        }
-                        tTJSVariant groupVar(group, group);
-                        groups->PropSetByNum(TJS_MEMBERENSURE, groupIndex++,
-                                             &groupVar, groups);
-                        group->Release();
-                    } catch(...) {
-                        group->Release();
-                        throw;
-                    }
+                    tTJSVariant item = MakeImageMultiEntry(token, i == 0);
+                    parsedGroup->PropSetByNum(TJS_MEMBERENSURE, parsedIndex++,
+                                              &item, parsedGroup);
                 }
-            }
 
-            if(lineEnd >= content.size())
-                break;
-            lineStart = lineEnd + 1;
-            if(lineEnd + 1 < content.size() && content[lineEnd] == TJS_W('\r') &&
-               content[lineEnd + 1] == TJS_W('\n')) {
-                lineStart = lineEnd + 2;
+                tTJSVariant rawGroupVar(rawGroup, rawGroup);
+                groups->PropSetByNum(TJS_MEMBERENSURE, groupIndex++,
+                                     &rawGroupVar, groups);
+
+                TjsString key = ToLowerString(NormalizeScaleSeparators(
+                    Trim(tokens.front())));
+                tjs_real ignoredScale = 1.0;
+                TjsString keyFile = key;
+                ParseScalePrefix(key, ignoredScale, keyFile);
+                if(!keyFile.empty()) {
+                    tTJSVariant parsedGroupVar(parsedGroup, parsedGroup);
+                    ttstr keyName(keyFile.c_str(), keyFile.size());
+                    groups->PropSet(TJS_MEMBERENSURE, keyName.c_str(), nullptr,
+                                    &parsedGroupVar, groups);
+                }
+
+                rawGroup->Release();
+                parsedGroup->Release();
+            } catch(...) {
+                rawGroup->Release();
+                parsedGroup->Release();
+                throw;
             }
         }
 
