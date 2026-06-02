@@ -39,6 +39,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC ${BASE_HEADERS_DIR})
 target_link_libraries(${PROJECT_NAME} PUBLIC tjs2 PRIVATE core_visual_module core_plugin_module core_environ_module core_extension_module core_sound_module core_utils_module)
 
 find_package(uchardet CONFIG REQUIRED)
+find_package(TBB CONFIG REQUIRED)
 find_package(unrar CONFIG REQUIRED)
 find_package(LibArchive REQUIRED)
 find_package(SDL2 CONFIG REQUIRED)
@@ -50,6 +51,7 @@ fix_cocos2dx_android_cpufeatures_include()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     uchardet::libuchardet
+    TBB::tbb
     unrar::unrar
     LibArchive::LibArchive
     zstd::libzstd

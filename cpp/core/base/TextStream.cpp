@@ -1,13 +1,19 @@
 #include <cstdint>
 #include <uchardet.h>
 #include <zlib.h>
+#include <atomic>
 #include <optional>
 #include <algorithm>
 #include <cstring>
+#include <memory>
 #include <string>
+#include <vector>
 
 #include "TextStream.h"
 
+#include <boost/locale.hpp>
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_for.h>
 #include <opencv2/core/hal/interface.h>
 #include <spdlog/spdlog.h>
 
@@ -27,38 +33,50 @@ static bool hasNonAsciiBytes(const unsigned char *raw, size_t size) {
     return false;
 }
 
-static bool isAsciiTextByte(unsigned char ch) {
-    return ch == '\t' || ch == '\r' || ch == '\n' ||
-           (ch >= 0x20 && ch <= 0x7e);
+static int clampConfidence(int confidence) {
+    return std::max(0, std::min(100, confidence));
+}
+
+static int adjustUTF16Confidence(std::uint16_t codeUnit, int confidence) {
+    if(codeUnit == 0) {
+        confidence -= 10;
+    } else if((codeUnit >= 0x20 && codeUnit <= 0xff) || codeUnit == 0x0a) {
+        confidence += 10;
+    }
+    return clampConfidence(confidence);
+}
+
+static int utf16Confidence(const unsigned char *raw, size_t size,
+                           bool bigEndian) {
+    if(size < 4)
+        return 0;
+
+    int confidence = 10;
+    const size_t bytesToCheck = std::min<size_t>(size, 30);
+
+    for(size_t i = 0; i + 1 < bytesToCheck; i += 2) {
+        const std::uint16_t codeUnit = bigEndian
+            ? static_cast<std::uint16_t>((raw[i] << 8) | raw[i + 1])
+            : static_cast<std::uint16_t>(raw[i] | (raw[i + 1] << 8));
+
+        if(i == 0 && codeUnit == 0xfeff) {
+            confidence = 100;
+            if(!bigEndian && size >= 4 && raw[2] == 0 && raw[3] == 0)
+                confidence = 0;
+            break;
+        }
+
+        confidence = adjustUTF16Confidence(codeUnit, confidence);
+        if(confidence == 0 || confidence == 100)
+            break;
+    }
+
+    return confidence;
 }
 
 static bool looksLikeUTF16Endian(const unsigned char *raw, size_t size,
                                  bool bigEndian) {
-    if(size < 8)
-        return false;
-
-    const size_t pairs = size / 2;
-    size_t asciiUnits = 0;
-    size_t expectedZeroBytes = 0;
-    size_t oppositeZeroBytes = 0;
-
-    for(size_t i = 0; i + 1 < size; i += 2) {
-        const unsigned char first = raw[i];
-        const unsigned char second = raw[i + 1];
-        const unsigned char high = bigEndian ? first : second;
-        const unsigned char low = bigEndian ? second : first;
-
-        if(high == 0) {
-            ++expectedZeroBytes;
-            if(isAsciiTextByte(low))
-                ++asciiUnits;
-        }
-        if(low == 0)
-            ++oppositeZeroBytes;
-    }
-
-    return asciiUnits >= 4 && asciiUnits * 4 >= pairs &&
-           expectedZeroBytes > oppositeZeroBytes * 2;
+    return utf16Confidence(raw, size, bigEndian) >= 80;
 }
 
 static bool isUtf8Continuation(unsigned char ch) {
@@ -134,28 +152,298 @@ static bool isCP932HalfwidthKana(unsigned char ch) {
     return ch >= 0xa1 && ch <= 0xdf;
 }
 
-static bool looksLikeCP932(const unsigned char *raw, size_t size) {
-    size_t pairs = 0;
-    size_t highBytes = 0;
+static int cp932Confidence(const unsigned char *raw, size_t size) {
+    int doubleByteChars = 0;
+    int halfwidthKanaChars = 0;
+    int badChars = 0;
 
     for(size_t i = 0; i < size; ++i) {
         const unsigned char ch = raw[i];
-        if(ch < 0x80)
+        if(ch <= 0x7f)
             continue;
 
-        ++highBytes;
-        if(isCP932Lead(ch) && i + 1 < size && isCP932Trail(raw[i + 1])) {
-            ++pairs;
+        if(isCP932HalfwidthKana(ch)) {
+            ++halfwidthKanaChars;
+            continue;
+        }
+
+        if(isCP932Lead(ch)) {
+            if(i + 1 < size) {
+                const unsigned char trail = raw[++i];
+                if(isCP932Trail(trail)) {
+                    ++doubleByteChars;
+                    continue;
+                }
+            }
+            ++badChars;
+        } else {
+            ++badChars;
+        }
+
+        if(badChars >= 2 && badChars * 5 >= doubleByteChars)
+            return 0;
+    }
+
+    if(doubleByteChars == 0)
+        return 0;
+
+    if(doubleByteChars <= 10 && badChars == 0) {
+        // KiriKiri scripts often contain only one or two Japanese names in an
+        // otherwise ASCII control file. ICU assigns low confidence to such
+        // short samples; keep a moderate score so these files still decode.
+        return 30 + std::min(40, doubleByteChars * 10 + halfwidthKanaChars * 2);
+    }
+
+    if(doubleByteChars < 20 * badChars)
+        return 0;
+
+    return clampConfidence(30 + doubleByteChars - 20 * badChars);
+}
+
+static int mbcsConfidenceFromCounts(int multibyteChars, int badChars) {
+    if(multibyteChars == 0)
+        return 0;
+
+    if(multibyteChars <= 10 && badChars == 0)
+        return 30 + std::min(40, multibyteChars * 10);
+
+    if(multibyteChars < 20 * badChars)
+        return 0;
+
+    return clampConfidence(30 + multibyteChars - 20 * badChars);
+}
+
+static int gb18030Confidence(const unsigned char *raw, size_t size) {
+    int multibyteChars = 0;
+    int badChars = 0;
+
+    for(size_t i = 0; i < size; ++i) {
+        const unsigned char first = raw[i];
+        if(first <= 0x80)
+            continue;
+
+        if(first >= 0x81 && first <= 0xfe && i + 1 < size) {
+            const unsigned char second = raw[i + 1];
+            if((second >= 0x40 && second <= 0x7e) ||
+               (second >= 0x80 && second <= 0xfe)) {
+                ++multibyteChars;
+                ++i;
+                continue;
+            }
+
+            if(second >= 0x30 && second <= 0x39 && i + 3 < size &&
+               raw[i + 2] >= 0x81 && raw[i + 2] <= 0xfe &&
+               raw[i + 3] >= 0x30 && raw[i + 3] <= 0x39) {
+                ++multibyteChars;
+                i += 3;
+                continue;
+            }
+        }
+
+        ++badChars;
+        if(badChars >= 2 && badChars * 5 >= multibyteChars)
+            return 0;
+    }
+
+    return mbcsConfidenceFromCounts(multibyteChars, badChars);
+}
+
+static int big5Confidence(const unsigned char *raw, size_t size) {
+    int multibyteChars = 0;
+    int badChars = 0;
+
+    for(size_t i = 0; i < size; ++i) {
+        const unsigned char first = raw[i];
+        if(first <= 0x7f || first == 0xff)
+            continue;
+
+        if(i + 1 < size) {
+            const unsigned char second = raw[i + 1];
+            if(second >= 0x40 && second <= 0xfe && second != 0x7f &&
+               second != 0xff) {
+                ++multibyteChars;
+                ++i;
+                continue;
+            }
+        }
+
+        ++badChars;
+        if(badChars >= 2 && badChars * 5 >= multibyteChars)
+            return 0;
+    }
+
+    return mbcsConfidenceFromCounts(multibyteChars, badChars);
+}
+
+static int eucConfidence(const unsigned char *raw, size_t size,
+                         bool allowJIS0212) {
+    int multibyteChars = 0;
+    int badChars = 0;
+
+    for(size_t i = 0; i < size; ++i) {
+        const unsigned char first = raw[i];
+        if(first <= 0x7f)
+            continue;
+
+        if(first >= 0xa1 && first <= 0xfe && i + 1 < size &&
+           raw[i + 1] >= 0xa1 && raw[i + 1] <= 0xfe) {
+            ++multibyteChars;
             ++i;
             continue;
         }
-        if(isCP932HalfwidthKana(ch))
-            continue;
 
-        return false;
+        if(allowJIS0212 && first == 0x8e && i + 1 < size &&
+           raw[i + 1] >= 0xa1 && raw[i + 1] <= 0xdf) {
+            ++multibyteChars;
+            ++i;
+            continue;
+        }
+
+        if(allowJIS0212 && first == 0x8f && i + 2 < size &&
+           raw[i + 1] >= 0xa1 && raw[i + 1] <= 0xfe &&
+           raw[i + 2] >= 0xa1 && raw[i + 2] <= 0xfe) {
+            ++multibyteChars;
+            i += 2;
+            continue;
+        }
+
+        ++badChars;
+        if(badChars >= 2 && badChars * 5 >= multibyteChars)
+            return 0;
     }
 
-    return highBytes > 0 && pairs > 0;
+    return mbcsConfidenceFromCounts(multibyteChars, badChars);
+}
+
+static std::string detectLegacyCJKEncoding(const unsigned char *raw,
+                                           size_t size) {
+    struct Candidate {
+        const char *encoding;
+        int confidence;
+    };
+    const Candidate candidates[] = {
+        {"CP932", cp932Confidence(raw, size)},
+        {"GB18030", gb18030Confidence(raw, size)},
+        {"BIG5", big5Confidence(raw, size)},
+        {"EUC-JP", eucConfidence(raw, size, true)},
+        {"EUC-KR", eucConfidence(raw, size, false)},
+    };
+
+    const Candidate *best = nullptr;
+    for(const auto &candidate : candidates) {
+        if(candidate.confidence < 30)
+            continue;
+        if(!best || candidate.confidence > best->confidence)
+            best = &candidate;
+    }
+
+    return best ? best->encoding : "";
+}
+
+static size_t iso2022SequenceLength(const unsigned char seq[5]) {
+    size_t len = 0;
+    while(len < 5 && seq[len] != 0)
+        ++len;
+    return len;
+}
+
+static int iso2022Confidence(const unsigned char *raw, size_t size,
+                             const unsigned char sequences[][5],
+                             size_t sequenceCount) {
+    int hits = 0;
+    int misses = 0;
+    int shifts = 0;
+
+    for(size_t i = 0; i < size; ++i) {
+        if(raw[i] == 0x1b) {
+            bool matched = false;
+            for(size_t seqIndex = 0; seqIndex < sequenceCount; ++seqIndex) {
+                const size_t seqLen = iso2022SequenceLength(sequences[seqIndex]);
+                if(seqLen > 0 && size - i >= seqLen &&
+                   std::memcmp(raw + i, sequences[seqIndex], seqLen) == 0) {
+                    ++hits;
+                    i += seqLen - 1;
+                    matched = true;
+                    break;
+                }
+            }
+            if(matched)
+                continue;
+            ++misses;
+        }
+
+        if(raw[i] == 0x0e || raw[i] == 0x0f)
+            ++shifts;
+    }
+
+    if(hits == 0)
+        return 0;
+
+    int quality = (100 * hits - 100 * misses) / (hits + misses);
+    if(hits + shifts < 5)
+        quality -= (5 - (hits + shifts)) * 10;
+
+    return clampConfidence(quality);
+}
+
+static std::string detectISO2022Encoding(const unsigned char *raw,
+                                         size_t size) {
+    static const unsigned char kISO2022JP[][5] = {
+        {0x1b, 0x24, 0x28, 0x43, 0},
+        {0x1b, 0x24, 0x28, 0x44, 0},
+        {0x1b, 0x24, 0x40, 0, 0},
+        {0x1b, 0x24, 0x41, 0, 0},
+        {0x1b, 0x24, 0x42, 0, 0},
+        {0x1b, 0x26, 0x40, 0, 0},
+        {0x1b, 0x28, 0x42, 0, 0},
+        {0x1b, 0x28, 0x48, 0, 0},
+        {0x1b, 0x28, 0x49, 0, 0},
+        {0x1b, 0x28, 0x4a, 0, 0},
+        {0x1b, 0x2e, 0x41, 0, 0},
+        {0x1b, 0x2e, 0x46, 0, 0},
+    };
+    static const unsigned char kISO2022KR[][5] = {
+        {0x1b, 0x24, 0x29, 0x43, 0},
+    };
+    static const unsigned char kISO2022CN[][5] = {
+        {0x1b, 0x24, 0x29, 0x41, 0},
+        {0x1b, 0x24, 0x29, 0x47, 0},
+        {0x1b, 0x24, 0x2a, 0x48, 0},
+        {0x1b, 0x24, 0x29, 0x45, 0},
+        {0x1b, 0x24, 0x2b, 0x49, 0},
+        {0x1b, 0x24, 0x2b, 0x4a, 0},
+        {0x1b, 0x24, 0x2b, 0x4b, 0},
+        {0x1b, 0x24, 0x2b, 0x4c, 0},
+        {0x1b, 0x24, 0x2b, 0x4d, 0},
+        {0x1b, 0x4e, 0, 0, 0},
+        {0x1b, 0x4f, 0, 0, 0},
+    };
+
+    struct Candidate {
+        const char *encoding;
+        int confidence;
+    };
+    const Candidate candidates[] = {
+        {"ISO-2022-JP", iso2022Confidence(raw, size, kISO2022JP,
+                                           sizeof(kISO2022JP) /
+                                               sizeof(kISO2022JP[0]))},
+        {"ISO-2022-KR", iso2022Confidence(raw, size, kISO2022KR,
+                                           sizeof(kISO2022KR) /
+                                               sizeof(kISO2022KR[0]))},
+        {"ISO-2022-CN", iso2022Confidence(raw, size, kISO2022CN,
+                                           sizeof(kISO2022CN) /
+                                               sizeof(kISO2022CN[0]))},
+    };
+
+    const Candidate *best = nullptr;
+    for(const auto &candidate : candidates) {
+        if(candidate.confidence <= 0)
+            continue;
+        if(!best || candidate.confidence > best->confidence)
+            best = &candidate;
+    }
+
+    return best ? best->encoding : "";
 }
 
 static bool sameEncodingName(const std::string &encoding,
@@ -174,6 +462,145 @@ static bool sameEncodingName(const std::string &encoding,
     return i == encoding.size() && expected[i] == 0;
 }
 
+struct EncodingAlias {
+    const char *alias;
+    const char *canonical;
+};
+
+static const char *findCanonicalEncodingAlias(const std::string &encoding) {
+    static const EncodingAlias kAliases[] = {
+        {"CP1250", "WINDOWS-1250"},
+        {"WINDOWS-1250", "WINDOWS-1250"},
+        {"CP1251", "WINDOWS-1251"},
+        {"WINDOWS-1251", "WINDOWS-1251"},
+        {"CP1252", "WINDOWS-1252"},
+        {"WINDOWS-1252", "WINDOWS-1252"},
+        {"CP1253", "WINDOWS-1253"},
+        {"WINDOWS-1253", "WINDOWS-1253"},
+        {"CP1254", "WINDOWS-1254"},
+        {"WINDOWS-1254", "WINDOWS-1254"},
+        {"CP1255", "WINDOWS-1255"},
+        {"WINDOWS-1255", "WINDOWS-1255"},
+        {"CP1256", "WINDOWS-1256"},
+        {"WINDOWS-1256", "WINDOWS-1256"},
+        {"CP1257", "WINDOWS-1257"},
+        {"WINDOWS-1257", "WINDOWS-1257"},
+        {"CP1258", "WINDOWS-1258"},
+        {"WINDOWS-1258", "WINDOWS-1258"},
+        {"CP874", "WINDOWS-874"},
+        {"WINDOWS-874", "WINDOWS-874"},
+        {"ISO-8859-1", "ISO-8859-1"},
+        {"ISO8859-1", "ISO-8859-1"},
+        {"ISO-8859-2", "ISO-8859-2"},
+        {"ISO8859-2", "ISO-8859-2"},
+        {"ISO-8859-3", "ISO-8859-3"},
+        {"ISO8859-3", "ISO-8859-3"},
+        {"ISO-8859-4", "ISO-8859-4"},
+        {"ISO8859-4", "ISO-8859-4"},
+        {"ISO-8859-5", "ISO-8859-5"},
+        {"ISO8859-5", "ISO-8859-5"},
+        {"ISO-8859-6", "ISO-8859-6"},
+        {"ISO8859-6", "ISO-8859-6"},
+        {"ISO-8859-7", "ISO-8859-7"},
+        {"ISO8859-7", "ISO-8859-7"},
+        {"ISO-8859-8", "ISO-8859-8"},
+        {"ISO8859-8", "ISO-8859-8"},
+        {"ISO-8859-8-I", "ISO-8859-8-I"},
+        {"ISO-8859-9", "ISO-8859-9"},
+        {"ISO8859-9", "ISO-8859-9"},
+        {"ISO-8859-10", "ISO-8859-10"},
+        {"ISO8859-10", "ISO-8859-10"},
+        {"ISO-8859-13", "ISO-8859-13"},
+        {"ISO8859-13", "ISO-8859-13"},
+        {"ISO-8859-14", "ISO-8859-14"},
+        {"ISO8859-14", "ISO-8859-14"},
+        {"ISO-8859-15", "ISO-8859-15"},
+        {"ISO8859-15", "ISO-8859-15"},
+        {"ISO-8859-16", "ISO-8859-16"},
+        {"ISO8859-16", "ISO-8859-16"},
+        {"KOI8-R", "KOI8-R"},
+        {"KOI8-U", "KOI8-U"},
+        {"KOI8-RU", "KOI8-RU"},
+        {"CP866", "CP866"},
+        {"IBM866", "CP866"},
+        {"CP852", "CP852"},
+        {"IBM852", "CP852"},
+        {"CP850", "CP850"},
+        {"IBM850", "CP850"},
+        {"CP858", "CP858"},
+        {"IBM858", "CP858"},
+        {"CP437", "CP437"},
+        {"IBM437", "CP437"},
+        {"CP855", "CP855"},
+        {"IBM855", "CP855"},
+        {"CP857", "CP857"},
+        {"IBM857", "CP857"},
+        {"CP860", "CP860"},
+        {"IBM860", "CP860"},
+        {"CP861", "CP861"},
+        {"IBM861", "CP861"},
+        {"CP862", "CP862"},
+        {"IBM862", "CP862"},
+        {"CP863", "CP863"},
+        {"IBM863", "CP863"},
+        {"CP864", "CP864"},
+        {"IBM864", "CP864"},
+        {"CP865", "CP865"},
+        {"IBM865", "CP865"},
+        {"CP869", "CP869"},
+        {"IBM869", "CP869"},
+        {"CP1125", "CP1125"},
+        {"IBM1125", "CP1125"},
+        {"ISO-IR-111", "ISO-IR-111"},
+        {"HP-ROMAN8", "HP-ROMAN8"},
+        {"ROMAN8", "HP-ROMAN8"},
+        {"CP1133", "CP1133"},
+        {"IBM1133", "CP1133"},
+        {"MACINTOSH", "MACINTOSH"},
+        {"MAC", "MACINTOSH"},
+        {"MAC-CYRILLIC", "MAC-CYRILLIC"},
+        {"MACCENTRALEUROPE", "MAC-CENTRALEUROPE"},
+        {"MAC-CENTRALEUROPE", "MAC-CENTRALEUROPE"},
+        {"TIS-620", "TIS-620"},
+        {"TIS620", "TIS-620"},
+        {"VISCII", "VISCII"},
+        {"TCVN", "TCVN"},
+        {"TCVN5712-1", "TCVN"},
+        {"ARMSCII-8", "ARMSCII-8"},
+        {"PT154", "PT154"},
+        {"RK1048", "RK1048"},
+        {"GEORGIAN-ACADEMY", "GEORGIAN-ACADEMY"},
+        {"GEORGIAN-PS", "GEORGIAN-PS"},
+        {"MS_KANJI", "CP932"},
+        {"X-SJIS", "CP932"},
+        {"EUCJP", "EUC-JP"},
+        {"ISO-2022-JP-1", "ISO-2022-JP-1"},
+        {"ISO-2022-JP-2", "ISO-2022-JP-2"},
+        {"CP936", "GBK"},
+        {"WINDOWS-936", "GBK"},
+        {"MS936", "GBK"},
+        {"EUC-CN", "GB2312"},
+        {"HZ", "HZ-GB-2312"},
+        {"HZ-GB-2312", "HZ-GB-2312"},
+        {"CP950", "CP950"},
+        {"WINDOWS-950", "CP950"},
+        {"BIG5-HKSCS", "BIG5-HKSCS"},
+        {"BIG5HKSCS", "BIG5-HKSCS"},
+        {"EUC-TW", "EUC-TW"},
+        {"ISO-2022-CN-EXT", "ISO-2022-CN-EXT"},
+        {"CP949", "CP949"},
+        {"UHC", "CP949"},
+        {"WINDOWS-949", "CP949"},
+        {"JOHAB", "JOHAB"},
+    };
+
+    for(const auto &alias : kAliases) {
+        if(sameEncodingName(encoding, alias.alias))
+            return alias.canonical;
+    }
+    return nullptr;
+}
+
 static bool isLegacyCJKEncodingGuess(const std::string &encoding) {
     return sameEncodingName(encoding, "SHIFT_JIS") ||
            sameEncodingName(encoding, "SHIFT-JIS") ||
@@ -182,11 +609,25 @@ static bool isLegacyCJKEncodingGuess(const std::string &encoding) {
            sameEncodingName(encoding, "WINDOWS-31J") ||
            sameEncodingName(encoding, "CP936") ||
            sameEncodingName(encoding, "GBK") ||
+           sameEncodingName(encoding, "GB2312") ||
            sameEncodingName(encoding, "GB18030") ||
+           sameEncodingName(encoding, "EUC-CN") ||
+           sameEncodingName(encoding, "HZ-GB-2312") ||
            sameEncodingName(encoding, "BIG5") ||
+           sameEncodingName(encoding, "CP950") ||
+           sameEncodingName(encoding, "BIG5-HKSCS") ||
+           sameEncodingName(encoding, "EUC-TW") ||
            sameEncodingName(encoding, "EUC-JP") ||
            sameEncodingName(encoding, "ISO-2022-JP") ||
-           sameEncodingName(encoding, "EUC-KR");
+           sameEncodingName(encoding, "ISO-2022-JP-1") ||
+           sameEncodingName(encoding, "ISO-2022-JP-2") ||
+           sameEncodingName(encoding, "ISO-2022-KR") ||
+           sameEncodingName(encoding, "ISO-2022-CN") ||
+           sameEncodingName(encoding, "ISO-2022-CN-EXT") ||
+           sameEncodingName(encoding, "EUC-KR") ||
+           sameEncodingName(encoding, "CP949") ||
+           sameEncodingName(encoding, "UHC") ||
+           sameEncodingName(encoding, "JOHAB");
 }
 
 static std::string canonicalEncodingName(const std::string &encoding) {
@@ -216,6 +657,14 @@ static std::string canonicalEncodingName(const std::string &encoding) {
        sameEncodingName(encoding, "ISO2022JP")) {
         return "ISO-2022-JP";
     }
+    if(sameEncodingName(encoding, "ISO-2022-KR") ||
+       sameEncodingName(encoding, "ISO2022KR")) {
+        return "ISO-2022-KR";
+    }
+    if(sameEncodingName(encoding, "ISO-2022-CN") ||
+       sameEncodingName(encoding, "ISO2022CN")) {
+        return "ISO-2022-CN";
+    }
     if(sameEncodingName(encoding, "EUC-KR") ||
        sameEncodingName(encoding, "EUCKR")) {
         return "EUC-KR";
@@ -232,6 +681,18 @@ static std::string canonicalEncodingName(const std::string &encoding) {
        sameEncodingName(encoding, "UTF16")) {
         return "UTF-16";
     }
+    if(sameEncodingName(encoding, "UTF-32LE") ||
+       sameEncodingName(encoding, "UTF32LE")) {
+        return "UTF-32LE";
+    }
+    if(sameEncodingName(encoding, "UTF-32BE") ||
+       sameEncodingName(encoding, "UTF32BE")) {
+        return "UTF-32BE";
+    }
+    if(sameEncodingName(encoding, "UTF-32") ||
+       sameEncodingName(encoding, "UTF32")) {
+        return "UTF-32";
+    }
     if(sameEncodingName(encoding, "UTF-8") ||
        sameEncodingName(encoding, "UTF8")) {
         return "UTF-8";
@@ -244,13 +705,94 @@ static std::string canonicalEncodingName(const std::string &encoding) {
        sameEncodingName(encoding, "ISO-8859-1")) {
         return "WINDOWS-1252";
     }
+    if(const char *alias = findCanonicalEncodingAlias(encoding))
+        return alias;
     return encoding;
+}
+
+static const char *const kFallbackCharsets[] = {
+    // Japanese
+    "CP932", "SHIFT_JIS", "WINDOWS-31J", "EUC-JP", "ISO-2022-JP",
+    "ISO-2022-JP-1", "ISO-2022-JP-2",
+    // Simplified / traditional Chinese
+    "GB18030", "GBK", "CP936", "GB2312", "EUC-CN", "HZ-GB-2312",
+    "BIG5", "CP950", "BIG5-HKSCS", "EUC-TW", "ISO-2022-CN",
+    "ISO-2022-CN-EXT",
+    // Korean
+    "EUC-KR", "CP949", "UHC", "JOHAB", "ISO-2022-KR",
+    // Western / Central European / Turkish / Baltic
+    "WINDOWS-1252", "ISO-8859-1", "ISO-8859-15", "WINDOWS-1250",
+    "ISO-8859-2", "CP852", "MAC-CENTRALEUROPE", "ISO-8859-3",
+    "ISO-8859-4", "WINDOWS-1254", "ISO-8859-9", "ISO-8859-10",
+    "WINDOWS-1257", "ISO-8859-13", "ISO-8859-14", "ISO-8859-16",
+    // Cyrillic / Greek / Hebrew / Arabic
+    "WINDOWS-1251", "ISO-8859-5", "KOI8-R", "KOI8-U", "KOI8-RU",
+    "CP866", "MAC-CYRILLIC", "WINDOWS-1253", "ISO-8859-7",
+    "WINDOWS-1255", "ISO-8859-8", "ISO-8859-8-I", "WINDOWS-1256",
+    "ISO-8859-6",
+    // Thai / Vietnamese / other legacy code pages
+    "WINDOWS-874", "TIS-620", "WINDOWS-1258", "VISCII", "TCVN",
+    "CP437", "CP850", "CP858", "MACINTOSH", "ARMSCII-8", "PT154",
+    "RK1048", "GEORGIAN-ACADEMY", "GEORGIAN-PS",
+    // Additional DOS / regional encodings kept late to avoid false positives.
+    "CP855", "CP857", "CP860", "CP861", "CP862", "CP863", "CP864",
+    "CP865", "CP869", "CP1125", "ISO-IR-111", "HP-ROMAN8", "CP1133",
+    nullptr,
+};
+
+static size_t fallbackCharsetCount() {
+    size_t count = 0;
+    while(kFallbackCharsets[count])
+        ++count;
+    return count;
+}
+
+static const char *findFirstWorkingFallbackCharset(const char *src_begin,
+                                                   const char *src_end) {
+    const size_t count = fallbackCharsetCount();
+    std::vector<unsigned char> valid(count, 0);
+    std::atomic<size_t> bestIndex{ count };
+
+    oneapi::tbb::parallel_for(
+        oneapi::tbb::blocked_range<size_t>(0, count),
+        [&](const oneapi::tbb::blocked_range<size_t> &range) {
+            for(size_t i = range.begin(); i != range.end(); ++i) {
+                if(i >= bestIndex.load(std::memory_order_relaxed))
+                    continue;
+
+                try {
+                    std::wstring wide =
+                        boost::locale::conv::to_utf<wchar_t>(
+                            src_begin, src_end, kFallbackCharsets[i],
+                            boost::locale::conv::stop);
+                    if(wide.empty())
+                        continue;
+
+                    valid[i] = 1;
+                    size_t current = bestIndex.load(std::memory_order_relaxed);
+                    while(i < current &&
+                          !bestIndex.compare_exchange_weak(
+                              current, i, std::memory_order_relaxed,
+                              std::memory_order_relaxed)) {
+                    }
+                } catch(...) {
+                    // try next codec
+                }
+            }
+        });
+
+    for(size_t i = 0; i < count; ++i) {
+        if(valid[i])
+            return kFallbackCharsets[i];
+    }
+    return nullptr;
 }
 
 std::string checkTextEncoding(const void *buf, size_t size,
                               std::uint8_t &bomSize) {
     auto raw = static_cast<const unsigned char *>(buf);
     std::string encoding;
+    bomSize = 0;
     // --- 检查 BOM ---
     if(size >= 4 && raw[0] == 0xFF && raw[1] == 0xFE && raw[2] == 0x00 &&
        raw[3] == 0x00) {
@@ -276,6 +818,10 @@ std::string checkTextEncoding(const void *buf, size_t size,
         encoding = "UTF-8";
     } else {
         const bool hasNonAscii = hasNonAsciiBytes(raw, size);
+        encoding = detectISO2022Encoding(raw, size);
+        if(!encoding.empty())
+            return encoding;
+
         if(looksLikeUTF16Endian(raw, size, false))
             return "UTF-16LE";
         if(looksLikeUTF16Endian(raw, size, true))
@@ -295,14 +841,16 @@ std::string checkTextEncoding(const void *buf, size_t size,
         uchardet_delete(ud);
         encoding = canonicalEncodingName(encoding);
 
-        if(hasNonAscii && looksLikeCP932(raw, size) &&
-           !isLegacyCJKEncodingGuess(encoding)) {
-            // Short KiriKiri scripts are often CP932 and can be misdetected
-            // as a western single-byte charset. Accepting that guess turns
-            // bytes like CP932 "和" (98 61) into mojibake and breaks storage
-            // names, so prefer CP932 when the byte stream is structurally
-            // valid Shift_JIS/CP932 and not valid UTF-8.
-            encoding = "CP932";
+        if(hasNonAscii && !isLegacyCJKEncodingGuess(encoding)) {
+            const std::string legacyCJKEncoding =
+                detectLegacyCJKEncoding(raw, size);
+            if(!legacyCJKEncoding.empty()) {
+                // Short KiriKiri scripts often contain only a few CJK names in
+                // otherwise ASCII control text. uchardet may report those as a
+                // western single-byte charset; prefer a structurally valid CJK
+                // stream in that case so storage names do not become mojibake.
+                encoding = legacyCJKEncoding;
+            }
         } else if(!hasNonAscii && sameEncodingName(encoding, "WINDOWS-1252")) {
             encoding = "ASCII";
         }
@@ -485,33 +1033,32 @@ public:
             // -> wchar_t (uses iconv backend) -> char16_t via utf_to_utf.
             spdlog::warn("primary text decode failed (encoding={}): {}",
                          encoding, e.what());
-            static const char *const kFallbackCharsets[] = {
-                "CP932", "SHIFT_JIS", "WINDOWS-31J", "EUC-JP",
-                "ISO-2022-JP", "CP936", "GBK", "GB18030",
-                "BIG5", "EUC-KR", nullptr,
-            };
             const char *src_begin =
                 reinterpret_cast<const char *>(raw.data());
             const char *src_end =
                 reinterpret_cast<const char *>(raw.data() + raw.size());
             bool decoded = false;
-            for(const char *const *cs = kFallbackCharsets; *cs && !decoded;
-                ++cs) {
+
+            if(const char *fallback =
+                   findFirstWorkingFallbackCharset(src_begin, src_end)) {
                 try {
                     std::wstring wide =
                         boost::locale::conv::to_utf<wchar_t>(
-                            src_begin, src_end, *cs,
+                            src_begin, src_end, fallback,
                             boost::locale::conv::stop);
                     if(!wide.empty()) {
                         _buffer =
                             boost::locale::conv::utf_to_utf<char16_t>(wide);
-                        spdlog::info("text decoded as fallback {}", *cs);
+                        spdlog::info("text decoded as fallback {}", fallback);
                         decoded = true;
                     }
                 } catch(...) {
-                    // try next codec
+                    // The parallel validation succeeded, but keep the
+                    // existing hard fallback path if the final conversion
+                    // somehow fails here.
                 }
             }
+
             if(!decoded) {
                 // skip-mode CP932 -- never throws on bad bytes, just
                 // drops them. Better to render a partially garbled

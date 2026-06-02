@@ -4,6 +4,7 @@
 
 #include <fstream>
 #include <filesystem>
+#include <cstdint>
 #include <catch2/catch_test_macros.hpp>
 
 #include "DebugImpl.h"
@@ -78,6 +79,46 @@ TEST_CASE("text stream reads bomless utf16le scripts") {
         reinterpret_cast<const char16_t *>(text.c_str()),
         static_cast<size_t>(text.GetLen()));
     REQUIRE(got.find(u"filename:'test'") != std::u16string::npos);
+}
+
+TEST_CASE("text stream reads bomless utf16be scripts") {
+    const auto path =
+        std::filesystem::temp_directory_path() / "krkr2_utf16be_text_test.tjs";
+    const unsigned char utf16beText[] = {
+        0, 'f', 0, 'i', 0, 'l', 0, 'e', 0, 'n', 0, 'a', 0, 'm', 0, 'e',
+        0, ':', 0, '\'', 0, 't', 0, 'e', 0, 's', 0, 't', 0, '\'', 0, '\r',
+        0, '\n',
+    };
+
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(utf16beText),
+                  sizeof(utf16beText));
+    }
+
+    ttstr text;
+    auto *stream = TVPCreateTextStreamForRead(path.string().c_str(), "");
+    stream->Read(text, 0);
+    delete stream;
+    std::filesystem::remove(path);
+
+    const std::u16string got(
+        reinterpret_cast<const char16_t *>(text.c_str()),
+        static_cast<size_t>(text.GetLen()));
+    REQUIRE(got.find(u"filename:'test'") != std::u16string::npos);
+}
+
+TEST_CASE("text encoding detects iso2022jp escape sequences") {
+    const unsigned char iso2022jpText[] = {
+        'f', 'i', 'l', 'e', 'n', 'a', 'm', 'e', ':', '\'',
+        0x1b, 0x24, 0x42, 0x46, 0x7c, 0x4b, 0x5c,
+        0x1b, 0x28, 0x42, '\'', '\r', '\n',
+    };
+
+    std::uint8_t bomSize = 99;
+    REQUIRE(checkTextEncoding(iso2022jpText, sizeof(iso2022jpText),
+                              bomSize) == "ISO-2022-JP");
+    REQUIRE(bomSize == 0);
 }
 
 

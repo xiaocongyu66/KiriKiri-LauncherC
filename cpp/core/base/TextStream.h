@@ -1,4 +1,6 @@
 #pragma once
+#include <cstdint>
+
 #include "StorageIntf.h"
 
 iTJSTextReadStream *TVPCreateTextStreamForRead(const ttstr &name,
