@@ -6,6 +6,8 @@
     <Item id="preference_select_renderer" text="Select Renderer"/>
     <Item id="preference_opengl" text="OpenGL(Experimental)"/>
     <Item id="preference_angle" text="ANGLE(OpenGL via system driver)"/>
+    <Item id="preference_angle_vk" text="ANGLE-VK(Experimental)"/>
+    <Item id="preference_vulkan" text="Native Vulkan(Experimental)"/>
     <Item id="preference_software" text="Software"/>
     <Item id="preference_renderer_opt" text="Advanced Renderer Option"/>
     <Item id="preference_soft_renderer_opt" text="Soft Renderer Option"/>
@@ -52,6 +54,9 @@
     <Item id="preference_reset" text="Reset"/>
     <Item id="preference_hide_android_sys_btn" text="Hide System Bar"/>
     <Item id="preference_ffmpeg_image_decoder" text="FFmpeg Image Decoder"/>
+    <Item id="preference_ffmpeg_decode_mode" text="FFmpeg Decode Mode"/>
+    <Item id="preference_ffmpeg_decode_software" text="Software"/>
+    <Item id="preference_ffmpeg_decode_hardware" text="Hardware First"/>
     <Item id="preference_default_font" text="Default Font(Internal If Empty)"/>
     <Item id="preference_force_def_font" text="Force using default font"/>
     <Item id="ok" text="OK"/>

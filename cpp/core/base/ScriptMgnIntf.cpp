@@ -1499,9 +1499,11 @@ static bool TVPBuildPbdPayload(const ttstr &place,
     return false;
 }
 
-static bool TVPTryLoadPbdTJSVariant(const ttstr &place,
-                                    const tjs_char *modestr,
-                                    tTJSVariant *result) {
+bool TVPTryLoadPbdTJSVariant(const ttstr &place,
+                             const tjs_char *modestr,
+                             tTJSVariant *result,
+                             const tjs_uint8 *outerIV,
+                             size_t outerIVSize) {
     if(result == nullptr)
         return false;
 
@@ -1556,17 +1558,24 @@ static bool TVPTryLoadPbdTJSVariant(const ttstr &place,
     if(payloadOffset >= data.size())
         return false;
 
+    const tjs_uint8 *iv = data.data() + 16u;
+    size_t effectiveIVLength = ivLength;
+    if(effectiveIVLength == 0 && outerIV != nullptr && outerIVSize != 0) {
+        iv = outerIV;
+        effectiveIVLength = outerIVSize;
+    }
+
     if(cryptoMode != 0) {
-        KR2_SCR_LOG("[res] PBD crypto flag '%s' comp=%d crypto=%d iv=%u; "
-                    "trying payload decode",
+        KR2_SCR_LOG("[res] PBD crypto flag '%s' comp=%d crypto=%d iv=%u "
+                    "outeriv=%u; trying payload decode",
                     place.AsStdString().c_str(), (int)compressMode,
-                    (int)cryptoMode, (unsigned)ivLength);
+                    (int)cryptoMode, (unsigned)ivLength,
+                    (unsigned)(ivLength == 0 ? effectiveIVLength : 0));
     }
 
     std::vector<tjs_uint8> payload;
     if(!TVPBuildPbdPayload(place, data, payloadOffset, bigEndian, compressMode,
-                           cryptoMode, seed, data.data() + 16u, ivLength,
-                           payload)) {
+                           cryptoMode, seed, iv, effectiveIVLength, payload)) {
         return false;
     }
 

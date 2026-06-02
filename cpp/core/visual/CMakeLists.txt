@@ -37,6 +37,7 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/BitmapLayerTreeOwner.cpp
     ${VISUAL_PATH}/BitmapIntf.cpp
     ${VISUAL_PATH}/argb.cpp
+    ${VISUAL_PATH}/vulkan/VulkanRuntime.cpp
 
     ${VISUAL_PATH}/gl/blend_function.cpp
     ${VISUAL_PATH}/gl/ResampleImage.cpp
@@ -71,6 +72,7 @@ set(VISUAL_HEADERS_DIR
     ${VISUAL_PATH}/
     ${VISUAL_PATH}/gl
     ${VISUAL_PATH}/ogl
+    ${VISUAL_PATH}/vulkan
     ${VISUAL_PATH}/impl
 )
 
@@ -119,3 +121,7 @@ find_package(lz4 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PUBLIC
     lz4::lz4
 )
+
+if(ANDROID)
+    target_link_libraries(${PROJECT_NAME} PRIVATE vulkan)
+endif()

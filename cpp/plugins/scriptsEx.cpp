@@ -8,6 +8,8 @@
 #include <limits>
 #include <vector>
 #include "PluginImpl.h"
+#include "ScriptMgnIntf.h"
+#include "StorageIntf.h"
 #include "TextStream.h"
 #include "BinaryStream.h"
 #include "tjsBinarySerializer.h"
@@ -1053,7 +1055,92 @@ tjs_error ScriptsAdd::stringFuzzySearch(tTJSVariant *result, tjs_int numparams,
     return TJS_S_OK;
 }
 //----------------------------------------------------------------------
-// KBAD100 .pbd データパックを Dictionary/Array として読み込む
+static bool extractPbdOuterIVValue(const tTJSVariant &value,
+                                   std::vector<tjs_uint8> &outerIV) {
+    outerIV.clear();
+
+    if(value.Type() == tvtOctet) {
+        tTJSVariantOctet *octet = value.AsOctetNoAddRef();
+        if(octet && octet->GetData() && octet->GetLength() != 0) {
+            outerIV.assign(octet->GetData(),
+                           octet->GetData() + octet->GetLength());
+            return true;
+        }
+        return false;
+    }
+
+    if(value.Type() == tvtString) {
+        tTJSVariantString *str = value.AsStringNoAddRef();
+        if(!str || str->GetLength() <= 0)
+            return false;
+
+        const tjs_char *chars = *str;
+        outerIV.reserve(static_cast<size_t>(str->GetLength()));
+        for(tjs_int i = 0; i < str->GetLength(); ++i) {
+            outerIV.push_back(static_cast<tjs_uint8>(chars[i] & 0xff));
+        }
+        return !outerIV.empty();
+    }
+
+    return false;
+}
+
+static bool extractPbdOuterIVOption(const tTJSVariant &options,
+                                    std::vector<tjs_uint8> &outerIV) {
+    outerIV.clear();
+    if(options.Type() != tvtObject)
+        return false;
+
+    const tTJSVariantClosure &closure = options.AsObjectClosureNoAddRef();
+    if(!closure.Object)
+        return false;
+
+    tTJSVariant value;
+    if(TJS_FAILED(closure.PropGet(0, TJS_W("outeriv"), nullptr, &value,
+                                  nullptr)) ||
+       value.Type() == tvtVoid) {
+        return false;
+    }
+
+    return extractPbdOuterIVValue(value, outerIV);
+}
+
+static bool tryLoadPbdDataPack(const ttstr &name,
+                               const tjs_char *modestr,
+                               tTJSVariant *result,
+                               const tjs_uint8 *outerIV,
+                               size_t outerIVSize) {
+    if(TVPTryLoadPbdTJSVariant(name, modestr, result, outerIV, outerIVSize))
+        return true;
+
+    if(!TVPExtractStorageExt(name).IsEmpty())
+        return false;
+
+    ttstr pbdName = name + TJS_W(".pbd");
+    if(TVPTryLoadPbdTJSVariant(pbdName, modestr, result, outerIV, outerIVSize))
+        return true;
+
+    pbdName = name + TJS_W(".PBD");
+    return TVPTryLoadPbdTJSVariant(pbdName, modestr, result, outerIV,
+                                   outerIVSize);
+}
+
+static tTJSBinaryStream *createDataPackStreamForRead(const ttstr &name,
+                                                     const tjs_char *modestr) {
+    tTJSBinaryStream *stream = TVPCreateBinaryStreamForRead(name, modestr);
+    if(stream || !TVPExtractStorageExt(name).IsEmpty())
+        return stream;
+
+    ttstr pbdName = name + TJS_W(".pbd");
+    stream = TVPCreateBinaryStreamForRead(pbdName, modestr);
+    if(stream)
+        return stream;
+
+    pbdName = name + TJS_W(".PBD");
+    return TVPCreateBinaryStreamForRead(pbdName, modestr);
+}
+
+// KBAD100 / TJS/4s0 .pbd データパックを Dictionary/Array として読み込む
 // wamsoft 私有 KAG 引擎扩展。limelight 等游戏的 touchuibar.pbd 等加载需要。
 static tjs_error loadDataPack(tTJSVariant *result,
                               tjs_int numparams,
@@ -1066,15 +1153,31 @@ static tjs_error loadDataPack(tTJSVariant *result,
 
     ttstr name = *param[0];
     ttstr modestr;
-    if(numparams >= 2 && param[1]->Type() != tvtVoid)
+    std::vector<tjs_uint8> outerIV;
+    if(numparams >= 2 && param[1]->Type() == tvtString)
         modestr = *param[1];
+    else if(numparams >= 2 && param[1]->Type() == tvtObject)
+        extractPbdOuterIVOption(*param[1], outerIV);
 
     bool ok = false;
     const tjs_char *failreason = TJS_W("unknown");
     tjs_uint64 dbg_ssize = 0;
     tTJSBinaryStream *stream = nullptr;
     try {
-        stream = TVPCreateBinaryStreamForRead(name, modestr);
+        tTJSVariant tmp;
+        const tjs_char *modestrPtr =
+            modestr.IsEmpty() ? nullptr : modestr.c_str();
+        if(tryLoadPbdDataPack(name, modestrPtr, &tmp,
+                              outerIV.empty() ? nullptr : outerIV.data(),
+                              outerIV.size())) {
+            *result = tmp;
+            ok = true;
+        }
+
+        if(ok)
+            return TJS_S_OK;
+
+        stream = createDataPackStreamForRead(name, modestrPtr);
         if(!stream) {
             failreason = TJS_W("stream null");
         } else {

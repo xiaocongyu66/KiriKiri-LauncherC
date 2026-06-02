@@ -78,6 +78,12 @@ TJS_EXP_FUNC_DEF(void, TVPExecuteBytecode,
                   tTJSVariant *result = nullptr,
                   const tjs_char *name = nullptr));
 
+extern bool TVPTryLoadPbdTJSVariant(const ttstr &place,
+                                    const tjs_char *modestr,
+                                    tTJSVariant *result,
+                                    const tjs_uint8 *outerIV = nullptr,
+                                    size_t outerIVSize = 0);
+
 extern void TVPExecuteStartupScript();
 
 TJS_EXP_FUNC_DEF(void, TVPCreateMessageMapFile, (const ttstr &filename));

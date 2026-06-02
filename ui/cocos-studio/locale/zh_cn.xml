@@ -6,6 +6,8 @@
     <Item id="preference_select_renderer" text="图形渲染器"/>
     <Item id="preference_opengl" text="OpenGL（试验性）"/>
     <Item id="preference_angle" text="ANGLE（系统驱动）"/>
+    <Item id="preference_angle_vk" text="ANGLE-VK（试验性）"/>
+    <Item id="preference_vulkan" text="原生 Vulkan（试验性）"/>
     <Item id="preference_software" text="软件渲染器"/>
     <Item id="preference_renderer_opt" text="渲染器高级选项"/>
     <Item id="preference_soft_renderer_opt" text="软件渲染器选项"/>
@@ -52,6 +54,9 @@
     <Item id="preference_reset" text="重置"/>
     <Item id="preference_hide_android_sys_btn" text="隐藏系统键（需重启软件）"/>
     <Item id="preference_ffmpeg_image_decoder" text="FFmpeg 图片解码（需重启软件）"/>
+    <Item id="preference_ffmpeg_decode_mode" text="FFmpeg 解码模式"/>
+    <Item id="preference_ffmpeg_decode_software" text="软解"/>
+    <Item id="preference_ffmpeg_decode_hardware" text="硬解优先"/>
     <Item id="preference_default_font" text="默认字体（留空使用内置字体）"/>
     <Item id="preference_force_def_font" text="强制使用默认字体"/>
     <Item id="ok" text="OK"/>

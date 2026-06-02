@@ -46,7 +46,9 @@ if(ANDROID)
         android
         EGL
         GLESv2
+        GLESv3
         GLESv1_CM
+        vulkan
         OpenSLES
     )
 endif()

@@ -107,7 +107,8 @@ namespace PSB {
                     archive.compare(archive.size() - len, len, extension) == 0;
             };
             return hasExtension(".psb") || hasExtension(".mtn") ||
-                hasExtension(".pimg") || hasExtension(".scn");
+                hasExtension(".pimg") || hasExtension(".pbd") ||
+                hasExtension(".scn");
         }
 
         uint16_t ReadLE16(const uint8_t *src) {

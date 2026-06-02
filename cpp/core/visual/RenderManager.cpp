@@ -23,10 +23,12 @@ extern "C" {
 #include "Application.h"
 #include "Platform.h"
 #include "ConfigManager/IndividualConfigManager.h"
+#include "DebugIntf.h"
 #include "xxhash/xxhash.h"
 #include "tjsHashSearch.h"
 #include "EventIntf.h"
 #include "lz4.h"
+#include "vulkan/VulkanRuntime.h"
 
 // #define USE_SWSCALE
 #define USE_CV_AFFINE
@@ -4893,8 +4895,21 @@ iTVPRenderManager *TVPGetRenderManager() {
         ttstr str =
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
-        if(str == TJS_W("angle"))
+        if(str == TJS_W("angle") || str == TJS_W("angle-vk"))
             str = TJS_W("opengl");
+        else if(str == TJS_W("vulkan") || str == TJS_W("vk")) {
+            std::string vulkanSummary;
+            if(TVPProbeNativeVulkan(vulkanSummary)) {
+                TVPAddLog(TJS_W("[renderer] Native Vulkan probe ok: ") +
+                          ttstr(vulkanSummary.c_str()) +
+                          TJS_W("; Vulkan RenderManager is not implemented yet, falling back to software renderer."));
+            } else {
+                TVPAddLog(TJS_W("[renderer] Native Vulkan unavailable: ") +
+                          ttstr(vulkanSummary.c_str()) +
+                          TJS_W("; falling back to software renderer."));
+            }
+            str = TJS_W("software");
+        }
         _RenderManager = TVPGetRenderManager(str);
     }
     return _RenderManager;

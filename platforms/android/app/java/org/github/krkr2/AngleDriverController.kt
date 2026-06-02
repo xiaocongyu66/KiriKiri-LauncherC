@@ -1,14 +1,18 @@
 package org.github.krkr2
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
+import android.system.Os
 import android.util.Log
 
 object AngleDriverController {
     private const val TAG = "KR2Angle"
     private const val RENDERER_ANGLE = "angle"
+    private const val RENDERER_ANGLE_VK = "angle-vk"
     private const val DRIVER_ANGLE = "angle"
     private const val DRIVER_NATIVE = "native"
     private const val KEY_PKGS = "angle_gl_driver_selection_pkgs"
@@ -19,11 +23,13 @@ object AngleDriverController {
     @SuppressLint("ObsoleteSdkInt")
     fun configureBeforeGl(context: Context) {
         val renderer = KrkrPrefsStore.getString(context, "renderer", "software").trim()
-        val useAngle = renderer == RENDERER_ANGLE
+        val useAngle = renderer == RENDERER_ANGLE || renderer == RENDERER_ANGLE_VK
+        val useAngleVk = renderer == RENDERER_ANGLE_VK
+        configureAngleBackendEnv(context, useAngleVk)
 
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             if (useAngle) {
-                log(context, "ANGLE requested but Android ${Build.VERSION.SDK_INT} is below Q; using native GLES")
+                log(context, "${angleModeName(useAngleVk)} requested but Android ${Build.VERSION.SDK_INT} is below Q; using native GLES")
             }
             return
         }
@@ -39,21 +45,29 @@ object AngleDriverController {
 
             val desiredDriver = if (useAngle) DRIVER_ANGLE else DRIVER_NATIVE
             val updated = mergeDriverSelection(pkgs, values, packageName, desiredDriver)
+            if (!canWriteGlobalSettings(context)) {
+                if (useAngle) {
+                    log(context, "${angleModeName(useAngleVk)} requested but WRITE_SECURE_SETTINGS is not granted; using platform GLES unless ANGLE is already enabled")
+                } else {
+                    log(context, "ANGLE renderer disabled but WRITE_SECURE_SETTINGS is not granted; leaving system driver selection unchanged")
+                }
+                return
+            }
             if (useAngle && isPackageInstalled(context, DEFAULT_ANGLE_PACKAGE)) {
                 Settings.Global.putString(resolver, KEY_DEBUG_PACKAGE, DEFAULT_ANGLE_PACKAGE)
             }
             Settings.Global.putString(resolver, KEY_PKGS, updated.first)
             Settings.Global.putString(resolver, KEY_VALUES, updated.second)
             if (useAngle) {
-                log(context, "ANGLE renderer requested; system driver selection set for $packageName")
+                log(context, "${angleModeName(useAngleVk)} requested; system driver selection set for $packageName")
             } else {
                 log(context, "ANGLE renderer disabled; system driver selection restored to native for $packageName")
             }
         }.onFailure { error ->
             if (useAngle) {
-                log(context, "ANGLE renderer requested but system driver selection was not writable; using platform GLES unless ANGLE is already enabled", error)
+                logSettingsWriteFailure(context, "${angleModeName(useAngleVk)} requested but system driver selection was not writable; using platform GLES unless ANGLE is already enabled", error)
             } else {
-                log(context, "ANGLE renderer disabled but system driver selection was not writable", error)
+                logSettingsWriteFailure(context, "ANGLE renderer disabled but system driver selection was not writable", error)
             }
         }
     }
@@ -91,6 +105,34 @@ object AngleDriverController {
         runCatching {
             context.packageManager.getPackageInfo(packageName, 0)
         }.isSuccess
+
+    private fun angleModeName(vulkanBackend: Boolean): String =
+        if (vulkanBackend) "ANGLE-VK renderer" else "ANGLE renderer"
+
+    private fun canWriteGlobalSettings(context: Context): Boolean =
+        context.checkCallingOrSelfPermission(Manifest.permission.WRITE_SECURE_SETTINGS) == PackageManager.PERMISSION_GRANTED
+
+    private fun configureAngleBackendEnv(context: Context, vulkanBackend: Boolean) {
+        runCatching {
+            if (vulkanBackend) {
+                Os.setenv("ANGLE_DEFAULT_PLATFORM", "vulkan", true)
+            } else {
+                Os.unsetenv("ANGLE_DEFAULT_PLATFORM")
+            }
+        }.onFailure { error ->
+            if (vulkanBackend) {
+                log(context, "ANGLE-VK backend env setup failed", error)
+            }
+        }
+    }
+
+    private fun logSettingsWriteFailure(context: Context, message: String, throwable: Throwable) {
+        if (throwable is SecurityException) {
+            log(context, "$message: WRITE_SECURE_SETTINGS is not granted")
+        } else {
+            log(context, message, throwable)
+        }
+    }
 
     private fun log(context: Context, message: String, throwable: Throwable? = null) {
         Log.i(TAG, message, throwable)
