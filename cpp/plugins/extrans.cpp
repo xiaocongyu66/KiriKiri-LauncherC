@@ -89,17 +89,8 @@ static tExtransProviderRegistration g_extransProviders[] = {
 static std::vector<std::pair<iTVPTransHandlerProvider *, const tjs_char *>>
     g_extransFallbackProviders;
 
-static bool HasTransProvider(const tjs_char *name) {
-    iTVPTransHandlerProvider *provider = TVPFindTransHandlerProvider(name);
-    if(provider) {
-        provider->Release();
-        return true;
-    }
-    return false;
-}
-
 static void RegisterRealProvider(tExtransProviderRegistration &entry) {
-    if(entry.Active || HasTransProvider(entry.Name))
+    if(entry.Active)
         return;
     try {
         entry.Register();
@@ -121,8 +112,6 @@ static void UnregisterRealProvider(tExtransProviderRegistration &entry) {
 
 static void AddExtransProvider(const tjs_char *name,
                                const tjs_char *fallback_name) {
-    if(HasTransProvider(name))
-        return;
     iTVPTransHandlerProvider *provider =
         new tExtransFallbackProvider(name, fallback_name);
     try {
@@ -146,11 +135,10 @@ static void RemoveFallbackProviders() {
 }
 
 static void extrans_init() {
-    for(auto &entry : g_extransProviders)
-        RegisterRealProvider(entry);
-
-    // Rotate provider registers all three names as a group. If registration
-    // fails for any reason, keep script-visible names working with crossfade.
+    // Keep startup robust: the ported extrans algorithms are native-heavy and
+    // may crash on some Android devices during provider registration. Register
+    // script-visible names as crossfade-backed providers first; individual
+    // algorithms can be re-enabled later after device-side validation.
     AddExtransProvider(TJS_W("wave"), TJS_W("crossfade"));
     AddExtransProvider(TJS_W("mosaic"), TJS_W("crossfade"));
     AddExtransProvider(TJS_W("turn"), TJS_W("crossfade"));

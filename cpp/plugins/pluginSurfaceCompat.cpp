@@ -4479,7 +4479,9 @@ static void gdiplusAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("layerExDraw.dll"));
     TVPExecuteScript(TJS_W(R"KRKR2(
 (function() {
+try {
   if(typeof Layer == "undefined" || typeof GdiPlus == "undefined") return;
+  if(typeof global.__krkr2LayerExGdiPlusCompatInstalled != "undefined") return;
   function __krkr2GdiGet(obj, name) {
     try {
       if(typeof obj[name] == "undefined") return void;
@@ -4489,9 +4491,6 @@ static void gdiplusAliasCompat() {
   function __krkr2GdiSet(obj, name, value) {
     try { obj[name] = value; } catch(e) {}
   }
-  if(__krkr2GdiGet(Layer, "__krkr2LayerExGdiPlusCompatInstalled") !== void)
-    return;
-  __krkr2GdiSet(Layer, "__krkr2LayerExGdiPlusCompatInstalled", true);
   class __Krkr2LayerGdiBrush {
     var color = 0xffffffff;
     var __krkr2LayerGdiBrush = true;
@@ -4631,6 +4630,10 @@ static void gdiplusAliasCompat() {
     if(orig !== void) return (orig incontextof this)(*);
     return void;
   });
+  global.__krkr2LayerExGdiPlusCompatInstalled = true;
+} catch(e) {
+  // Keep alias plugins loadable even when a title exposes a partial Layer/GdiPlus API.
+}
 })();
 )KRKR2"));
 }
