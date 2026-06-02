@@ -3,6 +3,7 @@
 //
 
 #include <fstream>
+#include <filesystem>
 #include <catch2/catch_test_macros.hpp>
 
 #include "DebugImpl.h"
@@ -22,6 +23,35 @@ public:
         spdlog::get("tjs2")->info(ttstr{ msg }.AsStdString());
     }
 } static iTJSConsoleOutputDef{};
+
+TEST_CASE("text stream reads bomless cp932 scripts") {
+    const auto path =
+        std::filesystem::temp_directory_path() / "krkr2_cp932_stand_test.tjs";
+    const unsigned char cp932Script[] = {
+        '[',  '\r', '\n', '%',  '[',  '\r', '\n', ' ',
+        'f',  'i',  'l',  'e',  'n',  'a',  'm',  'e',
+        ':',  '\'', 0x98, 0x61, 0x91, 0x74, 'a',  '\'',
+        ',',  '\r', '\n', ']',  ',',  '\r', '\n', ']',
+        '\r', '\n',
+    };
+
+    {
+        std::ofstream out(path, std::ios::binary);
+        out.write(reinterpret_cast<const char *>(cp932Script),
+                  sizeof(cp932Script));
+    }
+
+    ttstr text;
+    auto *stream = TVPCreateTextStreamForRead(path.string().c_str(), "");
+    stream->Read(text, 0);
+    delete stream;
+    std::filesystem::remove(path);
+
+    const std::u16string got(
+        reinterpret_cast<const char16_t *>(text.c_str()),
+        static_cast<size_t>(text.GetLen()));
+    REQUIRE(got.find(u"filename:'\u548c\u594fa'") != std::u16string::npos);
+}
 
 
 TEST_CASE("exec tjs2 script") {

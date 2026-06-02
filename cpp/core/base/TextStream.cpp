@@ -3,6 +3,7 @@
 #include <zlib.h>
 #include <optional>
 #include <algorithm>
+#include <cstring>
 #include <string>
 
 #include "TextStream.h"
@@ -17,6 +18,140 @@
 #include "BinaryStream.h"
 
 static std::string G_DefaultReadEncoding = "UTF-8";
+
+static bool hasNonAsciiBytes(const unsigned char *raw, size_t size) {
+    for(size_t i = 0; i < size; ++i) {
+        if(raw[i] >= 0x80)
+            return true;
+    }
+    return false;
+}
+
+static bool isUtf8Continuation(unsigned char ch) {
+    return (ch & 0xc0) == 0x80;
+}
+
+static bool isValidUtf8(const unsigned char *raw, size_t size,
+                        bool &hasMultibyte) {
+    hasMultibyte = false;
+    for(size_t i = 0; i < size;) {
+        const unsigned char ch = raw[i];
+        if(ch < 0x80) {
+            ++i;
+            continue;
+        }
+
+        hasMultibyte = true;
+        if(ch >= 0xc2 && ch <= 0xdf) {
+            if(i + 1 >= size || !isUtf8Continuation(raw[i + 1]))
+                return false;
+            i += 2;
+        } else if(ch == 0xe0) {
+            if(i + 2 >= size || raw[i + 1] < 0xa0 ||
+               raw[i + 1] > 0xbf || !isUtf8Continuation(raw[i + 2]))
+                return false;
+            i += 3;
+        } else if((ch >= 0xe1 && ch <= 0xec) ||
+                  (ch >= 0xee && ch <= 0xef)) {
+            if(i + 2 >= size || !isUtf8Continuation(raw[i + 1]) ||
+               !isUtf8Continuation(raw[i + 2]))
+                return false;
+            i += 3;
+        } else if(ch == 0xed) {
+            if(i + 2 >= size || raw[i + 1] < 0x80 ||
+               raw[i + 1] > 0x9f || !isUtf8Continuation(raw[i + 2]))
+                return false;
+            i += 3;
+        } else if(ch == 0xf0) {
+            if(i + 3 >= size || raw[i + 1] < 0x90 ||
+               raw[i + 1] > 0xbf || !isUtf8Continuation(raw[i + 2]) ||
+               !isUtf8Continuation(raw[i + 3]))
+                return false;
+            i += 4;
+        } else if(ch >= 0xf1 && ch <= 0xf3) {
+            if(i + 3 >= size || !isUtf8Continuation(raw[i + 1]) ||
+               !isUtf8Continuation(raw[i + 2]) ||
+               !isUtf8Continuation(raw[i + 3]))
+                return false;
+            i += 4;
+        } else if(ch == 0xf4) {
+            if(i + 3 >= size || raw[i + 1] < 0x80 ||
+               raw[i + 1] > 0x8f || !isUtf8Continuation(raw[i + 2]) ||
+               !isUtf8Continuation(raw[i + 3]))
+                return false;
+            i += 4;
+        } else {
+            return false;
+        }
+    }
+    return true;
+}
+
+static bool isCP932Lead(unsigned char ch) {
+    return (ch >= 0x81 && ch <= 0x9f) || (ch >= 0xe0 && ch <= 0xfc);
+}
+
+static bool isCP932Trail(unsigned char ch) {
+    return ch != 0x7f && ((ch >= 0x40 && ch <= 0x7e) ||
+                          (ch >= 0x80 && ch <= 0xfc));
+}
+
+static bool isCP932HalfwidthKana(unsigned char ch) {
+    return ch >= 0xa1 && ch <= 0xdf;
+}
+
+static bool looksLikeCP932(const unsigned char *raw, size_t size) {
+    size_t pairs = 0;
+    size_t highBytes = 0;
+
+    for(size_t i = 0; i < size; ++i) {
+        const unsigned char ch = raw[i];
+        if(ch < 0x80)
+            continue;
+
+        ++highBytes;
+        if(isCP932Lead(ch) && i + 1 < size && isCP932Trail(raw[i + 1])) {
+            ++pairs;
+            ++i;
+            continue;
+        }
+        if(isCP932HalfwidthKana(ch))
+            continue;
+
+        return false;
+    }
+
+    return highBytes > 0 && pairs > 0;
+}
+
+static bool sameEncodingName(const std::string &encoding,
+                             const char *expected) {
+    size_t i = 0;
+    for(; i < encoding.size() && expected[i]; ++i) {
+        char a = encoding[i];
+        char b = expected[i];
+        if(a >= 'a' && a <= 'z')
+            a = static_cast<char>(a - ('a' - 'A'));
+        if(b >= 'a' && b <= 'z')
+            b = static_cast<char>(b - ('a' - 'A'));
+        if(a != b)
+            return false;
+    }
+    return i == encoding.size() && expected[i] == 0;
+}
+
+static bool isLegacyCJKEncodingGuess(const std::string &encoding) {
+    return sameEncodingName(encoding, "SHIFT_JIS") ||
+           sameEncodingName(encoding, "SHIFT-JIS") ||
+           sameEncodingName(encoding, "SJIS") ||
+           sameEncodingName(encoding, "CP932") ||
+           sameEncodingName(encoding, "CP936") ||
+           sameEncodingName(encoding, "GBK") ||
+           sameEncodingName(encoding, "GB18030") ||
+           sameEncodingName(encoding, "BIG5") ||
+           sameEncodingName(encoding, "EUC-JP") ||
+           sameEncodingName(encoding, "EUC-KR");
+}
 
 std::string checkTextEncoding(const void *buf, size_t size,
                               std::uint8_t &bomSize) {
@@ -46,15 +181,34 @@ std::string checkTextEncoding(const void *buf, size_t size,
         bomSize = 3;
         encoding = "UTF-8";
     } else {
+        const bool hasNonAscii = hasNonAsciiBytes(raw, size);
+        bool hasUtf8Multibyte = false;
+        if(hasNonAscii && isValidUtf8(raw, size, hasUtf8Multibyte) &&
+           hasUtf8Multibyte) {
+            return "UTF-8";
+        }
+
         // ---------- 普通文本：用 uchardet 检测编码 ----------
         uchardet_t ud = uchardet_new();
         uchardet_handle_data(ud, reinterpret_cast<const char *>(raw), size);
         uchardet_data_end(ud);
         encoding = uchardet_get_charset(ud);
         uchardet_delete(ud);
-        if(encoding == "SHIFT_JIS") {
-            encoding = "cp932";
-        } else if(encoding == "WINDOWS-1252") {
+
+        if(sameEncodingName(encoding, "SHIFT_JIS") ||
+           sameEncodingName(encoding, "SHIFT-JIS") ||
+           sameEncodingName(encoding, "SJIS") ||
+           sameEncodingName(encoding, "CP932")) {
+            encoding = "CP932";
+        } else if(hasNonAscii && looksLikeCP932(raw, size) &&
+                  !isLegacyCJKEncodingGuess(encoding)) {
+            // Short KiriKiri scripts are often CP932 and can be misdetected
+            // as a western single-byte charset. Accepting that guess turns
+            // bytes like CP932 "和" (98 61) into mojibake and breaks storage
+            // names, so prefer CP932 when the byte stream is structurally
+            // valid Shift_JIS/CP932 and not valid UTF-8.
+            encoding = "CP932";
+        } else if(!hasNonAscii && sameEncodingName(encoding, "WINDOWS-1252")) {
             encoding = "ASCII";
         }
     }
