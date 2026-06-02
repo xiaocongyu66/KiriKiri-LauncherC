@@ -51,6 +51,8 @@ target_sources(${PROJECT_NAME} PRIVATE
     memfile.cpp
     lineParser.cpp
     pluginSurfaceCompat.cpp
+    androidPluginCompat.cpp
+    qrcode/QR_Encode.cpp
     platformPluginCompat.cpp
     runtimePatchLoader.cpp
     gfxEffect.cpp
@@ -239,7 +241,7 @@ find_package(spdlog CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 
 find_package(CURL CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME} PRIVATE CURL::libcurl)
+target_link_libraries(${PROJECT_NAME} PUBLIC CURL::libcurl)
 
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::sqlite3::sqlite3)

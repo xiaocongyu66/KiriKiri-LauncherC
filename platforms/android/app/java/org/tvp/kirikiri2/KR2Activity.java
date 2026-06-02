@@ -18,6 +18,7 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -393,6 +394,27 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     static public void ShowInputBox(final String title, final String prompt, final String text, final String[] Buttons) {
         mDialogMessage.Init(title, prompt, Buttons);
         msgHandler.post(() -> mDialogMessage.ShowInputBox(text));
+    }
+
+    /**
+     * @noinspection unused
+     */
+    static public void ShowPluginToast(final String title, final String text) {
+        if (sInstance == null) {
+            return;
+        }
+        msgHandler.post(() -> {
+            String message = "";
+            if (title != null && !title.isEmpty()) {
+                message = title;
+            }
+            if (text != null && !text.isEmpty()) {
+                message = message.isEmpty() ? text : message + "\n" + text;
+            }
+            if (!message.isEmpty()) {
+                Toast.makeText(sInstance, message, Toast.LENGTH_LONG).show();
+            }
+        });
     }
 
 

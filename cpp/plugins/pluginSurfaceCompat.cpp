@@ -4485,7 +4485,6 @@ static void gdiplusAliasCompat() {
 (function() {
 try {
   if(typeof Layer == "undefined" || typeof GdiPlus == "undefined") return;
-  if(typeof global.__krkr2LayerExGdiPlusCompatInstalled != "undefined") return;
   function __krkr2GdiGet(obj, name) {
     try {
       if(typeof obj[name] == "undefined") return void;
@@ -4495,36 +4494,34 @@ try {
   function __krkr2GdiSet(obj, name, value) {
     try { obj[name] = value; } catch(e) {}
   }
-  class __Krkr2LayerGdiBrush {
-    var color = 0xffffffff;
-    var __krkr2LayerGdiBrush = true;
-    function __Krkr2LayerGdiBrush(argb=0xffffffff) { color = argb; }
-    function setSolidBrush(argb) { color = argb; }
+  if(__krkr2GdiGet(global, "__krkr2LayerExGdiPlusCompatInstalled") !== void) return;
+  var __Krkr2LayerGdiBrush = function(argb=0xffffffff) {
+    this.color = argb;
+    this.__krkr2LayerGdiBrush = true;
+    this.setSolidBrush = function(argb) { this.color = argb; };
   };
-  class __Krkr2LayerGdiPen {
-    var color = 0xffffffff;
-    var width = 1.0;
-    var alignment = 0;
-    var brush = void;
-    var __krkr2LayerGdiPen = true;
-    function __Krkr2LayerGdiPen(arg=0xffffffff, w=1.0) {
+  var __Krkr2LayerGdiPen = function(arg=0xffffffff, w=1.0) {
+    this.color = 0xffffffff;
+    this.width = 1.0;
+    this.alignment = 0;
+    this.brush = void;
+    this.__krkr2LayerGdiPen = true;
       try {
         if(arg !== void && arg.__krkr2LayerGdiBrush !== void) {
-          brush = arg; color = arg.color;
+          this.brush = arg; this.color = arg.color;
         } else {
-          color = arg;
+          this.color = arg;
         }
-      } catch(e) { color = arg; }
-      width = w;
-    }
-    function setAlignMent(value) { alignment = value; }
-    function setAlignment(value) { alignment = value; }
-    function setBrush(value) {
-      brush = value;
-      try { if(value.color !== void) color = value.color; } catch(e) {}
-    }
-    function setColor(value) { color = value; brush = void; }
-    function setWidth(value) { width = value; }
+      } catch(e) { this.color = arg; }
+      this.width = w;
+      this.setAlignMent = function(value) { this.alignment = value; };
+      this.setAlignment = function(value) { this.alignment = value; };
+      this.setBrush = function(value) {
+        this.brush = value;
+        try { if(value.color !== void) this.color = value.color; } catch(e) {}
+      };
+      this.setColor = function(value) { this.color = value; this.brush = void; };
+      this.setWidth = function(value) { this.width = value; };
   };
   __krkr2GdiSet(Layer, "Brush", __Krkr2LayerGdiBrush);
   __krkr2GdiSet(Layer, "Pen", __Krkr2LayerGdiPen);
@@ -4693,9 +4690,6 @@ REGISTER_EMPTY_COMPAT_PLUGIN(layerExShimmer_dll_compat, "layerExShimmer.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(util_generic_dll_compat, "util_generic.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(util_graph_dll_compat, "util_graph.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(util_system_dll_compat, "util_system.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(qrcode_dll_compat, "qrcode.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(registory_dll_compat, "registory.dll");
-REGISTER_EMPTY_COMPAT_PLUGIN(tasktray_dll_compat, "tasktray.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(onigruma_dll_compat, "onigruma.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(oniguruma_dll_compat, "oniguruma.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(utf8hack_dll_compat, "utf8hack.dll");
