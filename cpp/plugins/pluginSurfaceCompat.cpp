@@ -4475,6 +4475,10 @@ static void drawdeviceZAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("drawdeviceZ_D3D9.dll"));
 }
 
+static void imageSaverAliasCompat() {
+    ncbAutoRegister::LoadModule(TJS_W("imagesaver.dll"));
+}
+
 static void gdiplusAliasCompat() {
     ncbAutoRegister::LoadModule(TJS_W("layerExDraw.dll"));
     TVPExecuteScript(TJS_W(R"KRKR2(
@@ -4668,6 +4672,8 @@ REGISTER_ALIAS_COMPAT_PLUGIN(krrlicht_dll_compat, "krrlicht.dll",
                              krrlichtAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(drawdeviceZ_dll_compat, "drawdeviceZ.dll",
                              drawdeviceZAliasCompat);
+REGISTER_ALIAS_COMPAT_PLUGIN(imgsav_dll_compat, "imgsav.dll",
+                             imageSaverAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(gdiplus_dll_compat, "gdiplus.dll",
                              gdiplusAliasCompat);
 REGISTER_ALIAS_COMPAT_PLUGIN(oleclass_dll_compat, "oleclass.dll",
@@ -4676,6 +4682,11 @@ REGISTER_ALIAS_COMPAT_PLUGIN(oleclass_dll_compat, "oleclass.dll",
 REGISTER_EMPTY_COMPAT_PLUGIN(layerExBase_dll_compat, "layerExBase.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(libjpeg_dll_compat, "libjpeg.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(basetest_dll_compat, "basetest.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(nativeclasstest_dll_compat,
+                             "nativeclasstest.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(exceptest_dll_compat, "exceptest.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(drawdevice_dll_compat, "drawdevice.dll");
+REGISTER_EMPTY_COMPAT_PLUGIN(gdidrawdevice_dll_compat, "gdidrawdevice.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(utf8hack_dll_compat, "utf8hack.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(k2utf8hack_dll_compat, "k2utf8hack.dll");
 REGISTER_EMPTY_COMPAT_PLUGIN(wumsadp_dll_compat, "wumsadp.dll");
