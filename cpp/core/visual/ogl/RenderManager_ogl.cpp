@@ -490,8 +490,49 @@ static void _glBindTexture2D(GLuint t) {
 static GLint _prevRenderBuffer;
 static GLint _screenFrameBuffer = 0;
 static unsigned int _stencilBufferW = 0, _stencilBufferH = 0;
+
+static const char *TVPGetFramebufferStatusName(GLenum status) {
+    switch(status) {
+        case GL_FRAMEBUFFER_COMPLETE:
+            return "GL_FRAMEBUFFER_COMPLETE";
+        case GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT:
+            return "GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT";
+        case GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT:
+            return "GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT";
+#ifdef GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS
+        case GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS:
+            return "GL_FRAMEBUFFER_INCOMPLETE_DIMENSIONS";
+#endif
+        case GL_FRAMEBUFFER_UNSUPPORTED:
+            return "GL_FRAMEBUFFER_UNSUPPORTED";
+        default:
+            return nullptr;
+    }
+}
+
+static bool TVPCheckFramebufferComplete(const char *stage, GLuint target) {
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if(status == GL_FRAMEBUFFER_COMPLETE)
+        return true;
+
+    const char *name = TVPGetFramebufferStatusName(status);
+    std::stringstream msg;
+    msg << "OpenGL FBO incomplete at " << stage << ", target=" << target
+        << ", status=";
+    if(name)
+        msg << name;
+    else
+        msg << "0x" << std::hex << status;
+    TVPConsoleLog(msg.str().c_str());
+    return false;
+}
+
 void TVPSetRenderTarget(GLuint t) {
     if(t) {
+        if(!_FBO) {
+            TVPConsoleLog("OpenGL FBO is not available; render target attach skipped");
+            return;
+        }
         if(!_CurrentFBOValid) {
             _CurrentFBOValid = true;
             glGetIntegerv(GL_FRAMEBUFFER_BINDING, &_screenFrameBuffer);
@@ -501,6 +542,10 @@ void TVPSetRenderTarget(GLuint t) {
             return;
         glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
                                GL_TEXTURE_2D, t, 0);
+        if(!TVPCheckFramebufferComplete("color attachment", t)) {
+            _CurrentRenderTarget = 0;
+            return;
+        }
     } else {
         glBindFramebuffer(GL_FRAMEBUFFER, _screenFrameBuffer);
         _CurrentFBOValid = false;
@@ -2920,30 +2965,6 @@ protected:
         glGenRenderbuffers(1, &_stencil_FBO);
         if(!_FBO) {
             TVPConsoleLog("Fail to create FBO");
-            const char *reason = nullptr;
-            GLenum errcode = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-#define SATATUE_CASE(x)                                                        \
-    case x:                                                                    \
-        reason = #x;                                                           \
-        break;
-            switch(errcode) {
-                SATATUE_CASE(GL_FRAMEBUFFER_COMPLETE);
-                SATATUE_CASE(GL_FRAMEBUFFER_INCOMPLETE_ATTACHMENT);
-                SATATUE_CASE(GL_FRAMEBUFFER_INCOMPLETE_MISSING_ATTACHMENT);
-                SATATUE_CASE(GL_FRAMEBUFFER_UNSUPPORTED);
-                default: {
-                    char tmp[16];
-                    sprintf(tmp, "0x%X", errcode);
-                    TVPConsoleLog(
-                        (std::string("glCheckFramebufferStatus = ") + tmp)
-                            .c_str());
-                } break;
-            }
-            if(reason) {
-                TVPConsoleLog(
-                    (std::string("glCheckFramebufferStatus = ") + reason)
-                        .c_str());
-            }
         }
         // 		if (TVPCheckGLExtension(GL_CHECK_ETC1_texture)) {
         // 			_glCompressedTexFormat = GL_ETC1_RGB8_OES;
@@ -4932,6 +4953,8 @@ public:
                                       GL_RENDERBUFFER, _stencil_FBO);
             glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
                                       GL_RENDERBUFFER, _stencil_FBO);
+            TVPCheckFramebufferComplete("stencil attachment",
+                                        _CurrentRenderTarget);
             CHECK_GL_ERROR_DEBUG();
         }
     }

@@ -50,7 +50,7 @@ class MainActivity : KR2Activity() {
         // requestedOrientation assignment. The helper additionally pins the
         // system auto-rotate flag (when WRITE_SETTINGS is granted) so OEM
         // rotation locks cannot override us.
-        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
+        ForceLandscapeHelper.apply(this, true)
         orientationListener = ForceLandscapeHelper.stickyListener(this)
 
         if (!checkStoragePermission()) {
@@ -86,7 +86,7 @@ class MainActivity : KR2Activity() {
         // Re-assert landscape on every resume; some OEMs reset
         // requestedOrientation when an activity is brought back from the
         // background (e.g. after a notification consumes input focus).
-        ForceLandscapeHelper.apply(this, LauncherPrefs.getForceLandscape(this))
+        ForceLandscapeHelper.apply(this, true)
         orientationListener?.let { if (it.canDetectOrientation()) it.enable() }
     }
 

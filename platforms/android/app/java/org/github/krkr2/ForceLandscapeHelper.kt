@@ -78,12 +78,9 @@ object ForceLandscapeHelper {
             activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             return false
         }
-        // Use SENSOR_LANDSCAPE so the device can flip between left- and
-        // right-landscape based on the accelerometer (matches what most
-        // games do). SCREEN_ORIENTATION_LANDSCAPE pins to one specific
-        // landscape edge and feels broken on tablets that the user is
-        // holding rotated 180 degrees.
-        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        // Use a fixed landscape request so Android's display and screen
+        // recording metadata agree with the game surface orientation.
+        activity.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         // Keep the screen on while the engine is rendering — without this
         // the rotation-lock cycle below can interact poorly with screen-off.
@@ -175,7 +172,8 @@ object ForceLandscapeHelper {
                 // Snap back if the activity ever leaves a landscape mode while
                 // force-landscape is on. Both LANDSCAPE and SENSOR_LANDSCAPE
                 // (left vs right landscape) count as acceptable.
-                if (!LauncherPrefs.getForceLandscape(activity)) return
+                if (!LauncherPrefs.getForceLandscape(activity) &&
+                    !isEngineLaunch(activity)) return
                 val current = activity.requestedOrientation
                 val isLandscape = current == ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE ||
                     current == ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE ||
@@ -183,9 +181,14 @@ object ForceLandscapeHelper {
                     current == ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
                 if (!isLandscape) {
                     activity.requestedOrientation =
-                        ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+                        ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
                 }
             }
         }
+    }
+
+    private fun isEngineLaunch(activity: Activity): Boolean {
+        return activity is MainActivity &&
+            !activity.intent?.getStringExtra(MainActivity.EXTRA_GAME_DIR).isNullOrEmpty()
     }
 }
