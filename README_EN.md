@@ -21,7 +21,7 @@ Current work focuses on behavior required by real games rather than only minimal
 ## Current Focus
 
 - Improve Android startup, storage, input, rendering, and crash diagnostics.
-- Improve renderer selection and fallback across software rendering, OpenGL/GLES, ANGLE, and ANGLE-VK. Native Vulkan currently has probing and a preference entry; the full Vulkan RenderManager remains future work.
+- Improve renderer selection and fallback across software rendering, OpenGL/GLES, ANGLE, and ANGLE-VK. Native Vulkan now has a dedicated backend that initializes a native Vulkan instance/device/graphics queue; compositing currently reuses the software path while texture upload and blend pipelines are migrated.
 - Fill in real-game plugin compatibility, especially motionplayer, PSB/PSD, layerEx, and Kirikiroid behavior.
 - Keep the optional Live2D Cubism bridge buildable only when a local Cubism Core SDK is provided.
 - Keep static plugin registration, whole-archive/force-load linking, and runtime patches maintainable.

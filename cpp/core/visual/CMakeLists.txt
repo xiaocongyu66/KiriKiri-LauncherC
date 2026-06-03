@@ -38,6 +38,7 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/BitmapIntf.cpp
     ${VISUAL_PATH}/argb.cpp
     ${VISUAL_PATH}/vulkan/VulkanRuntime.cpp
+    ${VISUAL_PATH}/vulkan/RenderManager_vulkan.cpp
 
     ${VISUAL_PATH}/gl/blend_function.cpp
     ${VISUAL_PATH}/gl/ResampleImage.cpp
