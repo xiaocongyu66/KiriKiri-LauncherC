@@ -21,7 +21,7 @@ KiriKiri LauncherC 是面向 KiriKiri2 / KAG / TJS2 游戏的跨平台兼容运�
 ## 当前开发重点
 
 - 提升 Android 端启动、存储、输入、渲染和崩溃诊断的稳定性。
-- 完善软件渲染、OpenGL/GLES、ANGLE、ANGLE-VK 的选择与回退；Native Vulkan 已接入独立后端并初始化原生 Vulkan instance/device/graphics queue，当前合成仍复用软件路径，后续继续迁移纹理上传与混合 pipeline。
+- 完善软件渲染、OpenGL/GLES、ANGLE、ANGLE-VK 的选择与回退；Native Vulkan 已接入独立后端并初始化原生 Vulkan instance/device/graphics queue 和多 worker command pool，当前合成仍复用软件路径，后续继续迁移纹理上传与混合 pipeline。
 - 补全真实游戏常用插件，特别是 motionplayer、PSB/PSD、layerEx 和 Kirikiroid 兼容行为。
 - 可选接入 Live2D Cubism：插件桥接源码已入库，但需要通过本机 SDK 路径提供 Cubism Core 头文件和对应 ABI 静态库后才会参与 Android 构建。
 - 保持插件静态注册、whole-archive/force-load 链接策略和运行时 patch 可维护。

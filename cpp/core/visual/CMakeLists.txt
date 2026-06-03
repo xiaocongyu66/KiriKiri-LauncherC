@@ -123,6 +123,9 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
     lz4::lz4
 )
 
+find_package(TBB CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE TBB::tbb)
+
 if(ANDROID)
     target_link_libraries(${PROJECT_NAME} PRIVATE vulkan)
 endif()

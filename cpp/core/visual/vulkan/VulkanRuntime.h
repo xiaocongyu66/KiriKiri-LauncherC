@@ -4,6 +4,7 @@
 #include <string>
 
 #if defined(__ANDROID__)
+#include <vector>
 #include <vulkan/vulkan.h>
 #endif
 
@@ -20,10 +21,17 @@ public:
 
     bool IsInitialized() const { return Initialized; }
     const std::string &GetSummary() const { return Summary; }
+    uint32_t GetWorkerCount() const { return WorkerCount; }
+
+#if defined(__ANDROID__)
+    VkCommandPool GetPrimaryCommandPool() const { return CommandPool; }
+    VkCommandPool GetWorkerCommandPool(uint32_t index) const;
+#endif
 
 private:
     bool Initialized;
     std::string Summary;
+    uint32_t WorkerCount;
 
 #if defined(__ANDROID__)
     VkInstance Instance;
@@ -31,6 +39,7 @@ private:
     VkDevice Device;
     VkQueue GraphicsQueue;
     VkCommandPool CommandPool;
+    std::vector<VkCommandPool> WorkerCommandPools;
     uint32_t GraphicsQueueFamily;
 #endif
 };

@@ -1,5 +1,10 @@
 #include "VulkanRuntime.h"
 
+#if defined(__ANDROID__)
+#include <algorithm>
+#include <oneapi/tbb/info.h>
+#endif
+
 #include <cstdint>
 #include <sstream>
 #include <vector>
@@ -72,12 +77,50 @@ bool SelectPhysicalDevice(VkInstance instance, VkPhysicalDevice &physicalDevice,
     summary = "no Vulkan 1.1 physical device with graphics queue";
     return false;
 }
+
+uint32_t DetectWorkerCount() {
+    int concurrency = oneapi::tbb::info::default_concurrency();
+    if(concurrency <= 0)
+        return 1;
+
+    constexpr uint32_t MaxVulkanWorkers = 8;
+    return std::max(1u, std::min<uint32_t>(
+                            static_cast<uint32_t>(concurrency),
+                            MaxVulkanWorkers));
+}
+
+bool CreateCommandPool(VkDevice device, uint32_t queueFamilyIndex,
+                       VkCommandPoolCreateFlags flags,
+                       VkCommandPool &commandPool, std::string &summary,
+                       const char *label) {
+    VkCommandPoolCreateInfo commandPoolCreateInfo{};
+    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    commandPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
+    commandPoolCreateInfo.flags = flags;
+
+    VkResult result = vkCreateCommandPool(device, &commandPoolCreateInfo,
+                                          nullptr, &commandPool);
+    if(result != VK_SUCCESS) {
+        summary = std::string(label) + " failed with VkResult " +
+                  std::to_string(static_cast<int>(result));
+        return false;
+    }
+    return true;
+}
+
+void DestroyCommandPools(VkDevice device, std::vector<VkCommandPool> &pools) {
+    for(VkCommandPool pool : pools) {
+        if(pool)
+            vkDestroyCommandPool(device, pool, nullptr);
+    }
+    pools.clear();
+}
 #endif
 
 } // namespace
 
 TVPVulkanRuntime::TVPVulkanRuntime() :
-    Initialized(false)
+    Initialized(false), WorkerCount(0)
 #if defined(__ANDROID__)
     ,
     Instance(VK_NULL_HANDLE), PhysicalDevice(VK_NULL_HANDLE),
@@ -93,6 +136,7 @@ void TVPVulkanRuntime::Shutdown() {
 #if defined(__ANDROID__)
     if(Device) {
         vkDeviceWaitIdle(Device);
+        DestroyCommandPools(Device, WorkerCommandPools);
         if(CommandPool) {
             vkDestroyCommandPool(Device, CommandPool, nullptr);
             CommandPool = VK_NULL_HANDLE;
@@ -108,6 +152,7 @@ void TVPVulkanRuntime::Shutdown() {
     }
 #endif
     Initialized = false;
+    WorkerCount = 0;
     Summary.clear();
 }
 
@@ -193,21 +238,33 @@ bool TVPVulkanRuntime::Initialize(std::string &summary) {
     VkQueue graphicsQueue = VK_NULL_HANDLE;
     vkGetDeviceQueue(device, queueFamilyIndex, 0, &graphicsQueue);
 
-    VkCommandPoolCreateInfo commandPoolCreateInfo{};
-    commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    commandPoolCreateInfo.queueFamilyIndex = queueFamilyIndex;
-    commandPoolCreateInfo.flags =
-        VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
-
     VkCommandPool commandPool = VK_NULL_HANDLE;
-    result = vkCreateCommandPool(device, &commandPoolCreateInfo, nullptr,
-                                 &commandPool);
-    if(result != VK_SUCCESS) {
+    if(!CreateCommandPool(device, queueFamilyIndex,
+                          VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+                          commandPool, summary,
+                          "vkCreateCommandPool(primary)")) {
         vkDestroyDevice(device, nullptr);
         vkDestroyInstance(instance, nullptr);
-        summary = "vkCreateCommandPool failed with VkResult " +
-                  std::to_string(static_cast<int>(result));
         return false;
+    }
+
+    uint32_t workerCount = DetectWorkerCount();
+    std::vector<VkCommandPool> workerCommandPools;
+    workerCommandPools.reserve(workerCount);
+    for(uint32_t i = 0; i < workerCount; ++i) {
+        VkCommandPool workerCommandPool = VK_NULL_HANDLE;
+        if(!CreateCommandPool(device, queueFamilyIndex,
+                              VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT |
+                                  VK_COMMAND_POOL_CREATE_TRANSIENT_BIT,
+                              workerCommandPool,
+                              summary, "vkCreateCommandPool(worker)")) {
+            DestroyCommandPools(device, workerCommandPools);
+            vkDestroyCommandPool(device, commandPool, nullptr);
+            vkDestroyDevice(device, nullptr);
+            vkDestroyInstance(instance, nullptr);
+            return false;
+        }
+        workerCommandPools.push_back(workerCommandPool);
     }
 
     Instance = instance;
@@ -215,12 +272,23 @@ bool TVPVulkanRuntime::Initialize(std::string &summary) {
     Device = device;
     GraphicsQueue = graphicsQueue;
     CommandPool = commandPool;
+    WorkerCommandPools.swap(workerCommandPools);
     GraphicsQueueFamily = queueFamilyIndex;
+    WorkerCount = workerCount;
     Initialized = true;
-    Summary = summary;
+    Summary = summary + " workerPools=" + std::to_string(WorkerCount);
+    summary = Summary;
     return true;
 #endif
 }
+
+#if defined(__ANDROID__)
+VkCommandPool TVPVulkanRuntime::GetWorkerCommandPool(uint32_t index) const {
+    if(index >= WorkerCommandPools.size())
+        return VK_NULL_HANDLE;
+    return WorkerCommandPools[index];
+}
+#endif
 
 bool TVPProbeNativeVulkan(std::string &summary) {
     TVPVulkanRuntime runtime;
