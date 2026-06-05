@@ -107,6 +107,11 @@
     {
       "name": "opencv4",
       "version": "4.7.0#6"
+    },
+    {
+      "name": "sdl2",
+      "version": "2.32.10",
+      "port-version": 1
     }
   ]
 }

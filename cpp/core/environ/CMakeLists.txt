@@ -83,9 +83,12 @@ find_package(cocos2dx CONFIG REQUIRED)
 include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
 fix_cocos2dx_android_cpufeatures_include()
 find_package(7zip CONFIG REQUIRED)
+find_package(SDL2 CONFIG REQUIRED)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         cocos2dx::cocos2d
+        $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
+        $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
 
         7zip::7zip
         minizip

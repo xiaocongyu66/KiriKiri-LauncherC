@@ -27,24 +27,41 @@ class MainActivity : KR2Activity() {
     private var launchRecorded = false
     private var orientationListener: android.view.OrientationEventListener? = null
 
+    private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
+
+    private fun logLifecycle(message: String, throwable: Throwable? = null) {
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "MainActivity.$message gameDir=${launchExtra(EXTRA_GAME_DIR)} launchFile=${launchExtra(EXTRA_LAUNCH_FILE)} thread=${Thread.currentThread().name}",
+            throwable,
+        )
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
+        logLifecycle("onCreate#enter saved=${savedInstanceState != null}")
         AngleDriverController.configureBeforeGl(this)
         super.setEnableVirtualButton(false)
+        logLifecycle("onCreate#before-super")
         super.onCreate(savedInstanceState)
+        logLifecycle("onCreate#after-super taskRoot=$isTaskRoot")
 
         if (!isTaskRoot) {
+            logLifecycle("onCreate#not-task-root-return")
             return
         }
 
         val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
+        logLifecycle("onCreate#native-log-configured path=$nativeLogFile")
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
         val ffmpegDecodeMode = LauncherPrefs.getFfmpegDecodeMode(this)
         KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)
         KR2Activity.setFFmpegDecodeMode(LauncherPrefs.getFfmpegDecodeModeCode(this))
+        logLifecycle("onCreate#ffmpeg ffmpegImageDecoder=$useFfmpegImageDecoder ffmpegDecodeMode=$ffmpegDecodeMode")
 
         val lp = window.attributes
         lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         window.attributes = lp
+        logLifecycle("onCreate#cutout-configured")
 
         // Force-landscape goes through the helper instead of a one-shot
         // requestedOrientation assignment. The helper additionally pins the
@@ -52,8 +69,10 @@ class MainActivity : KR2Activity() {
         // rotation locks cannot override us.
         ForceLandscapeHelper.apply(this, true)
         orientationListener = ForceLandscapeHelper.stickyListener(this)
+        logLifecycle("onCreate#landscape-applied requestedOrientation=$requestedOrientation")
 
         if (!checkStoragePermission()) {
+            logLifecycle("onCreate#request-storage-permission")
             requestStoragePermission()
         }
 
@@ -62,13 +81,16 @@ class MainActivity : KR2Activity() {
             "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot ffmpegImageDecoder=$useFfmpegImageDecoder ffmpegDecodeMode=$ffmpegDecodeMode nativeLogFile=$nativeLogFile"
         )
 
+        logLifecycle("onCreate#sdl-audio-init-start")
         SDLAudioManager.nativeSetupJNI()
         SDLAudioManager.initialize()
         SDLAudioManager.setContext(getContext())
+        logLifecycle("onCreate#sdl-audio-init-done")
     }
 
     override fun onStart() {
         super.onStart()
+        logLifecycle("onStart")
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR)
         if (!gameDir.isNullOrEmpty()) {
             LauncherPrefs.writeLauncherLog(this, "MainActivity.onStart gameDir=$gameDir launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()}")
@@ -80,9 +102,17 @@ class MainActivity : KR2Activity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent?) {
+        logLifecycle("onNewIntent#before-super newGameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} newLaunchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()}")
+        super.onNewIntent(intent)
+        if (intent != null) setIntent(intent)
+        logLifecycle("onNewIntent#after-setIntent")
+    }
+
     override fun onResume() {
         super.onResume()
         sessionStartedAt = System.currentTimeMillis()
+        logLifecycle("onResume sessionStartedAt=$sessionStartedAt")
         // Re-assert landscape on every resume; some OEMs reset
         // requestedOrientation when an activity is brought back from the
         // background (e.g. after a notification consumes input focus).
@@ -91,12 +121,15 @@ class MainActivity : KR2Activity() {
     }
 
     override fun onPause() {
+        logLifecycle("onPause#enter sessionStartedAt=$sessionStartedAt")
         recordSessionTime()
         orientationListener?.disable()
         super.onPause()
+        logLifecycle("onPause#after-super")
     }
 
     override fun onDestroy() {
+        logLifecycle("onDestroy#enter sessionStartedAt=$sessionStartedAt")
         recordSessionTime()
         orientationListener?.disable()
         orientationListener = null
@@ -112,13 +145,17 @@ class MainActivity : KR2Activity() {
         //   Fatal signal 6 (SIGABRT) in tid X (GLThread Y)
         // observed in 78.log PID 14643 / GLThread 105.
         super.onDestroy()
+        logLifecycle("onDestroy#after-super")
     }
 
     private fun recordSessionTime() {
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR) ?: return
         if (sessionStartedAt > 0L) {
             val delta = System.currentTimeMillis() - sessionStartedAt
-            if (delta > 0L) LauncherPrefs.recordPlayTime(this, gameDir, delta)
+            if (delta > 0L) {
+                LauncherPrefs.recordPlayTime(this, gameDir, delta)
+                LauncherPrefs.writeLauncherLog(this, "MainActivity.recordSessionTime gameDir=$gameDir deltaMs=$delta")
+            }
             sessionStartedAt = 0L
         }
     }

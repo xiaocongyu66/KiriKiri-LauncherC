@@ -96,32 +96,51 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         return sInstance;
     }
 
+    private void writeLifecycleLog(String message) {
+        try {
+            org.github.krkr2.LauncherPrefs.INSTANCE.writeLauncherLog(
+                this,
+                "KR2Activity." + message + " thread=" + Thread.currentThread().getName(),
+                null);
+        } catch (Throwable t) {
+            Log.w("KR2Activity", "writeLifecycleLog failed", t);
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        writeLifecycleLog("onCreate#enter saved=" + (savedInstanceState != null));
         super.onCreate(savedInstanceState);
+        writeLifecycleLog("onCreate#after-super");
         sInstance = this;
         initDump(this.getFilesDir().getAbsolutePath() + "/dump");
+        writeLifecycleLog("onCreate#initDump path=" + this.getFilesDir().getAbsolutePath() + "/dump");
     }
 
     @Override
     public Cocos2dxGLSurfaceView onCreateView() {
+        writeLifecycleLog("onCreateView#enter");
         Cocos2dxGLSurfaceView glSurfaceView = new KR2GLSurfaceView(this);
         hideSystemUI();
 
         Cocos2dxEGLConfigChooser chooser = new Cocos2dxEGLConfigChooser(this.mGLContextAttrs);
         glSurfaceView.setEGLConfigChooser(chooser);
 
+        writeLifecycleLog("onCreateView#done view=" + glSurfaceView.getClass().getSimpleName());
         return glSurfaceView;
     }
 
     @Override
     public void onDestroy() {
+        writeLifecycleLog("onDestroy#enter");
         super.onDestroy();
+        writeLifecycleLog("onDestroy#after-super");
         System.exit(0);
     }
 
     @Override
     public void onLowMemory() {
+        writeLifecycleLog("onLowMemory");
         nativeOnLowMemory();
     }
 

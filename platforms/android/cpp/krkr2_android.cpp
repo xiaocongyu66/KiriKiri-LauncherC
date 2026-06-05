@@ -9,6 +9,7 @@
 #include "environ/ConfigManager/GlobalConfigManager.h"
 #include "environ/Application.h"
 #include "environ/NativeLog.h"
+#include "environ/android/AndroidUtils.h"
 #include "common/FFmpegDecodeConfig.h"
 
 /*******************************************************************************
@@ -46,6 +47,7 @@ static bool DumpFilter(void *data) {
 [[maybe_unused]] void cocos_android_app_init(JNIEnv *env) { // for cocos3.10+
 
     TVPInitializeNativeLogging();
+    TVPAppendNativeFatalBreadcrumb("jni", "cocos_android_app_init enter");
 
 #if defined(ANDROID) && defined(KRKR2_ENABLE_TJS_DOBBY_HOOK)
     TJS::TVPInstallKrkrHook();
@@ -65,13 +67,20 @@ static bool DumpFilter(void *data) {
         if(!sdl2Init ||
            ((JNI_OnLoad)sdl2Init)(vm, nullptr) != JNI_VERSION_1_4) {
             spdlog::critical("invoke libSDL2.so JNI_OnLoad method failed");
+            TVPAppendNativeFatalBreadcrumb("jni",
+                                           "libSDL2.so JNI_OnLoad failed");
+        } else {
+            TVPAppendNativeFatalBreadcrumb("jni",
+                                           "libSDL2.so JNI_OnLoad ok");
         }
     } else {
         spdlog::critical("load libSDL2.so failed");
+        TVPAppendNativeFatalBreadcrumb("jni", "dlopen libSDL2.so failed");
     }
 
     static std::unique_ptr<TVPAppDelegate> pAppDelegate =
         std::make_unique<TVPAppDelegate>();
+    TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
 }
 
 namespace kr2android {
@@ -89,6 +98,8 @@ void Java_org_tvp_kirikiri2_KR2Activity_initDump(JNIEnv *env, jclass cls,
                                                  jstring path) {
     const char *pszPath = env->GetStringUTFChars(path, nullptr);
     if(pszPath && *pszPath) {
+        std::string message = std::string("initDump path=") + pszPath;
+        TVPAppendNativeFatalBreadcrumb("dump", message.c_str());
         static google_breakpad::MinidumpDescriptor descriptor(pszPath);
         static google_breakpad::ExceptionHandler eh(
             descriptor, DumpFilter, DumpCallback, nullptr, true, -1);
@@ -131,6 +142,9 @@ Java_org_tvp_kirikiri2_KR2Activity_configureFileLogging(JNIEnv *env, jclass,
         }
     }
     TVPConfigureNativeLogging(enabled == JNI_TRUE, logFilePath);
+    std::string message = std::string("configureFileLogging enabled=") +
+        (enabled == JNI_TRUE ? "1" : "0") + " path=" + logFilePath;
+    TVPAppendNativeFatalBreadcrumb("log", message.c_str());
 }
 
 void Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxOK(JNIEnv *env, jclass cls,
@@ -430,6 +444,7 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
 
 JNIEXPORT void JNICALL
 Java_org_tvp_kirikiri2_KR2Activity_nativeOnLowMemory(JNIEnv *env, jclass cls) {
+    TVPAppendNativeFatalBreadcrumb("memory", "nativeOnLowMemory");
     Android_PushEvents([]() {
         ::Application->
 

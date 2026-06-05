@@ -1,13 +1,22 @@
-package org.github.krkr2;
+package org.github.krkr2
 
 import android.annotation.SuppressLint
 import android.app.Application
 import android.content.Context
+import android.util.Log
+import kotlin.system.exitProcess
 
 class KR2Application : Application() {
     override fun onCreate() {
         super.onCreate()
         context = applicationContext
+        installUncaughtExceptionLogger()
+        runCatching {
+            val logFile = LauncherPrefs.beginUnifiedLogSession(this)
+            LauncherPrefs.writeLauncherLog(this, "KR2Application.onCreate pid=${android.os.Process.myPid()} logFile=$logFile")
+        }.onFailure {
+            Log.w("KR2Application", "early log session failed", it)
+        }
         // First-run engine prefs bootstrap. The native engine defaults
         // renderer=software, and we keep that as the Android default because
         // the OpenGL path still has compatibility render errors on some KRKR
@@ -32,6 +41,28 @@ class KR2Application : Application() {
                     .putBoolean("engine_defaults_v1_applied", true)
                     .putBoolean("engine_defaults_v2_applied", true)
                     .apply()
+            }
+        }
+    }
+
+    private fun installUncaughtExceptionLogger() {
+        val previous = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            runCatching {
+                LauncherPrefs.writeLauncherLog(
+                    this,
+                    "UNCAUGHT Java exception thread=${thread.name} id=${thread.id}",
+                    throwable,
+                )
+            }.onFailure {
+                Log.e("KR2Application", "failed to write uncaught exception log", it)
+            }
+            if (previous != null) {
+                previous.uncaughtException(thread, throwable)
+            } else {
+                Log.e("KR2Application", "uncaught exception", throwable)
+                android.os.Process.killProcess(android.os.Process.myPid())
+                exitProcess(10)
             }
         }
     }

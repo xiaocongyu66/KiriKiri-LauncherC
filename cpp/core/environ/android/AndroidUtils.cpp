@@ -27,6 +27,7 @@
 #include "base/CCDirector.h"
 #include "base/CCScheduler.h"
 #include <unistd.h>
+#include <sys/syscall.h>
 #include <fcntl.h>
 #include <android/log.h>
 #include "TickCount.h"
@@ -516,6 +517,41 @@ namespace kr2android {
 } // namespace kr2android
 using namespace kr2android;
 
+static const char *const kNativeFatalLogDirs[] = {
+    "/storage/emulated/0/Android/data/org.github.krkr2/files",
+    "/sdcard/Android/data/org.github.krkr2/files",
+    "/sdcard",
+    "/data/local/tmp",
+    nullptr,
+};
+
+static int TVPGetCurrentNativeTid() {
+    return static_cast<int>(syscall(SYS_gettid));
+}
+
+void TVPAppendNativeFatalBreadcrumb(const char *tag, const char *message) {
+    for(int i = 0; kNativeFatalLogDirs[i]; ++i) {
+        std::string path = kNativeFatalLogDirs[i];
+        path += "/krkr2_native_fatal.log";
+        FILE *fp = std::fopen(path.c_str(), "ab");
+        if(!fp)
+            continue;
+        time_t now = time(nullptr);
+        struct tm tmv;
+        localtime_r(&now, &tmv);
+        char ts[40] = { 0 };
+        strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tmv);
+        std::fprintf(fp,
+                     "[%s] [breadcrumb] [%s] pid=%d tid=%d %s\n", ts,
+                     tag ? tag : "native", getpid(), TVPGetCurrentNativeTid(),
+                     message ? message : "");
+        std::fclose(fp);
+        __android_log_print(ANDROID_LOG_INFO, "KrKr2Breadcrumb", "[%s] %s",
+                            tag ? tag : "native", message ? message : "");
+        return;
+    }
+}
+
 // krkr2-launcher: dump every messagebox text to a side file so OPPO logcat
 // throttling cannot eat the very first crash dialog. Timestamp included so we
 // can correlate with logcat windows.
@@ -523,15 +559,8 @@ static void TVPDumpFatalToFile(const char *pszText, const char *pszTitle) {
     // Try a few well-known external app-files directories. The launcher writes
     // its own log at /storage/emulated/0/Android/data/<pkg>/files/, so put our
     // fatal log next to it. Fall back to /sdcard and /data/local/tmp.
-    static const char *const kCandidates[] = {
-        "/storage/emulated/0/Android/data/org.github.krkr2/files",
-        "/sdcard/Android/data/org.github.krkr2/files",
-        "/sdcard",
-        "/data/local/tmp",
-        nullptr,
-    };
-    for(int i = 0; kCandidates[i]; ++i) {
-        std::string path = kCandidates[i];
+    for(int i = 0; kNativeFatalLogDirs[i]; ++i) {
+        std::string path = kNativeFatalLogDirs[i];
         path += "/krkr2_native_fatal.log";
         FILE *fp = std::fopen(path.c_str(), "ab");
         if(!fp) continue;

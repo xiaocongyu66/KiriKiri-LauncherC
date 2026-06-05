@@ -102,7 +102,7 @@ object LauncherPrefs {
         if (mode == FFMPEG_DECODE_MODE_HARDWARE) FFMPEG_DECODE_MODE_HARDWARE else FFMPEG_DECODE_MODE_SOFTWARE
 
     fun getFileLogEnabled(context: Context): Boolean =
-        LauncherSettingsDb.getBoolean(context, KEY_FILE_LOG_ENABLED, false)
+        LauncherSettingsDb.getBoolean(context, KEY_FILE_LOG_ENABLED, true)
 
     fun setFileLogEnabled(context: Context, enabled: Boolean) {
         LauncherSettingsDb.setBoolean(context, KEY_FILE_LOG_ENABLED, enabled)
@@ -134,11 +134,16 @@ object LauncherPrefs {
 
     fun configureNativeLogging(context: Context): String {
         val enabled = getFileLogEnabled(context)
-        val logFile = if (enabled) prepareNativeLogFile(context) else ""
+        val logFile = if (enabled) activeUnifiedLogFile(context) ?: beginUnifiedLogSession(context) else ""
         runCatching {
             org.tvp.kirikiri2.KR2Activity.configureFileLogging(enabled, logFile)
         }.onFailure { Log.w(TAG, "configureFileLogging failed", it) }
         return logFile
+    }
+
+    fun beginUnifiedLogSession(context: Context): String {
+        if (!getFileLogEnabled(context)) return ""
+        return prepareNativeLogFile(context)
     }
 
     private fun prepareNativeLogFile(context: Context): String {
@@ -150,6 +155,13 @@ object LauncherPrefs {
         LauncherSettingsDb.setString(context, KEY_ACTIVE_LOG_FILE, file.absolutePath)
         appendUnifiedLog(context, "native log session path=${file.absolutePath}")
         return file.absolutePath
+    }
+
+    private fun activeUnifiedLogFile(context: Context): String? {
+        val active = LauncherSettingsDb.getString(context, KEY_ACTIVE_LOG_FILE, "")
+            .takeIf { it.isNotBlank() }
+            ?: return null
+        return active.takeIf { File(it).exists() }
     }
 
     fun getScanDepth(context: Context): Int = LauncherSettingsDb.getInt(context, KEY_SCAN_DEPTH, SCAN_DEPTH_DEFAULT).coerceIn(SCAN_DEPTH_MIN, SCAN_DEPTH_MAX)
