@@ -9,6 +9,7 @@
 #include "ui/extension/UIExtension.h"
 #include "ConfigManager/LocaleConfigManager.h"
 #include "NativeLog.h"
+#include "sdl/SDLGameManager.h"
 
 #include <cstdio>
 
@@ -28,10 +29,7 @@ extern std::thread::id TVPMainThreadID;
 
 extern "C" void SDL_SetMainReady();
 
-bool TVPCheckStartupArg();
-
 std::string TVPGetCurrentLanguage();
-std::string Android_GetLaunchGamePath();
 
 void TVPAppDelegate::applicationWillEnterForeground() {
     ::Application->OnActivate();
@@ -123,32 +121,26 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
     scene->scheduleOnce(
         [](float dt) {
             TVPMainScene::GetInstance()->unschedule("launch");
-            TVPGlobalPreferenceForm::Initialize();
-            // IMPORTANT: TVPCheckStartupArg() registers the per-frame event
-            // dispatcher (Android_PushEvents → director scheduler). Without
-            // it, every async TJS storage/event call after startupFrom()
-            // silently drops, leaving native paths as nil and crashing
-            // inside TVPGetPlacedPath(). The original flow always ran this
-            // before opening the file selector, so we must run it here too
-            // when we shortcut directly into startupFrom().
-            bool startupArgHandled = TVPCheckStartupArg();
-            std::string gamePath = Android_GetLaunchGamePath();
-            KR2_LAUNCH_LOG("Android_GetLaunchGamePath -> '%s' (len=%zu)",
-                           gamePath.c_str(), gamePath.size());
-            if(!gamePath.empty()) {
-                bool ok = TVPMainScene::GetInstance()->startupFrom(gamePath);
+            TVPSDLGameLaunchCallbacks launchCallbacks;
+            launchCallbacks.initializePreferences = []() {
+                TVPGlobalPreferenceForm::Initialize();
+            };
+            launchCallbacks.startupFrom = [](const std::string &gamePath,
+                                             const std::string &gameDir) {
+                bool ok =
+                    TVPMainScene::GetInstance()->startupFrom(gamePath, gameDir);
                 KR2_LAUNCH_LOG("startupFrom('%s') returned %d",
                                gamePath.c_str(), (int)ok);
-                if(ok)
-                    return;
-            }
-            KR2_LAUNCH_LOG(
-                "falling back to file selector (startupArgHandled=%d)",
-                (int)startupArgHandled);
-            if(!startupArgHandled) {
+                return ok;
+            };
+            launchCallbacks.showFileSelector = []() {
                 TVPMainScene::GetInstance()->pushUIForm(
                     TVPMainFileSelectorForm::create());
-            }
+            };
+            launchCallbacks.log = [](const std::string &message) {
+                KR2_LAUNCH_LOG("%s", message.c_str());
+            };
+            TVPSDLRunGameLaunch(launchCallbacks);
         },
         0, "launch");
 

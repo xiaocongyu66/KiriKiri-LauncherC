@@ -1,5 +1,4 @@
 #include "Platform.h"
-#include "cocos2d/MainScene.h"
 // #undef WIN32
 #include <windows.h>
 #include <mmsystem.h>
@@ -90,55 +89,96 @@ int TVPCheckArchive(const ttstr &localname);
 void TVPCheckAndSendDumps(const std::string &dumpdir,
                           const std::string &packageName,
                           const std::string &versionStr);
-bool TVPCheckStartupArg() {
-    int argc;
-    const std::u16string argv = boost::locale::conv::utf_to_utf<char16_t>(
-        *CommandLineToArgvW(GetCommandLineW(), &argc));
-    //	__wgetmainargs(&argc, &argv, &env, 0, &info);
+
+namespace {
+std::string TVPWin32LaunchGamePath;
+std::string TVPWin32LaunchGameDir;
+bool TVPWin32StartupArgsParsed = false;
+
+std::string ParentPath(const std::string &path) {
+    const size_t pos = path.find_last_of('/');
+    if(pos == std::string::npos)
+        return {};
+    return path.substr(0, pos);
+}
+
+void TVPParseWin32StartupArgs() {
+    if(TVPWin32StartupArgsParsed)
+        return;
+    TVPWin32StartupArgsParsed = true;
+
+    int argc = 0;
+    LPWSTR *argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     TVPCheckAndSendDumps(TVPGetDefaultFileDir() + "/dumps", "win32-test",
                          "test");
-    if(argc > 1) {
-        if(TVPCheckExistentLocalFile(argv[1])) {
-            if(TVPCheckArchive(argv[1]) == 1) {
-                TVPMainScene::GetInstance()->startupFrom(
-                    converter.to_bytes(argv[1]));
-                return true;
+    if(!argv)
+        return;
+
+    if(argc > 1 && argv[1] && *argv[1]) {
+        const std::u16string pathArg =
+            boost::locale::conv::utf_to_utf<char16_t>(argv[1]);
+        const ttstr path(pathArg.c_str());
+        if(TVPCheckExistentLocalFile(path)) {
+            if(TVPCheckArchive(path) == 1) {
+                TVPWin32LaunchGamePath = converter.to_bytes(argv[1]);
+                TVPWin32LaunchGameDir = ParentPath(TVPWin32LaunchGamePath);
             }
-            return false;
-        }
-        bool bootable = false;
-        TVPListDir(converter.to_bytes(argv[1]),
-                   [&](const std::string &_name, int mask) {
-                       if(mask & (S_IFREG)) {
-                           std::string name(_name);
-                           std::transform(name.begin(), name.end(),
-                                          name.begin(), [](int c) -> int {
-                                              if(c <= 'Z' && c >= 'A')
-                                                  return c - ('A' - 'a');
-                                              return c;
-                                          });
-                           if(name == "startup.tjs") {
-                               bootable = true;
+        } else {
+            bool bootable = false;
+            const std::string pathUtf8 = converter.to_bytes(argv[1]);
+            TVPListDir(pathUtf8,
+                       [&](const std::string &_name, int mask) {
+                           if(mask & (S_IFREG)) {
+                               std::string name(_name);
+                               std::transform(name.begin(), name.end(),
+                                              name.begin(), [](int c) -> int {
+                                                  if(c <= 'Z' && c >= 'A')
+                                                      return c - ('A' - 'a');
+                                                  return c;
+                                              });
+                               if(name == "startup.tjs") {
+                                   bootable = true;
+                               }
                            }
-                       }
-                   });
-        for(int i = 2; i < argc; ++i) {
-            std::u16string str{ argv[i] };
-            size_t pos = str.find(u'=');
-            if(pos == str.npos) {
-                TVPSetCommandLine(ttstr{ argv[i] }.c_str(), "yes"_tss);
-            } else {
-                ttstr val = str.c_str() + pos + 1;
-                TVPSetCommandLine(str.substr(0, pos).c_str(), val);
-            }
+                       });
+            if(bootable)
+                TVPWin32LaunchGamePath = pathUtf8;
+            if(bootable)
+                TVPWin32LaunchGameDir = pathUtf8;
         }
-        if(bootable) {
-            TVPMainScene::GetInstance()->startupFrom(
-                converter.to_bytes(argv[1]));
-            return true;
+        for(int i = 2; i < argc; ++i) {
+            if(!argv[i])
+                continue;
+            const std::u16string str =
+                boost::locale::conv::utf_to_utf<char16_t>(argv[i]);
+            const size_t pos = str.find(u'=');
+            if(pos == str.npos) {
+                TVPSetCommandLine(ttstr(str.c_str()).c_str(), "yes"_tss);
+            } else {
+                ttstr key = str.substr(0, pos).c_str();
+                ttstr val = str.c_str() + pos + 1;
+                TVPSetCommandLine(key.c_str(), val);
+            }
         }
     }
-    return false;
+
+    LocalFree(argv);
+}
+} // namespace
+
+bool TVPCheckStartupArg() {
+    TVPParseWin32StartupArgs();
+    return !TVPWin32LaunchGamePath.empty();
+}
+
+std::string TVPGetLaunchGamePath() {
+    TVPParseWin32StartupArgs();
+    return TVPWin32LaunchGamePath;
+}
+
+std::string TVPGetLaunchGameDir() {
+    TVPParseWin32StartupArgs();
+    return TVPWin32LaunchGameDir;
 }
 
 int TVPShowSimpleMessageBox(const ttstr &text, const ttstr &caption,

@@ -817,6 +817,24 @@ std::string Android_GetLaunchGamePath() {
     return "";
 }
 
+std::string TVPGetLaunchGamePath() { return Android_GetLaunchGamePath(); }
+
+std::string TVPGetLaunchGameDir() {
+    JniMethodInfo methodInfo;
+    if(JniHelper::getStaticMethodInfo(methodInfo, KR2ActJavaPath,
+                                      "getLaunchGameDir",
+                                      "()Ljava/lang/String;")) {
+        auto result = (jstring)methodInfo.env->CallStaticObjectMethod(
+            methodInfo.classID, methodInfo.methodID);
+        std::string ret = result ? JniHelper::jstring2string(result) : "";
+        if(result)
+            methodInfo.env->DeleteLocalRef(result);
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
+        return ret;
+    }
+    return "";
+}
+
 void TVPCheckAndSendDumps(const std::string &dumpdir,
                           const std::string &packageName,
                           const std::string &versionStr);

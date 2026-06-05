@@ -284,6 +284,10 @@ void TVPExitApplication(int code) {
 
 bool TVPCheckStartupArg() { return false; }
 
+std::string TVPGetLaunchGamePath() { return {}; }
+
+std::string TVPGetLaunchGameDir() { return {}; }
+
 void TVPProcessInputEvents() {}
 
 bool TVPDeleteFile(const std::string &filename) {

@@ -209,6 +209,10 @@ bool TVPCheckStartupArg() {
     return false;
 }
 
+std::string TVPGetLaunchGamePath() { return {}; }
+
+std::string TVPGetLaunchGameDir() { return {}; }
+
 void TVPControlAdDialog(int, int, int) { /*pass*/ }
 
 void TVPExitApplication(int code) {
@@ -454,4 +458,3 @@ bool TVP_utime(const char *name, time_t modtime) {
     mt[1].tv_usec = 0;
     return utimes(name, mt) == 0;
 }
-

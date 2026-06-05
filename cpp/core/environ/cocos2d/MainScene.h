@@ -45,7 +45,8 @@ public:
     cocos2d::Size getGameNodeSize() { return GameNode->getContentSize(); }
     void rotateUI();
 
-    bool startupFrom(const std::string &path);
+    bool startupFrom(const std::string &path,
+                     const std::string &gameDirForPreference = {});
 
     float getUIScale();
 

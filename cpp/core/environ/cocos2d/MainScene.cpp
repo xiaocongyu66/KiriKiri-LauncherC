@@ -2122,7 +2122,8 @@ void TVPMainScene::popUIForm(cocos2d::Node *form, eLeaveAni ani) {
     }
 }
 
-bool TVPMainScene::startupFrom(const std::string &path) {
+bool TVPMainScene::startupFrom(const std::string &path,
+                               const std::string &gameDirForPreference) {
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("TVPMainScene::startupFrom path=%s", path.c_str());
 #endif
@@ -2137,7 +2138,9 @@ bool TVPMainScene::startupFrom(const std::string &path) {
     IndividualConfigManager *pGlobalCfgMgr =
         IndividualConfigManager::GetInstance();
     pGlobalCfgMgr->UsePreferenceAt(
-        TVPBaseFileSelectorForm::pathSplit(path).first);
+        gameDirForPreference.empty()
+            ? TVPBaseFileSelectorForm::pathSplit(path).first
+            : gameDirForPreference);
     if(UINode->getChildrenCount()) {
         popUIForm(nullptr);
     }

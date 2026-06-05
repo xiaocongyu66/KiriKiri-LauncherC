@@ -446,6 +446,12 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         return resolved;
     }
 
+    static public String getLaunchGameDir() {
+        if(sInstance == null || sInstance.getIntent() == null) return "";
+        String path = sInstance.getIntent().getStringExtra("extra_game_dir");
+        return path == null ? "" : path;
+    }
+
     static private boolean isLaunchExtension(String extension) {
         return extension.equals("xp3") || extension.equals("tjs") || extension.equals("ks");
     }
