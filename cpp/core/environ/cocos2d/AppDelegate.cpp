@@ -25,6 +25,7 @@
 #endif
 
 static cocos2d::Size designSize(960, 640);
+static constexpr float TVPLegacyMobileDesignWidth = 2048.0f;
 extern std::thread::id TVPMainThreadID;
 
 extern "C" void SDL_SetMainReady();
@@ -75,15 +76,24 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
 
 #if (CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID ||                              \
      CC_TARGET_PLATFORM == CC_PLATFORM_IOS)
-    // Set the design resolution
-    cocos2d::Size screenSize = glview->getFrameSize();
-    if(screenSize.width < screenSize.height) {
-        std::swap(screenSize.width, screenSize.height);
+    cocos2d::Size frameSize = glview->getFrameSize();
+    if(frameSize.width < frameSize.height) {
+        std::swap(frameSize.width, frameSize.height);
     }
-    cocos2d::Size ds = designSize;
-    ds.height = ds.width * screenSize.height / screenSize.width;
-    glview->setDesignResolutionSize(screenSize.width, screenSize.height,
+    if(frameSize.width <= 0.0f || frameSize.height <= 0.0f) {
+        frameSize = designSize;
+    }
+    cocos2d::Size mobileDesignSize(
+        TVPLegacyMobileDesignWidth,
+        TVPLegacyMobileDesignWidth * frameSize.height / frameSize.width);
+    glview->setDesignResolutionSize(mobileDesignSize.width,
+                                    mobileDesignSize.height,
                                     ResolutionPolicy::EXACT_FIT);
+    KR2_LAUNCH_LOG(
+        "design resolution mode=legacy-2048 physical=%.0fx%.0f "
+        "virtual=%.0fx%.0f policy=EXACT_FIT",
+        frameSize.width, frameSize.height, mobileDesignSize.width,
+        mobileDesignSize.height);
 #else
     glview->setDesignResolutionSize(designSize.width, designSize.height,
                                     ResolutionPolicy::FIXED_WIDTH);

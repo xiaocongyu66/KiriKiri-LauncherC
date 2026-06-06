@@ -2297,8 +2297,11 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     if(scale <= 0.0f)
         scale = 1.0f;
 #if defined(__ANDROID__)
-    KR2RenderProbeWriteF("doStartup#before-StartApplication frame=%.0fx%.0f scale=%.3f",
-                         screenSize.width, screenSize.height, scale);
+    KR2RenderProbeWriteF(
+        "doStartup#before-StartApplication frame=%.0fx%.0f scene=%.0fx%.0f "
+        "scale=%.3f",
+        screenSize.width, screenSize.height, getContentSize().width,
+        getContentSize().height, scale);
 #endif
     bool startupOk = false;
     const tjs_uint32 startApplicationTick = TVPGetRoughTickCount32();

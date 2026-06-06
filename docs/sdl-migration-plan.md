@@ -111,6 +111,10 @@ incremental and does not accidentally replace launcher behavior.
   tagged `sdl-loading`. `show`, `line`, and `hide` events use the unified native
   log so the SDL presenter can draw the same loading console once it owns game
   presentation.
+- Android/iOS now use the legacy KRKR mobile virtual screen width of 2048 for
+  the Cocos design resolution, with height derived from the physical display
+  aspect ratio. Logs still include both physical frame size and virtual scene
+  size so the SDL presenter can keep the same coordinate base during handoff.
 - Android audio renderer selection now tries the SDL2 audio device first and
   falls back to Oboe, then OpenAL if SDL cannot open a playback device. Backend
   selection, device parameters, conversion failures, stream creation, and
