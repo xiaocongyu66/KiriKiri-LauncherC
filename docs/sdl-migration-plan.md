@@ -65,6 +65,13 @@ incremental and does not accidentally replace launcher behavior.
   frame before processing legacy user messages and timers.
 - Native event queue diagnostics use the unified native log tag
   `sdl-eventqueue`.
+- SDL runtime initialization explicitly calls `SDL_SetMainReady()` in the
+  hybrid Cocos startup path to avoid false SDL_main initialization errors.
+- Android Java SDL version/library diagnostics are logged during launch so Java
+  SDL and native SDL versions can be compared from one log.
+- Launcher log writes use the native log bridge after native file logging is
+  configured, preventing Java file appends and native spdlog writes from
+  interleaving in the unified log.
 - Cocos remains in charge of UI, scene startup, and current game presentation.
 
 ## Guardrails

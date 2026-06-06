@@ -177,6 +177,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
     static private native void nativeLifecycleEvent(String eventName, String detail);
 
+    public static native boolean nativeLauncherLog(String message, String throwableText);
+
     public static native void setUseFFmpegImageDecoder(boolean enabled);
 
     public static native void setFFmpegDecodeMode(int mode);

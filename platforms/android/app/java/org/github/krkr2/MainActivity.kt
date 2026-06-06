@@ -13,6 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.libsdl.app.SDLAudioManager
+import org.libsdl.app.SDLActivity
 import org.tvp.kirikiri2.KR2Activity
 
 class MainActivity : KR2Activity() {
@@ -55,6 +56,7 @@ class MainActivity : KR2Activity() {
 
         val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
         logLifecycle("onCreate#native-log-configured path=$nativeLogFile")
+        logLifecycle("onCreate#sdl-java version=${SDLActivity.getCompiledVersionString()} libs=${SDLActivity.getDefaultLibrariesString()}")
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
         val ffmpegDecodeMode = LauncherPrefs.getFfmpegDecodeMode(this)
         KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)

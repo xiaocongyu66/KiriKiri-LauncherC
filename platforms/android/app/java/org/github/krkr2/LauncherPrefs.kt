@@ -47,6 +47,8 @@ object LauncherPrefs {
     const val FILE_LOG_RETENTION_DEFAULT_DAYS = 15
     const val FILE_LOG_RETENTION_MIN_DAYS = 1
     const val FILE_LOG_RETENTION_MAX_DAYS = 60
+    @Volatile private var nativeFileLoggingConfigured = false
+    private val unifiedLogLock = Any()
 
     fun getGameRoot(context: Context): String = LauncherSettingsDb.getString(context, KEY_GAME_ROOT, DEFAULT_GAME_ROOT)
 
@@ -135,9 +137,12 @@ object LauncherPrefs {
     fun configureNativeLogging(context: Context): String {
         val enabled = getFileLogEnabled(context)
         val logFile = if (enabled) activeUnifiedLogFile(context) ?: beginUnifiedLogSession(context) else ""
-        runCatching {
+        nativeFileLoggingConfigured = runCatching {
             org.tvp.kirikiri2.KR2Activity.configureFileLogging(enabled, logFile)
-        }.onFailure { Log.w(TAG, "configureFileLogging failed", it) }
+            enabled && logFile.isNotBlank()
+        }.onFailure {
+            Log.w(TAG, "configureFileLogging failed", it)
+        }.getOrDefault(false)
         return logFile
     }
 
@@ -153,6 +158,7 @@ object LauncherPrefs {
         val name = SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()) + ".log"
         val file = File(dir, name)
         LauncherSettingsDb.setString(context, KEY_ACTIVE_LOG_FILE, file.absolutePath)
+        nativeFileLoggingConfigured = false
         appendUnifiedLog(context, "native log session path=${file.absolutePath}")
         return file.absolutePath
     }
@@ -281,6 +287,7 @@ object LauncherPrefs {
     }
 
     fun clearUnifiedLogs(context: Context) {
+        nativeFileLoggingConfigured = false
         File(getLogDir(context)).listFiles()
             ?.filter { it.isFile && it.name.endsWith(".log", ignoreCase = true) }
             ?.forEach { file -> runCatching { file.delete() } }
@@ -300,21 +307,35 @@ object LauncherPrefs {
 
     private fun appendUnifiedLog(context: Context, message: String, throwable: Throwable? = null) {
         if (!getFileLogEnabled(context)) return
+        if (nativeFileLoggingConfigured && writeNativeLauncherLog(message, throwable)) return
         val active = LauncherSettingsDb.getString(context, KEY_ACTIVE_LOG_FILE, "")
             .takeIf { it.isNotBlank() }
             ?: return
         runCatching {
-            val file = File(active)
-            file.parentFile?.mkdirs()
-            val lineTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
-            file.appendText("[$lineTime] [launcher] $message\n")
-            if (throwable != null) {
-                val sw = StringWriter()
-                throwable.printStackTrace(PrintWriter(sw))
-                file.appendText(sw.toString())
-                file.appendText("\n")
+            synchronized(unifiedLogLock) {
+                val file = File(active)
+                file.parentFile?.mkdirs()
+                val lineTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
+                file.appendText("[$lineTime] [launcher] $message\n")
+                if (throwable != null) {
+                    val sw = StringWriter()
+                    throwable.printStackTrace(PrintWriter(sw))
+                    file.appendText(sw.toString())
+                    file.appendText("\n")
+                }
             }
         }
+    }
+
+    private fun writeNativeLauncherLog(message: String, throwable: Throwable?): Boolean {
+        val throwableText = throwable?.let {
+            val sw = StringWriter()
+            it.printStackTrace(PrintWriter(sw))
+            sw.toString()
+        }.orEmpty()
+        return runCatching {
+            org.tvp.kirikiri2.KR2Activity.nativeLauncherLog(message, throwableText)
+        }.getOrDefault(false)
     }
 }
 

@@ -169,6 +169,20 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeLifecycleEvent(JNIEnv *env, jclass,
     TVPSDLRecordAndroidLifecycle(eventNameValue.c_str(), detailValue.c_str());
 }
 
+JNIEXPORT jboolean JNICALL
+Java_org_tvp_kirikiri2_KR2Activity_nativeLauncherLog(JNIEnv *env, jclass,
+                                                     jstring message,
+                                                     jstring throwableText) {
+    std::string nativeMessage = JStringToStdString(env, message);
+    const std::string throwableValue = JStringToStdString(env, throwableText);
+    if(!throwableValue.empty()) {
+        nativeMessage += "\n";
+        nativeMessage += throwableValue;
+    }
+    TVPNativeLogInfo("launcher", nativeMessage.c_str());
+    return JNI_TRUE;
+}
+
 void Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxOK(JNIEnv *env, jclass cls,
                                                        jint nButton) {
     MsgBoxRet = nButton;

@@ -87,6 +87,7 @@ bool ShouldLogInputEvent(uint64_t sequence, const char *eventName) {
 
 bool TVPSDLInitializeRuntime() {
     std::call_once(gSDLRuntimeInitOnce, []() {
+        SDL_SetMainReady();
 #if defined(SDL_HINT_TOUCH_MOUSE_EVENTS)
         SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
 #endif
