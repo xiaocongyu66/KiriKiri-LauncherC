@@ -32,6 +32,9 @@ enum class TVPSDLGameLaunchResult {
 
 bool TVPSDLInitializeRuntime();
 TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo();
+void TVPSDLRecordAndroidInput(const char *eventName, int itemCount,
+                              float x = 0.0f, float y = 0.0f, int code = 0,
+                              bool state = false);
 
 TVPSDLGameLaunchResult
 TVPSDLRunGameLaunch(const TVPSDLGameLaunchCallbacks &callbacks);

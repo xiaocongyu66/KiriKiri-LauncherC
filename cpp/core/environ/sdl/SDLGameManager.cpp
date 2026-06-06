@@ -1,10 +1,15 @@
 #include "SDLGameManager.h"
 
+#include "NativeLog.h"
 #include "Platform.h"
 
 #include <SDL2/SDL.h>
 #include <spdlog/spdlog.h>
 
+#include <atomic>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
 #include <mutex>
 #include <sstream>
 
@@ -13,6 +18,7 @@ namespace {
 std::once_flag gSDLRuntimeInitOnce;
 bool gSDLRuntimeInitialized = false;
 std::string gSDLRuntimeError;
+std::atomic_uint64_t gSDLInputEventSequence{0};
 
 std::string FormatVersion(const SDL_version &version) {
     std::ostringstream os;
@@ -62,6 +68,20 @@ void LogSDLRuntime(const TVPSDLGameLaunchCallbacks &callbacks) {
     }
 }
 
+bool IsHighFrequencyInput(const char *eventName) {
+    if(!eventName)
+        return false;
+    return std::strcmp(eventName, "touch-move") == 0 ||
+        std::strcmp(eventName, "hover-move") == 0;
+}
+
+bool ShouldLogInputEvent(uint64_t sequence, const char *eventName) {
+    if(!IsHighFrequencyInput(eventName))
+        return true;
+    return sequence <= 16 || (sequence & (sequence - 1)) == 0 ||
+        (sequence % 512) == 0;
+}
+
 } // namespace
 
 bool TVPSDLInitializeRuntime() {
@@ -102,6 +122,26 @@ TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo() {
     info.videoReady = (initialized & SDL_INIT_VIDEO) != 0;
     info.audioReady = (initialized & SDL_INIT_AUDIO) != 0;
     return info;
+}
+
+void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
+                              float y, int code, bool state) {
+    TVPSDLInitializeRuntime();
+    const uint64_t sequence =
+        gSDLInputEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    if(!ShouldLogInputEvent(sequence, eventName))
+        return;
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[256];
+    std::snprintf(
+        message, sizeof(message),
+        "#%llu event=%s count=%d x=%.2f y=%.2f code=%d state=%d events=%d ticks=%u",
+        static_cast<unsigned long long>(sequence),
+        eventName ? eventName : "", itemCount, x, y, code, state ? 1 : 0,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-input", message);
 }
 
 TVPSDLGameLaunchResult
