@@ -103,7 +103,7 @@ android {
             enable = true
             reset()
             include 'arm64-v8a'
-            universalApk = false
+            universalApk = true
         }
     }
 

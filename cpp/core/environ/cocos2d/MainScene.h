@@ -86,6 +86,8 @@ private:
     void insertText(const char *text, size_t len) override;
 
     void doStartup(float dt, std::string path);
+    void showStartupConsole(const std::string &path);
+    void hideStartupConsole(const char *reason);
 
     float ScreenRatio;
     cocos2d::Size SceneSize, UISize;

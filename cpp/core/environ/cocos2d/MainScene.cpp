@@ -73,6 +73,11 @@ static bool _mouseMoved, _mouseClickedDown;
 static tjs_uint8 _scancode[0x200];
 static tjs_uint16 _keymap[0x200];
 static Label *_fpsLabel = nullptr;
+static constexpr float TVP_STARTUP_CONSOLE_DELAY_SEC = 0.05f;
+static tjs_uint32 _startupRequestTick = 0;
+static tjs_uint32 _startupBeginTick = 0;
+static bool _startupFirstWindowLayerLogged = false;
+static bool _startupFirstDrawBufferLogged = false;
 
 #include "CCKeyCodeConv.h"
 
@@ -1147,6 +1152,16 @@ public:
             static int s_udbBranch = 0;
             ++s_udbCount;
             bool branchTaken = (tex2d != newtex);
+            if(!_startupFirstDrawBufferLogged) {
+                _startupFirstDrawBufferLogged = true;
+                const tjs_uint32 now = TVPGetRoughTickCount32();
+                KR2RenderProbeWriteF(
+                    "startup-first-drawbuffer requestMs=%u startMs=%u "
+                    "branch=%d LayerW=%d LayerH=%d",
+                    _startupRequestTick ? now - _startupRequestTick : 0,
+                    _startupBeginTick ? now - _startupBeginTick : 0,
+                    branchTaken ? 1 : 0, LayerWidth, LayerHeight);
+            }
             TVPSDLRecordRenderFrame(
                 LayerWidth, LayerHeight, (int)tex->GetInternalWidth(),
                 (int)tex->GetInternalHeight(), branchTaken, (void *)tex,
@@ -2127,6 +2142,62 @@ void TVPMainScene::popUIForm(cocos2d::Node *form, eLeaveAni ani) {
     }
 }
 
+void TVPMainScene::showStartupConsole(const std::string &path) {
+    auto glview = cocos2d::Director::getInstance()->getOpenGLView();
+    cocos2d::Size screenSize =
+        glview ? glview->getFrameSize() : getContentSize();
+    float scale = getContentSize().height > 0
+        ? screenSize.height / getContentSize().height
+        : 1.0f;
+    if(scale <= 0.0f)
+        scale = 1.0f;
+
+    if(!_consoleWin) {
+        _consoleWin = TVPConsoleWindow::create(24, nullptr);
+        _consoleWin->setAnchorPoint(Vec2::ZERO);
+    }
+    _consoleWin->setScale(1 / scale);
+    _consoleWin->setContentSize(getContentSize() * scale);
+    _consoleWin->setFontSize(24);
+    if(!_consoleWin->getParent()) {
+        GameNode->addChild(_consoleWin, GAME_CONSOLE_ORDER);
+    }
+
+    _consoleWin->addLine(ttstr(TJS_W("[launcher] preparing game startup")),
+                         Color3B::YELLOW);
+    _consoleWin->addLine(ttstr(TJS_W("[launcher] loading console ready")),
+                         Color3B::GRAY);
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF(
+        "startup-console-show frame=%.0fx%.0f scene=%.0fx%.0f scale=%.3f "
+        "delay=%.3f path=%s",
+        screenSize.width, screenSize.height,
+        getContentSize().width, getContentSize().height, scale,
+        TVP_STARTUP_CONSOLE_DELAY_SEC, path.c_str());
+#else
+    (void)path;
+#endif
+}
+
+void TVPMainScene::hideStartupConsole(const char *reason) {
+    if(!_consoleWin)
+        return;
+#if defined(__ANDROID__)
+    const tjs_uint32 now = TVPGetRoughTickCount32();
+    KR2RenderProbeWriteF(
+        "startup-console-hide reason=%s requestMs=%u startMs=%u",
+        reason ? reason : "",
+        _startupRequestTick ? now - _startupRequestTick : 0,
+        _startupBeginTick ? now - _startupBeginTick : 0);
+#endif
+    _consoleWin->removeFromParent();
+    _consoleWin = nullptr;
+    scheduleUpdate();
+
+    cocos2d::Director::getInstance()->purgeCachedData();
+    TVPControlAdDialog(0x10002, 0, 0); // ensure to close banner ad
+}
+
 bool TVPMainScene::startupFrom(const std::string &path,
                                const std::string &gameDirForPreference) {
 #if defined(__ANDROID__)
@@ -2169,32 +2240,54 @@ bool TVPMainScene::startupFrom(const std::string &path,
     // 		GameNode->setRotation(90);
     // 	}
 
-    scheduleOnce([this, path](float delay) { doStartup(delay, path); }, 0,
-                 "startup");
+    _startupRequestTick = TVPGetRoughTickCount32();
+    _startupBeginTick = 0;
+    _startupFirstWindowLayerLogged = false;
+    _startupFirstDrawBufferLogged = false;
+    showStartupConsole(path);
+#if defined(__ANDROID__)
+    KR2RenderProbeWriteF("startupFrom#scheduled-doStartup delay=%.3f",
+                         TVP_STARTUP_CONSOLE_DELAY_SEC);
+#endif
+    scheduleOnce([this, path](float delay) { doStartup(delay, path); },
+                 TVP_STARTUP_CONSOLE_DELAY_SEC, "startup");
 
     return true;
 }
 
 void TVPMainScene::doStartup(float dt, std::string path) {
+    _startupBeginTick = TVPGetRoughTickCount32();
 #if defined(__ANDROID__)
-    KR2RenderProbeWriteF("doStartup#enter dt=%.3f path=%s", dt, path.c_str());
+    KR2RenderProbeWriteF("doStartup#enter dt=%.3f waitMs=%u path=%s", dt,
+                         _startupRequestTick
+                             ? _startupBeginTick - _startupRequestTick
+                             : 0,
+                         path.c_str());
 #endif
     unschedule("startup");
     IndividualConfigManager *pGlobalCfgMgr =
         IndividualConfigManager::GetInstance();
-    _consoleWin = TVPConsoleWindow::create(24, nullptr);
+    if(!_consoleWin) {
+        showStartupConsole(path);
+    } else {
+        _consoleWin->addLine(ttstr(TJS_W("[launcher] engine startup begin")),
+                             Color3B::GRAY);
+    }
 
     auto glview = cocos2d::Director::getInstance()->getOpenGLView();
-    cocos2d::Size screenSize = glview->getFrameSize();
-    float scale = screenSize.height / getContentSize().height;
-    _consoleWin->setScale(1 / scale);
-    _consoleWin->setContentSize(getContentSize() * scale);
-    GameNode->addChild(_consoleWin, GAME_CONSOLE_ORDER);
+    cocos2d::Size screenSize =
+        glview ? glview->getFrameSize() : getContentSize();
+    float scale = getContentSize().height > 0
+        ? screenSize.height / getContentSize().height
+        : 1.0f;
+    if(scale <= 0.0f)
+        scale = 1.0f;
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("doStartup#before-StartApplication frame=%.0fx%.0f scale=%.3f",
                          screenSize.width, screenSize.height, scale);
 #endif
     bool startupOk = false;
+    const tjs_uint32 startApplicationTick = TVPGetRoughTickCount32();
     try {
         ::Application->StartApplication(path);
         startupOk = true;
@@ -2207,12 +2300,24 @@ void TVPMainScene::doStartup(float dt, std::string path) {
         return;
     }
 #if defined(__ANDROID__)
-    KR2RenderProbeWriteF("doStartup#after-StartApplication");
+    {
+        const tjs_uint32 now = TVPGetRoughTickCount32();
+        KR2RenderProbeWriteF(
+            "doStartup#after-StartApplication durationMs=%u totalMs=%u",
+            now - startApplicationTick,
+            _startupRequestTick ? now - _startupRequestTick : 0);
+    }
 #endif
     // update one frame
     update(0);
 #if defined(__ANDROID__)
-    KR2RenderProbeWriteF("doStartup#after-update0");
+    {
+        const tjs_uint32 now = TVPGetRoughTickCount32();
+        KR2RenderProbeWriteF("doStartup#after-update0 totalMs=%u",
+                             _startupRequestTick
+                                 ? now - _startupRequestTick
+                                 : 0);
+    }
 #endif
     //_ResotreGLStatues(); // already in update()
     GLubyte handlerOpacity =
@@ -2220,15 +2325,6 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     _gameMenu = TVPGameMainMenu::create(handlerOpacity);
     GameNode->addChild(_gameMenu, GAME_MENU_ORDER);
     _gameMenu->shrinkWithTime(1);
-    if(_consoleWin) {
-        _consoleWin->removeFromParent();
-        _consoleWin = nullptr;
-        scheduleUpdate();
-
-        cocos2d::Director::getInstance()->purgeCachedData();
-        TVPControlAdDialog(0x10002, 0,
-                           0); // ensure to close banner ad
-    }
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("doStartup#before-window-loop");
 #endif
@@ -2238,6 +2334,8 @@ void TVPMainScene::doStartup(float dt, std::string path) {
         pWin->setVisible(true);
         pWin = pWin->_prevWindow;
     }
+
+    hideStartupConsole("windows-visible");
 
     if(pGlobalCfgMgr->GetValue<bool>("showfps", false)) {
         _fpsLabel =
@@ -2889,6 +2987,18 @@ float TVPMainScene::convertCursorScale(float val /*0 ~ 1*/) {
 iWindowLayer *TVPCreateAndAddWindow(tTJSNI_Window *w) {
     TVPWindowLayer *ret = TVPWindowLayer::create(w);
     TVPMainScene::GetInstance()->addLayer(ret);
+#if defined(__ANDROID__)
+    if(!_startupFirstWindowLayerLogged) {
+        _startupFirstWindowLayerLogged = true;
+        const tjs_uint32 now = TVPGetRoughTickCount32();
+        KR2RenderProbeWriteF(
+            "startup-first-window-layer requestMs=%u startMs=%u layer=%p "
+            "nativeWindow=%p",
+            _startupRequestTick ? now - _startupRequestTick : 0,
+            _startupBeginTick ? now - _startupBeginTick : 0, (void *)ret,
+            (void *)w);
+    }
+#endif
     if(_consoleWin)
         ret->setVisible(false);
     return ret;

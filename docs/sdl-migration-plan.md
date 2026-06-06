@@ -88,6 +88,13 @@ incremental and does not accidentally replace launcher behavior.
   frame size, internal texture size, texture-change count, SDL subsystem state,
   and texture pointers. This is a non-presenting probe for the future SDL
   bitmap presenter.
+- Logs from `20260606202512770.log` show the first-run black interval is
+  startup-bound rather than an SDL input failure: Android resumes quickly, SDL
+  2.32.10 initializes, input queues drain with `dropped=0`, but the first KRKR
+  window/draw buffer appears several seconds after `StartApplication()` begins.
+  The loading console is now created in `startupFrom()` and `doStartup()` is
+  delayed briefly so the existing yellow/gray console can present before the
+  synchronous KRKR startup work blocks the first game frame.
 - Cocos remains in charge of UI, scene startup, and current game presentation.
 
 ## Guardrails
