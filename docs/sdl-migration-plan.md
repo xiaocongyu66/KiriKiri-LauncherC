@@ -79,6 +79,15 @@ incremental and does not accidentally replace launcher behavior.
   `sdl-inputqueue`. The old Cocos input path still receives the events, but SDL
   owns a parallel queue that is drained once per `Application::ProcessMessages()`
   cycle for diagnostics and future KRKR input routing.
+- Logs from `20260606194656952.log` confirm the SDL event queue and SDL input
+  queue initialize correctly on Android, drain normally, and report `dropped=0`.
+- SDL input queue diagnostics now include event details, backlog, maximum drain
+  age, and high-water backlog counters so input stalls can be tied to a concrete
+  event batch.
+- The Cocos draw-buffer update path now reports `sdl-renderprobe` entries with
+  frame size, internal texture size, texture-change count, SDL subsystem state,
+  and texture pointers. This is a non-presenting probe for the future SDL
+  bitmap presenter.
 - Cocos remains in charge of UI, scene startup, and current game presentation.
 
 ## Guardrails

@@ -27,6 +27,10 @@ std::atomic_uint64_t gSDLInputQueued{0};
 std::atomic_uint64_t gSDLInputDrained{0};
 std::atomic_uint64_t gSDLInputDropped{0};
 std::atomic_uint64_t gSDLInputBatches{0};
+std::atomic_uint64_t gSDLInputMaxBacklog{0};
+std::atomic_uint64_t gSDLInputMaxAgeMs{0};
+std::atomic_uint64_t gSDLRenderFrameSequence{0};
+std::atomic_uint64_t gSDLRenderTextureChanges{0};
 
 struct TVPSDLQueuedInputEvent {
     std::string eventName;
@@ -36,6 +40,7 @@ struct TVPSDLQueuedInputEvent {
     int code = 0;
     bool state = false;
     Uint32 ticks = 0;
+    uint64_t sequence = 0;
 };
 
 std::string FormatVersion(const SDL_version &version) {
@@ -104,6 +109,27 @@ bool ShouldLogInputQueueSequence(uint64_t sequence) {
     return sequence <= 8 || (sequence % 256) == 0;
 }
 
+bool ShouldLogInputQueueEvent(uint64_t sequence, const char *eventName) {
+    if(!IsHighFrequencyInput(eventName))
+        return true;
+    return sequence <= 16 || (sequence % 512) == 0;
+}
+
+uint64_t CalculateBacklog(uint64_t queued, uint64_t drained,
+                          uint64_t dropped) {
+    const uint64_t completed = drained + dropped;
+    return queued > completed ? queued - completed : 0;
+}
+
+void UpdateAtomicMax(std::atomic_uint64_t &target, uint64_t value) {
+    uint64_t previous = target.load(std::memory_order_relaxed);
+    while(value > previous &&
+          !target.compare_exchange_weak(previous, value,
+                                        std::memory_order_relaxed,
+                                        std::memory_order_relaxed)) {
+    }
+}
+
 void LogSDLInputQueue(const char *message) {
     TVPNativeLogInfo("sdl-inputqueue", message ? message : "");
 }
@@ -166,9 +192,11 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
         return;
     }
 
+    const uint64_t queuedCount =
+        gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
     auto *queued = new TVPSDLQueuedInputEvent{
         eventName ? eventName : "", itemCount, x, y, code, state,
-        SDL_GetTicks(),
+        SDL_GetTicks(), queuedCount,
     };
 
     SDL_Event event;
@@ -191,13 +219,23 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
         return;
     }
 
-    const uint64_t queuedCount =
-        gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
-    if(ShouldLogInputQueueSequence(queuedCount)) {
-        LogSDLInputQueueF("queued=%llu drained=%llu dropped=%llu",
-                          queuedCount,
-                          gSDLInputDrained.load(std::memory_order_relaxed),
-                          gSDLInputDropped.load(std::memory_order_relaxed));
+    const uint64_t drained = gSDLInputDrained.load(std::memory_order_relaxed);
+    const uint64_t dropped = gSDLInputDropped.load(std::memory_order_relaxed);
+    const uint64_t backlog = CalculateBacklog(queuedCount, drained, dropped);
+    UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
+
+    if(ShouldLogInputQueueEvent(queuedCount, eventName)) {
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "queued=%llu backlog=%llu drained=%llu dropped=%llu "
+                      "event=%s count=%d x=%.2f y=%.2f code=%d state=%d",
+                      static_cast<unsigned long long>(queuedCount),
+                      static_cast<unsigned long long>(backlog),
+                      static_cast<unsigned long long>(drained),
+                      static_cast<unsigned long long>(dropped),
+                      eventName ? eventName : "", itemCount, x, y, code,
+                      state ? 1 : 0);
+        LogSDLInputQueue(message);
     }
 }
 
@@ -290,6 +328,9 @@ void TVPSDLProcessAndroidInputQueue() {
 
     uint64_t drainedInBatch = 0;
     uint64_t droppedInBatch = 0;
+    Uint32 maxAgeInBatch = 0;
+    uint64_t lastSequence = 0;
+    std::string lastEventName;
 
     SDL_Event event;
     while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
@@ -301,6 +342,11 @@ void TVPSDLProcessAndroidInputQueue() {
             continue;
         }
 
+        const Uint32 age = SDL_GetTicks() - queued->ticks;
+        if(age > maxAgeInBatch)
+            maxAgeInBatch = age;
+        lastEventName = queued->eventName;
+        lastSequence = queued->sequence;
         delete queued;
         drainedInBatch++;
     }
@@ -318,11 +364,63 @@ void TVPSDLProcessAndroidInputQueue() {
         droppedInBatch;
     const uint64_t batch =
         gSDLInputBatches.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t backlog = CalculateBacklog(
+        gSDLInputQueued.load(std::memory_order_relaxed), drained, dropped);
+    UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
+    UpdateAtomicMax(gSDLInputMaxAgeMs, maxAgeInBatch);
 
-    if(ShouldLogInputQueueSequence(batch) || droppedInBatch > 0) {
-        LogSDLInputQueueF("batch=%llu drained=%llu dropped=%llu", batch,
-                          drained, dropped);
+    if(ShouldLogInputQueueSequence(batch) || droppedInBatch > 0 ||
+       maxAgeInBatch > 50) {
+        char message[320];
+        std::snprintf(
+            message, sizeof(message),
+            "batch=%llu items=%llu drained=%llu dropped=%llu backlog=%llu "
+            "maxAgeMs=%u maxBacklog=%llu maxSeenAgeMs=%llu lastSeq=%llu last=%s",
+            static_cast<unsigned long long>(batch),
+            static_cast<unsigned long long>(drainedInBatch),
+            static_cast<unsigned long long>(drained),
+            static_cast<unsigned long long>(dropped),
+            static_cast<unsigned long long>(backlog),
+            static_cast<unsigned>(maxAgeInBatch),
+            static_cast<unsigned long long>(
+                gSDLInputMaxBacklog.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(
+                gSDLInputMaxAgeMs.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(lastSequence),
+            lastEventName.c_str());
+        LogSDLInputQueue(message);
     }
+}
+
+void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
+                             int internalWidth, int internalHeight,
+                             bool textureChanged, const void *sourceTexture,
+                             const void *currentTexture,
+                             const void *newTexture) {
+    TVPSDLInitializeRuntime();
+    const uint64_t frame =
+        gSDLRenderFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t changes = textureChanged
+        ? gSDLRenderTextureChanges.fetch_add(1, std::memory_order_relaxed) + 1
+        : gSDLRenderTextureChanges.load(std::memory_order_relaxed);
+
+    if(frame > 6 && !textureChanged && (frame % 256) != 0)
+        return;
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(
+        message, sizeof(message),
+        "frame=%llu changed=%d changes=%llu layer=%dx%d internal=%dx%d "
+        "src=%p current=%p next=%p events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(frame), textureChanged ? 1 : 0,
+        static_cast<unsigned long long>(changes), layerWidth, layerHeight,
+        internalWidth, internalHeight, sourceTexture, currentTexture,
+        newTexture, (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-renderprobe", message);
 }
 
 TVPSDLGameLaunchResult

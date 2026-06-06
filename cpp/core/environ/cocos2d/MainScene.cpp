@@ -33,6 +33,7 @@
 #include "SystemControl.h"
 #include "ui/UIButton.h"
 #include "ui/csd/CsdUIFactory.h"
+#include "sdl/SDLGameManager.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -1146,6 +1147,10 @@ public:
             static int s_udbBranch = 0;
             ++s_udbCount;
             bool branchTaken = (tex2d != newtex);
+            TVPSDLRecordRenderFrame(
+                LayerWidth, LayerHeight, (int)tex->GetInternalWidth(),
+                (int)tex->GetInternalHeight(), branchTaken, (void *)tex,
+                (void *)tex2d, (void *)newtex);
             if(branchTaken) ++s_udbBranch;
             if(s_udbCount <= 4 || (s_udbCount & 0x7F) == 0) {
                 KR2RenderProbeWriteF(

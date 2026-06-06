@@ -37,6 +37,11 @@ void TVPSDLRecordAndroidInput(const char *eventName, int itemCount,
                               float x = 0.0f, float y = 0.0f, int code = 0,
                               bool state = false);
 void TVPSDLProcessAndroidInputQueue();
+void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
+                             int internalWidth, int internalHeight,
+                             bool textureChanged, const void *sourceTexture,
+                             const void *currentTexture,
+                             const void *newTexture);
 
 TVPSDLGameLaunchResult
 TVPSDLRunGameLaunch(const TVPSDLGameLaunchCallbacks &callbacks);
