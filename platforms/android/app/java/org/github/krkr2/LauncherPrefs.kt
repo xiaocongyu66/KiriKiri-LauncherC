@@ -3,6 +3,7 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 import java.io.PrintWriter
+import java.io.RandomAccessFile
 import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -47,6 +48,8 @@ object LauncherPrefs {
     const val FILE_LOG_RETENTION_DEFAULT_DAYS = 15
     const val FILE_LOG_RETENTION_MIN_DAYS = 1
     const val FILE_LOG_RETENTION_MAX_DAYS = 60
+    private const val UNIFIED_LOG_NAME_PATTERN = "\\d{12}(?:\\d{2}(?:\\d{3})?)?\\.log"
+    private val unifiedLogNameRegex = Regex(UNIFIED_LOG_NAME_PATTERN)
     @Volatile private var nativeFileLoggingConfigured = false
     private val unifiedLogLock = Any()
 
@@ -155,7 +158,7 @@ object LauncherPrefs {
         val dir = File(NATIVE_LOG_DIR)
         if (!dir.exists()) dir.mkdirs()
         cleanupOldUnifiedLogs(context)
-        val name = SimpleDateFormat("yyyyMMddHHmm", Locale.US).format(Date()) + ".log"
+        val name = SimpleDateFormat("yyyyMMddHHmmssSSS", Locale.US).format(Date()) + ".log"
         val file = File(dir, name)
         LauncherSettingsDb.setString(context, KEY_ACTIVE_LOG_FILE, file.absolutePath)
         nativeFileLoggingConfigured = false
@@ -270,7 +273,7 @@ object LauncherPrefs {
     fun latestUnifiedLogFile(context: Context): File? {
         val dir = File(getLogDir(context))
         return dir.listFiles()
-            ?.filter { it.isFile && it.name.matches(Regex("\\d{12}\\.log")) }
+            ?.filter { it.isFile && it.name.matches(unifiedLogNameRegex) }
             ?.maxByOrNull { it.lastModified() }
     }
 
@@ -280,7 +283,7 @@ object LauncherPrefs {
         val cutoff = System.currentTimeMillis() -
             getFileLogRetentionDays(context).toLong() * 24L * 60L * 60L * 1000L
         dir.listFiles()
-            ?.filter { it.isFile && it.name.matches(Regex("\\d{12}\\.log")) }
+            ?.filter { it.isFile && it.name.matches(unifiedLogNameRegex) }
             ?.forEach { file ->
                 if (file.lastModified() < cutoff) runCatching { file.delete() }
             }
@@ -315,6 +318,14 @@ object LauncherPrefs {
             synchronized(unifiedLogLock) {
                 val file = File(active)
                 file.parentFile?.mkdirs()
+                if (file.exists() && file.length() > 0) {
+                    RandomAccessFile(file, "r").use {
+                        it.seek(file.length() - 1)
+                        if (it.read() != '\n'.code) {
+                            file.appendText("\n")
+                        }
+                    }
+                }
                 val lineTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US).format(Date())
                 file.appendText("[$lineTime] [launcher] $message\n")
                 if (throwable != null) {

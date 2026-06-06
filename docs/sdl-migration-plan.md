@@ -72,6 +72,13 @@ incremental and does not accidentally replace launcher behavior.
 - Launcher log writes use the native log bridge after native file logging is
   configured, preventing Java file appends and native spdlog writes from
   interleaving in the unified log.
+- Unified Android log sessions now use millisecond-resolution file names. This
+  prevents two quick restarts in the same minute from reusing the same log file
+  and merging the previous native tail with the next launcher session header.
+- Android input events are now mirrored into an SDL custom input queue tagged
+  `sdl-inputqueue`. The old Cocos input path still receives the events, but SDL
+  owns a parallel queue that is drained once per `Application::ProcessMessages()`
+  cycle for diagnostics and future KRKR input routing.
 - Cocos remains in charge of UI, scene startup, and current game presentation.
 
 ## Guardrails

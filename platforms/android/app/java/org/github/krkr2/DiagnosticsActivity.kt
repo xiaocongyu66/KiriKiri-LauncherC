@@ -107,7 +107,7 @@ private fun loadSnapshot(context: Context): DiagSnapshot {
     } ?: ""
 
     val engineLogFile = LauncherPrefs.latestUnifiedLogFile(context)
-        ?: File(LauncherPrefs.getLogDir(context), "yyyyMMddHHmm.log")
+        ?: File(LauncherPrefs.getLogDir(context), "yyyyMMddHHmmssSSS.log")
     val engineLog = if (engineLogFile.exists() && engineLogFile.length() > 0) {
         tailFile(engineLogFile, lines = Int.MAX_VALUE, maxBytes = 64 * 1024)
     } else ""

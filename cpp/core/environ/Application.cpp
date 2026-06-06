@@ -28,6 +28,7 @@
 #include "Platform.h"
 #include "EventIntf.h"
 #include "NativeEventQueue.h"
+#include "sdl/SDLGameManager.h"
 #include <thread>
 #include "ConfigManager/LocaleConfigManager.h"
 #include "StorageIntf.h"
@@ -569,6 +570,7 @@ void tTVPApplication::Run() {
 
 void tTVPApplication::ProcessMessages() {
     TVPProcessNativeEventQueue();
+    TVPSDLProcessAndroidInputQueue();
 
     std::vector<std::tuple<void *, int, tMsg>> lstUserMsg;
     {

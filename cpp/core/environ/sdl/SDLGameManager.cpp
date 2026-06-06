@@ -20,6 +20,23 @@ bool gSDLRuntimeInitialized = false;
 std::string gSDLRuntimeError;
 std::atomic_uint64_t gSDLLifecycleEventSequence{0};
 std::atomic_uint64_t gSDLInputEventSequence{0};
+std::once_flag gSDLInputQueueInitOnce;
+Uint32 gSDLInputQueueEventType = 0;
+std::atomic_bool gSDLInputQueueReady{false};
+std::atomic_uint64_t gSDLInputQueued{0};
+std::atomic_uint64_t gSDLInputDrained{0};
+std::atomic_uint64_t gSDLInputDropped{0};
+std::atomic_uint64_t gSDLInputBatches{0};
+
+struct TVPSDLQueuedInputEvent {
+    std::string eventName;
+    int itemCount = 0;
+    float x = 0.0f;
+    float y = 0.0f;
+    int code = 0;
+    bool state = false;
+    Uint32 ticks = 0;
+};
 
 std::string FormatVersion(const SDL_version &version) {
     std::ostringstream os;
@@ -81,6 +98,107 @@ bool ShouldLogInputEvent(uint64_t sequence, const char *eventName) {
         return true;
     return sequence <= 16 || (sequence & (sequence - 1)) == 0 ||
         (sequence % 512) == 0;
+}
+
+bool ShouldLogInputQueueSequence(uint64_t sequence) {
+    return sequence <= 8 || (sequence % 256) == 0;
+}
+
+void LogSDLInputQueue(const char *message) {
+    TVPNativeLogInfo("sdl-inputqueue", message ? message : "");
+}
+
+void LogSDLInputQueueF(const char *fmt, uint64_t a = 0, uint64_t b = 0,
+                       uint64_t c = 0) {
+    char message[256];
+    std::snprintf(message, sizeof(message), fmt,
+                  static_cast<unsigned long long>(a),
+                  static_cast<unsigned long long>(b),
+                  static_cast<unsigned long long>(c));
+    LogSDLInputQueue(message);
+}
+
+bool EnsureSDLInputQueue() {
+    std::call_once(gSDLInputQueueInitOnce, []() {
+        if(!TVPSDLInitializeRuntime()) {
+            std::string message = "init events failed";
+            if(!gSDLRuntimeError.empty()) {
+                message += ": " + gSDLRuntimeError;
+            }
+            LogSDLInputQueue(message.c_str());
+            return;
+        }
+
+        const Uint32 eventType = SDL_RegisterEvents(1);
+        if(eventType == static_cast<Uint32>(-1)) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "register custom event failed: %s",
+                          SDL_GetError());
+            LogSDLInputQueue(message);
+            return;
+        }
+
+        gSDLInputQueueEventType = eventType;
+        gSDLInputQueueReady.store(true, std::memory_order_release);
+
+        char message[128];
+        std::snprintf(message, sizeof(message),
+                      "ready custom_event_type=%u",
+                      static_cast<unsigned>(eventType));
+        LogSDLInputQueue(message);
+    });
+
+    return gSDLInputQueueReady.load(std::memory_order_acquire);
+}
+
+void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
+                            float y, int code, bool state) {
+    if(!EnsureSDLInputQueue()) {
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        if(ShouldLogInputQueueSequence(dropped)) {
+            LogSDLInputQueueF("queue-unavailable dropped=%llu drained=%llu queued=%llu",
+                              dropped,
+                              gSDLInputDrained.load(std::memory_order_relaxed),
+                              gSDLInputQueued.load(std::memory_order_relaxed));
+        }
+        return;
+    }
+
+    auto *queued = new TVPSDLQueuedInputEvent{
+        eventName ? eventName : "", itemCount, x, y, code, state,
+        SDL_GetTicks(),
+    };
+
+    SDL_Event event;
+    SDL_memset(&event, 0, sizeof(event));
+    event.type = gSDLInputQueueEventType;
+    event.user.code = code;
+    event.user.data1 = queued;
+
+    if(SDL_PushEvent(&event) != 1) {
+        delete queued;
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        char message[256];
+        std::snprintf(message, sizeof(message),
+                      "push failed event=%s dropped=%llu error=%s",
+                      eventName ? eventName : "",
+                      static_cast<unsigned long long>(dropped),
+                      SDL_GetError());
+        LogSDLInputQueue(message);
+        return;
+    }
+
+    const uint64_t queuedCount =
+        gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
+    if(ShouldLogInputQueueSequence(queuedCount)) {
+        LogSDLInputQueueF("queued=%llu drained=%llu dropped=%llu",
+                          queuedCount,
+                          gSDLInputDrained.load(std::memory_order_relaxed),
+                          gSDLInputDropped.load(std::memory_order_relaxed));
+    }
 }
 
 } // namespace
@@ -148,6 +266,7 @@ void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
 void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
                               float y, int code, bool state) {
     TVPSDLInitializeRuntime();
+    QueueAndroidInputEvent(eventName, itemCount, x, y, code, state);
     const uint64_t sequence =
         gSDLInputEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
     if(!ShouldLogInputEvent(sequence, eventName))
@@ -163,6 +282,47 @@ void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
         (initialized & SDL_INIT_EVENTS) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-input", message);
+}
+
+void TVPSDLProcessAndroidInputQueue() {
+    if(!gSDLInputQueueReady.load(std::memory_order_acquire))
+        return;
+
+    uint64_t drainedInBatch = 0;
+    uint64_t droppedInBatch = 0;
+
+    SDL_Event event;
+    while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
+                         gSDLInputQueueEventType) == 1) {
+        auto *queued =
+            static_cast<TVPSDLQueuedInputEvent *>(event.user.data1);
+        if(!queued) {
+            droppedInBatch++;
+            continue;
+        }
+
+        delete queued;
+        drainedInBatch++;
+    }
+
+    if(drainedInBatch == 0 && droppedInBatch == 0)
+        return;
+
+    const uint64_t drained =
+        gSDLInputDrained.fetch_add(drainedInBatch,
+                                   std::memory_order_relaxed) +
+        drainedInBatch;
+    const uint64_t dropped =
+        gSDLInputDropped.fetch_add(droppedInBatch,
+                                   std::memory_order_relaxed) +
+        droppedInBatch;
+    const uint64_t batch =
+        gSDLInputBatches.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    if(ShouldLogInputQueueSequence(batch) || droppedInBatch > 0) {
+        LogSDLInputQueueF("batch=%llu drained=%llu dropped=%llu", batch,
+                          drained, dropped);
+    }
 }
 
 TVPSDLGameLaunchResult

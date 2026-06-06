@@ -36,6 +36,7 @@ void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail);
 void TVPSDLRecordAndroidInput(const char *eventName, int itemCount,
                               float x = 0.0f, float y = 0.0f, int code = 0,
                               bool state = false);
+void TVPSDLProcessAndroidInputQueue();
 
 TVPSDLGameLaunchResult
 TVPSDLRunGameLaunch(const TVPSDLGameLaunchCallbacks &callbacks);
