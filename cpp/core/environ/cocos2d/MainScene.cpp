@@ -2259,6 +2259,7 @@ bool TVPMainScene::startupFrom(const std::string &path,
     _startupBeginTick = 0;
     _startupFirstWindowLayerLogged = false;
     _startupFirstDrawBufferLogged = false;
+    _sdlScreenTakeoverLogged = false;
     showStartupConsole(path);
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("startupFrom#scheduled-doStartup delay=%.3f",
@@ -2362,18 +2363,23 @@ void TVPMainScene::doStartup(float dt, std::string path) {
             static_cast<int>(screenSize.height),
             static_cast<int>(getContentSize().width),
             static_cast<int>(getContentSize().height));
-        if(UINode)
-            UINode->setVisible(false);
-        if(_gameMenu)
-            _gameMenu->setVisible(false);
-        if(GameNode)
-            GameNode->setVisible(false);
-        _sdlScreenTakeoverLogged = true;
+        const bool pumped = TVPSDLPumpScreenPresenter("doStartup");
+        const bool presenterReady = TVPSDLHasScreenPresenterPresented();
+        if(presenterReady) {
+            if(UINode)
+                UINode->setVisible(false);
+            if(_gameMenu)
+                _gameMenu->setVisible(false);
+            if(GameNode)
+                GameNode->setVisible(false);
+            _sdlScreenTakeoverLogged = true;
+        }
         KR2RenderProbeWriteF(
-            "sdl-screen-takeover cocosHidden=1 frame=%.0fx%.0f scene=%.0fx%.0f",
-            screenSize.width, screenSize.height, getContentSize().width,
+            "sdl-screen-takeover request pumped=%d cocosHidden=%d "
+            "frame=%.0fx%.0f scene=%.0fx%.0f",
+            pumped ? 1 : 0, presenterReady ? 1 : 0, screenSize.width,
+            screenSize.height, getContentSize().width,
             getContentSize().height);
-        TVPSDLPumpScreenPresenter("doStartup");
     }
 #endif
 
@@ -2447,17 +2453,20 @@ void TVPMainScene::update(float delta) {
     }
 #if defined(__ANDROID__)
     if(TVPSDLIsScreenTakeoverEnabled()) {
-        if(UINode && UINode->isVisible())
-            UINode->setVisible(false);
-        if(GameNode && GameNode->isVisible())
-            GameNode->setVisible(false);
-        if(_gameMenu && _gameMenu->isVisible())
-            _gameMenu->setVisible(false);
-        if(!_sdlScreenTakeoverLogged) {
-            _sdlScreenTakeoverLogged = true;
-            KR2RenderProbeWriteF("sdl-screen-takeover update-enforced");
-        }
         TVPSDLPumpScreenPresenter("main-scene-update");
+        if(TVPSDLHasScreenPresenterPresented()) {
+            if(UINode && UINode->isVisible())
+                UINode->setVisible(false);
+            if(GameNode && GameNode->isVisible())
+                GameNode->setVisible(false);
+            if(_gameMenu && _gameMenu->isVisible())
+                _gameMenu->setVisible(false);
+            if(!_sdlScreenTakeoverLogged) {
+                _sdlScreenTakeoverLogged = true;
+                KR2RenderProbeWriteF(
+                    "sdl-screen-takeover update-enforced cocosHidden=1");
+            }
+        }
     }
 #endif
 }

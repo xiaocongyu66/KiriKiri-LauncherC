@@ -68,6 +68,7 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                                     int frameWidth, int frameHeight,
                                     int sceneWidth, int sceneHeight);
 bool TVPSDLIsScreenTakeoverEnabled();
+bool TVPSDLHasScreenPresenterPresented();
 bool TVPSDLPumpScreenPresenter(const char *stage);
 
 TVPSDLGameLaunchResult
