@@ -96,6 +96,31 @@ struct TVPSDLSurfaceMirrorState {
 std::mutex gSDLSurfaceMirrorMutex;
 TVPSDLSurfaceMirrorState gSDLSurfaceMirrorState;
 
+struct TVPSDLScreenPresenterState {
+    bool takeoverEnabled = false;
+    int frameWidth = 0;
+    int frameHeight = 0;
+    int sceneWidth = 0;
+    int sceneHeight = 0;
+    SDL_Window *window = nullptr;
+    SDL_Renderer *renderer = nullptr;
+    SDL_Surface *windowSurface = nullptr;
+    SDL_Texture *texture = nullptr;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    bool videoInitTried = false;
+    bool videoReady = false;
+    bool windowFailed = false;
+    bool rendererFailed = false;
+    uint64_t pumpAttempts = 0;
+    uint64_t presentedFrames = 0;
+    uint64_t failedPumps = 0;
+    uint64_t noSurfacePumps = 0;
+};
+
+std::mutex gSDLScreenPresenterMutex;
+TVPSDLScreenPresenterState gSDLScreenPresenterState;
+
 struct TVPSDLLoadingConsoleLine {
     std::string message;
     bool important = false;
@@ -228,6 +253,210 @@ bool ShouldLogSurfaceMirrorCopy(uint64_t copiedRegions) {
         copiedRegions == 128 || (copiedRegions % 256) == 0;
 }
 
+bool ShouldLogScreenPresenter(uint64_t sequence) {
+    return sequence <= 8 || sequence == 16 || sequence == 32 ||
+        sequence == 64 || sequence == 128 || (sequence % 256) == 0;
+}
+
+void LogSDLScreenPresenter(const char *message) {
+    TVPNativeLogInfo("sdl-screen", message ? message : "");
+}
+
+void DestroySDLScreenTextureLocked() {
+    if(gSDLScreenPresenterState.texture) {
+        SDL_DestroyTexture(gSDLScreenPresenterState.texture);
+        gSDLScreenPresenterState.texture = nullptr;
+    }
+    gSDLScreenPresenterState.textureWidth = 0;
+    gSDLScreenPresenterState.textureHeight = 0;
+}
+
+void DestroySDLScreenPresenterLocked() {
+    DestroySDLScreenTextureLocked();
+    gSDLScreenPresenterState.windowSurface = nullptr;
+    if(gSDLScreenPresenterState.renderer) {
+        SDL_DestroyRenderer(gSDLScreenPresenterState.renderer);
+        gSDLScreenPresenterState.renderer = nullptr;
+    }
+    if(gSDLScreenPresenterState.window) {
+        SDL_DestroyWindow(gSDLScreenPresenterState.window);
+        gSDLScreenPresenterState.window = nullptr;
+    }
+    gSDLScreenPresenterState.windowFailed = false;
+    gSDLScreenPresenterState.rendererFailed = false;
+}
+
+bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
+                                    const char *stage) {
+    TVPSDLInitializeRuntime();
+
+    if(!gSDLScreenPresenterState.videoInitTried) {
+        gSDLScreenPresenterState.videoInitTried = true;
+        if(SDL_InitSubSystem(SDL_INIT_VIDEO) == 0) {
+            gSDLScreenPresenterState.videoReady = true;
+            const char *driver = SDL_GetCurrentVideoDriver();
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "video ready stage=%s driver=%s frame=%dx%d "
+                          "scene=%dx%d",
+                          stage ? stage : "", driver ? driver : "",
+                          gSDLScreenPresenterState.frameWidth,
+                          gSDLScreenPresenterState.frameHeight,
+                          gSDLScreenPresenterState.sceneWidth,
+                          gSDLScreenPresenterState.sceneHeight);
+            LogSDLScreenPresenter(message);
+        } else {
+            gSDLScreenPresenterState.videoReady = false;
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "video init failed stage=%s error=%s events=%d "
+                          "video=%d",
+                          stage ? stage : "", SDL_GetError(),
+                          (SDL_WasInit(0) & SDL_INIT_EVENTS) ? 1 : 0,
+                          (SDL_WasInit(0) & SDL_INIT_VIDEO) ? 1 : 0);
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+    }
+
+    if(!gSDLScreenPresenterState.videoReady)
+        return false;
+
+    int windowWidth = gSDLScreenPresenterState.frameWidth > 0
+        ? gSDLScreenPresenterState.frameWidth
+        : surfaceWidth;
+    int windowHeight = gSDLScreenPresenterState.frameHeight > 0
+        ? gSDLScreenPresenterState.frameHeight
+        : surfaceHeight;
+    Uint32 windowFlags = 0;
+#if defined(__ANDROID__)
+    windowFlags |= SDL_WINDOW_RESIZABLE;
+    windowFlags |= SDL_WINDOW_ALLOW_HIGHDPI;
+    windowFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    windowWidth = 0;
+    windowHeight = 0;
+#endif
+
+    if(!gSDLScreenPresenterState.window &&
+       !gSDLScreenPresenterState.windowFailed) {
+#ifdef SDL_HINT_RENDER_SCALE_QUALITY
+        SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "2",
+                                SDL_HINT_DEFAULT);
+#endif
+        gSDLScreenPresenterState.window = SDL_CreateWindow(
+            "KiriKiri SDL Presenter", SDL_WINDOWPOS_UNDEFINED,
+            SDL_WINDOWPOS_UNDEFINED, windowWidth, windowHeight, windowFlags);
+        if(!gSDLScreenPresenterState.window) {
+            gSDLScreenPresenterState.windowFailed = true;
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "window create failed stage=%s size=%dx%d "
+                          "surface=%dx%d error=%s",
+                          stage ? stage : "", windowWidth, windowHeight,
+                          surfaceWidth, surfaceHeight, SDL_GetError());
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "window created stage=%s window=%p size=%dx%d "
+                      "surface=%dx%d",
+                      stage ? stage : "",
+                      static_cast<void *>(gSDLScreenPresenterState.window),
+                      windowWidth, windowHeight, surfaceWidth, surfaceHeight);
+        LogSDLScreenPresenter(message);
+    }
+
+    if(!gSDLScreenPresenterState.window)
+        return false;
+
+    if(!gSDLScreenPresenterState.renderer &&
+       !gSDLScreenPresenterState.rendererFailed &&
+       !gSDLScreenPresenterState.windowSurface) {
+        gSDLScreenPresenterState.renderer = SDL_CreateRenderer(
+            gSDLScreenPresenterState.window, -1,
+            SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        if(!gSDLScreenPresenterState.renderer) {
+            char rendererError[256];
+            std::snprintf(rendererError, sizeof(rendererError), "%s",
+                          SDL_GetError());
+            gSDLScreenPresenterState.windowSurface =
+                SDL_GetWindowSurface(gSDLScreenPresenterState.window);
+            if(!gSDLScreenPresenterState.windowSurface) {
+                gSDLScreenPresenterState.rendererFailed = true;
+                char message[512];
+                std::snprintf(message, sizeof(message),
+                              "renderer/window-surface failed stage=%s "
+                              "rendererError=%s surfaceError=%s",
+                              stage ? stage : "", rendererError,
+                              SDL_GetError());
+                LogSDLScreenPresenter(message);
+                return false;
+            }
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "renderer failed, using window surface stage=%s "
+                          "rendererError=%s windowSurface=%p size=%dx%d "
+                          "pitch=%d",
+                          stage ? stage : "", rendererError,
+                          static_cast<void *>(
+                              gSDLScreenPresenterState.windowSurface),
+                          gSDLScreenPresenterState.windowSurface->w,
+                          gSDLScreenPresenterState.windowSurface->h,
+                          gSDLScreenPresenterState.windowSurface->pitch);
+            LogSDLScreenPresenter(message);
+            return true;
+        }
+        SDL_RenderSetLogicalSize(gSDLScreenPresenterState.renderer,
+                                 surfaceWidth, surfaceHeight);
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "renderer created stage=%s renderer=%p logical=%dx%d",
+                      stage ? stage : "",
+                      static_cast<void *>(gSDLScreenPresenterState.renderer),
+                      surfaceWidth, surfaceHeight);
+        LogSDLScreenPresenter(message);
+    }
+
+    if(!gSDLScreenPresenterState.renderer)
+        return gSDLScreenPresenterState.windowSurface != nullptr;
+
+    if(gSDLScreenPresenterState.windowSurface)
+        return false;
+
+    if(!gSDLScreenPresenterState.texture ||
+       gSDLScreenPresenterState.textureWidth != surfaceWidth ||
+       gSDLScreenPresenterState.textureHeight != surfaceHeight) {
+        DestroySDLScreenTextureLocked();
+        gSDLScreenPresenterState.texture = SDL_CreateTexture(
+            gSDLScreenPresenterState.renderer, SDL_PIXELFORMAT_RGB888,
+            SDL_TEXTUREACCESS_STREAMING, surfaceWidth, surfaceHeight);
+        if(!gSDLScreenPresenterState.texture) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "texture create failed stage=%s size=%dx%d "
+                          "error=%s",
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          SDL_GetError());
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+        gSDLScreenPresenterState.textureWidth = surfaceWidth;
+        gSDLScreenPresenterState.textureHeight = surfaceHeight;
+        SDL_RenderSetLogicalSize(gSDLScreenPresenterState.renderer,
+                                 surfaceWidth, surfaceHeight);
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "texture created stage=%s texture=%p size=%dx%d",
+                      stage ? stage : "",
+                      static_cast<void *>(gSDLScreenPresenterState.texture),
+                      surfaceWidth, surfaceHeight);
+        LogSDLScreenPresenter(message);
+    }
+
+    return gSDLScreenPresenterState.texture != nullptr;
+}
+
 const char *TextureFormatName(TVPTextureFormat::e format) {
     switch(format) {
         case TVPTextureFormat::None:
@@ -291,8 +520,8 @@ bool EnsureSDLSurfaceMirrorLocked(int width, int height) {
         gSDLSurfaceMirrorState.surface = nullptr;
     }
 
-    gSDLSurfaceMirrorState.surface = SDL_CreateRGBSurfaceWithFormat(
-        0, width, height, 32, SDL_PIXELFORMAT_RGBA32);
+    gSDLSurfaceMirrorState.surface = SDL_CreateRGBSurface(
+        0, width, height, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0);
     if(!gSDLSurfaceMirrorState.surface) {
         char message[256];
         std::snprintf(message, sizeof(message),
@@ -1172,6 +1401,10 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         gSDLBitmapCompletionState.active = false;
     }
 
+    if(TVPSDLIsScreenTakeoverEnabled()) {
+        TVPSDLPumpScreenPresenter("bitmap-end");
+    }
+
     if(!ShouldLogBitmapCompletionBatch(batch) && outOfBounds == 0 &&
        surfaceSkipped == 0)
         return;
@@ -1290,6 +1523,260 @@ void TVPSDLRecordLoadingConsoleHide(const char *reason) {
         (initialized & SDL_INIT_AUDIO) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-loading", message);
+}
+
+void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
+                                    int frameWidth, int frameHeight,
+                                    int sceneWidth, int sceneHeight) {
+    TVPSDLInitializeRuntime();
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        gSDLScreenPresenterState.takeoverEnabled = enabled;
+        gSDLScreenPresenterState.frameWidth = frameWidth;
+        gSDLScreenPresenterState.frameHeight = frameHeight;
+        gSDLScreenPresenterState.sceneWidth = sceneWidth;
+        gSDLScreenPresenterState.sceneHeight = sceneHeight;
+        if(!enabled) {
+            DestroySDLScreenPresenterLocked();
+        }
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(message, sizeof(message),
+                  "takeover enabled=%d reason=%s frame=%dx%d scene=%dx%d "
+                  "events=%d video=%d audio=%d ticks=%u",
+                  enabled ? 1 : 0, reason ? reason : "", frameWidth,
+                  frameHeight, sceneWidth, sceneHeight,
+                  (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLScreenPresenter(message);
+}
+
+bool TVPSDLIsScreenTakeoverEnabled() {
+    std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+    return gSDLScreenPresenterState.takeoverEnabled;
+}
+
+bool TVPSDLPumpScreenPresenter(const char *stage) {
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        if(!gSDLScreenPresenterState.takeoverEnabled)
+            return false;
+        gSDLScreenPresenterState.pumpAttempts++;
+    }
+
+    SDL_Surface *surface = nullptr;
+    int surfaceWidth = 0;
+    int surfaceHeight = 0;
+    int pitch = 0;
+    tTVPRect updateRect;
+    bool hasUpdate = false;
+    uint64_t copiedRegions = 0;
+    uint64_t copiedBytes = 0;
+
+    std::lock_guard<std::mutex> surfaceLock(gSDLSurfaceMirrorMutex);
+    surface = gSDLSurfaceMirrorState.surface;
+    surfaceWidth = gSDLSurfaceMirrorState.width;
+    surfaceHeight = gSDLSurfaceMirrorState.height;
+    hasUpdate = gSDLSurfaceMirrorState.hasUpdate;
+    updateRect = gSDLSurfaceMirrorState.updateRect;
+    copiedRegions = gSDLSurfaceMirrorState.copiedRegions;
+    copiedBytes = gSDLSurfaceMirrorState.copiedBytes;
+    if(surface)
+        pitch = surface->pitch;
+
+    if(!surface || surfaceWidth <= 0 || surfaceHeight <= 0) {
+        uint64_t noSurface = 0;
+        {
+            std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+            noSurface = ++gSDLScreenPresenterState.noSurfacePumps;
+        }
+        if(ShouldLogScreenPresenter(noSurface)) {
+            char message[320];
+            std::snprintf(message, sizeof(message),
+                          "pump no-surface #%llu stage=%s copiedRegions=%llu "
+                          "copiedBytes=%llu",
+                          static_cast<unsigned long long>(noSurface),
+                          stage ? stage : "",
+                          static_cast<unsigned long long>(copiedRegions),
+                          static_cast<unsigned long long>(copiedBytes));
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    if(!hasUpdate) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> presenterLock(gSDLScreenPresenterMutex);
+    if(!gSDLScreenPresenterState.takeoverEnabled)
+        return false;
+    if(!EnsureSDLScreenPresenterLocked(surfaceWidth, surfaceHeight, stage)) {
+        const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+        if(ShouldLogScreenPresenter(failed)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "pump failed #%llu stage=%s surface=%dx%d "
+                          "update=%d,%d,%dx%d copiedRegions=%llu",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          updateRect.left, updateRect.top,
+                          updateRect.get_width(), updateRect.get_height(),
+                          static_cast<unsigned long long>(copiedRegions));
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    SDL_Rect rect;
+    rect.x = updateRect.left;
+    rect.y = updateRect.top;
+    rect.w = updateRect.get_width();
+    rect.h = updateRect.get_height();
+    if(rect.x < 0) {
+        rect.w += rect.x;
+        rect.x = 0;
+    }
+    if(rect.y < 0) {
+        rect.h += rect.y;
+        rect.y = 0;
+    }
+    if(rect.x + rect.w > surfaceWidth)
+        rect.w = surfaceWidth - rect.x;
+    if(rect.y + rect.h > surfaceHeight)
+        rect.h = surfaceHeight - rect.y;
+    if(rect.w <= 0 || rect.h <= 0) {
+        return false;
+    }
+
+    if(!gSDLScreenPresenterState.renderer &&
+       gSDLScreenPresenterState.window &&
+       gSDLScreenPresenterState.windowSurface) {
+        SDL_Rect dstRect = rect;
+        int updateResult = 0;
+        if(gSDLScreenPresenterState.windowSurface->w == surfaceWidth &&
+           gSDLScreenPresenterState.windowSurface->h == surfaceHeight) {
+            if(SDL_BlitSurface(surface, &rect,
+                               gSDLScreenPresenterState.windowSurface,
+                               &dstRect) != 0) {
+                const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+                char message[384];
+                std::snprintf(message, sizeof(message),
+                              "window-surface blit failed #%llu stage=%s "
+                              "rect=%d,%d,%dx%d error=%s",
+                              static_cast<unsigned long long>(failed),
+                              stage ? stage : "", rect.x, rect.y, rect.w,
+                              rect.h, SDL_GetError());
+                LogSDLScreenPresenter(message);
+                return false;
+            }
+            updateResult = SDL_UpdateWindowSurfaceRects(
+                gSDLScreenPresenterState.window, &dstRect, 1);
+        } else {
+            if(SDL_BlitScaled(surface, nullptr,
+                              gSDLScreenPresenterState.windowSurface,
+                              nullptr) != 0) {
+                const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+                char message[384];
+                std::snprintf(message, sizeof(message),
+                              "window-surface scaled blit failed #%llu "
+                              "stage=%s src=%dx%d dst=%dx%d error=%s",
+                              static_cast<unsigned long long>(failed),
+                              stage ? stage : "", surfaceWidth, surfaceHeight,
+                              gSDLScreenPresenterState.windowSurface->w,
+                              gSDLScreenPresenterState.windowSurface->h,
+                              SDL_GetError());
+                LogSDLScreenPresenter(message);
+                return false;
+            }
+            updateResult =
+                SDL_UpdateWindowSurface(gSDLScreenPresenterState.window);
+        }
+        if(updateResult != 0) {
+            const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "window-surface update failed #%llu stage=%s "
+                          "error=%s",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", SDL_GetError());
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+        gSDLSurfaceMirrorState.hasUpdate = false;
+        const uint64_t presented = ++gSDLScreenPresenterState.presentedFrames;
+        if(ShouldLogScreenPresenter(presented)) {
+            char message[512];
+            std::snprintf(
+                message, sizeof(message),
+                "present-window-surface #%llu stage=%s surface=%dx%d "
+                "windowSurface=%dx%d pitch=%d rect=%d,%d,%dx%d "
+                "copiedRegions=%llu copiedBytes=%llu",
+                static_cast<unsigned long long>(presented),
+                stage ? stage : "", surfaceWidth, surfaceHeight,
+                gSDLScreenPresenterState.windowSurface->w,
+                gSDLScreenPresenterState.windowSurface->h,
+                gSDLScreenPresenterState.windowSurface->pitch, rect.x, rect.y,
+                rect.w, rect.h,
+                static_cast<unsigned long long>(copiedRegions),
+                static_cast<unsigned long long>(copiedBytes));
+            LogSDLScreenPresenter(message);
+        }
+        return true;
+    }
+
+    if(SDL_UpdateTexture(gSDLScreenPresenterState.texture, &rect,
+                         surface->pixels, pitch) != 0) {
+        const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+        char message[384];
+        std::snprintf(message, sizeof(message),
+                      "update texture failed #%llu stage=%s surface=%dx%d "
+                      "pitch=%d rect=%d,%d,%dx%d error=%s",
+                      static_cast<unsigned long long>(failed),
+                      stage ? stage : "", surfaceWidth, surfaceHeight, pitch,
+                      rect.x, rect.y, rect.w, rect.h,
+                      SDL_GetError());
+        LogSDLScreenPresenter(message);
+        return false;
+    }
+
+    if(SDL_RenderCopy(gSDLScreenPresenterState.renderer,
+                      gSDLScreenPresenterState.texture, &rect, &rect) != 0) {
+        const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+        char message[384];
+        std::snprintf(message, sizeof(message),
+                      "render copy failed #%llu stage=%s rect=%d,%d,%dx%d "
+                      "error=%s",
+                      static_cast<unsigned long long>(failed),
+                      stage ? stage : "", rect.x, rect.y, rect.w, rect.h,
+                      SDL_GetError());
+        LogSDLScreenPresenter(message);
+        return false;
+    }
+    SDL_RenderPresent(gSDLScreenPresenterState.renderer);
+    gSDLSurfaceMirrorState.hasUpdate = false;
+
+    const uint64_t presented = ++gSDLScreenPresenterState.presentedFrames;
+    if(ShouldLogScreenPresenter(presented)) {
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "present #%llu stage=%s surface=%dx%d pitch=%d "
+                      "rect=%d,%d,%dx%d copiedRegions=%llu copiedBytes=%llu "
+                      "renderer=%p texture=%p",
+                      static_cast<unsigned long long>(presented),
+                      stage ? stage : "", surfaceWidth, surfaceHeight, pitch,
+                      rect.x, rect.y, rect.w, rect.h,
+                      static_cast<unsigned long long>(copiedRegions),
+                      static_cast<unsigned long long>(copiedBytes),
+                      static_cast<void *>(gSDLScreenPresenterState.renderer),
+                      static_cast<void *>(gSDLScreenPresenterState.texture));
+        LogSDLScreenPresenter(message);
+    }
+    return true;
 }
 
 TVPSDLGameLaunchResult

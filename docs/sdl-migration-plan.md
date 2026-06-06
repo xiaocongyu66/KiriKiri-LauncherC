@@ -145,6 +145,17 @@ incremental and does not accidentally replace launcher behavior.
   falls back to Oboe, then OpenAL if SDL cannot open a playback device. Backend
   selection, device parameters, conversion failures, stream creation, and
   release events are logged with the unified `sdl-audio` tag.
+- Android game startup now enables an experimental SDL screen takeover path:
+  after the KRKR window list is visible, the Cocos `UINode`, `GameNode`, and
+  floating game menu are hidden. The handoff follows
+  `/root/krkrsdl2/src/core/sdl2/SDLApplication.cpp`: create an SDL window,
+  prefer an accelerated/vsync renderer, fall back to `SDL_GetWindowSurface`,
+  keep an RGB888 streaming texture, and present only the accumulated dirty
+  rectangle from the SDL surface mirror via `SDL_UpdateTexture`,
+  `SDL_RenderCopy`, and `SDL_RenderPresent`. This is a diagnostic handoff, not
+  the final activity replacement. The unified `sdl-screen` log records takeover
+  enablement, video/window/renderer/texture creation, failed hybrid-window
+  attempts, no-surface waits, window-surface fallback, and successful presents.
 - Logs from `20260606202512770.log` show the first-run black interval is
   startup-bound rather than an SDL input failure: Android resumes quickly, SDL
   2.32.10 initializes, input queues drain with `dropped=0`, but the first KRKR

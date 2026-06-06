@@ -64,6 +64,11 @@ void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
                                     int sceneHeight, float scale);
 void TVPSDLRecordLoadingConsoleLine(const char *message, bool important);
 void TVPSDLRecordLoadingConsoleHide(const char *reason);
+void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
+                                    int frameWidth, int frameHeight,
+                                    int sceneWidth, int sceneHeight);
+bool TVPSDLIsScreenTakeoverEnabled();
+bool TVPSDLPumpScreenPresenter(const char *stage);
 
 TVPSDLGameLaunchResult
 TVPSDLRunGameLaunch(const TVPSDLGameLaunchCallbacks &callbacks);

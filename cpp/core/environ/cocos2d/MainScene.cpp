@@ -78,6 +78,7 @@ static tjs_uint32 _startupRequestTick = 0;
 static tjs_uint32 _startupBeginTick = 0;
 static bool _startupFirstWindowLayerLogged = false;
 static bool _startupFirstDrawBufferLogged = false;
+static bool _sdlScreenTakeoverLogged = false;
 
 #include "CCKeyCodeConv.h"
 
@@ -2354,6 +2355,28 @@ void TVPMainScene::doStartup(float dt, std::string path) {
 
     hideStartupConsole("windows-visible");
 
+#if defined(__ANDROID__)
+    {
+        TVPSDLSetScreenTakeoverEnabled(
+            true, "doStartup", static_cast<int>(screenSize.width),
+            static_cast<int>(screenSize.height),
+            static_cast<int>(getContentSize().width),
+            static_cast<int>(getContentSize().height));
+        if(UINode)
+            UINode->setVisible(false);
+        if(_gameMenu)
+            _gameMenu->setVisible(false);
+        if(GameNode)
+            GameNode->setVisible(false);
+        _sdlScreenTakeoverLogged = true;
+        KR2RenderProbeWriteF(
+            "sdl-screen-takeover cocosHidden=1 frame=%.0fx%.0f scene=%.0fx%.0f",
+            screenSize.width, screenSize.height, getContentSize().width,
+            getContentSize().height);
+        TVPSDLPumpScreenPresenter("doStartup");
+    }
+#endif
+
     if(pGlobalCfgMgr->GetValue<bool>("showfps", false)) {
         _fpsLabel =
             cocos2d::Label::createWithTTF("", "NotoSansCJK-Regular.ttc", 16);
@@ -2422,6 +2445,21 @@ void TVPMainScene::update(float delta) {
             prevDrawCount = 0;
         }
     }
+#if defined(__ANDROID__)
+    if(TVPSDLIsScreenTakeoverEnabled()) {
+        if(UINode && UINode->isVisible())
+            UINode->setVisible(false);
+        if(GameNode && GameNode->isVisible())
+            GameNode->setVisible(false);
+        if(_gameMenu && _gameMenu->isVisible())
+            _gameMenu->setVisible(false);
+        if(!_sdlScreenTakeoverLogged) {
+            _sdlScreenTakeoverLogged = true;
+            KR2RenderProbeWriteF("sdl-screen-takeover update-enforced");
+        }
+        TVPSDLPumpScreenPresenter("main-scene-update");
+    }
+#endif
 }
 
 cocos2d::Size TVPMainScene::getUINodeSize() { return UINode->getContentSize(); }
