@@ -27,6 +27,7 @@ extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
 #include "DebugIntf.h"
 #include "LayerTreeOwner.h"
 #include "RenderManager.h"
+#include "SDLGameManager.h"
 
 //---------------------------------------------------------------------------
 // tTVPLayerManager
@@ -195,6 +196,9 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
     }
 #endif
 
+    TVPSDLRecordBitmapCompletionRegion(this, destrect.left, destrect.top, bmp,
+                                       cliprect, static_cast<int>(type),
+                                       static_cast<int>(opacity), w, h);
     DrawBuffer->Blt(destrect.left, destrect.top, bmp, cliprect, type, opacity,
                     HoldAlpha);
 #endif

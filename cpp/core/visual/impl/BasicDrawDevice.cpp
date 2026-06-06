@@ -12,6 +12,7 @@
 #include "EventImpl.h"
 #include "WindowImpl.h"
 #include "NativeLog.h"
+#include "SDLGameManager.h"
 
 #if defined(__ANDROID__)
 #define KR2_RLOG(fmt_, ...)                                                    \
@@ -577,6 +578,9 @@ void tTVPBasicDrawDevice::Show() {
                         KR2_RLOG("Show#FIRST_OK_TEX tex=%p buf=%p form=%p",
                                  (void *)tex, (void *)buf, (void *)form);
                     }
+                    TVPSDLRecordPresenterFrame(tex, "basic-show",
+                                               DestRect.get_width(),
+                                               DestRect.get_height());
                     form->UpdateDrawBuffer(tex);
                 } else {
                     ++s_nullTex;
@@ -686,6 +690,11 @@ bool tTVPBasicDrawDevice::WaitForVBlank( tjs_int* in_vblank, tjs_int* delayed )
 #endif
 //---------------------------------------------------------------------------
 void tTVPBasicDrawDevice::StartBitmapCompletion(iTVPLayerManager *manager) {
+    tjs_int w = 0;
+    tjs_int h = 0;
+    GetSrcSize(w, h);
+    TVPSDLRecordBitmapCompletionStart(manager, w, h, DestRect.get_width(),
+                                      DestRect.get_height());
 #if 0
 	EnsureDevice();
 
@@ -721,6 +730,9 @@ void tTVPBasicDrawDevice::NotifyBitmapCompleted(
     // y に描画 する。 opacity と type は無視するしかないので無視する
     tjs_int w, h;
     GetSrcSize(w, h);
+    TVPSDLRecordBitmapCompletionRegion(manager, x, y, bmp, cliprect,
+                                       static_cast<int>(type),
+                                       static_cast<int>(opacity), w, h);
 #if 0
 	if( TextureBuffer && TargetWindow &&
 		!(x < 0 || y < 0 ||
@@ -766,6 +778,10 @@ void tTVPBasicDrawDevice::NotifyBitmapCompleted(
 }
 //---------------------------------------------------------------------------
 void tTVPBasicDrawDevice::EndBitmapCompletion(iTVPLayerManager *manager) {
+    tjs_int w = 0;
+    tjs_int h = 0;
+    GetSrcSize(w, h);
+    TVPSDLRecordBitmapCompletionEnd(manager, w, h);
     if(!TargetWindow)
         return;
 #if 0

@@ -45,8 +45,9 @@ incremental and does not accidentally replace launcher behavior.
    the existing `Application->ProcessMessages()` fallback.
 2. Add SDL event-pump diagnostics and keep all logs on the existing unified
    native log path.
-3. Port the bitmap-completion presenter model from `krkrsdl2` so game frames can
-   be copied into SDL-managed textures without removing the Cocos UI yet.
+3. Port the bitmap-completion presenter model from `krkrsdl2` in two phases:
+   first mirror/probe KRKR frame textures in SDL-managed code without presenting
+   them, then copy safe CPU-backed frames into SDL surfaces/textures.
 4. Add SDL input mapping modeled on `krkrsdl2`, routing into existing KRKR input
    events instead of bypassing script expectations.
 5. Move game window presentation to the SDL presenter while keeping launcher UI
@@ -88,6 +89,17 @@ incremental and does not accidentally replace launcher behavior.
   frame size, internal texture size, texture-change count, SDL subsystem state,
   and texture pointers. This is a non-presenting probe for the future SDL
   bitmap presenter.
+- `BasicDrawDevice::Show()` now reports each visible KRKR frame to an SDL
+  presenter mirror tagged `sdl-presenter`. It records texture size, internal
+  size, format, pitch, native GL texture id, SDL subsystem state, and whether a
+  CPU scanline can be safely sampled. GL-backed textures are identified through
+  `GetNativeGLTextureId()` and are not read back in this probe, avoiding
+  per-frame `glReadPixels()` stalls while Cocos still owns presentation.
+- Bitmap completion is now mirrored into SDL diagnostics tagged `sdl-bitmap`.
+  `BasicDrawDevice` records completion batch start/end, and
+  `LayerManager::DrawCompleted()` records the real completed regions before the
+  existing draw-buffer `Blt`. This exposes the future SDL surface update stream
+  without changing Cocos presentation.
 - Logs from `20260606202512770.log` show the first-run black interval is
   startup-bound rather than an SDL input failure: Android resumes quickly, SDL
   2.32.10 initializes, input queues drain with `dropped=0`, but the first KRKR

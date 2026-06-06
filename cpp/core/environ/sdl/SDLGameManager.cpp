@@ -2,6 +2,10 @@
 
 #include "NativeLog.h"
 #include "Platform.h"
+#include "tjsCommHead.h"
+#include "ComplexRect.h"
+#include "LayerBitmapIntf.h"
+#include "RenderManager.h"
 
 #include <SDL2/SDL.h>
 #include <spdlog/spdlog.h>
@@ -31,6 +35,45 @@ std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
 std::atomic_uint64_t gSDLRenderFrameSequence{0};
 std::atomic_uint64_t gSDLRenderTextureChanges{0};
+std::atomic_uint64_t gSDLPresenterFrameSequence{0};
+std::atomic_uint64_t gSDLPresenterTextureChanges{0};
+std::atomic_uint64_t gSDLPresenterCpuProbeAttempts{0};
+std::atomic_uint64_t gSDLPresenterCpuAccessible{0};
+std::atomic_uint64_t gSDLBitmapCompletionBatchSequence{0};
+std::atomic_uint64_t gSDLBitmapCompletionRegionSequence{0};
+
+struct TVPSDLPresenterProbeState {
+    const void *texture = nullptr;
+    int width = 0;
+    int height = 0;
+    int internalWidth = 0;
+    int internalHeight = 0;
+    int format = 0;
+    int pitch = 0;
+    unsigned int glTexture = 0;
+};
+
+std::mutex gSDLPresenterProbeMutex;
+TVPSDLPresenterProbeState gSDLPresenterProbeState;
+
+struct TVPSDLBitmapCompletionState {
+    bool active = false;
+    uint64_t batch = 0;
+    uint64_t regions = 0;
+    uint64_t copyReady = 0;
+    uint64_t glBacked = 0;
+    uint64_t outOfBounds = 0;
+    const void *manager = nullptr;
+    int sourceWidth = 0;
+    int sourceHeight = 0;
+    int destWidth = 0;
+    int destHeight = 0;
+    bool hasUnion = false;
+    tTVPRect unionRect;
+};
+
+std::mutex gSDLBitmapCompletionMutex;
+TVPSDLBitmapCompletionState gSDLBitmapCompletionState;
 
 struct TVPSDLQueuedInputEvent {
     std::string eventName;
@@ -113,6 +156,56 @@ bool ShouldLogInputQueueEvent(uint64_t sequence, const char *eventName) {
     if(!IsHighFrequencyInput(eventName))
         return true;
     return sequence <= 16 || (sequence % 512) == 0;
+}
+
+bool ShouldLogPresenterFrame(uint64_t frame) {
+    return frame <= 8 || frame == 16 || frame == 32 || frame == 64 ||
+        frame == 128 || (frame % 256) == 0;
+}
+
+bool ShouldLogBitmapCompletionBatch(uint64_t batch) {
+    return batch <= 8 || batch == 16 || batch == 32 || batch == 64 ||
+        (batch % 256) == 0;
+}
+
+bool ShouldLogBitmapCompletionRegion(uint64_t globalRegion,
+                                     uint64_t batchRegion) {
+    return batchRegion <= 4 || globalRegion <= 16 ||
+        (globalRegion % 512) == 0;
+}
+
+const char *TextureFormatName(TVPTextureFormat::e format) {
+    switch(format) {
+        case TVPTextureFormat::None:
+            return "None";
+        case TVPTextureFormat::Gray:
+            return "Gray";
+        case TVPTextureFormat::RGB:
+            return "RGB";
+        case TVPTextureFormat::RGBA:
+            return "RGBA";
+        case TVPTextureFormat::Compressed:
+            return "Compressed";
+        case TVPTextureFormat::CompressedEnd:
+            return "CompressedEnd";
+    }
+    return "Unknown";
+}
+
+bool IsDirectCpuProbeFormat(TVPTextureFormat::e format) {
+    return format == TVPTextureFormat::Gray ||
+        format == TVPTextureFormat::RGB ||
+        format == TVPTextureFormat::RGBA;
+}
+
+bool IsBitmapCompletionInBounds(int x, int y, const tTVPRect &clipRect,
+                                int sourceWidth, int sourceHeight,
+                                int bitmapWidth, int bitmapHeight) {
+    return x >= 0 && y >= 0 &&
+        x + clipRect.get_width() <= sourceWidth &&
+        y + clipRect.get_height() <= sourceHeight &&
+        clipRect.left >= 0 && clipRect.top >= 0 &&
+        clipRect.right <= bitmapWidth && clipRect.bottom <= bitmapHeight;
 }
 
 uint64_t CalculateBacklog(uint64_t queued, uint64_t drained,
@@ -421,6 +514,371 @@ void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
         (initialized & SDL_INIT_AUDIO) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-renderprobe", message);
+}
+
+void TVPSDLRecordPresenterFrame(iTVPTexture2D *texture, const char *stage,
+                                int layerWidth, int layerHeight) {
+    TVPSDLInitializeRuntime();
+    const uint64_t frame =
+        gSDLPresenterFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    if(!texture) {
+        if(ShouldLogPresenterFrame(frame)) {
+            char message[192];
+            std::snprintf(message, sizeof(message),
+                          "frame=%llu stage=%s texture=null layer=%dx%d",
+                          static_cast<unsigned long long>(frame),
+                          stage ? stage : "", layerWidth, layerHeight);
+            TVPNativeLogInfo("sdl-presenter", message);
+        }
+        return;
+    }
+
+    bool metadataOk = true;
+    int width = 0;
+    int height = 0;
+    int internalWidth = 0;
+    int internalHeight = 0;
+    int pitch = 0;
+    unsigned int glTexture = 0;
+    TVPTextureFormat::e format = TVPTextureFormat::None;
+
+    try {
+        width = static_cast<int>(texture->GetWidth());
+        height = static_cast<int>(texture->GetHeight());
+        internalWidth = static_cast<int>(texture->GetInternalWidth());
+        internalHeight = static_cast<int>(texture->GetInternalHeight());
+        format = texture->GetFormat();
+        pitch = static_cast<int>(texture->GetPitch());
+        glTexture = texture->GetNativeGLTextureId();
+    } catch(...) {
+        metadataOk = false;
+    }
+
+    bool textureChanged = false;
+    {
+        std::lock_guard<std::mutex> lock(gSDLPresenterProbeMutex);
+        textureChanged =
+            gSDLPresenterProbeState.texture != texture ||
+            gSDLPresenterProbeState.width != width ||
+            gSDLPresenterProbeState.height != height ||
+            gSDLPresenterProbeState.internalWidth != internalWidth ||
+            gSDLPresenterProbeState.internalHeight != internalHeight ||
+            gSDLPresenterProbeState.format != static_cast<int>(format) ||
+            gSDLPresenterProbeState.pitch != pitch ||
+            gSDLPresenterProbeState.glTexture != glTexture;
+        if(textureChanged) {
+            gSDLPresenterProbeState.texture = texture;
+            gSDLPresenterProbeState.width = width;
+            gSDLPresenterProbeState.height = height;
+            gSDLPresenterProbeState.internalWidth = internalWidth;
+            gSDLPresenterProbeState.internalHeight = internalHeight;
+            gSDLPresenterProbeState.format = static_cast<int>(format);
+            gSDLPresenterProbeState.pitch = pitch;
+            gSDLPresenterProbeState.glTexture = glTexture;
+        }
+    }
+
+    const uint64_t changes = textureChanged
+        ? gSDLPresenterTextureChanges.fetch_add(1,
+                                                std::memory_order_relaxed) +
+              1
+        : gSDLPresenterTextureChanges.load(std::memory_order_relaxed);
+
+    if(!ShouldLogPresenterFrame(frame) && !textureChanged && metadataOk)
+        return;
+
+    const bool glBacked = glTexture != 0;
+    bool cpuProbeAttempted = false;
+    bool cpuAccessible = false;
+    bool cpuProbeFailed = false;
+    const void *line0 = nullptr;
+
+    if(metadataOk && !glBacked && height > 0 &&
+       IsDirectCpuProbeFormat(format)) {
+        cpuProbeAttempted = true;
+        gSDLPresenterCpuProbeAttempts.fetch_add(1, std::memory_order_relaxed);
+        try {
+            line0 = texture->GetScanLineForRead(0);
+            cpuAccessible = line0 != nullptr;
+            if(cpuAccessible) {
+                gSDLPresenterCpuAccessible.fetch_add(
+                    1, std::memory_order_relaxed);
+            }
+        } catch(...) {
+            cpuProbeFailed = true;
+        }
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[640];
+    std::snprintf(
+        message, sizeof(message),
+        "frame=%llu stage=%s changed=%d changes=%llu tex=%p layer=%dx%d "
+        "size=%dx%d internal=%dx%d format=%s(%d) pitch=%d gl=%u "
+        "cpuAttempt=%d cpuOk=%d cpuFail=%d cpuAttempts=%llu cpuOkTotal=%llu "
+        "line0=%p metadataOk=%d events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(frame), stage ? stage : "",
+        textureChanged ? 1 : 0, static_cast<unsigned long long>(changes),
+        static_cast<void *>(texture), layerWidth, layerHeight, width, height,
+        internalWidth, internalHeight, TextureFormatName(format),
+        static_cast<int>(format), pitch, glTexture, cpuProbeAttempted ? 1 : 0,
+        cpuAccessible ? 1 : 0, cpuProbeFailed ? 1 : 0,
+        static_cast<unsigned long long>(
+            gSDLPresenterCpuProbeAttempts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(
+            gSDLPresenterCpuAccessible.load(std::memory_order_relaxed)),
+        line0, metadataOk ? 1 : 0,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-presenter", message);
+}
+
+void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
+                                       int sourceWidth, int sourceHeight,
+                                       int destWidth, int destHeight) {
+    TVPSDLInitializeRuntime();
+    const uint64_t batch =
+        gSDLBitmapCompletionBatchSequence.fetch_add(
+            1, std::memory_order_relaxed) +
+        1;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        gSDLBitmapCompletionState.active = true;
+        gSDLBitmapCompletionState.batch = batch;
+        gSDLBitmapCompletionState.regions = 0;
+        gSDLBitmapCompletionState.copyReady = 0;
+        gSDLBitmapCompletionState.glBacked = 0;
+        gSDLBitmapCompletionState.outOfBounds = 0;
+        gSDLBitmapCompletionState.manager = manager;
+        gSDLBitmapCompletionState.sourceWidth = sourceWidth;
+        gSDLBitmapCompletionState.sourceHeight = sourceHeight;
+        gSDLBitmapCompletionState.destWidth = destWidth;
+        gSDLBitmapCompletionState.destHeight = destHeight;
+        gSDLBitmapCompletionState.hasUnion = false;
+        gSDLBitmapCompletionState.unionRect.clear();
+    }
+
+    if(ShouldLogBitmapCompletionBatch(batch)) {
+        const Uint32 initialized = SDL_WasInit(0);
+        char message[256];
+        std::snprintf(
+            message, sizeof(message),
+            "start batch=%llu manager=%p src=%dx%d dest=%dx%d events=%d "
+            "video=%d audio=%d ticks=%u",
+            static_cast<unsigned long long>(batch),
+            static_cast<void *>(manager), sourceWidth, sourceHeight, destWidth,
+            destHeight,
+            (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+            (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+            (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+            static_cast<unsigned>(SDL_GetTicks()));
+        TVPNativeLogInfo("sdl-bitmap", message);
+    }
+}
+
+void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
+                                        int y, tTVPBaseTexture *bitmap,
+                                        const tTVPRect &clipRect, int type,
+                                        int opacity, int sourceWidth,
+                                        int sourceHeight) {
+    TVPSDLInitializeRuntime();
+    const uint64_t globalRegion =
+        gSDLBitmapCompletionRegionSequence.fetch_add(
+            1, std::memory_order_relaxed) +
+        1;
+
+    int bitmapWidth = 0;
+    int bitmapHeight = 0;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    int internalWidth = 0;
+    int internalHeight = 0;
+    int pitch = 0;
+    unsigned int glTexture = 0;
+    TVPTextureFormat::e format = TVPTextureFormat::None;
+    iTVPTexture2D *texture = nullptr;
+    bool metadataOk = true;
+
+    if(bitmap) {
+        try {
+            bitmapWidth = static_cast<int>(bitmap->GetWidth());
+            bitmapHeight = static_cast<int>(bitmap->GetHeight());
+            texture = bitmap->GetTexture();
+            if(texture) {
+                textureWidth = static_cast<int>(texture->GetWidth());
+                textureHeight = static_cast<int>(texture->GetHeight());
+                internalWidth =
+                    static_cast<int>(texture->GetInternalWidth());
+                internalHeight =
+                    static_cast<int>(texture->GetInternalHeight());
+                format = texture->GetFormat();
+                pitch = static_cast<int>(texture->GetPitch());
+                glTexture = texture->GetNativeGLTextureId();
+            }
+        } catch(...) {
+            metadataOk = false;
+        }
+    }
+
+    const bool inBounds =
+        metadataOk && bitmap != nullptr &&
+        IsBitmapCompletionInBounds(x, y, clipRect, sourceWidth, sourceHeight,
+                                   bitmapWidth, bitmapHeight);
+    const bool glBacked = glTexture != 0;
+    const bool copyReady = inBounds && texture && !glBacked &&
+        IsDirectCpuProbeFormat(format);
+
+    uint64_t batch = 0;
+    uint64_t batchRegion = 0;
+    uint64_t batchCopyReady = 0;
+    uint64_t batchGlBacked = 0;
+    uint64_t batchOutOfBounds = 0;
+    bool shouldLog = false;
+    tTVPRect unionRect;
+    bool hasUnion = false;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        if(!gSDLBitmapCompletionState.active ||
+           gSDLBitmapCompletionState.manager != manager) {
+            gSDLBitmapCompletionState.active = true;
+            gSDLBitmapCompletionState.batch = 0;
+            gSDLBitmapCompletionState.regions = 0;
+            gSDLBitmapCompletionState.copyReady = 0;
+            gSDLBitmapCompletionState.glBacked = 0;
+            gSDLBitmapCompletionState.outOfBounds = 0;
+            gSDLBitmapCompletionState.manager = manager;
+            gSDLBitmapCompletionState.sourceWidth = sourceWidth;
+            gSDLBitmapCompletionState.sourceHeight = sourceHeight;
+            gSDLBitmapCompletionState.destWidth = 0;
+            gSDLBitmapCompletionState.destHeight = 0;
+            gSDLBitmapCompletionState.hasUnion = false;
+            gSDLBitmapCompletionState.unionRect.clear();
+        }
+
+        gSDLBitmapCompletionState.regions++;
+        if(copyReady)
+            gSDLBitmapCompletionState.copyReady++;
+        if(glBacked)
+            gSDLBitmapCompletionState.glBacked++;
+        if(!inBounds)
+            gSDLBitmapCompletionState.outOfBounds++;
+
+        tTVPRect dstRect(x, y, x + clipRect.get_width(),
+                         y + clipRect.get_height());
+        if(!dstRect.is_empty()) {
+            if(gSDLBitmapCompletionState.hasUnion) {
+                gSDLBitmapCompletionState.unionRect.do_union(dstRect);
+            } else {
+                gSDLBitmapCompletionState.unionRect = dstRect;
+                gSDLBitmapCompletionState.hasUnion = true;
+            }
+        }
+
+        batch = gSDLBitmapCompletionState.batch;
+        batchRegion = gSDLBitmapCompletionState.regions;
+        batchCopyReady = gSDLBitmapCompletionState.copyReady;
+        batchGlBacked = gSDLBitmapCompletionState.glBacked;
+        batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
+        unionRect = gSDLBitmapCompletionState.unionRect;
+        hasUnion = gSDLBitmapCompletionState.hasUnion;
+        shouldLog = ShouldLogBitmapCompletionRegion(globalRegion, batchRegion) ||
+            !inBounds;
+    }
+
+    if(!shouldLog)
+        return;
+
+    char message[768];
+    std::snprintf(
+        message, sizeof(message),
+        "region global=%llu batch=%llu batchRegion=%llu manager=%p dst=%d,%d "
+        "clip=%d,%d,%dx%d src=%dx%d bmp=%p bmpSize=%dx%d tex=%p "
+        "texSize=%dx%d internal=%dx%d format=%s(%d) pitch=%d gl=%u "
+        "type=%d opacity=%d inBounds=%d copyReady=%d copyReadyBatch=%llu "
+        "glBatch=%llu outBatch=%llu union=%d,%d,%dx%d metadataOk=%d",
+        static_cast<unsigned long long>(globalRegion),
+        static_cast<unsigned long long>(batch),
+        static_cast<unsigned long long>(batchRegion),
+        static_cast<void *>(manager), x, y, clipRect.left, clipRect.top,
+        clipRect.get_width(), clipRect.get_height(), sourceWidth,
+        sourceHeight, static_cast<void *>(bitmap), bitmapWidth, bitmapHeight,
+        static_cast<void *>(texture), textureWidth, textureHeight,
+        internalWidth, internalHeight, TextureFormatName(format),
+        static_cast<int>(format), pitch, glTexture, type, opacity,
+        inBounds ? 1 : 0,
+        copyReady ? 1 : 0,
+        static_cast<unsigned long long>(batchCopyReady),
+        static_cast<unsigned long long>(batchGlBacked),
+        static_cast<unsigned long long>(batchOutOfBounds),
+        hasUnion ? unionRect.left : 0, hasUnion ? unionRect.top : 0,
+        hasUnion ? unionRect.get_width() : 0,
+        hasUnion ? unionRect.get_height() : 0, metadataOk ? 1 : 0);
+    TVPNativeLogInfo("sdl-bitmap", message);
+}
+
+void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
+                                     int sourceWidth, int sourceHeight) {
+    TVPSDLInitializeRuntime();
+
+    uint64_t batch = 0;
+    uint64_t regions = 0;
+    uint64_t copyReady = 0;
+    uint64_t glBacked = 0;
+    uint64_t outOfBounds = 0;
+    int startSourceWidth = 0;
+    int startSourceHeight = 0;
+    int destWidth = 0;
+    int destHeight = 0;
+    tTVPRect unionRect;
+    bool hasUnion = false;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        batch = gSDLBitmapCompletionState.batch;
+        regions = gSDLBitmapCompletionState.regions;
+        copyReady = gSDLBitmapCompletionState.copyReady;
+        glBacked = gSDLBitmapCompletionState.glBacked;
+        outOfBounds = gSDLBitmapCompletionState.outOfBounds;
+        startSourceWidth = gSDLBitmapCompletionState.sourceWidth;
+        startSourceHeight = gSDLBitmapCompletionState.sourceHeight;
+        destWidth = gSDLBitmapCompletionState.destWidth;
+        destHeight = gSDLBitmapCompletionState.destHeight;
+        unionRect = gSDLBitmapCompletionState.unionRect;
+        hasUnion = gSDLBitmapCompletionState.hasUnion;
+        gSDLBitmapCompletionState.active = false;
+    }
+
+    if(!ShouldLogBitmapCompletionBatch(batch) && regions > 0 &&
+       outOfBounds == 0)
+        return;
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(
+        message, sizeof(message),
+        "end batch=%llu manager=%p regions=%llu copyReady=%llu glBacked=%llu "
+        "outOfBounds=%llu src=%dx%d endSrc=%dx%d dest=%dx%d "
+        "union=%d,%d,%dx%d events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(batch), static_cast<void *>(manager),
+        static_cast<unsigned long long>(regions),
+        static_cast<unsigned long long>(copyReady),
+        static_cast<unsigned long long>(glBacked),
+        static_cast<unsigned long long>(outOfBounds),
+        startSourceWidth, startSourceHeight, sourceWidth, sourceHeight,
+        destWidth, destHeight, hasUnion ? unionRect.left : 0,
+        hasUnion ? unionRect.top : 0,
+        hasUnion ? unionRect.get_width() : 0,
+        hasUnion ? unionRect.get_height() : 0,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-bitmap", message);
 }
 
 TVPSDLGameLaunchResult

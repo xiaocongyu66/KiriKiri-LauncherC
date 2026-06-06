@@ -1118,6 +1118,8 @@ public:
         return true;
     }
 
+    unsigned int GetNativeGLTextureId() const override { return texture; }
+
     const void *GetScanLineForRead(tjs_uint l) override;
     TVPTextureFormat::e GetPixelDataFormat() const override {
         return TVPTextureFormat::RGBA;
