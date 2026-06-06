@@ -102,10 +102,10 @@ class MainActivity : KR2Activity() {
         }
     }
 
-    override fun onNewIntent(intent: Intent?) {
-        logLifecycle("onNewIntent#before-super newGameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} newLaunchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()}")
+    override fun onNewIntent(intent: Intent) {
+        logLifecycle("onNewIntent#before-super newGameDir=${intent.getStringExtra(EXTRA_GAME_DIR).orEmpty()} newLaunchFile=${intent.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()}")
         super.onNewIntent(intent)
-        if (intent != null) setIntent(intent)
+        setIntent(intent)
         logLifecycle("onNewIntent#after-setIntent")
     }
 
