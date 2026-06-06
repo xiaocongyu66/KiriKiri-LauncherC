@@ -8,6 +8,9 @@
 #include "2d/CCLabel.h"
 #include "ConfigManager/LocaleConfigManager.h"
 #include "csd/CsdUIFactory.h"
+#include "sdl/SDLUIManager.h"
+
+#include <cstddef>
 
 using namespace cocos2d;
 using namespace cocos2d::ui;
@@ -36,6 +39,15 @@ void TVPMessageBoxForm::init(const std::string &caption,
                              const std::string *btnText,
                              const std::function<void(int)> &callback) {
     _callback = callback;
+
+    std::vector<const char *> sdlButtons;
+    sdlButtons.reserve(nBtns > 0 ? static_cast<std::size_t>(nBtns) : 0);
+    for(int i = 0; i < nBtns && btnText; ++i) {
+        sdlButtons.emplace_back(btnText[i].c_str());
+    }
+    TVPSDLUIRecordMessageBoxShow(
+        caption.c_str(), text.c_str(), static_cast<int>(sdlButtons.size()),
+        sdlButtons.empty() ? nullptr : sdlButtons.data());
 
     initFromFile(nullptr, Csd::createMessageBox(), nullptr);
 
@@ -68,6 +80,8 @@ void TVPMessageBoxForm::init(const std::string &caption,
         float fontSize = _btnBody->getTitleFontSize();
         textSize.width += fontSize;
         _btnBody->addClickEventListener([this, i](Ref *node) {
+            TVPSDLUIRecordMessageBoxAction(i, "cocos-widget");
+            TVPSDLUIRecordMessageBoxClose("button");
             retain();
             TVPMainScene::GetInstance()->popUIForm(this,
                                                    TVPMainScene::eLeaveAniNone);
@@ -122,6 +136,7 @@ void TVPMessageBoxForm::bindBodyController(const Node *allNodes) {
 void TVPMessageBoxForm::onKeyPressed(cocos2d::EventKeyboard::KeyCode keyCode,
                                      cocos2d::Event *event) {
     if(keyCode == cocos2d::EventKeyboard::KeyCode::KEY_BACK) {
+        TVPSDLUIRecordMessageBoxClose("back-key");
         TVPMainScene::GetInstance()->popUIForm(this,
                                                TVPMainScene::eLeaveAniNone);
     }
@@ -131,12 +146,22 @@ TVPSimpleProgressForm *TVPSimpleProgressForm::create() {
     auto *form = new TVPSimpleProgressForm;
     form->autorelease();
     form->initFromFile(Csd::createProgressBox());
+    TVPSDLUIRecordProgressShow("cocos-form");
     return form;
 }
 
 void TVPSimpleProgressForm::initButtons(
     const std::vector<
         std::pair<std::string, std::function<void(cocos2d::Ref *)>>> &vec) {
+    std::vector<const char *> sdlButtons;
+    sdlButtons.reserve(vec.size());
+    for(const auto &it : vec) {
+        sdlButtons.emplace_back(it.first.c_str());
+    }
+    TVPSDLUIRecordProgressButtons(
+        static_cast<int>(sdlButtons.size()),
+        sdlButtons.empty() ? nullptr : sdlButtons.data());
+
     cocos2d::Size btnSize = _btnCell->getContentSize();
     float totalWidth = 0;
     float containerWidth = _btnContainer->getContentSize().width;
@@ -166,43 +191,59 @@ void TVPSimpleProgressForm::initButtons(
 }
 
 void TVPSimpleProgressForm::setTitle(const std::string &text) {
+    TVPSDLUIRecordProgressText("title", text.c_str());
     _textTitle->setString(text);
 }
 void TVPSimpleProgressForm::setContent(const std::string &text) {
+    TVPSDLUIRecordProgressText("content", text.c_str());
     _textContent->setString(text);
 }
 
 void TVPSimpleProgressForm::setPercentWithText(float percent) {
+    TVPSDLUIRecordProgressPercent("percent_1", percent);
     _progressBar[0]->setPercent(percent);
     char tmp[16];
     sprintf(tmp, "%2.2f%%", percent);
+    TVPSDLUIRecordProgressText("progress_text_1", tmp);
     _textProgress[0]->setString(tmp);
 }
 void TVPSimpleProgressForm::setPercentWithText2(float percent) {
+    TVPSDLUIRecordProgressPercent("percent_2", percent);
     _progressBar[1]->setPercent(percent);
     char tmp[16];
     sprintf(tmp, "%2.2f%%", percent);
+    TVPSDLUIRecordProgressText("progress_text_2", tmp);
     _textProgress[1]->setString(tmp);
 }
 
 void TVPSimpleProgressForm::setPercentOnly(float percent) {
+    TVPSDLUIRecordProgressPercent("percent_1", percent * 100);
     _progressBar[0]->setPercent(percent * 100);
 }
 
 void TVPSimpleProgressForm::setPercentOnly2(float percent) {
+    TVPSDLUIRecordProgressPercent("percent_2", percent * 100);
     _progressBar[1]->setPercent(percent * 100);
 }
 
 void TVPSimpleProgressForm::setPercentText(const std::string &text) {
+    TVPSDLUIRecordProgressText("progress_text_1", text.c_str());
     _textProgress[0]->setString(text);
 }
 
 void TVPSimpleProgressForm::setPercentText2(const std::string &text) {
+    TVPSDLUIRecordProgressText("progress_text_2", text.c_str());
     _textProgress[1]->setString(text);
 }
 
 void TVPSimpleProgressForm::setProgress2Visible(bool visible) {
+    TVPSDLUIRecordProgressVisible("progress_2", visible);
     // TODO
+}
+
+void TVPSimpleProgressForm::onExit() {
+    TVPSDLUIRecordProgressClose("cocos-form-exit");
+    iTVPBaseForm::onExit();
 }
 
 void TVPSimpleProgressForm::bindBodyController(const Node *allNodes) {

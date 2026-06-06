@@ -49,6 +49,7 @@ public:
     void setPercentText(const std::string &text);
     void setPercentText2(const std::string &text);
     void setProgress2Visible(bool visible);
+    void onExit() override;
 
 private:
     void bindHeaderController(const Node *allNodes) override {}

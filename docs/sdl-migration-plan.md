@@ -130,6 +130,12 @@ incremental and does not accidentally replace launcher behavior.
   `game-menu render-intent` that the future SDL renderer can draw without
   depending on Cocos widget names. Cocos remains a temporary display shell for
   this component until the SDL renderer path is visible.
+- Message boxes and simple progress boxes now mirror their SDLUI state while
+  the Cocos form still renders them. SDLUI records show/close sessions,
+  captions, body text lengths, button labels/actions, progress title/content,
+  progress text, percentage updates, and secondary progress visibility through
+  the unified `sdl-ui` log, giving the future SDLUI renderer the same state
+  boundary without depending on Cocos callbacks.
 - UI replacement should continue by extracting each `/root/krkr2/ui` Cocos
   Studio form into an SDLUI model that reuses the old images, fonts, locale
   strings, and CSD layout data rather than introducing Qt/wxWidgets on Android

@@ -58,6 +58,27 @@ struct TVPSDLUIGameMenuTouchState {
     Uint32 ticks = 0;
 };
 
+struct TVPSDLUIMessageBoxState {
+    bool visible = false;
+    uint64_t session = 0;
+    std::string caption;
+    std::string text;
+    std::vector<std::string> buttons;
+};
+
+struct TVPSDLUIProgressState {
+    bool visible = false;
+    uint64_t session = 0;
+    std::string title;
+    std::string content;
+    std::string progressText1;
+    std::string progressText2;
+    float percent1 = 0.0f;
+    float percent2 = 0.0f;
+    bool progress2Visible = true;
+    std::vector<std::string> buttons;
+};
+
 struct TVPSDLUIState {
     bool assetsRegistered = false;
     std::string sourceRoot;
@@ -84,6 +105,9 @@ struct TVPSDLUIState {
     TVPSDLUIGameMenuTouchState gameMenuTouch;
     std::string lastQueuedAction;
     Uint32 lastQueuedTicks = 0;
+
+    TVPSDLUIMessageBoxState messageBox;
+    TVPSDLUIProgressState progress;
 };
 
 std::mutex gSDLUIMutex;
@@ -93,12 +117,20 @@ std::atomic_uint64_t gSDLUIMenuActionSequence{0};
 std::atomic_uint64_t gSDLUIInputSequence{0};
 std::atomic_uint64_t gSDLUIMenuQueuedActionSequence{0};
 std::atomic_uint64_t gSDLUIMenuDequeuedActionSequence{0};
+std::atomic_uint64_t gSDLUIMessageActionSequence{0};
+std::atomic_uint64_t gSDLUIProgressUpdateSequence{0};
 
 std::string SafeString(const char *value) {
     return value ? std::string(value) : std::string();
 }
 
 const char *BoolString(bool value) { return value ? "1" : "0"; }
+
+std::string ShortLogString(const std::string &value, size_t maxChars = 96) {
+    if(value.size() <= maxChars)
+        return value;
+    return value.substr(0, maxChars) + "...";
+}
 
 void LogSDLUI(const char *message) {
     TVPNativeLogInfo("sdl-ui", message ? message : "");
@@ -110,6 +142,16 @@ std::string JoinTemplateNames(const std::vector<TVPSDLUITemplate> &templates) {
         if(i)
             result += ",";
         result += templates[i].name;
+    }
+    return result;
+}
+
+std::string JoinStrings(const std::vector<std::string> &values) {
+    std::string result;
+    for(size_t i = 0; i < values.size(); ++i) {
+        if(i)
+            result += "|";
+        result += ShortLogString(values[i], 48);
     }
     return result;
 }
@@ -801,4 +843,282 @@ void TVPSDLUIRecordGameMenuAction(const char *actionName, bool shrinked,
         static_cast<unsigned>(SDL_GetTicks()));
     LogSDLUI(message);
     LogGameMenuRenderIntent(snapshot, actionName, sequence, initialized);
+}
+
+void TVPSDLUIRecordMessageBoxShow(const char *caption, const char *text,
+                                  int buttonCount,
+                                  const char *const *buttonTexts) {
+    TVPSDLInitializeRuntime();
+    std::vector<std::string> buttons;
+    if(buttonCount > 0 && buttonTexts) {
+        buttons.reserve(static_cast<size_t>(buttonCount));
+        for(int i = 0; i < buttonCount; ++i) {
+            buttons.emplace_back(SafeString(buttonTexts[i]));
+        }
+    }
+
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        gSDLUIState.messageBox.visible = true;
+        session = ++gSDLUIState.messageBox.session;
+        gSDLUIState.messageBox.caption = SafeString(caption);
+        gSDLUIState.messageBox.text = SafeString(text);
+        gSDLUIState.messageBox.buttons = buttons;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    const std::string safeCaption = ShortLogString(SafeString(caption));
+    const std::string safeText = ShortLogString(SafeString(text));
+    const std::string joinedButtons = JoinStrings(buttons);
+    char message[1024];
+    std::snprintf(
+        message, sizeof(message),
+        "message-box show session=%llu template=message-box captionLen=%zu "
+        "textLen=%zu buttons=%zu [%s] caption=%s text=%s events=%d video=%d "
+        "audio=%d ticks=%u",
+        static_cast<unsigned long long>(session), SafeString(caption).size(),
+        SafeString(text).size(), buttons.size(), joinedButtons.c_str(),
+        safeCaption.c_str(), safeText.c_str(),
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordMessageBoxAction(int buttonIndex, const char *source) {
+    TVPSDLInitializeRuntime();
+    const uint64_t sequence =
+        gSDLUIMessageActionSequence.fetch_add(1, std::memory_order_relaxed) +
+        1;
+    uint64_t session = 0;
+    size_t buttonCount = 0;
+    std::string buttonText;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.messageBox.session;
+        buttonCount = gSDLUIState.messageBox.buttons.size();
+        if(buttonIndex >= 0 &&
+           static_cast<size_t>(buttonIndex) <
+               gSDLUIState.messageBox.buttons.size()) {
+            buttonText = gSDLUIState.messageBox.buttons[buttonIndex];
+        }
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[512];
+    std::snprintf(
+        message, sizeof(message),
+        "message-box action #%llu session=%llu button=%d buttonText=%s "
+        "buttonCount=%zu source=%s events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(sequence),
+        static_cast<unsigned long long>(session), buttonIndex,
+        ShortLogString(buttonText, 48).c_str(), buttonCount,
+        source ? source : "", (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordMessageBoxClose(const char *reason) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.messageBox.session;
+        gSDLUIState.messageBox.visible = false;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[320];
+    std::snprintf(message, sizeof(message),
+                  "message-box close session=%llu reason=%s events=%d "
+                  "video=%d audio=%d ticks=%u",
+                  static_cast<unsigned long long>(session),
+                  reason ? reason : "",
+                  (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordProgressShow(const char *source) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        gSDLUIState.progress.visible = true;
+        session = ++gSDLUIState.progress.session;
+        gSDLUIState.progress.title.clear();
+        gSDLUIState.progress.content.clear();
+        gSDLUIState.progress.progressText1.clear();
+        gSDLUIState.progress.progressText2.clear();
+        gSDLUIState.progress.percent1 = 0.0f;
+        gSDLUIState.progress.percent2 = 0.0f;
+        gSDLUIState.progress.progress2Visible = true;
+        gSDLUIState.progress.buttons.clear();
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(message, sizeof(message),
+                  "progress-box show session=%llu template=progress-box "
+                  "source=%s events=%d video=%d audio=%d ticks=%u",
+                  static_cast<unsigned long long>(session),
+                  source ? source : "",
+                  (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordProgressButtons(int buttonCount,
+                                   const char *const *buttonTexts) {
+    TVPSDLInitializeRuntime();
+    std::vector<std::string> buttons;
+    if(buttonCount > 0 && buttonTexts) {
+        buttons.reserve(static_cast<size_t>(buttonCount));
+        for(int i = 0; i < buttonCount; ++i) {
+            buttons.emplace_back(SafeString(buttonTexts[i]));
+        }
+    }
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.progress.session;
+        gSDLUIState.progress.buttons = buttons;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    const std::string joinedButtons = JoinStrings(buttons);
+    char message[512];
+    std::snprintf(message, sizeof(message),
+                  "progress-box buttons session=%llu count=%zu [%s] "
+                  "events=%d video=%d audio=%d ticks=%u",
+                  static_cast<unsigned long long>(session), buttons.size(),
+                  joinedButtons.c_str(),
+                  (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordProgressText(const char *fieldName, const char *text) {
+    TVPSDLInitializeRuntime();
+    const std::string field = SafeString(fieldName);
+    const std::string value = SafeString(text);
+    uint64_t session = 0;
+    const uint64_t sequence =
+        gSDLUIProgressUpdateSequence.fetch_add(1, std::memory_order_relaxed) +
+        1;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.progress.session;
+        if(field == "title")
+            gSDLUIState.progress.title = value;
+        else if(field == "content")
+            gSDLUIState.progress.content = value;
+        else if(field == "progress_text_1")
+            gSDLUIState.progress.progressText1 = value;
+        else if(field == "progress_text_2")
+            gSDLUIState.progress.progressText2 = value;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[512];
+    std::snprintf(
+        message, sizeof(message),
+        "progress-box text #%llu session=%llu field=%s len=%zu value=%s "
+        "events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(sequence),
+        static_cast<unsigned long long>(session), field.c_str(), value.size(),
+        ShortLogString(value).c_str(),
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordProgressPercent(const char *fieldName, float percent) {
+    TVPSDLInitializeRuntime();
+    const std::string field = SafeString(fieldName);
+    uint64_t session = 0;
+    const uint64_t sequence =
+        gSDLUIProgressUpdateSequence.fetch_add(1, std::memory_order_relaxed) +
+        1;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.progress.session;
+        if(field == "percent_1")
+            gSDLUIState.progress.percent1 = percent;
+        else if(field == "percent_2")
+            gSDLUIState.progress.percent2 = percent;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(message, sizeof(message),
+                  "progress-box percent #%llu session=%llu field=%s "
+                  "percent=%.3f events=%d video=%d audio=%d ticks=%u",
+                  static_cast<unsigned long long>(sequence),
+                  static_cast<unsigned long long>(session), field.c_str(),
+                  percent, (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordProgressVisible(const char *fieldName, bool visible) {
+    TVPSDLInitializeRuntime();
+    const std::string field = SafeString(fieldName);
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.progress.session;
+        if(field == "progress_2")
+            gSDLUIState.progress.progress2Visible = visible;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(message, sizeof(message),
+                  "progress-box visible session=%llu field=%s visible=%d "
+                  "events=%d video=%d audio=%d ticks=%u",
+                  static_cast<unsigned long long>(session), field.c_str(),
+                  visible ? 1 : 0,
+                  (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
+}
+
+void TVPSDLUIRecordProgressClose(const char *reason) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLUIMutex);
+        session = gSDLUIState.progress.session;
+        gSDLUIState.progress.visible = false;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[320];
+    std::snprintf(message, sizeof(message),
+                  "progress-box close session=%llu reason=%s events=%d "
+                  "video=%d audio=%d ticks=%u",
+                  static_cast<unsigned long long>(session),
+                  reason ? reason : "",
+                  (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                  (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                  (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+                  static_cast<unsigned>(SDL_GetTicks()));
+    LogSDLUI(message);
 }

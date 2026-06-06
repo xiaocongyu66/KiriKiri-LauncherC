@@ -28,3 +28,15 @@ void TVPSDLUIQueueGameMenuAction(const char *actionName, const char *source,
 bool TVPSDLUIPollGameMenuAction(char *actionName, size_t actionNameSize);
 void TVPSDLUIRecordGameMenuAction(const char *actionName, bool shrinked,
                                   bool mouseIcon);
+void TVPSDLUIRecordMessageBoxShow(const char *caption, const char *text,
+                                  int buttonCount,
+                                  const char *const *buttonTexts);
+void TVPSDLUIRecordMessageBoxAction(int buttonIndex, const char *source);
+void TVPSDLUIRecordMessageBoxClose(const char *reason);
+void TVPSDLUIRecordProgressShow(const char *source);
+void TVPSDLUIRecordProgressButtons(int buttonCount,
+                                   const char *const *buttonTexts);
+void TVPSDLUIRecordProgressText(const char *fieldName, const char *text);
+void TVPSDLUIRecordProgressPercent(const char *fieldName, float percent);
+void TVPSDLUIRecordProgressVisible(const char *fieldName, bool visible);
+void TVPSDLUIRecordProgressClose(const char *reason);
