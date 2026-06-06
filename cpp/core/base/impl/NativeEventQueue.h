@@ -2,7 +2,12 @@
 #ifndef __NATIVE_EVENT_QUEUE_H__
 #define __NATIVE_EVENT_QUEUE_H__
 
+#include <cstdint>
+#include <memory>
+
 // 呼び出されるハンドラがシングルスレッドで動作するイベントキュー
+
+class NativeEventQueueState;
 
 class NativeEvent {
 public:
@@ -40,6 +45,7 @@ class NativeEventQueueImplement /* : public
 {
     //	HWND window_handle_;
     //	WNDCLASSEX	wc_;
+    std::shared_ptr<NativeEventQueueState> state_;
 
     int CreateUtilWindow();
     //	static LRESULT WINAPI WndProc( HWND hWnd, UINT msg, WPARAM
@@ -47,16 +53,17 @@ class NativeEventQueueImplement /* : public
     // LPARAM lParam );
 
 public:
-    //	NativeEventQueueImplement() : window_handle_(nullptr) {}
+    NativeEventQueueImplement();
+    virtual ~NativeEventQueueImplement();
 
     // デフォルトハンドラ
     void HandlerDefault(NativeEvent &event) {}
 
     // Queue の生成
-    void Allocate() {}
+    void Allocate();
 
     // Queue の削除
-    void Deallocate() {}
+    void Deallocate();
 
     void PostEvent(const NativeEvent &event);
 
@@ -65,6 +72,8 @@ public:
     //	void* GetOwner() { return window_handle_; }
     virtual void Dispatch(class NativeEvent &event) = 0;
 };
+
+void TVPProcessNativeEventQueue();
 
 template <typename T>
 class NativeEventQueue : public NativeEventQueueImplement {

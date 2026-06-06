@@ -18,6 +18,7 @@ namespace {
 std::once_flag gSDLRuntimeInitOnce;
 bool gSDLRuntimeInitialized = false;
 std::string gSDLRuntimeError;
+std::atomic_uint64_t gSDLLifecycleEventSequence{0};
 std::atomic_uint64_t gSDLInputEventSequence{0};
 
 std::string FormatVersion(const SDL_version &version) {
@@ -122,6 +123,25 @@ TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo() {
     info.videoReady = (initialized & SDL_INIT_VIDEO) != 0;
     info.audioReady = (initialized & SDL_INIT_AUDIO) != 0;
     return info;
+}
+
+void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
+    TVPSDLInitializeRuntime();
+    const uint64_t sequence =
+        gSDLLifecycleEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const Uint32 initialized = SDL_WasInit(0);
+
+    char message[384];
+    std::snprintf(
+        message, sizeof(message),
+        "#%llu event=%s detail=%s events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(sequence),
+        eventName ? eventName : "", detail ? detail : "",
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-lifecycle", message);
 }
 
 void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,

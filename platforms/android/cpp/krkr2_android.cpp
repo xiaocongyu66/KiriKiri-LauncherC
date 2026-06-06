@@ -94,6 +94,18 @@ namespace kr2android {
 void Android_PushEvents(const std::function<void()> &func);
 
 using namespace kr2android;
+
+static std::string JStringToStdString(JNIEnv *env, jstring value) {
+    if(!value)
+        return {};
+    const char *chars = env->GetStringUTFChars(value, nullptr);
+    if(!chars)
+        return {};
+    std::string result(chars);
+    env->ReleaseStringUTFChars(value, chars);
+    return result;
+}
+
 extern "C" {
 void Java_org_tvp_kirikiri2_KR2Activity_initDump(JNIEnv *env, jclass cls,
                                                  jstring path) {
@@ -146,6 +158,15 @@ Java_org_tvp_kirikiri2_KR2Activity_configureFileLogging(JNIEnv *env, jclass,
     std::string message = std::string("configureFileLogging enabled=") +
         (enabled == JNI_TRUE ? "1" : "0") + " path=" + logFilePath;
     TVPAppendNativeFatalBreadcrumb("log", message.c_str());
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_KR2Activity_nativeLifecycleEvent(JNIEnv *env, jclass,
+                                                        jstring eventName,
+                                                        jstring detail) {
+    const std::string eventNameValue = JStringToStdString(env, eventName);
+    const std::string detailValue = JStringToStdString(env, detail);
+    TVPSDLRecordAndroidLifecycle(eventNameValue.c_str(), detailValue.c_str());
 }
 
 void Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxOK(JNIEnv *env, jclass cls,

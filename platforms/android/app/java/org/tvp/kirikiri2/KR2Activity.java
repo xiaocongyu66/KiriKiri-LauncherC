@@ -91,29 +91,46 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
     @SuppressLint("StaticFieldLeak")
     static public KR2Activity sInstance;
+    private static volatile boolean sNativeLifecycleReady = false;
 
     static public KR2Activity GetInstance() {
         return sInstance;
     }
 
     private void writeLifecycleLog(String message) {
+        String detail = "thread=" + Thread.currentThread().getName();
         try {
             org.github.krkr2.LauncherPrefs.INSTANCE.writeLauncherLog(
                 this,
-                "KR2Activity." + message + " thread=" + Thread.currentThread().getName(),
+                "KR2Activity." + message + " " + detail,
                 null);
         } catch (Throwable t) {
             Log.w("KR2Activity", "writeLifecycleLog failed", t);
+        }
+        writeNativeLifecycleLog("KR2Activity." + message, detail);
+    }
+
+    protected void writeNativeLifecycleLog(String eventName, String detail) {
+        if (!sNativeLifecycleReady) {
+            return;
+        }
+        try {
+            nativeLifecycleEvent(eventName, detail);
+        } catch (UnsatisfiedLinkError ignored) {
+        } catch (Throwable t) {
+            Log.w("KR2Activity", "writeNativeLifecycleLog failed", t);
         }
     }
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        sNativeLifecycleReady = false;
         writeLifecycleLog("onCreate#enter saved=" + (savedInstanceState != null));
         super.onCreate(savedInstanceState);
         writeLifecycleLog("onCreate#after-super");
         sInstance = this;
         initDump(this.getFilesDir().getAbsolutePath() + "/dump");
+        sNativeLifecycleReady = true;
         writeLifecycleLog("onCreate#initDump path=" + this.getFilesDir().getAbsolutePath() + "/dump");
     }
 
@@ -157,6 +174,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     static private native void initDump(String path);
 
     static private native void nativeOnLowMemory();
+
+    static private native void nativeLifecycleEvent(String eventName, String detail);
 
     public static native void setUseFFmpegImageDecoder(boolean enabled);
 

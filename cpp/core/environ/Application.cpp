@@ -27,6 +27,7 @@
 #include "GraphicsLoadThread.h"
 #include "Platform.h"
 #include "EventIntf.h"
+#include "NativeEventQueue.h"
 #include <thread>
 #include "ConfigManager/LocaleConfigManager.h"
 #include "StorageIntf.h"
@@ -567,6 +568,8 @@ void tTVPApplication::Run() {
 }
 
 void tTVPApplication::ProcessMessages() {
+    TVPProcessNativeEventQueue();
+
     std::vector<std::tuple<void *, int, tMsg>> lstUserMsg;
     {
         std::lock_guard<std::mutex> cs(m_msgQueueLock);

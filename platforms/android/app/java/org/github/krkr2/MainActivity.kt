@@ -30,11 +30,14 @@ class MainActivity : KR2Activity() {
     private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
 
     private fun logLifecycle(message: String, throwable: Throwable? = null) {
+        val detail =
+            "gameDir=${launchExtra(EXTRA_GAME_DIR)} launchFile=${launchExtra(EXTRA_LAUNCH_FILE)} thread=${Thread.currentThread().name}"
         LauncherPrefs.writeLauncherLog(
             this,
-            "MainActivity.$message gameDir=${launchExtra(EXTRA_GAME_DIR)} launchFile=${launchExtra(EXTRA_LAUNCH_FILE)} thread=${Thread.currentThread().name}",
+            "MainActivity.$message $detail",
             throwable,
         )
+        writeNativeLifecycleLog("MainActivity.$message", detail)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
