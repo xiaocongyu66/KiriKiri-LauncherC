@@ -88,6 +88,14 @@ static bool _startupFirstDrawBufferLogged = false;
 static void (*_postUpdate)() = nullptr;
 static void (*_postDrawHook)() = nullptr;
 
+static void TVPAddStartupConsoleLine(const ttstr &line, bool important) {
+    if(_consoleWin)
+        _consoleWin->addLine(line,
+                             important ? Color3B::YELLOW : Color3B::GRAY);
+    std::string text = line.AsStdString();
+    TVPSDLRecordLoadingConsoleLine(text.c_str(), important);
+}
+
 void TVPSetPostUpdateEvent(void (*f)()) { _postUpdate = f; }
 void TVPSetPostDrawHook(void (*hook)()) { _postDrawHook = hook; }
 
@@ -2163,10 +2171,15 @@ void TVPMainScene::showStartupConsole(const std::string &path) {
         GameNode->addChild(_consoleWin, GAME_CONSOLE_ORDER);
     }
 
-    _consoleWin->addLine(ttstr(TJS_W("[launcher] preparing game startup")),
-                         Color3B::YELLOW);
-    _consoleWin->addLine(ttstr(TJS_W("[launcher] loading console ready")),
-                         Color3B::GRAY);
+    TVPSDLRecordLoadingConsoleShow(
+        path.c_str(), static_cast<int>(screenSize.width),
+        static_cast<int>(screenSize.height),
+        static_cast<int>(getContentSize().width),
+        static_cast<int>(getContentSize().height), scale);
+    TVPAddStartupConsoleLine(ttstr(TJS_W("[launcher] preparing game startup")),
+                             true);
+    TVPAddStartupConsoleLine(ttstr(TJS_W("[launcher] loading console ready")),
+                             false);
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF(
         "startup-console-show frame=%.0fx%.0f scene=%.0fx%.0f scale=%.3f "
@@ -2192,6 +2205,7 @@ void TVPMainScene::hideStartupConsole(const char *reason) {
 #endif
     _consoleWin->removeFromParent();
     _consoleWin = nullptr;
+    TVPSDLRecordLoadingConsoleHide(reason);
     scheduleUpdate();
 
     cocos2d::Director::getInstance()->purgeCachedData();
@@ -3015,7 +3029,7 @@ void TVPConsoleLog(const ttstr &l, bool important) {
     if(!TVPLoggingToConsole)
         return;
     if(_consoleWin) {
-        _consoleWin->addLine(l, important ? Color3B::YELLOW : Color3B::GRAY);
+        TVPAddStartupConsoleLine(l, important);
         TVPDrawSceneOnce(100); // force update in 10fps
     }
     if(auto logger = spdlog::get("tjs2"))

@@ -17,12 +17,16 @@
 #endif
 
 #include "DebugIntf.h"
+#include "NativeLog.h"
 #include "SysInitIntf.h"
 #include "TickCount.h"
 #include "WaveImpl.h"
 #include <SDL2/SDL.h>
 #include <algorithm>
 #include <assert.h>
+#include <atomic>
+#include <cstdarg>
+#include <cstdio>
 #include <iomanip>
 #include <math.h>
 #include <sstream>
@@ -32,6 +36,25 @@
 class iTVPAudioRenderer;
 
 static iTVPAudioRenderer *TVPAudioRenderer;
+static std::atomic_uint64_t gSDLAudioStreamSequence{0};
+
+static const char *TVPSafeAudioString(const char *value) {
+    return value ? value : "";
+}
+
+static void TVPLogSDLAudioF(const char *fmt, ...) {
+    char message[512];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(message, sizeof(message), fmt, ap);
+    va_end(ap);
+    TVPNativeLogInfo("sdl-audio", message);
+}
+
+static bool TVPShouldLogAudioStream(uint64_t sequence) {
+    return sequence <= 16 || sequence == 32 || sequence == 64 ||
+        (sequence % 128) == 0;
+}
 
 template <int ch>
 void MixAudioS16CPP(void *dst, const void *src, int samples, int16_t *volume) {
@@ -254,11 +277,20 @@ public:
         _frame_size = 4;
     }
 
-    void InitMixer() {
-        if(SDL_Init(SDL_INIT_AUDIO) < 0) { // for format converter
+    virtual ~iTVPAudioRenderer() = default;
+
+    bool InitMixer() {
+        SDL_SetMainReady();
+        if(SDL_InitSubSystem(SDL_INIT_AUDIO) < 0) {
+            TVPLogSDLAudioF("subsystem failed error=%s",
+                            TVPSafeAudioString(SDL_GetError()));
             SDL_Log("Fail to initialize audio.");
-            return;
+            return false;
         }
+        TVPLogSDLAudioF("subsystem ready driver=%s initialized=0x%x",
+                        TVPSafeAudioString(SDL_GetCurrentAudioDriver()),
+                        static_cast<unsigned>(SDL_WasInit(0)));
+        return true;
     }
 
     FAudioMix *DoMixAudio;
@@ -276,7 +308,12 @@ public:
 
     virtual bool Init() = 0;
 
+    virtual const char *BackendName() const { return "unknown"; }
+
     virtual tTVPSoundBuffer *CreateStream(tTVPWaveFormat &fmt, int bufcount) {
+        const uint64_t sequence =
+            gSDLAudioStreamSequence.fetch_add(1, std::memory_order_relaxed) +
+            1;
         SDL_AudioSpec spec;
         memset(&spec, 0, sizeof(spec));
         spec.freq = fmt.SamplesPerSec;
@@ -295,6 +332,12 @@ public:
                     spec.format = AUDIO_S32LSB;
                     break;
                 default:
+                    TVPLogSDLAudioF("stream failed seq=%llu backend=%s "
+                                    "reason=unsupported-bits bits=%d "
+                                    "channels=%d freq=%d",
+                                    static_cast<unsigned long long>(sequence),
+                                    BackendName(), fmt.BitsPerSample,
+                                    fmt.Channels, fmt.SamplesPerSec);
                     return nullptr;
             }
         }
@@ -306,6 +349,17 @@ public:
                 SDL_BuildAudioCVT(cvt, spec.format, spec.channels, spec.freq,
                                   _spec.format, _spec.channels, _spec.freq);
             if(err != 1) {
+                TVPLogSDLAudioF("stream failed seq=%llu backend=%s "
+                                "reason=cvt srcFreq=%d srcFormat=0x%x "
+                                "srcChannels=%d dstFreq=%d dstFormat=0x%x "
+                                "dstChannels=%d err=%d sdlError=%s",
+                                static_cast<unsigned long long>(sequence),
+                                BackendName(), spec.freq,
+                                static_cast<unsigned>(spec.format),
+                                spec.channels, _spec.freq,
+                                static_cast<unsigned>(_spec.format),
+                                _spec.channels, err,
+                                TVPSafeAudioString(SDL_GetError()));
                 delete cvt;
                 return nullptr;
             }
@@ -315,12 +369,28 @@ public:
             new tTVPSoundBuffer(fmt.BytesPerSample * fmt.Channels, cvt);
         std::lock_guard<std::mutex> lk(_streams_mtx);
         _streams.emplace(s);
+        if(TVPShouldLogAudioStream(sequence)) {
+            TVPLogSDLAudioF("stream create seq=%llu backend=%s buffer=%p "
+                            "bufcount=%d srcFreq=%d srcFormat=0x%x "
+                            "srcChannels=%d bits=%d isFloat=%d dstFreq=%d "
+                            "dstFormat=0x%x dstChannels=%d cvt=%d",
+                            static_cast<unsigned long long>(sequence),
+                            BackendName(), static_cast<void *>(s), bufcount,
+                            spec.freq, static_cast<unsigned>(spec.format),
+                            spec.channels, fmt.BitsPerSample,
+                            fmt.IsFloat ? 1 : 0, _spec.freq,
+                            static_cast<unsigned>(_spec.format),
+                            _spec.channels, cvt ? 1 : 0);
+        }
         return s;
     }
 
     void ReleaseStream(tTVPSoundBuffer *s) {
         std::lock_guard<std::mutex> lk(_streams_mtx);
         _streams.erase(s);
+        TVPLogSDLAudioF("stream release backend=%s buffer=%p remaining=%zu",
+                        BackendName(), static_cast<void *>(s),
+                        _streams.size());
     }
 
     void FillBuffer(Uint8 *buf, int len) {
@@ -344,7 +414,8 @@ public:
 
 tTVPSoundBuffer::~tTVPSoundBuffer() {
     Stop();
-    TVPAudioRenderer->ReleaseStream(this);
+    if(TVPAudioRenderer)
+        TVPAudioRenderer->ReleaseStream(this);
     if(_cvt)
         delete _cvt;
 }
@@ -389,14 +460,34 @@ void tTVPSoundBuffer::FillBuffer(uint8_t *out, int len) {
 }
 
 class tTVPAudioRendererSDL : public iTVPAudioRenderer {
-    SDL_AudioDeviceID _playback_id;
+    SDL_AudioDeviceID _playback_id = 0;
 
 public:
+    const char *BackendName() const override { return "SDL"; }
+
+    ~tTVPAudioRendererSDL() override {
+        if(_playback_id > 0) {
+            SDL_PauseAudioDevice(_playback_id, 1);
+            SDL_CloseAudioDevice(_playback_id);
+            TVPLogSDLAudioF("close backend=SDL device=%u",
+                            static_cast<unsigned>(_playback_id));
+            _playback_id = 0;
+        }
+    }
+
     bool Init() override {
-        InitMixer();
+        TVPLogSDLAudioF("try backend=SDL requestFreq=%d requestFormat=0x%x "
+                        "requestChannels=%d",
+                        _spec.freq, static_cast<unsigned>(_spec.format),
+                        _spec.channels);
+        if(!InitMixer())
+            return false;
         _playback_id = SDL_OpenAudioDevice(nullptr, false, &_spec, &_spec,
                                            SDL_AUDIO_ALLOW_ANY_CHANGE);
         if(_playback_id <= 0) {
+            TVPLogSDLAudioF("failed backend=SDL freq=%d error=%s",
+                            _spec.freq,
+                            TVPSafeAudioString(SDL_GetError()));
             SDL_Log("Fail to open audio @%dHz.", _spec.freq);
             return false;
         }
@@ -404,6 +495,13 @@ public:
         SDL_Log("Audio Device: %s", SDL_GetCurrentAudioDriver());
         SDL_PauseAudioDevice(_playback_id, false);
         SetupMixer();
+        TVPLogSDLAudioF("ready backend=SDL device=%u driver=%s freq=%d "
+                        "format=0x%x channels=%d samples=%u frameSize=%d",
+                        static_cast<unsigned>(_playback_id),
+                        TVPSafeAudioString(SDL_GetCurrentAudioDriver()),
+                        _spec.freq, static_cast<unsigned>(_spec.format),
+                        _spec.channels, static_cast<unsigned>(_spec.samples),
+                        _frame_size);
         return true;
     }
 };
@@ -415,12 +513,20 @@ class tTVPAudioRendererOboe : public iTVPAudioRenderer,
     oboe::AudioStream *_oboeAudioStream = nullptr;
 
 public:
-    virtual ~tTVPAudioRendererOboe() {
-        if(_oboeAudioStream)
+    const char *BackendName() const override { return "Oboe"; }
+
+    ~tTVPAudioRendererOboe() override {
+        if(_oboeAudioStream) {
+            _oboeAudioStream->requestStop();
+            _oboeAudioStream->close();
             delete _oboeAudioStream;
+            _oboeAudioStream = nullptr;
+            TVPLogSDLAudioF("close backend=Oboe");
+        }
     }
 
     bool Init() override {
+        TVPLogSDLAudioF("try backend=Oboe");
         InitMixer();
         // Create a builder
         oboe::AudioStreamBuilder builder;
@@ -451,8 +557,14 @@ public:
             _oboeAudioStream->requestStart();
             SDL_Log("Audio Device: Oboe @%dHz", _spec.freq);
             SetupMixer();
+            TVPLogSDLAudioF("ready backend=Oboe freq=%d format=0x%x "
+                            "channels=%d frameSize=%d",
+                            _spec.freq, static_cast<unsigned>(_spec.format),
+                            _spec.channels, _frame_size);
             return true;
         }
+        TVPLogSDLAudioF("failed backend=Oboe result=%d",
+                        static_cast<int>(result));
         SDL_Log("Fail to open Oboe audio");
         // SetupSDL();
         return false;
@@ -705,6 +817,8 @@ class tTVPAudioRendererAL : public iTVPAudioRenderer {
     ALCcontext *_context = nullptr;
 
 public:
+    const char *BackendName() const override { return "OpenAL"; }
+
     virtual ~tTVPAudioRendererAL() {
         if(_context) {
             // alDeleteSources(TVP_MAX_AUDIO_COUNT, _alSources);
@@ -713,9 +827,11 @@ public:
         }
         if(_device)
             alcCloseDevice(_device);
+        TVPLogSDLAudioF("close backend=OpenAL");
     }
 
     bool Init() override {
+        TVPLogSDLAudioF("try backend=OpenAL");
         ALboolean enumeration =
             alcIsExtensionPresent(nullptr, "ALC_ENUMERATION_EXT");
         if(enumeration == AL_FALSE) {
@@ -727,25 +843,51 @@ public:
                 alcGetString(nullptr, ALC_DEVICE_SPECIFIER);
             std::vector<std::string> alldev;
             ttstr log(TJS_W("(info) Sound Driver/Device found : "));
-            while(*devices) {
+            while(devices && *devices) {
                 TVPAddImportantLog(log + devices);
                 alldev.emplace_back(devices);
                 devices += alldev.back().length();
             }
-            _device = alcOpenDevice(alldev[0].c_str());
+            _device =
+                alldev.empty() ? alcOpenDevice(nullptr)
+                               : alcOpenDevice(alldev[0].c_str());
         }
-        if(!_device)
+        if(!_device) {
+            TVPLogSDLAudioF("failed backend=OpenAL device=null");
             return false;
+        }
 
         _context = alcCreateContext(_device, nullptr);
+        if(!_context) {
+            TVPLogSDLAudioF("failed backend=OpenAL context=null device=%s",
+                            TVPSafeAudioString(
+                                alcGetString(_device, ALC_DEVICE_SPECIFIER)));
+            return false;
+        }
         alcMakeContextCurrent(_context);
 
+        TVPLogSDLAudioF("ready backend=OpenAL device=%s",
+                        TVPSafeAudioString(
+                            alcGetString(_device, ALC_DEVICE_SPECIFIER)));
         return true;
     }
 
     tTVPSoundBuffer *CreateStream(tTVPWaveFormat &fmt, int bufcount) override {
+        const uint64_t sequence =
+            gSDLAudioStreamSequence.fetch_add(1, std::memory_order_relaxed) +
+            1;
         tTVPSoundBuffer *s = new tTVPSoundBufferAL(fmt, bufcount);
+        std::lock_guard<std::mutex> lk(_streams_mtx);
         _streams.emplace(s);
+        if(TVPShouldLogAudioStream(sequence)) {
+            TVPLogSDLAudioF("stream create seq=%llu backend=OpenAL "
+                            "buffer=%p bufcount=%d freq=%d channels=%d "
+                            "bits=%d bytesPerSample=%d",
+                            static_cast<unsigned long long>(sequence),
+                            static_cast<void *>(s), bufcount,
+                            fmt.SamplesPerSec, fmt.Channels,
+                            fmt.BitsPerSample, fmt.BytesPerSample);
+        }
         return s;
     }
 
@@ -768,34 +910,83 @@ void tTVPSoundBufferAL::checkerr(const char *funcname) {
 
 static iTVPAudioRenderer *CreateAudioRenderer() {
     iTVPAudioRenderer *renderer = nullptr;
+    TVPLogSDLAudioF("create renderer begin initialized=0x%x driver=%s",
+                    static_cast<unsigned>(SDL_WasInit(0)),
+                    TVPSafeAudioString(SDL_GetCurrentAudioDriver()));
+
+    renderer = new tTVPAudioRendererSDL;
+    if(renderer->Init()) {
+        TVPLogSDLAudioF("create renderer selected backend=SDL");
+        return renderer;
+    }
+    TVPLogSDLAudioF("fallback from=SDL to=%s",
+#ifdef __ANDROID__
+                    "Oboe"
+#else
+                    "OpenAL"
+#endif
+    );
+    delete renderer;
+    renderer = nullptr;
+
 #ifdef __ANDROID__
     renderer = new tTVPAudioRendererOboe;
-    if(renderer->Init())
+    if(renderer->Init()) {
+        TVPLogSDLAudioF("create renderer selected backend=Oboe");
         return renderer;
+    }
+    TVPLogSDLAudioF("fallback from=Oboe to=OpenAL");
     delete renderer;
-#elif defined(_MSC_VER) && 0
-    renderer = new tTVPAudioRendererSDL;
-    renderer->Init();
-    return renderer;
 #endif
     renderer = new tTVPAudioRendererAL;
-    renderer->Init();
-    return renderer;
+    if(renderer->Init()) {
+        TVPLogSDLAudioF("create renderer selected backend=OpenAL");
+        return renderer;
+    }
+    TVPLogSDLAudioF("create renderer failed all backends");
+    delete renderer;
+    return nullptr;
 }
 
 void TVPInitDirectSound(int freq) {
     if(!TVPAudioRenderer) {
+        TVPLogSDLAudioF("init requested freq=%d", freq);
         TVPAudioRenderer = CreateAudioRenderer();
+        TVPLogSDLAudioF("init result renderer=%p",
+                        static_cast<void *>(TVPAudioRenderer));
     }
     // TVPInitSoundOptions();
 }
 
 void TVPUninitDirectSound() {
-    // nothing to do
+    TVPLogSDLAudioF("uninit requested renderer=%p",
+                    static_cast<void *>(TVPAudioRenderer));
+    delete TVPAudioRenderer;
+    TVPAudioRenderer = nullptr;
 }
 
 iTVPSoundBuffer *TVPCreateSoundBuffer(tTVPWaveFormat &fmt, int bufcount) {
-    return TVPAudioRenderer->CreateStream(fmt, bufcount);
+    if(!TVPAudioRenderer) {
+        TVPLogSDLAudioF("create sound buffer with null renderer; "
+                        "initializing");
+        TVPInitDirectSound(fmt.SamplesPerSec);
+    }
+    if(!TVPAudioRenderer) {
+        TVPLogSDLAudioF("create sound buffer failed renderer=null freq=%d "
+                        "channels=%d bits=%d bufcount=%d",
+                        fmt.SamplesPerSec, fmt.Channels, fmt.BitsPerSample,
+                        bufcount);
+        return nullptr;
+    }
+    iTVPSoundBuffer *buffer = TVPAudioRenderer->CreateStream(fmt, bufcount);
+    if(!buffer) {
+        TVPLogSDLAudioF("create sound buffer failed backend=%s freq=%d "
+                        "channels=%d bits=%d isFloat=%d bufcount=%d",
+                        TVPAudioRenderer->BackendName(), fmt.SamplesPerSec,
+                        fmt.Channels, fmt.BitsPerSample,
+                        fmt.IsFloat ? 1 : 0, bufcount);
+    }
+    return buffer;
 }
 
 #if 0

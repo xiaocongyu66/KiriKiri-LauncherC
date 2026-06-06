@@ -100,6 +100,21 @@ incremental and does not accidentally replace launcher behavior.
   `LayerManager::DrawCompleted()` records the real completed regions before the
   existing draw-buffer `Blt`. This exposes the future SDL surface update stream
   without changing Cocos presentation.
+- Safe CPU-backed bitmap completion regions are now copied into an SDL-owned
+  `SDL_Surface` mirror tagged `sdl-surface`. The copy path follows the
+  `/root/krkrsdl2` model: validate the destination and source clip, allocate a
+  surface matching the KRKR primary layer size, copy dirty RGBA rows, and keep a
+  union update rectangle for the future SDL texture presenter. Unsupported or
+  failed copies are logged through the unified native log with throttling.
+- The old left yellow/gray startup console remains visible through the existing
+  Cocos `TVPConsoleWindow`, and its state is now mirrored into SDL runtime state
+  tagged `sdl-loading`. `show`, `line`, and `hide` events use the unified native
+  log so the SDL presenter can draw the same loading console once it owns game
+  presentation.
+- Android audio renderer selection now tries the SDL2 audio device first and
+  falls back to Oboe, then OpenAL if SDL cannot open a playback device. Backend
+  selection, device parameters, conversion failures, stream creation, and
+  release events are logged with the unified `sdl-audio` tag.
 - Logs from `20260606202512770.log` show the first-run black interval is
   startup-bound rather than an SDL input failure: Android resumes quickly, SDL
   2.32.10 initializes, input queues drain with `dropped=0`, but the first KRKR

@@ -59,6 +59,11 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
                                         int sourceHeight);
 void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
                                      int sourceWidth, int sourceHeight);
+void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
+                                    int frameHeight, int sceneWidth,
+                                    int sceneHeight, float scale);
+void TVPSDLRecordLoadingConsoleLine(const char *message, bool important);
+void TVPSDLRecordLoadingConsoleHide(const char *reason);
 
 TVPSDLGameLaunchResult
 TVPSDLRunGameLaunch(const TVPSDLGameLaunchCallbacks &callbacks);

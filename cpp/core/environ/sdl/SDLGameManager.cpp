@@ -14,8 +14,10 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <sstream>
+#include <stdexcept>
 
 namespace {
 
@@ -61,6 +63,8 @@ struct TVPSDLBitmapCompletionState {
     uint64_t batch = 0;
     uint64_t regions = 0;
     uint64_t copyReady = 0;
+    uint64_t surfaceCopied = 0;
+    uint64_t surfaceSkipped = 0;
     uint64_t glBacked = 0;
     uint64_t outOfBounds = 0;
     const void *manager = nullptr;
@@ -74,6 +78,37 @@ struct TVPSDLBitmapCompletionState {
 
 std::mutex gSDLBitmapCompletionMutex;
 TVPSDLBitmapCompletionState gSDLBitmapCompletionState;
+
+struct TVPSDLSurfaceMirrorState {
+    SDL_Surface *surface = nullptr;
+    int width = 0;
+    int height = 0;
+    uint64_t creates = 0;
+    uint64_t copiedRegions = 0;
+    uint64_t copiedBytes = 0;
+    uint64_t skippedUnsupported = 0;
+    uint64_t failedCopies = 0;
+    bool hasUpdate = false;
+    tTVPRect updateRect;
+};
+
+std::mutex gSDLSurfaceMirrorMutex;
+TVPSDLSurfaceMirrorState gSDLSurfaceMirrorState;
+
+struct TVPSDLLoadingConsoleLine {
+    std::string message;
+    bool important = false;
+};
+
+struct TVPSDLLoadingConsoleState {
+    bool active = false;
+    uint64_t session = 0;
+    uint64_t totalLines = 0;
+    std::deque<TVPSDLLoadingConsoleLine> lines;
+};
+
+std::mutex gSDLLoadingConsoleMutex;
+TVPSDLLoadingConsoleState gSDLLoadingConsoleState;
 
 struct TVPSDLQueuedInputEvent {
     std::string eventName;
@@ -170,8 +205,16 @@ bool ShouldLogBitmapCompletionBatch(uint64_t batch) {
 
 bool ShouldLogBitmapCompletionRegion(uint64_t globalRegion,
                                      uint64_t batchRegion) {
-    return batchRegion <= 4 || globalRegion <= 16 ||
-        (globalRegion % 512) == 0;
+    return globalRegion <= 16 ||
+        globalRegion == 32 || globalRegion == 64 || globalRegion == 128 ||
+        (globalRegion % 512) == 0 ||
+        (batchRegion > 1 && batchRegion <= 4);
+}
+
+bool ShouldLogSurfaceMirrorCopy(uint64_t copiedRegions) {
+    return copiedRegions <= 8 || copiedRegions == 16 ||
+        copiedRegions == 32 || copiedRegions == 64 ||
+        copiedRegions == 128 || (copiedRegions % 256) == 0;
 }
 
 const char *TextureFormatName(TVPTextureFormat::e format) {
@@ -198,6 +241,22 @@ bool IsDirectCpuProbeFormat(TVPTextureFormat::e format) {
         format == TVPTextureFormat::RGBA;
 }
 
+int TextureBytesPerPixel(TVPTextureFormat::e format) {
+    switch(format) {
+        case TVPTextureFormat::Gray:
+            return 1;
+        case TVPTextureFormat::RGB:
+            return 3;
+        case TVPTextureFormat::RGBA:
+            return 4;
+        case TVPTextureFormat::None:
+        case TVPTextureFormat::Compressed:
+        case TVPTextureFormat::CompressedEnd:
+            break;
+    }
+    return 0;
+}
+
 bool IsBitmapCompletionInBounds(int x, int y, const tTVPRect &clipRect,
                                 int sourceWidth, int sourceHeight,
                                 int bitmapWidth, int bitmapHeight) {
@@ -206,6 +265,204 @@ bool IsBitmapCompletionInBounds(int x, int y, const tTVPRect &clipRect,
         y + clipRect.get_height() <= sourceHeight &&
         clipRect.left >= 0 && clipRect.top >= 0 &&
         clipRect.right <= bitmapWidth && clipRect.bottom <= bitmapHeight;
+}
+
+bool EnsureSDLSurfaceMirrorLocked(int width, int height) {
+    if(width <= 0 || height <= 0)
+        return false;
+    if(gSDLSurfaceMirrorState.surface &&
+       gSDLSurfaceMirrorState.width == width &&
+       gSDLSurfaceMirrorState.height == height)
+        return true;
+
+    if(gSDLSurfaceMirrorState.surface) {
+        SDL_FreeSurface(gSDLSurfaceMirrorState.surface);
+        gSDLSurfaceMirrorState.surface = nullptr;
+    }
+
+    gSDLSurfaceMirrorState.surface = SDL_CreateRGBSurfaceWithFormat(
+        0, width, height, 32, SDL_PIXELFORMAT_RGBA32);
+    if(!gSDLSurfaceMirrorState.surface) {
+        char message[256];
+        std::snprintf(message, sizeof(message),
+                      "create failed size=%dx%d error=%s", width, height,
+                      SDL_GetError());
+        TVPNativeLogInfo("sdl-surface", message);
+        gSDLSurfaceMirrorState.width = 0;
+        gSDLSurfaceMirrorState.height = 0;
+        return false;
+    }
+
+    gSDLSurfaceMirrorState.width = width;
+    gSDLSurfaceMirrorState.height = height;
+    gSDLSurfaceMirrorState.creates++;
+    gSDLSurfaceMirrorState.hasUpdate = false;
+    gSDLSurfaceMirrorState.updateRect.clear();
+
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "create #%llu surface=%p size=%dx%d pitch=%d format=%s",
+                  static_cast<unsigned long long>(
+                      gSDLSurfaceMirrorState.creates),
+                  static_cast<void *>(gSDLSurfaceMirrorState.surface), width,
+                  height, gSDLSurfaceMirrorState.surface->pitch,
+                  SDL_GetPixelFormatName(
+                      gSDLSurfaceMirrorState.surface->format->format));
+    TVPNativeLogInfo("sdl-surface", message);
+    return true;
+}
+
+bool CopyRegionToSDLSurfaceMirror(iTVPTexture2D *texture,
+                                  const tTVPRect &clipRect, int x, int y,
+                                  int sourceWidth, int sourceHeight,
+                                  TVPTextureFormat::e format,
+                                  uint64_t globalRegion,
+                                  uint64_t batchRegion,
+                                  uint64_t &copiedTotal,
+                                  uint64_t &copiedBytesTotal,
+                                  uint64_t &skippedTotal) {
+    copiedTotal = 0;
+    copiedBytesTotal = 0;
+    skippedTotal = 0;
+
+    if(!texture)
+        return false;
+
+    const int bytesPerPixel = TextureBytesPerPixel(format);
+    if(format != TVPTextureFormat::RGBA || bytesPerPixel != 4) {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        skippedTotal = ++gSDLSurfaceMirrorState.skippedUnsupported;
+        if(skippedTotal <= 8 || (skippedTotal % 128) == 0) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "skip unsupported total=%llu global=%llu "
+                          "format=%s(%d) bpp=%d",
+                          static_cast<unsigned long long>(skippedTotal),
+                          static_cast<unsigned long long>(globalRegion),
+                          TextureFormatName(format), static_cast<int>(format),
+                          bytesPerPixel);
+            TVPNativeLogInfo("sdl-surface", message);
+        }
+        return false;
+    }
+
+    const int copyWidth = clipRect.get_width();
+    const int copyHeight = clipRect.get_height();
+    if(copyWidth <= 0 || copyHeight <= 0)
+        return false;
+
+    const int mirrorWidth = sourceWidth > 0 ? sourceWidth
+                                            : static_cast<int>(texture->GetWidth());
+    const int mirrorHeight = sourceHeight > 0
+        ? sourceHeight
+        : static_cast<int>(texture->GetHeight());
+
+    std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+    if(!EnsureSDLSurfaceMirrorLocked(mirrorWidth, mirrorHeight)) {
+        gSDLSurfaceMirrorState.failedCopies++;
+        return false;
+    }
+
+    SDL_Surface *surface = gSDLSurfaceMirrorState.surface;
+    bool locked = false;
+    if(SDL_MUSTLOCK(surface)) {
+        if(SDL_LockSurface(surface) != 0) {
+            gSDLSurfaceMirrorState.failedCopies++;
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "lock failed global=%llu error=%s",
+                          static_cast<unsigned long long>(globalRegion),
+                          SDL_GetError());
+            TVPNativeLogInfo("sdl-surface", message);
+            return false;
+        }
+        locked = true;
+    }
+
+    bool copied = false;
+    std::string failureReason;
+    try {
+        for(int row = 0; row < copyHeight; ++row) {
+            const auto *src = static_cast<const tjs_uint8 *>(
+                texture->GetScanLineForRead(clipRect.top + row));
+            if(!src)
+                throw std::runtime_error("scanline unavailable");
+            src += clipRect.left * bytesPerPixel;
+            auto *dst = static_cast<tjs_uint8 *>(surface->pixels) +
+                surface->pitch * (y + row) + x * 4;
+            SDL_memcpy(dst, src, static_cast<size_t>(copyWidth) * 4);
+        }
+        copied = true;
+    } catch(const std::exception &e) {
+        failureReason = e.what();
+    } catch(...) {
+        failureReason = "unknown exception";
+    }
+
+    if(!copied) {
+        const uint64_t failed = ++gSDLSurfaceMirrorState.failedCopies;
+        if(failed <= 8 || (failed % 128) == 0) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "copy failed total=%llu global=%llu batchRegion=%llu "
+                          "dst=%d,%d clip=%d,%d,%dx%d mirror=%dx%d "
+                          "pitch=%d reason=%s",
+                          static_cast<unsigned long long>(failed),
+                          static_cast<unsigned long long>(globalRegion),
+                          static_cast<unsigned long long>(batchRegion), x, y,
+                          clipRect.left, clipRect.top, copyWidth, copyHeight,
+                          gSDLSurfaceMirrorState.width,
+                          gSDLSurfaceMirrorState.height, surface->pitch,
+                          failureReason.c_str());
+            TVPNativeLogInfo("sdl-surface", message);
+        }
+    }
+
+    if(locked)
+        SDL_UnlockSurface(surface);
+
+    if(!copied)
+        return false;
+
+    tTVPRect updateRect(x, y, x + copyWidth, y + copyHeight);
+    if(gSDLSurfaceMirrorState.hasUpdate) {
+        gSDLSurfaceMirrorState.updateRect.do_union(updateRect);
+    } else {
+        gSDLSurfaceMirrorState.updateRect = updateRect;
+        gSDLSurfaceMirrorState.hasUpdate = true;
+    }
+
+    gSDLSurfaceMirrorState.copiedRegions++;
+    gSDLSurfaceMirrorState.copiedBytes +=
+        static_cast<uint64_t>(copyWidth) * copyHeight * 4;
+    copiedTotal = gSDLSurfaceMirrorState.copiedRegions;
+    copiedBytesTotal = gSDLSurfaceMirrorState.copiedBytes;
+
+    if(ShouldLogSurfaceMirrorCopy(copiedTotal) ||
+       (batchRegion > 1 && batchRegion <= 4)) {
+        const tTVPRect &ur = gSDLSurfaceMirrorState.updateRect;
+        char message[384];
+        std::snprintf(
+            message, sizeof(message),
+            "copy total=%llu global=%llu batchRegion=%llu dst=%d,%d "
+            "size=%dx%d mirror=%dx%d pitch=%d bytesTotal=%llu "
+            "update=%d,%d,%dx%d failed=%llu",
+            static_cast<unsigned long long>(copiedTotal),
+            static_cast<unsigned long long>(globalRegion),
+            static_cast<unsigned long long>(batchRegion), x, y, copyWidth,
+            copyHeight, gSDLSurfaceMirrorState.width,
+            gSDLSurfaceMirrorState.height, surface->pitch,
+            static_cast<unsigned long long>(copiedBytesTotal),
+            gSDLSurfaceMirrorState.hasUpdate ? ur.left : 0,
+            gSDLSurfaceMirrorState.hasUpdate ? ur.top : 0,
+            gSDLSurfaceMirrorState.hasUpdate ? ur.get_width() : 0,
+            gSDLSurfaceMirrorState.hasUpdate ? ur.get_height() : 0,
+            static_cast<unsigned long long>(
+                gSDLSurfaceMirrorState.failedCopies));
+        TVPNativeLogInfo("sdl-surface", message);
+    }
+
+    return true;
 }
 
 uint64_t CalculateBacklog(uint64_t queued, uint64_t drained,
@@ -651,6 +908,8 @@ void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
         gSDLBitmapCompletionState.batch = batch;
         gSDLBitmapCompletionState.regions = 0;
         gSDLBitmapCompletionState.copyReady = 0;
+        gSDLBitmapCompletionState.surfaceCopied = 0;
+        gSDLBitmapCompletionState.surfaceSkipped = 0;
         gSDLBitmapCompletionState.glBacked = 0;
         gSDLBitmapCompletionState.outOfBounds = 0;
         gSDLBitmapCompletionState.manager = manager;
@@ -729,12 +988,14 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         IsBitmapCompletionInBounds(x, y, clipRect, sourceWidth, sourceHeight,
                                    bitmapWidth, bitmapHeight);
     const bool glBacked = glTexture != 0;
-    const bool copyReady = inBounds && texture && !glBacked &&
-        IsDirectCpuProbeFormat(format);
+    const bool copyReady =
+        inBounds && texture && !glBacked && IsDirectCpuProbeFormat(format);
 
     uint64_t batch = 0;
     uint64_t batchRegion = 0;
     uint64_t batchCopyReady = 0;
+    uint64_t batchSurfaceCopied = 0;
+    uint64_t batchSurfaceSkipped = 0;
     uint64_t batchGlBacked = 0;
     uint64_t batchOutOfBounds = 0;
     bool shouldLog = false;
@@ -749,6 +1010,8 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
             gSDLBitmapCompletionState.batch = 0;
             gSDLBitmapCompletionState.regions = 0;
             gSDLBitmapCompletionState.copyReady = 0;
+            gSDLBitmapCompletionState.surfaceCopied = 0;
+            gSDLBitmapCompletionState.surfaceSkipped = 0;
             gSDLBitmapCompletionState.glBacked = 0;
             gSDLBitmapCompletionState.outOfBounds = 0;
             gSDLBitmapCompletionState.manager = manager;
@@ -782,12 +1045,43 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         batch = gSDLBitmapCompletionState.batch;
         batchRegion = gSDLBitmapCompletionState.regions;
         batchCopyReady = gSDLBitmapCompletionState.copyReady;
+        batchSurfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
+        batchSurfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
         batchGlBacked = gSDLBitmapCompletionState.glBacked;
         batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
         unionRect = gSDLBitmapCompletionState.unionRect;
         hasUnion = gSDLBitmapCompletionState.hasUnion;
+    }
+
+    uint64_t surfaceCopiedTotal = 0;
+    uint64_t surfaceCopiedBytesTotal = 0;
+    uint64_t surfaceSkippedTotal = 0;
+    const bool surfaceCopied = copyReady &&
+        CopyRegionToSDLSurfaceMirror(texture, clipRect, x, y, sourceWidth,
+                                     sourceHeight, format, globalRegion,
+                                     batchRegion, surfaceCopiedTotal,
+                                     surfaceCopiedBytesTotal,
+                                     surfaceSkippedTotal);
+    const bool surfaceSkipped = copyReady && !surfaceCopied;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        if(gSDLBitmapCompletionState.manager == manager) {
+            if(surfaceCopied)
+                gSDLBitmapCompletionState.surfaceCopied++;
+            if(surfaceSkipped)
+                gSDLBitmapCompletionState.surfaceSkipped++;
+
+            batchSurfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
+            batchSurfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
+            batchCopyReady = gSDLBitmapCompletionState.copyReady;
+            batchGlBacked = gSDLBitmapCompletionState.glBacked;
+            batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
+            unionRect = gSDLBitmapCompletionState.unionRect;
+            hasUnion = gSDLBitmapCompletionState.hasUnion;
+        }
         shouldLog = ShouldLogBitmapCompletionRegion(globalRegion, batchRegion) ||
-            !inBounds;
+            !inBounds || surfaceSkipped;
     }
 
     if(!shouldLog)
@@ -799,8 +1093,10 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         "region global=%llu batch=%llu batchRegion=%llu manager=%p dst=%d,%d "
         "clip=%d,%d,%dx%d src=%dx%d bmp=%p bmpSize=%dx%d tex=%p "
         "texSize=%dx%d internal=%dx%d format=%s(%d) pitch=%d gl=%u "
-        "type=%d opacity=%d inBounds=%d copyReady=%d copyReadyBatch=%llu "
-        "glBatch=%llu outBatch=%llu union=%d,%d,%dx%d metadataOk=%d",
+        "type=%d opacity=%d inBounds=%d copyReady=%d surfaceCopied=%d "
+        "copyReadyBatch=%llu surfaceBatch=%llu surfaceSkipBatch=%llu "
+        "surfaceTotal=%llu surfaceBytes=%llu glBatch=%llu outBatch=%llu "
+        "union=%d,%d,%dx%d metadataOk=%d",
         static_cast<unsigned long long>(globalRegion),
         static_cast<unsigned long long>(batch),
         static_cast<unsigned long long>(batchRegion),
@@ -812,7 +1108,12 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         static_cast<int>(format), pitch, glTexture, type, opacity,
         inBounds ? 1 : 0,
         copyReady ? 1 : 0,
+        surfaceCopied ? 1 : 0,
         static_cast<unsigned long long>(batchCopyReady),
+        static_cast<unsigned long long>(batchSurfaceCopied),
+        static_cast<unsigned long long>(batchSurfaceSkipped),
+        static_cast<unsigned long long>(surfaceCopiedTotal),
+        static_cast<unsigned long long>(surfaceCopiedBytesTotal),
         static_cast<unsigned long long>(batchGlBacked),
         static_cast<unsigned long long>(batchOutOfBounds),
         hasUnion ? unionRect.left : 0, hasUnion ? unionRect.top : 0,
@@ -828,6 +1129,8 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
     uint64_t batch = 0;
     uint64_t regions = 0;
     uint64_t copyReady = 0;
+    uint64_t surfaceCopied = 0;
+    uint64_t surfaceSkipped = 0;
     uint64_t glBacked = 0;
     uint64_t outOfBounds = 0;
     int startSourceWidth = 0;
@@ -842,6 +1145,8 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         batch = gSDLBitmapCompletionState.batch;
         regions = gSDLBitmapCompletionState.regions;
         copyReady = gSDLBitmapCompletionState.copyReady;
+        surfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
+        surfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
         glBacked = gSDLBitmapCompletionState.glBacked;
         outOfBounds = gSDLBitmapCompletionState.outOfBounds;
         startSourceWidth = gSDLBitmapCompletionState.sourceWidth;
@@ -861,12 +1166,15 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
     char message[384];
     std::snprintf(
         message, sizeof(message),
-        "end batch=%llu manager=%p regions=%llu copyReady=%llu glBacked=%llu "
+        "end batch=%llu manager=%p regions=%llu copyReady=%llu "
+        "surfaceCopied=%llu surfaceSkipped=%llu glBacked=%llu "
         "outOfBounds=%llu src=%dx%d endSrc=%dx%d dest=%dx%d "
         "union=%d,%d,%dx%d events=%d video=%d audio=%d ticks=%u",
         static_cast<unsigned long long>(batch), static_cast<void *>(manager),
         static_cast<unsigned long long>(regions),
         static_cast<unsigned long long>(copyReady),
+        static_cast<unsigned long long>(surfaceCopied),
+        static_cast<unsigned long long>(surfaceSkipped),
         static_cast<unsigned long long>(glBacked),
         static_cast<unsigned long long>(outOfBounds),
         startSourceWidth, startSourceHeight, sourceWidth, sourceHeight,
@@ -879,6 +1187,95 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         (initialized & SDL_INIT_AUDIO) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-bitmap", message);
+}
+
+void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
+                                    int frameHeight, int sceneWidth,
+                                    int sceneHeight, float scale) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+        gSDLLoadingConsoleState.active = true;
+        gSDLLoadingConsoleState.session++;
+        gSDLLoadingConsoleState.totalLines = 0;
+        gSDLLoadingConsoleState.lines.clear();
+        session = gSDLLoadingConsoleState.session;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[512];
+    std::snprintf(
+        message, sizeof(message),
+        "show session=%llu frame=%dx%d scene=%dx%d scale=%.3f path=%s "
+        "events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(session), frameWidth, frameHeight,
+        sceneWidth, sceneHeight, scale, path ? path : "",
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-loading", message);
+}
+
+void TVPSDLRecordLoadingConsoleLine(const char *message, bool important) {
+    TVPSDLInitializeRuntime();
+    if(!message)
+        message = "";
+
+    uint64_t session = 0;
+    uint64_t totalLines = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+        if(!gSDLLoadingConsoleState.active) {
+            gSDLLoadingConsoleState.active = true;
+            gSDLLoadingConsoleState.session++;
+        }
+        session = gSDLLoadingConsoleState.session;
+        totalLines = ++gSDLLoadingConsoleState.totalLines;
+        if(gSDLLoadingConsoleState.lines.size() >= 64)
+            gSDLLoadingConsoleState.lines.pop_front();
+        gSDLLoadingConsoleState.lines.push_back(
+            TVPSDLLoadingConsoleLine{ message, important });
+    }
+
+    if(totalLines <= 12 || important || (totalLines % 128) == 0) {
+        char logLine[640];
+        std::snprintf(logLine, sizeof(logLine),
+                      "line session=%llu line=%llu color=%s text=%s",
+                      static_cast<unsigned long long>(session),
+                      static_cast<unsigned long long>(totalLines),
+                      important ? "yellow" : "gray", message);
+        TVPNativeLogInfo("sdl-loading", logLine);
+    }
+}
+
+void TVPSDLRecordLoadingConsoleHide(const char *reason) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    uint64_t totalLines = 0;
+    size_t retained = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+        session = gSDLLoadingConsoleState.session;
+        totalLines = gSDLLoadingConsoleState.totalLines;
+        retained = gSDLLoadingConsoleState.lines.size();
+        gSDLLoadingConsoleState.active = false;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[256];
+    std::snprintf(
+        message, sizeof(message),
+        "hide session=%llu reason=%s lines=%llu retained=%zu events=%d "
+        "video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(session), reason ? reason : "",
+        static_cast<unsigned long long>(totalLines), retained,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-loading", message);
 }
 
 TVPSDLGameLaunchResult
