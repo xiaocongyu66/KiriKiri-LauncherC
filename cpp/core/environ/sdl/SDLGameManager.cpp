@@ -6,6 +6,7 @@
 #include "ComplexRect.h"
 #include "LayerBitmapIntf.h"
 #include "RenderManager.h"
+#include "SDLUIManager.h"
 
 #include <SDL2/SDL.h>
 #include <spdlog/spdlog.h>
@@ -176,6 +177,16 @@ bool IsHighFrequencyInput(const char *eventName) {
         std::strcmp(eventName, "hover-move") == 0;
 }
 
+bool IsSDLUITouchInput(const char *eventName) {
+    if(!eventName)
+        return false;
+    return std::strcmp(eventName, "touch-begin") == 0 ||
+        std::strcmp(eventName, "touch-end") == 0 ||
+        std::strcmp(eventName, "touch-move") == 0 ||
+        std::strcmp(eventName, "touch-cancel") == 0 ||
+        std::strcmp(eventName, "touch-cancel-empty") == 0;
+}
+
 bool ShouldLogInputEvent(uint64_t sequence, const char *eventName) {
     if(!IsHighFrequencyInput(eventName))
         return true;
@@ -205,10 +216,10 @@ bool ShouldLogBitmapCompletionBatch(uint64_t batch) {
 
 bool ShouldLogBitmapCompletionRegion(uint64_t globalRegion,
                                      uint64_t batchRegion) {
+    (void)batchRegion;
     return globalRegion <= 16 ||
         globalRegion == 32 || globalRegion == 64 || globalRegion == 128 ||
-        (globalRegion % 512) == 0 ||
-        (batchRegion > 1 && batchRegion <= 4);
+        (globalRegion % 512) == 0;
 }
 
 bool ShouldLogSurfaceMirrorCopy(uint64_t copiedRegions) {
@@ -438,8 +449,7 @@ bool CopyRegionToSDLSurfaceMirror(iTVPTexture2D *texture,
     copiedTotal = gSDLSurfaceMirrorState.copiedRegions;
     copiedBytesTotal = gSDLSurfaceMirrorState.copiedBytes;
 
-    if(ShouldLogSurfaceMirrorCopy(copiedTotal) ||
-       (batchRegion > 1 && batchRegion <= 4)) {
+    if(ShouldLogSurfaceMirrorCopy(copiedTotal)) {
         const tTVPRect &ur = gSDLSurfaceMirrorState.updateRect;
         char message[384];
         std::snprintf(
@@ -654,6 +664,10 @@ void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
 void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
                               float y, int code, bool state) {
     TVPSDLInitializeRuntime();
+    if(IsSDLUITouchInput(eventName)) {
+        TVPSDLUIRecordAndroidTouch(eventName, x, y,
+                                   itemCount > 0 ? code : -1, state);
+    }
     QueueAndroidInputEvent(eventName, itemCount, x, y, code, state);
     const uint64_t sequence =
         gSDLInputEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1158,8 +1172,8 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         gSDLBitmapCompletionState.active = false;
     }
 
-    if(!ShouldLogBitmapCompletionBatch(batch) && regions > 0 &&
-       outOfBounds == 0)
+    if(!ShouldLogBitmapCompletionBatch(batch) && outOfBounds == 0 &&
+       surfaceSkipped == 0)
         return;
 
     const Uint32 initialized = SDL_WasInit(0);

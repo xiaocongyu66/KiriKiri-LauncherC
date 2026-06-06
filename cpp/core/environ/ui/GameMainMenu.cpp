@@ -14,6 +14,8 @@
 #include "platform/CCGLView.h"
 #include "Platform.h"
 #include <algorithm>
+#include <cmath>
+#include <cstring>
 
 using namespace cocos2d;
 using namespace cocos2d::ui;
@@ -23,6 +25,26 @@ const float _expandSpd = 700; // px/sec
 const float _handlerFadeInTime = 0.15f;
 const float _handlerFadeOutTime = 0.35f;
 const GLubyte _handlerMinVisibleOpacity = 64;
+
+namespace {
+struct TVPSDLUIGameMenuButtonSpec {
+    const char *widgetName;
+    const char *actionName;
+    const char *iconPath;
+};
+
+constexpr TVPSDLUIGameMenuButtonSpec kSDLUIGameMenuButtons[] = {
+    { "btn_gamemenu", "game-menu", "img/menu_icon.png" },
+    { "btn_window", "window-manager", "img/windows_icon.png" },
+    { "btn_mousemode", "mouse-mode", "img/mouse_icon.png" },
+    { "btn_keyboard", "keyboard", "img/keyboard_icon.png" },
+    { "btn_exit", "exit", "img/exit_icon.png" },
+};
+
+bool IsSDLUIAction(const char *value, const char *expected) {
+    return value && expected && std::strcmp(value, expected) == 0;
+}
+} // namespace
 
 TVPGameMainMenu::TVPGameMainMenu(GLubyte opa) {
     _shrinked = false;
@@ -89,27 +111,11 @@ bool TVPGameMainMenu::init() {
     _eventDispatcher->addEventListenerWithSceneGraphPriority(listener, _root);
 
     reader.findWidget("btn_gamemenu")->addClickEventListener([this](Ref *) {
-        TVPSDLUIRecordGameMenuAction("game-menu", _shrinked,
-                                     _mouseIconIsMouse);
-        iTJSDispatch2 *menuobj =
-            TVPGetMenuDispatch((tjs_intptr_t)TVPGetActiveWindow());
-        if(!menuobj)
-            return;
-        tTJSNI_MenuItem *menu;
-        menuobj->NativeInstanceSupport(TJS_NIS_GETINSTANCE,
-                                       tTJSNC_MenuItem::ClassID,
-                                       (iTJSNativeInstance **)&menu);
-        if(!menu->GetChildren().empty())
-            TVPMainScene::GetInstance()->pushUIForm(
-                TVPInGameMenuForm::create("GameMenu", menu));
-        shrink();
+        queueSDLUIGameMenuAction("game-menu", "cocos-widget");
     });
 
     reader.findWidget("btn_window")->addClickEventListener([this](Ref *) {
-        TVPSDLUIRecordGameMenuAction("window-manager", _shrinked,
-                                     _mouseIconIsMouse);
-        TVPMainScene::GetInstance()->showWindowManagerOverlay(true);
-        shrink();
+        queueSDLUIGameMenuAction("window-manager", "cocos-widget");
     });
 
     _icon_touch = reader.findController("icon_touch");
@@ -122,20 +128,130 @@ bool TVPGameMainMenu::init() {
         _handler ? static_cast<int>(_handler->getContentSize().width) : 0,
         _handler ? static_cast<int>(_handler->getContentSize().height) : 0,
         static_cast<int>(_handler_inactive_opacity));
+    registerSDLUIGameMenuButtons(reader);
     setMouseIcon(true);
     recordSDLUIState("create");
 
     reader.findWidget("btn_mousemode")->addClickEventListener([this](Ref *) {
-        TVPSDLUIRecordGameMenuAction("mouse-mode", _shrinked,
-                                     _mouseIconIsMouse);
-        TVPMainScene::GetInstance()->toggleVirtualMouseCursor();
-        setMouseIcon(!TVPMainScene::GetInstance()->isVirtualMouseMode());
-        shrink();
+        queueSDLUIGameMenuAction("mouse-mode", "cocos-widget");
     });
 
     reader.findWidget("btn_keyboard")->addClickEventListener([this](Ref *) {
-        TVPSDLUIRecordGameMenuAction("keyboard", _shrinked,
-                                     _mouseIconIsMouse);
+        queueSDLUIGameMenuAction("keyboard", "cocos-widget");
+    });
+
+    reader.findWidget("btn_exit")->addClickEventListener([this](Ref *) {
+        queueSDLUIGameMenuAction("exit", "cocos-widget");
+    });
+
+    scheduleUpdate();
+    return ret;
+}
+
+void TVPGameMainMenu::registerSDLUIGameMenuButton(
+    CSBReader &reader, const char *widgetName, const char *actionName,
+    const char *iconPath) {
+    if(!_root || !widgetName)
+        return;
+
+    Widget *widget = reader.findWidget(widgetName, false);
+    if(!widget)
+        return;
+
+    const Size size = widget->getContentSize();
+    const Vec2 localLeftBottom =
+        _root->convertToNodeSpace(widget->convertToWorldSpace(Vec2::ZERO));
+    const Vec2 localRightTop = _root->convertToNodeSpace(
+        widget->convertToWorldSpace(Vec2(size.width, size.height)));
+    const float left = std::min(localLeftBottom.x, localRightTop.x);
+    const float bottom = std::min(localLeftBottom.y, localRightTop.y);
+    const float width = std::abs(localRightTop.x - localLeftBottom.x);
+    const float height = std::abs(localRightTop.y - localLeftBottom.y);
+
+    TVPSDLUIRecordGameMenuButton(
+        widgetName, actionName, left, bottom, width, height, iconPath,
+        widget->isVisible() && widget->isEnabled());
+}
+
+void TVPGameMainMenu::registerSDLUIGameMenuButtons(CSBReader &reader) {
+    for(const auto &button : kSDLUIGameMenuButtons) {
+        registerSDLUIGameMenuButton(reader, button.widgetName,
+                                    button.actionName, button.iconPath);
+    }
+    recordSDLUIState("button-layout");
+}
+
+void TVPGameMainMenu::queueSDLUIGameMenuAction(const char *actionName,
+                                               const char *source) {
+    TVPSDLUIQueueGameMenuAction(actionName, source, 0.0f, 0.0f, -1);
+    drainSDLUIGameMenuActions("queue-drain");
+}
+
+void TVPGameMainMenu::drainSDLUIGameMenuActions(const char *reason) {
+    char actionName[64]{};
+    int drained = 0;
+    while(drained < 8 &&
+          TVPSDLUIPollGameMenuAction(actionName, sizeof(actionName))) {
+        performSDLUIGameMenuAction(actionName);
+        ++drained;
+    }
+    if(drained > 0)
+        recordSDLUIState(reason ? reason : "action-drain");
+}
+
+void TVPGameMainMenu::update(float dt) {
+    Node::update(dt);
+    drainSDLUIGameMenuActions("update-drain");
+}
+
+void TVPGameMainMenu::performSDLUIGameMenuAction(const char *actionName) {
+    TVPSDLUIRecordGameMenuAction(actionName, _shrinked, _mouseIconIsMouse);
+
+    if(IsSDLUIAction(actionName, "toggle")) {
+        if(_hitted)
+            return;
+        if(_shrinked)
+            expand();
+        else
+            shrink();
+        return;
+    }
+
+    if(IsSDLUIAction(actionName, "shrink")) {
+        shrink();
+        return;
+    }
+
+    if(IsSDLUIAction(actionName, "game-menu")) {
+        iTJSDispatch2 *menuobj =
+            TVPGetMenuDispatch((tjs_intptr_t)TVPGetActiveWindow());
+        if(!menuobj)
+            return;
+        tTJSNI_MenuItem *menu;
+        menuobj->NativeInstanceSupport(TJS_NIS_GETINSTANCE,
+                                       tTJSNC_MenuItem::ClassID,
+                                       (iTJSNativeInstance **)&menu);
+        if(!menu->GetChildren().empty())
+            TVPMainScene::GetInstance()->pushUIForm(
+                TVPInGameMenuForm::create("GameMenu", menu));
+        shrink();
+        return;
+    }
+
+    if(IsSDLUIAction(actionName, "window-manager")) {
+        TVPMainScene::GetInstance()->showWindowManagerOverlay(true);
+        shrink();
+        return;
+    }
+
+    if(IsSDLUIAction(actionName, "mouse-mode")) {
+        TVPMainScene::GetInstance()->toggleVirtualMouseCursor();
+        setMouseIcon(!TVPMainScene::GetInstance()->isVirtualMouseMode());
+        shrink();
+        return;
+    }
+
+    if(IsSDLUIAction(actionName, "keyboard")) {
         cocos2d::Size screenSize =
             cocos2d::Director::getInstance()->getOpenGLView()->getFrameSize();
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
@@ -144,15 +260,16 @@ bool TVPGameMainMenu::init() {
         TVPMainScene::GetInstance()->attachWithIME();
 #endif
         shrink();
-    });
+        return;
+    }
 
-    reader.findWidget("btn_exit")->addClickEventListener([this](Ref *) {
-        TVPSDLUIRecordGameMenuAction("exit", _shrinked, _mouseIconIsMouse);
-        Application->PostUserMessage([]() { TVPGetActiveWindow()->Close(); });
+    if(IsSDLUIAction(actionName, "exit")) {
+        Application->PostUserMessage([]() {
+            if(auto *window = TVPGetActiveWindow())
+                window->Close();
+        });
         shrink();
-    });
-
-    return ret;
+    }
 }
 
 void TVPGameMainMenu::setMouseIcon(bool bMouse) {

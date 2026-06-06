@@ -115,12 +115,26 @@ incremental and does not accidentally replace launcher behavior.
   the Cocos design resolution, with height derived from the physical display
   aspect ratio. Logs still include both physical frame size and virtual scene
   size so the SDL presenter can keep the same coordinate base during handoff.
-- SDLUI replacement has started. `SDLUIManager` now registers the legacy
-  `/root/krkr2/ui/cocos-studio` asset family as SDLUI templates and mirrors the
-  `GameMainMenu` create/state/action stream through unified `sdl-ui` logs. The
-  existing Cocos nodes still render the menu for this increment, but SDLUI is
-  now the runtime state boundary that future SDL drawing and input handling will
-  consume.
+- SDLUI replacement has started. `SDLUIManager` now registers the complete
+  legacy `/root/krkr2/ui/cocos-studio` asset family as SDLUI templates: all 35
+  Cocos Studio `.csd/.csb` forms under `out_ui/` and `ui/`, plus the native
+  `loading-console` target. Images continue to come from `img/`, locale XML
+  from `locale/`, and text rendering keeps `NotoSansCJK-Regular.ttc`. The
+  existing Cocos nodes still render most forms for this increment, but SDLUI is
+  now the runtime resource and state boundary that future SDL drawing and input
+  handling will consume.
+- The in-game `GameMainMenu` is now the first UI extraction target. Its Cocos
+  Studio widgets are treated as layout/resource input only: SDLUI records the
+  five legacy buttons as an action model (`game-menu`, `window-manager`,
+  `mouse-mode`, `keyboard`, `exit`), tracks their scene rectangles, and logs a
+  `game-menu render-intent` that the future SDL renderer can draw without
+  depending on Cocos widget names. Cocos remains a temporary display shell for
+  this component until the SDL renderer path is visible.
+- UI replacement should continue by extracting each `/root/krkr2/ui` Cocos
+  Studio form into an SDLUI model that reuses the old images, fonts, locale
+  strings, and CSD layout data rather than introducing Qt/wxWidgets on Android
+  or copying the Cocos framework. Recommended order: loading console,
+  `GameMainMenu`, message box, window manager, file selector, settings forms.
 - Android audio renderer selection now tries the SDL2 audio device first and
   falls back to Oboe, then OpenAL if SDL cannot open a playback device. Backend
   selection, device parameters, conversion failures, stream creation, and

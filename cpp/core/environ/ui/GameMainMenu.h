@@ -7,6 +7,7 @@ public:
     static TVPGameMainMenu *create(GLubyte opa);
 
     bool init() override;
+    void update(float dt) override;
 
     void setMouseIcon(bool bMouse);
 
@@ -17,6 +18,13 @@ public:
     bool isShrinked();
 
 private:
+    void registerSDLUIGameMenuButtons(CSBReader &reader);
+    void registerSDLUIGameMenuButton(CSBReader &reader, const char *widgetName,
+                                     const char *actionName,
+                                     const char *iconPath);
+    void queueSDLUIGameMenuAction(const char *actionName, const char *source);
+    void drainSDLUIGameMenuActions(const char *reason);
+    void performSDLUIGameMenuAction(const char *actionName);
     void recordSDLUIState(const char *eventName, float duration = 0.0f);
 
     bool onHandlerTouchBegan(cocos2d::Touch *touch,
