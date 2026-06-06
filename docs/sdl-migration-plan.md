@@ -115,6 +115,12 @@ incremental and does not accidentally replace launcher behavior.
   the Cocos design resolution, with height derived from the physical display
   aspect ratio. Logs still include both physical frame size and virtual scene
   size so the SDL presenter can keep the same coordinate base during handoff.
+- SDLUI replacement has started. `SDLUIManager` now registers the legacy
+  `/root/krkr2/ui/cocos-studio` asset family as SDLUI templates and mirrors the
+  `GameMainMenu` create/state/action stream through unified `sdl-ui` logs. The
+  existing Cocos nodes still render the menu for this increment, but SDLUI is
+  now the runtime state boundary that future SDL drawing and input handling will
+  consume.
 - Android audio renderer selection now tries the SDL2 audio device first and
   falls back to Oboe, then OpenAL if SDL cannot open a playback device. Backend
   selection, device parameters, conversion failures, stream creation, and

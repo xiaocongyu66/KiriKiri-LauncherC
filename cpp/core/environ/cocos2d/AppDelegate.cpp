@@ -10,6 +10,7 @@
 #include "ConfigManager/LocaleConfigManager.h"
 #include "NativeLog.h"
 #include "sdl/SDLGameManager.h"
+#include "sdl/SDLUIManager.h"
 
 #include <cstdio>
 
@@ -89,6 +90,13 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
     glview->setDesignResolutionSize(mobileDesignSize.width,
                                     mobileDesignSize.height,
                                     ResolutionPolicy::EXACT_FIT);
+    TVPSDLUIRecordViewport(static_cast<int>(frameSize.width),
+                           static_cast<int>(frameSize.height),
+                           static_cast<int>(mobileDesignSize.width),
+                           static_cast<int>(mobileDesignSize.height),
+                           mobileDesignSize.height > 0.0f
+                               ? frameSize.height / mobileDesignSize.height
+                               : 1.0f);
     KR2_LAUNCH_LOG(
         "design resolution mode=legacy-2048 physical=%.0fx%.0f "
         "virtual=%.0fx%.0f policy=EXACT_FIT",
@@ -97,6 +105,10 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
 #else
     glview->setDesignResolutionSize(designSize.width, designSize.height,
                                     ResolutionPolicy::FIXED_WIDTH);
+    TVPSDLUIRecordViewport(static_cast<int>(designSize.width),
+                           static_cast<int>(designSize.height),
+                           static_cast<int>(designSize.width),
+                           static_cast<int>(designSize.height), 1.0f);
 #endif
 
     std::vector<std::string> searchPath;
@@ -111,6 +123,7 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
 
     // set searching path
     cocos2d::FileUtils::getInstance()->setSearchPaths(searchPath);
+    TVPSDLUIRegisterLegacyCocosStudioAssets("ui/cocos-studio", ".");
 
     // turn on display FPS
     director->setDisplayStats(false);

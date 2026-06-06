@@ -9,6 +9,7 @@
 #include "TickCount.h"
 #include "MenuItemIntf.h"
 #include "InGameMenuForm.h"
+#include "sdl/SDLUIManager.h"
 #include "base/CCDirector.h"
 #include "platform/CCGLView.h"
 #include "Platform.h"
@@ -26,6 +27,7 @@ const GLubyte _handlerMinVisibleOpacity = 64;
 TVPGameMainMenu::TVPGameMainMenu(GLubyte opa) {
     _shrinked = false;
     _hitted = false;
+    _mouseIconIsMouse = true;
     _handler_inactive_opacity = std::max(opa, _handlerMinVisibleOpacity);
 }
 
@@ -87,6 +89,8 @@ bool TVPGameMainMenu::init() {
     _eventDispatcher->addEventListenerWithSceneGraphPriority(listener, _root);
 
     reader.findWidget("btn_gamemenu")->addClickEventListener([this](Ref *) {
+        TVPSDLUIRecordGameMenuAction("game-menu", _shrinked,
+                                     _mouseIconIsMouse);
         iTJSDispatch2 *menuobj =
             TVPGetMenuDispatch((tjs_intptr_t)TVPGetActiveWindow());
         if(!menuobj)
@@ -102,21 +106,36 @@ bool TVPGameMainMenu::init() {
     });
 
     reader.findWidget("btn_window")->addClickEventListener([this](Ref *) {
+        TVPSDLUIRecordGameMenuAction("window-manager", _shrinked,
+                                     _mouseIconIsMouse);
         TVPMainScene::GetInstance()->showWindowManagerOverlay(true);
         shrink();
     });
 
     _icon_touch = reader.findController("icon_touch");
     _icon_mouse = reader.findController("icon_mouse");
+    TVPSDLUIRecordGameMenuCreated(
+        static_cast<int>(TVPMainScene::GetInstance()->getGameNodeSize().width),
+        static_cast<int>(TVPMainScene::GetInstance()->getGameNodeSize().height),
+        scale, static_cast<int>(_root->getContentSize().width),
+        static_cast<int>(_root->getContentSize().height),
+        _handler ? static_cast<int>(_handler->getContentSize().width) : 0,
+        _handler ? static_cast<int>(_handler->getContentSize().height) : 0,
+        static_cast<int>(_handler_inactive_opacity));
     setMouseIcon(true);
+    recordSDLUIState("create");
 
     reader.findWidget("btn_mousemode")->addClickEventListener([this](Ref *) {
+        TVPSDLUIRecordGameMenuAction("mouse-mode", _shrinked,
+                                     _mouseIconIsMouse);
         TVPMainScene::GetInstance()->toggleVirtualMouseCursor();
         setMouseIcon(!TVPMainScene::GetInstance()->isVirtualMouseMode());
         shrink();
     });
 
     reader.findWidget("btn_keyboard")->addClickEventListener([this](Ref *) {
+        TVPSDLUIRecordGameMenuAction("keyboard", _shrinked,
+                                     _mouseIconIsMouse);
         cocos2d::Size screenSize =
             cocos2d::Director::getInstance()->getOpenGLView()->getFrameSize();
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
@@ -128,6 +147,7 @@ bool TVPGameMainMenu::init() {
     });
 
     reader.findWidget("btn_exit")->addClickEventListener([this](Ref *) {
+        TVPSDLUIRecordGameMenuAction("exit", _shrinked, _mouseIconIsMouse);
         Application->PostUserMessage([]() { TVPGetActiveWindow()->Close(); });
         shrink();
     });
@@ -136,10 +156,24 @@ bool TVPGameMainMenu::init() {
 }
 
 void TVPGameMainMenu::setMouseIcon(bool bMouse) {
+    _mouseIconIsMouse = bMouse;
     if(_icon_mouse)
         _icon_mouse->setVisible(bMouse);
     if(_icon_touch)
         _icon_touch->setVisible(!bMouse);
+    recordSDLUIState("mouse-icon");
+}
+
+void TVPGameMainMenu::recordSDLUIState(const char *eventName, float duration) {
+    if(!_root || !_handler)
+        return;
+    const cocos2d::Size rootSize = _root->getContentSize();
+    const cocos2d::Size handlerSize = _handler->getContentSize();
+    TVPSDLUIRecordGameMenuState(
+        eventName, _shrinked, _hitted, _root->getPositionX(),
+        _root->getPositionY(), rootSize.width, rootSize.height,
+        _handler->getPositionX(), _handler->getPositionY(), handlerSize.width,
+        handlerSize.height, _mouseIconIsMouse, duration);
 }
 
 bool TVPGameMainMenu::onHandlerTouchBegan(cocos2d::Touch *touch,
@@ -157,6 +191,9 @@ bool TVPGameMainMenu::onHandlerTouchBegan(cocos2d::Touch *touch,
         _draggingY = false;
         _draggingX = false;
         _touchBeganTime = TVPGetTickCount();
+        TVPSDLUIRecordGameMenuAction("handler-touch-began", _shrinked,
+                                     _mouseIconIsMouse);
+        recordSDLUIState("handler-touch-began");
     }
     return _hitted;
 }
@@ -218,6 +255,8 @@ void TVPGameMainMenu::onHandlerTouchEnded(cocos2d::Touch *touch,
     } else {
         shrink();
     }
+    TVPSDLUIRecordGameMenuAction("handler-touch-ended", _shrinked,
+                                 _mouseIconIsMouse);
 }
 
 void TVPGameMainMenu::onHandlerTouchCancelled(cocos2d::Touch *touch,
@@ -240,6 +279,7 @@ void TVPGameMainMenu::shrink() {
     _handler->runAction(Sequence::createWithTwoActions(
         DelayTime::create(2),
         FadeTo::create(_handlerFadeOutTime, _handler_inactive_opacity)));
+    recordSDLUIState("shrink", duration);
 }
 
 void TVPGameMainMenu::shrinkWithTime(float dur) {
@@ -253,6 +293,7 @@ void TVPGameMainMenu::shrinkWithTime(float dur) {
     _handler->runAction(Sequence::createWithTwoActions(
         DelayTime::create(2 + dur),
         FadeTo::create(_handlerFadeOutTime, _handler_inactive_opacity)));
+    recordSDLUIState("shrink-delayed", duration + dur);
 }
 
 void TVPGameMainMenu::expand() {
@@ -266,11 +307,14 @@ void TVPGameMainMenu::expand() {
     _root->stopAllActions();
     _root->runAction(MoveTo::create(duration, Vec2(0, 0)));
     _handler->runAction(FadeIn::create(_handlerFadeInTime));
+    recordSDLUIState("expand", duration);
 }
 
 bool TVPGameMainMenu::onBackgroundTouchBegan(cocos2d::Touch *touch,
                                              cocos2d::Event *unusedEvent) {
     if(!_shrinked) {
+        TVPSDLUIRecordGameMenuAction("background-touch", _shrinked,
+                                     _mouseIconIsMouse);
         shrink();
         return true;
     }
@@ -289,6 +333,7 @@ void TVPGameMainMenu::onBackgroundTouchCancelled(cocos2d::Touch *touch,
 void TVPGameMainMenu::toggle() {
     if(_hitted)
         return; // in touching
+    TVPSDLUIRecordGameMenuAction("toggle", _shrinked, _mouseIconIsMouse);
     if(_shrinked)
         expand();
     else

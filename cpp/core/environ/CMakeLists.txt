@@ -32,6 +32,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/ConfigManager/IndividualConfigManager.cpp
     ${ENVIRON_PATH}/ConfigManager/LocaleConfigManager.cpp
     ${ENVIRON_PATH}/sdl/SDLGameManager.cpp
+    ${ENVIRON_PATH}/sdl/SDLUIManager.cpp
     ${ENVIRON_PATH}/sdl/tvpsdl.cpp
 
     ${ENVIRON_PATH}/ui/BaseForm.cpp

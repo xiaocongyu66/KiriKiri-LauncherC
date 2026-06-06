@@ -17,6 +17,8 @@ public:
     bool isShrinked();
 
 private:
+    void recordSDLUIState(const char *eventName, float duration = 0.0f);
+
     bool onHandlerTouchBegan(cocos2d::Touch *touch,
                              cocos2d::Event *unusedEvent);
     void onHandlerTouchMoved(cocos2d::Touch *touch,
@@ -39,6 +41,7 @@ private:
     bool _hitted;
     bool _shrinked;
     bool _draggingX, _draggingY;
+    bool _mouseIconIsMouse;
 
     cocos2d::Node *_root;
     cocos2d::Node *_handler;
