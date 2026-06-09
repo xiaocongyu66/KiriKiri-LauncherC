@@ -9,7 +9,9 @@ import '../models/game_menu_item.dart';
 
 typedef _GetMainMenuJsonNative = Pointer<Utf8> Function();
 typedef _ActivateMenuItemNative = Int32 Function(Pointer<Utf8> path);
+typedef _ActivateMenuItemDart = int Function(Pointer<Utf8> path);
 typedef _LaunchGameNative = Int32 Function(Pointer<Utf8> path);
+typedef _LaunchGameDart = int Function(Pointer<Utf8> path);
 
 class LauncherBridge {
   LauncherBridge({DynamicLibrary? library}) : _providedLibrary = library;
@@ -26,11 +28,11 @@ class LauncherBridge {
       );
 
   late final _activateMenuItem = _library
-      .lookupFunction<_ActivateMenuItemNative, _ActivateMenuItemNative>(
+      .lookupFunction<_ActivateMenuItemNative, _ActivateMenuItemDart>(
         'KR2LauncherActivateMenuItem',
       );
 
-  late final _launchGame = _library.lookupFunction<_LaunchGameNative, _LaunchGameNative>(
+  late final _launchGame = _library.lookupFunction<_LaunchGameNative, _LaunchGameDart>(
     'KR2LauncherLaunchGame',
   );
 
