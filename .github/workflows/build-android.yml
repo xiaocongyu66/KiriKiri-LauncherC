@@ -189,23 +189,75 @@ jobs:
 
       - name: Wire native engine into Flutter Android app
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          groovy = Path('flutter_launcher/android/app/build.gradle')
-          kotlin = Path('flutter_launcher/android/app/build.gradle.kts')
-          if groovy.exists():
-              text = groovy.read_text()
-              text = text.replace("    defaultConfig {\n", "    defaultConfig {\n        ndk {\n            jobs Runtime.runtime.availableProcessors()\n            abiFilters 'arm64-v8a'\n        }\n        externalNativeBuild {\n            cmake {\n                targets 'krkr2'\n                cppFlags '-fsigned-char'\n                arguments '-DANDROID_STL=c++_shared', '-DANDROID=ON'\n            }\n        }\n", 1)
-              text = text.replace("}\n\nflutter {\n", "\n    externalNativeBuild {\n        cmake {\n            version '3.31.1'\n            buildStagingDirectory '../../../out/flutter-android/cmake-build'\n            path '../../../CMakeLists.txt'\n        }\n    }\n\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n\n    sourceSets {\n        main {\n            assets.srcDirs += ['../../../ui/cocos-studio']\n        }\n    }\n}\n\nflutter {\n", 1)
-              groovy.write_text(text)
-          elif kotlin.exists():
-              text = kotlin.read_text()
-              text = text.replace("    defaultConfig {\n", "    defaultConfig {\n        ndk {\n            abiFilters += listOf(\"arm64-v8a\")\n        }\n        externalNativeBuild {\n            cmake {\n                targets += listOf(\"krkr2\")\n                cppFlags += listOf(\"-fsigned-char\")\n                arguments += listOf(\"-DANDROID_STL=c++_shared\", \"-DANDROID=ON\")\n            }\n        }\n", 1)
-              text = text.replace("}\n\nflutter {\n", "\n    externalNativeBuild {\n        cmake {\n            version = \"3.31.1\"\n            buildStagingDirectory = file(\"../../../out/flutter-android/cmake-build\")\n            path = file(\"../../../CMakeLists.txt\")\n        }\n    }\n\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n\n    sourceSets {\n        getByName(\"main\") {\n            assets.srcDirs(\"../../../ui/cocos-studio\")\n        }\n    }\n}\n\nflutter {\n", 1)
-              kotlin.write_text(text)
-          else:
-              raise SystemExit('Flutter Android app Gradle file not found')
-          PY
+          cat > flutter_launcher/android/app/build.gradle.kts <<'EOF'
+          plugins {
+              id("com.android.application")
+              id("kotlin-android")
+              id("dev.flutter.flutter-gradle-plugin")
+          }
+
+          android {
+              namespace = "org.github.krkr2"
+              compileSdk = 34
+              ndkVersion = "28.0.13004108"
+
+              compileOptions {
+                  sourceCompatibility = JavaVersion.VERSION_17
+                  targetCompatibility = JavaVersion.VERSION_17
+              }
+
+              kotlinOptions {
+                  jvmTarget = JavaVersion.VERSION_17.toString()
+              }
+
+              defaultConfig {
+                  applicationId = "org.github.krkr2"
+                  minSdk = 29
+                  targetSdk = 34
+                  versionCode = flutter.versionCode
+                  versionName = flutter.versionName
+
+                  ndk {
+                      abiFilters += listOf("arm64-v8a")
+                  }
+
+                  externalNativeBuild {
+                      cmake {
+                          targets += listOf("krkr2")
+                          cppFlags += listOf("-fsigned-char")
+                          arguments += listOf(
+                              "-DANDROID_STL=c++_shared",
+                              "-DANDROID=ON",
+                              "-DENABLE_TESTS=OFF",
+                              "-DBUILD_TOOLS=OFF",
+                          )
+                      }
+                  }
+              }
+
+              externalNativeBuild {
+                  cmake {
+                      path = file("../../../CMakeLists.txt")
+                      version = "3.31.1"
+                  }
+              }
+
+              sourceSets {
+                  getByName("main") {
+                      assets.srcDirs("../../../ui/cocos-studio")
+                  }
+              }
+          }
+
+          dependencies {
+              implementation("com.google.oboe:oboe:1.9.3")
+              implementation("com.google.android.material:material:1.12.0")
+          }
+
+          flutter {
+              source = "../.."
+          }
+          EOF
 
       - name: Build Flutter launcher APK
         working-directory: flutter_launcher
