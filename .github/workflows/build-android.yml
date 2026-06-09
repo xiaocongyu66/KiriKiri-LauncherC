@@ -190,6 +190,18 @@ jobs:
           mkdir -p flutter_launcher/android/app/src/main/assets
           cp -R ui/cocos-studio/. flutter_launcher/android/app/src/main/assets/
 
+      - name: Create Flutter launcher activity
+        run: |
+          mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
+          cat > flutter_launcher/android/app/src/main/java/org/github/krkr2/MainActivity.java <<'EOF'
+          package org.github.krkr2;
+
+          import io.flutter.embedding.android.FlutterActivity;
+
+          public class MainActivity extends FlutterActivity {
+          }
+          EOF
+
       - name: Force Flutter plugin compileSdk
         run: |
           cat >> flutter_launcher/android/build.gradle.kts <<'EOF'
