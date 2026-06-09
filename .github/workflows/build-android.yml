@@ -186,17 +186,23 @@ jobs:
         run: |
           mkdir -p flutter_launcher/android/app/src/main/res
           cp -R platforms/android/app/res/. flutter_launcher/android/app/src/main/res/
+          mkdir -p flutter_launcher/android/app/src/main/assets
+          cp -R ui/cocos-studio/. flutter_launcher/android/app/src/main/assets/
 
       - name: Wire native engine into Flutter Android app
         run: |
           cat > flutter_launcher/android/app/build.gradle.kts <<'EOF'
+          import com.android.build.api.dsl.ApplicationExtension
+          import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+          import org.jetbrains.kotlin.gradle.dsl.KotlinAndroidProjectExtension
+
           plugins {
               id("com.android.application")
               id("kotlin-android")
               id("dev.flutter.flutter-gradle-plugin")
           }
 
-          android {
+          extensions.configure<ApplicationExtension>("android") {
               namespace = "org.github.krkr2"
               compileSdk = 34
               ndkVersion = "28.0.13004108"
@@ -204,10 +210,6 @@ jobs:
               compileOptions {
                   sourceCompatibility = JavaVersion.VERSION_17
                   targetCompatibility = JavaVersion.VERSION_17
-              }
-
-              kotlinOptions {
-                  jvmTarget = JavaVersion.VERSION_17.toString()
               }
 
               defaultConfig {
@@ -241,11 +243,11 @@ jobs:
                       version = "3.31.1"
                   }
               }
+          }
 
-              sourceSets {
-                  getByName("main") {
-                      assets.srcDirs("../../../ui/cocos-studio")
-                  }
+          extensions.configure<KotlinAndroidProjectExtension>("kotlin") {
+              compilerOptions {
+                  jvmTarget.set(JvmTarget.JVM_17)
               }
           }
 
