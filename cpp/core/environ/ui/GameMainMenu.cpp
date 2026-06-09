@@ -1,4 +1,5 @@
 #include "GameMainMenu.h"
+#include "FlutterGameMenuBridge.h"
 #include "cocos2d/MainScene.h"
 #include "Application.h"
 #include "WindowIntf.h"
@@ -223,6 +224,10 @@ void TVPGameMainMenu::performSDLUIGameMenuAction(const char *actionName) {
     }
 
     if(IsSDLUIAction(actionName, "game-menu")) {
+        if(TVPShowFlutterGameMainMenu()) {
+            shrink();
+            return;
+        }
         iTJSDispatch2 *menuobj =
             TVPGetMenuDispatch((tjs_intptr_t)TVPGetActiveWindow());
         if(!menuobj)
