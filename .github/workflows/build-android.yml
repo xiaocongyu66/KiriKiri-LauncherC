@@ -174,7 +174,7 @@ jobs:
       - name: ccache
         uses: hendrikmuhs/ccache-action@v1.2.18
         with:
-          key: ${{ github.job }}-${{ matrix.os }}
+          key: ${{ github.job }}-ubuntu-latest
 
       - name: Prepare Flutter launcher shell
         working-directory: flutter_launcher
@@ -209,7 +209,7 @@ jobs:
 
       - name: Build Flutter launcher APK
         working-directory: flutter_launcher
-        run: flutter build apk --release
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Upload artifacts
         if: ${{ !env.ACT && success() }}
