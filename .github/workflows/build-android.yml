@@ -103,6 +103,12 @@ jobs:
           java-version: '17.0.19+10'
           distribution: 'zulu'
 
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
       - name: Download Android CommandLineTools
         if: steps.commandlinetools-cache.outputs.cache-hit != 'true'
         run: |
@@ -200,9 +206,26 @@ jobs:
         run: |
           sh ./platforms/android/gradlew -p ./platforms/android --console=plain --no-daemon assemble
 
+      - name: Prepare Flutter launcher shell
+        working-directory: flutter_launcher
+        run: |
+          flutter create --platforms=android .
+          ./tool/sync_assets.sh
+
+      - name: Move Android platform resources into Flutter launcher
+        run: |
+          mkdir -p flutter_launcher/android/app/src/main/res
+          cp -R platforms/android/app/res/. flutter_launcher/android/app/src/main/res/
+
+      - name: Build Flutter launcher APK
+        working-directory: flutter_launcher
+        run: flutter build apk --release
+
       - name: Upload artifacts
         if: ${{ !env.ACT && success() }}
         uses: actions/upload-artifact@v4
         with:
           name: android-apks
-          path: platforms/android/out/android/app/outputs/apk/release/*.apk
+          path: |
+            platforms/android/out/android/app/outputs/apk/release/*.apk
+            flutter_launcher/build/app/outputs/flutter-apk/*.apk

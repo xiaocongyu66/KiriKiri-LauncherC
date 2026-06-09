@@ -37,6 +37,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/ui/ConsoleWindow.cpp
     ${ENVIRON_PATH}/ui/DebugViewLayerForm.cpp
     ${ENVIRON_PATH}/ui/FileSelectorForm.cpp
+    ${ENVIRON_PATH}/ui/FlutterGameMenuBridge.cpp
     ${ENVIRON_PATH}/ui/GameMainMenu.cpp
     ${ENVIRON_PATH}/ui/GlobalPreferenceForm.cpp
     ${ENVIRON_PATH}/ui/IndividualPreferenceForm.cpp

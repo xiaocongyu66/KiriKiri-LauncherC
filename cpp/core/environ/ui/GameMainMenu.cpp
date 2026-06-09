@@ -1,4 +1,5 @@
 #include "GameMainMenu.h"
+#include "FlutterGameMenuBridge.h"
 #include "cocos2d/MainScene.h"
 #include "Application.h"
 #include "WindowIntf.h"
@@ -87,6 +88,10 @@ bool TVPGameMainMenu::init() {
     _eventDispatcher->addEventListenerWithSceneGraphPriority(listener, _root);
 
     reader.findWidget("btn_gamemenu")->addClickEventListener([this](Ref *) {
+        if(TVPShowFlutterGameMainMenu()) {
+            shrink();
+            return;
+        }
         iTJSDispatch2 *menuobj =
             TVPGetMenuDispatch((tjs_intptr_t)TVPGetActiveWindow());
         if(!menuobj)
