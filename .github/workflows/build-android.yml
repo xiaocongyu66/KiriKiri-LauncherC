@@ -193,12 +193,114 @@ jobs:
       - name: Create Flutter launcher activity
         run: |
           mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
+          cat > flutter_launcher/android/app/src/main/AndroidManifest.xml <<'EOF'
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+              <uses-feature android:glEsVersion="0x00020000" android:required="true" />
+              <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" android:minSdkVersion="30" />
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+              <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />
+              <uses-permission android:name="android.permission.WRITE_SETTINGS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:icon="@mipmap/ic_launcher"
+                  android:label="KiriKiri Launcher"
+                  android:requestLegacyExternalStorage="true"
+                  android:resizeableActivity="true">
+                  <meta-data android:name="flutterEmbedding" android:value="2" />
+                  <meta-data android:name="android.app.lib_name" android:value="krkr2" />
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
+                      android:exported="true"
+                      android:hardwareAccelerated="true"
+                      android:launchMode="singleTop"
+                      android:theme="@style/LaunchTheme"
+                      android:windowSoftInputMode="adjustResize">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
           cat > flutter_launcher/android/app/src/main/java/org/github/krkr2/MainActivity.java <<'EOF'
           package org.github.krkr2;
 
+          import android.content.Intent;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Environment;
+          import android.provider.Settings;
+
+          import androidx.annotation.NonNull;
+
+          import io.flutter.embedding.engine.FlutterEngine;
           import io.flutter.embedding.android.FlutterActivity;
+          import io.flutter.plugin.common.MethodChannel;
 
           public class MainActivity extends FlutterActivity {
+              private static final String CHANNEL = "org.github.krkr2/platform";
+
+              @Override
+              public void configureFlutterEngine(@NonNull FlutterEngine flutterEngine) {
+                  super.configureFlutterEngine(flutterEngine);
+                  new MethodChannel(flutterEngine.getDartExecutor().getBinaryMessenger(), CHANNEL)
+                      .setMethodCallHandler((call, result) -> {
+                          switch (call.method) {
+                              case "hasFileManagementPermission":
+                                  result.success(hasFileManagementPermission());
+                                  break;
+                              case "requestFileManagementPermission":
+                                  requestFileManagementPermission();
+                                  result.success(null);
+                                  break;
+                              case "pickGameRoot":
+                                  pickGameRoot();
+                                  result.success(null);
+                                  break;
+                              case "openSettings":
+                              case "openDiagnostics":
+                                  openApplicationSettings();
+                                  result.success(null);
+                                  break;
+                              default:
+                                  result.notImplemented();
+                                  break;
+                          }
+                      });
+              }
+
+              private boolean hasFileManagementPermission() {
+                  return Build.VERSION.SDK_INT < Build.VERSION_CODES.R || Environment.isExternalStorageManager();
+              }
+
+              private void requestFileManagementPermission() {
+                  Intent intent;
+                  if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                      intent = new Intent(
+                          Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
+                          Uri.fromParts("package", getPackageName(), null)
+                      );
+                  } else {
+                      intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", getPackageName(), null));
+                  }
+                  startActivity(intent);
+              }
+
+              private void pickGameRoot() {
+                  Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+                  intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+                  startActivityForResult(intent, 1001);
+              }
+
+              private void openApplicationSettings() {
+                  Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", getPackageName(), null));
+                  startActivity(intent);
+              }
           }
           EOF
 

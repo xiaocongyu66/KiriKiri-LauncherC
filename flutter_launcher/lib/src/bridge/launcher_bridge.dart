@@ -3,6 +3,7 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
+import 'package:flutter/services.dart';
 
 import '../models/game_entry.dart';
 import '../models/game_menu_item.dart';
@@ -17,6 +18,7 @@ class LauncherBridge {
   LauncherBridge({DynamicLibrary? library}) : _providedLibrary = library;
 
   static final LauncherBridge instance = LauncherBridge();
+  static const MethodChannel _platformChannel = MethodChannel('org.github.krkr2/platform');
 
   final DynamicLibrary? _providedLibrary;
 
@@ -36,17 +38,68 @@ class LauncherBridge {
     'KR2LauncherLaunchGame',
   );
 
-  Future<List<GameEntry>> scanGames() async {
-    return const [
-      GameEntry(
-        title: 'Select a KiriKiri game',
-        subtitle: 'Native game scanner C API is pending',
-        path: '',
-      ),
-    ];
+  Future<List<GameEntry>> scanGames({String rootPath = '/sdcard', int maxDepth = 3}) async {
+    final root = Directory(rootPath.trim().isEmpty ? '/sdcard' : rootPath.trim());
+    if (!root.existsSync()) {
+      return const [];
+    }
+    final games = <GameEntry>[];
+    await _scanDirectory(root, 0, maxDepth, games);
+    games.sort((left, right) => left.title.toLowerCase().compareTo(right.title.toLowerCase()));
+    return games;
   }
 
-  Future<void> pickGame() async {}
+  Future<void> _scanDirectory(Directory directory, int depth, int maxDepth, List<GameEntry> games) async {
+    if (depth > maxDepth) {
+      return;
+    }
+    List<FileSystemEntity> entries;
+    try {
+      entries = directory.listSync(followLinks: false);
+    } on FileSystemException {
+      return;
+    }
+
+    final hasGameScript = entries.whereType<File>().any((file) {
+      final name = _basename(file.path).toLowerCase();
+      return name == 'data.xp3' || name == 'startup.tjs';
+    });
+    if (hasGameScript) {
+      games.add(GameEntry(title: _basename(directory.path), subtitle: directory.path, path: directory.path));
+      return;
+    }
+
+    for (final child in entries.whereType<Directory>()) {
+      final name = _basename(child.path);
+      if (name.startsWith('.')) {
+        continue;
+      }
+      await _scanDirectory(child, depth + 1, maxDepth, games);
+    }
+  }
+
+  String _basename(String path) {
+    final normalized = path.replaceAll('\\', '/');
+    final trimmed = normalized.endsWith('/') ? normalized.substring(0, normalized.length - 1) : normalized;
+    final index = trimmed.lastIndexOf('/');
+    if (index < 0) {
+      return trimmed;
+    }
+    return trimmed.substring(index + 1);
+  }
+
+  Future<void> pickGame() async {
+    await _platformChannel.invokeMethod<void>('pickGameRoot');
+  }
+
+  Future<void> requestFileManagementPermission() async {
+    await _platformChannel.invokeMethod<void>('requestFileManagementPermission');
+  }
+
+  Future<bool> hasFileManagementPermission() async {
+    final granted = await _platformChannel.invokeMethod<bool>('hasFileManagementPermission');
+    return granted ?? false;
+  }
 
   Future<void> launchGame(GameEntry game) async {
     final path = game.path.toNativeUtf8();
@@ -60,9 +113,13 @@ class LauncherBridge {
     }
   }
 
-  Future<void> openSettings() async {}
+  Future<void> openSettings() async {
+    await _platformChannel.invokeMethod<void>('openSettings');
+  }
 
-  Future<void> openDiagnostics() async {}
+  Future<void> openDiagnostics() async {
+    await _platformChannel.invokeMethod<void>('openDiagnostics');
+  }
 
   Future<List<GameMenuItem>> getMainMenu() async {
     final pointer = _getMainMenuJson();
