@@ -1,4 +1,3 @@
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -50,8 +49,12 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   Future<void> _pickGame() async {
     try {
       await widget.bridge.pickGame();
-    } on MissingPluginException {
-      await FilePicker.platform.getDirectoryPath(dialogTitle: 'Select game folder');
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Native file picker bridge is not connected')),
+        );
+      }
     }
     _refresh();
   }
