@@ -136,6 +136,7 @@ jobs:
           ${{ env.ANDROID_SDK_ROOT }}/cmdline-tools/latest/bin/sdkmanager --sdk_root=${{ env.ANDROID_SDK_ROOT }} \
             "platform-tools" \
             "platforms;android-34" \
+            "platforms;android-36" \
             "build-tools;34.0.0" \
             "cmake;3.31.1" \
             "ndk;${{ env.ANDROID_NDK_VERSION }}"
@@ -204,7 +205,7 @@ jobs:
 
           extensions.configure<ApplicationExtension>("android") {
               namespace = "org.github.krkr2"
-              compileSdk = 34
+              compileSdk = 36
               ndkVersion = "28.0.13004108"
 
               compileOptions {
