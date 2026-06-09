@@ -250,14 +250,6 @@ jobs:
                   }
               }
 
-              splits {
-                  abi {
-                      isEnable = true
-                      reset()
-                      include("arm64-v8a")
-                      isUniversalApk = false
-                  }
-              }
           }
 
           extensions.configure<KotlinAndroidProjectExtension>("kotlin") {
@@ -278,7 +270,7 @@ jobs:
 
       - name: Build Flutter launcher APK
         working-directory: flutter_launcher
-        run: flutter build apk --release --target-platform android-arm64 --split-per-abi
+        run: flutter build apk --release --target-platform android-arm64
 
       - name: Upload artifacts
         if: ${{ !env.ACT && success() }}
