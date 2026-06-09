@@ -190,6 +190,19 @@ jobs:
           mkdir -p flutter_launcher/android/app/src/main/assets
           cp -R ui/cocos-studio/. flutter_launcher/android/app/src/main/assets/
 
+      - name: Force Flutter plugin compileSdk
+        run: |
+          cat >> flutter_launcher/android/build.gradle.kts <<'EOF'
+
+          subprojects {
+              plugins.withId("com.android.library") {
+                  extensions.configure<com.android.build.api.dsl.LibraryExtension>("android") {
+                      compileSdk = 36
+                  }
+              }
+          }
+          EOF
+
       - name: Wire native engine into Flutter Android app
         run: |
           cat > flutter_launcher/android/app/build.gradle.kts <<'EOF'
