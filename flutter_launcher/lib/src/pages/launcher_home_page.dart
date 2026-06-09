@@ -356,7 +356,7 @@ class _LauncherHero extends StatelessWidget {
               runSpacing: 10,
               children: [
                 FilledButton.icon(onPressed: onRequestPermission, icon: const Icon(Icons.folder_special), label: const Text('申请文件管理权限')),
-                FilledTonalButton.icon(onPressed: onScan, icon: const Icon(Icons.refresh), label: const Text('重新扫描')),
+                OutlinedButton.icon(onPressed: onScan, icon: const Icon(Icons.refresh), label: const Text('重新扫描')),
               ],
             ),
           ],
@@ -606,8 +606,8 @@ class _SettingsPanelState extends State<_SettingsPanel> {
         _SwitchTile(icon: Icons.screen_rotation_alt, title: '强制横屏', subtitle: '保留旧启动器的方向控制入口', value: _landscape, onChanged: (value) => setState(() => _landscape = value)),
         _SwitchTile(icon: Icons.speed, title: '显示 FPS', subtitle: '后续迁移到 C 配置存储', value: _fps, onChanged: (value) => setState(() => _fps = value)),
         _SwitchTile(icon: Icons.mouse, title: '鼠标模式', subtitle: '复刻旧版触摸/鼠标控制开关', value: _mouse, onChanged: (value) => setState(() => _mouse = value)),
-        _SettingsTile(icon: Icons.tune, title: '渲染与运行设置', subtitle: '打开旧版设置入口，后续逐项迁移到 Flutter', trailing: FilledTonalButton(onPressed: widget.onOpenSettings, child: const Text('打开'))),
-        _SettingsTile(icon: Icons.bug_report_outlined, title: '诊断日志', subtitle: '查看崩溃、原生日志和环境信息', trailing: FilledTonalButton(onPressed: widget.onOpenDiagnostics, child: const Text('诊断'))),
+        _SettingsTile(icon: Icons.tune, title: '渲染与运行设置', subtitle: '打开旧版设置入口，后续逐项迁移到 Flutter', trailing: OutlinedButton(onPressed: widget.onOpenSettings, child: const Text('打开'))),
+        _SettingsTile(icon: Icons.bug_report_outlined, title: '诊断日志', subtitle: '查看崩溃、原生日志和环境信息', trailing: OutlinedButton(onPressed: widget.onOpenDiagnostics, child: const Text('诊断'))),
       ],
     );
   }
@@ -626,8 +626,8 @@ class _ToolsPanel extends StatelessWidget {
         _ToolTile(icon: const ResourceIcon('touch_icon.png'), title: '触摸模式', subtitle: '保留旧 UI 触控配置入口，等待 C 配置接口接入'),
         _ToolTile(icon: const ResourceIcon('mouse_icon.png'), title: '鼠标模式', subtitle: '保留左/右键与模拟鼠标入口'),
         _ToolTile(icon: const ResourceIcon('keyboard_icon.png'), title: '键盘映射', subtitle: '后续迁移快捷键和虚拟键盘配置'),
-        _ToolTile(icon: const ResourceIcon('about_icon.png'), title: '关于与诊断', subtitle: '打开日志、设备和运行库信息', action: FilledTonalButton(onPressed: onOpenDiagnostics, child: const Text('诊断'))),
-        _ToolTile(icon: const ResourceIcon('syssetting_btn_on.png'), title: '系统设置', subtitle: '旧版设置按钮的 Flutter 入口', action: FilledTonalButton(onPressed: onOpenSettings, child: const Text('打开'))),
+        _ToolTile(icon: const ResourceIcon('about_icon.png'), title: '关于与诊断', subtitle: '打开日志、设备和运行库信息', action: OutlinedButton(onPressed: onOpenDiagnostics, child: const Text('诊断'))),
+        _ToolTile(icon: const ResourceIcon('syssetting_btn_on.png'), title: '系统设置', subtitle: '旧版设置按钮的 Flutter 入口', action: OutlinedButton(onPressed: onOpenSettings, child: const Text('打开'))),
       ],
     );
   }
