@@ -32,3 +32,7 @@ Next bridge step per platform:
 1. Android: replace `TVPShowFlutterGameMainMenu()` with a JNI call into the Flutter host activity or cached Flutter engine.
 2. Desktop: expose the same call through the Flutter runner/window integration.
 3. Flutter: render menu data from `getMainMenu` and call `activateMenuItem` for selection.
+
+## Android Build Direction
+
+The Android CI no longer builds the legacy Kotlin/Compose launcher app. `build-android.yml` now creates a Java-based Flutter Android shell, copies the existing Android resources into it, wires the native `krkr2` CMake target into that Flutter app, and uploads only the Flutter APK. Kotlin code under `platforms/android/app/java/org/github/krkr2` is now reference/legacy code until the remaining scanner and permission helpers are moved behind C ABI or Flutter platform-host code.

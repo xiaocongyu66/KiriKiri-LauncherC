@@ -1,4 +1,4 @@
-name: Build Android
+name: Build Flutter Android
 
 on:
   workflow_dispatch:
@@ -176,46 +176,36 @@ jobs:
         with:
           key: ${{ github.job }}-${{ matrix.os }}
 
-      - name: Generate keystore
-        run: |
-          KEY_PASSWORD=$(tr -dc A-Za-z0-9 </dev/urandom | head -c 24)
-          KEY_ALIAS="ci-key"
-          KEYSTORE_PASSWORD=$KEY_PASSWORD
-          echo "Generated passwords:"
-          echo "KEYSTORE_PASSWORD=$KEYSTORE_PASSWORD"
-          echo "KEY_ALIAS=$KEY_ALIAS"
-          echo "KEY_PASSWORD=$KEY_PASSWORD"
-          
-          keytool -genkeypair -v \
-          -keystore ./platforms/android/app/sign.keystore \
-          -alias $KEY_ALIAS \
-          -keyalg RSA -keysize 2048 \
-          -validity 10000 \
-          -storepass $KEYSTORE_PASSWORD \
-          -keypass $KEY_PASSWORD \
-          -dname "CN=CI, OU=Dev, O=Company, L=City, ST=State, C=CN"
-          
-          echo "SIGN_STORE_PASS=$KEYSTORE_PASSWORD" >> ./platforms/android/app/sign.properties
-          echo "SIGN_KEY_ALIAS=$KEY_ALIAS" >> ./platforms/android/app/sign.properties
-          echo "SIGN_KEY_PASS=$KEY_PASSWORD" >> ./platforms/android/app/sign.properties
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
-
-      - name: Build Android
-        run: |
-          sh ./platforms/android/gradlew -p ./platforms/android --console=plain --no-daemon assemble
-
       - name: Prepare Flutter launcher shell
         working-directory: flutter_launcher
         run: |
-          flutter create --platforms=android .
+          flutter create --platforms=android --android-language java .
           ./tool/sync_assets.sh
 
       - name: Move Android platform resources into Flutter launcher
         run: |
           mkdir -p flutter_launcher/android/app/src/main/res
           cp -R platforms/android/app/res/. flutter_launcher/android/app/src/main/res/
+
+      - name: Wire native engine into Flutter Android app
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          groovy = Path('flutter_launcher/android/app/build.gradle')
+          kotlin = Path('flutter_launcher/android/app/build.gradle.kts')
+          if groovy.exists():
+              text = groovy.read_text()
+              text = text.replace("    defaultConfig {\n", "    defaultConfig {\n        ndk {\n            jobs Runtime.runtime.availableProcessors()\n            abiFilters 'arm64-v8a'\n        }\n        externalNativeBuild {\n            cmake {\n                targets 'krkr2'\n                cppFlags '-fsigned-char'\n                arguments '-DANDROID_STL=c++_shared', '-DANDROID=ON'\n            }\n        }\n", 1)
+              text = text.replace("}\n\nflutter {\n", "\n    externalNativeBuild {\n        cmake {\n            version '3.31.1'\n            buildStagingDirectory '../../../out/flutter-android/cmake-build'\n            path '../../../CMakeLists.txt'\n        }\n    }\n\n    packagingOptions {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n\n    sourceSets {\n        main {\n            assets.srcDirs += ['../../../ui/cocos-studio']\n        }\n    }\n}\n\nflutter {\n", 1)
+              groovy.write_text(text)
+          elif kotlin.exists():
+              text = kotlin.read_text()
+              text = text.replace("    defaultConfig {\n", "    defaultConfig {\n        ndk {\n            abiFilters += listOf(\"arm64-v8a\")\n        }\n        externalNativeBuild {\n            cmake {\n                targets += listOf(\"krkr2\")\n                cppFlags += listOf(\"-fsigned-char\")\n                arguments += listOf(\"-DANDROID_STL=c++_shared\", \"-DANDROID=ON\")\n            }\n        }\n", 1)
+              text = text.replace("}\n\nflutter {\n", "\n    externalNativeBuild {\n        cmake {\n            version = \"3.31.1\"\n            buildStagingDirectory = file(\"../../../out/flutter-android/cmake-build\")\n            path = file(\"../../../CMakeLists.txt\")\n        }\n    }\n\n    packaging {\n        jniLibs {\n            useLegacyPackaging = true\n        }\n    }\n\n    sourceSets {\n        getByName(\"main\") {\n            assets.srcDirs(\"../../../ui/cocos-studio\")\n        }\n    }\n}\n\nflutter {\n", 1)
+              kotlin.write_text(text)
+          else:
+              raise SystemExit('Flutter Android app Gradle file not found')
+          PY
 
       - name: Build Flutter launcher APK
         working-directory: flutter_launcher
@@ -226,6 +216,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: android-apks
-          path: |
-            platforms/android/out/android/app/outputs/apk/release/*.apk
-            flutter_launcher/build/app/outputs/flutter-apk/*.apk
+          path: flutter_launcher/build/app/outputs/flutter-apk/*.apk
