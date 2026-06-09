@@ -212,6 +212,10 @@ jobs:
                   targetCompatibility = JavaVersion.VERSION_17
               }
 
+              buildFeatures {
+                  prefab = true
+              }
+
               defaultConfig {
                   applicationId = "org.github.krkr2"
                   minSdk = 29
