@@ -15,16 +15,11 @@ namespace {
 std::mutex RuntimeMutex;
 void *NativeWindow = nullptr;
 bool Ready = false;
+bool Requested = false;
+uint32_t BackbufferWidth = 1;
+uint32_t BackbufferHeight = 1;
 
-} // namespace
-
-void SetNativeWindow(void *nativeWindow) {
-    std::lock_guard<std::mutex> lock(RuntimeMutex);
-    NativeWindow = nativeWindow;
-}
-
-bool InitializeVulkan(uint32_t width, uint32_t height) {
-    std::lock_guard<std::mutex> lock(RuntimeMutex);
+bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
     if(Ready)
         return true;
 
@@ -36,8 +31,8 @@ bool InitializeVulkan(uint32_t width, uint32_t height) {
 
     bgfx::Init init;
     init.type = bgfx::RendererType::Vulkan;
-    init.resolution.width = width ? width : 1;
-    init.resolution.height = height ? height : 1;
+    init.resolution.width = width ? width : BackbufferWidth;
+    init.resolution.height = height ? height : BackbufferHeight;
     init.resolution.reset = BGFX_RESET_NONE;
     init.platformData.nwh = NativeWindow;
 
@@ -52,6 +47,31 @@ bool InitializeVulkan(uint32_t width, uint32_t height) {
 #endif
 }
 
+} // namespace
+
+void SetNativeWindow(void *nativeWindow) {
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    NativeWindow = nativeWindow;
+    if(NativeWindow && Requested && !Ready)
+        InitializeVulkanLocked(BackbufferWidth, BackbufferHeight);
+}
+
+void SetBackbufferSize(uint32_t width, uint32_t height) {
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    BackbufferWidth = width ? width : 1;
+    BackbufferHeight = height ? height : 1;
+#if defined(KIRIKIRI_HAS_BGFX)
+    if(Ready)
+        bgfx::reset(BackbufferWidth, BackbufferHeight, BGFX_RESET_NONE);
+#endif
+}
+
+bool InitializeVulkan(uint32_t width, uint32_t height) {
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    Requested = true;
+    return InitializeVulkanLocked(width, height);
+}
+
 bool IsReady() {
     std::lock_guard<std::mutex> lock(RuntimeMutex);
     return Ready;
@@ -64,6 +84,7 @@ void Shutdown() {
         bgfx::shutdown();
 #endif
     Ready = false;
+    Requested = false;
 }
 
 } // namespace TVPBgfx

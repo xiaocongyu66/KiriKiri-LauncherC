@@ -2,6 +2,7 @@
 #include <memory>
 #include <jni.h>
 #include <dlfcn.h>
+#include <android/native_window_jni.h>
 #include <cocos/platform/android/jni/JniHelper.h>
 
 #include "environ/cocos2d/AppDelegate.h"
@@ -12,12 +13,14 @@
 #include "environ/android/AndroidUtils.h"
 #include "environ/sdl/SDLGameManager.h"
 #include "common/FFmpegDecodeConfig.h"
+#include "visual/bgfx/BgfxRuntime.h"
 
 /*******************************************************************************
                  Functions called by JNI
 *******************************************************************************/
 #include <cstring>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <spdlog/spdlog.h>
 #include <client/linux/handler/exception_handler.h>
@@ -43,6 +46,29 @@ void TVPSetUseFFmpegImageDecoder(bool enabled);
 static bool DumpFilter(void *data) {
     // if trying exit system, ignore all exception
     return !TVPSystemUninitCalled;
+}
+
+static std::mutex BgfxNativeWindowLock;
+static ANativeWindow *BgfxNativeWindow = nullptr;
+
+static void SetBgfxNativeWindow(JNIEnv *env, jobject surface, jint width,
+                                jint height) {
+    std::lock_guard<std::mutex> lock(BgfxNativeWindowLock);
+    if(BgfxNativeWindow) {
+        ANativeWindow_release(BgfxNativeWindow);
+        BgfxNativeWindow = nullptr;
+    }
+    if(surface) {
+        BgfxNativeWindow = ANativeWindow_fromSurface(env, surface);
+    }
+    TVPBgfx::SetNativeWindow(BgfxNativeWindow);
+    TVPBgfx::SetBackbufferSize(static_cast<uint32_t>(width > 0 ? width : 1),
+                               static_cast<uint32_t>(height > 0 ? height : 1));
+    try {
+        spdlog::info("[renderer] bgfx android native window set={}",
+                     BgfxNativeWindow ? 1 : 0);
+    } catch(...) {
+    }
 }
 
 [[maybe_unused]] void cocos_android_app_init(JNIEnv *env) { // for cocos3.10+
@@ -107,6 +133,15 @@ static std::string JStringToStdString(JNIEnv *env, jstring value) {
 }
 
 extern "C" {
+JNIEXPORT void JNICALL
+Java_org_cocos2dx_lib_Cocos2dxGLSurfaceView_nativeSetBgfxSurface(JNIEnv *env,
+                                                                 jclass,
+                                                                 jobject surface,
+                                                                 jint width,
+                                                                 jint height) {
+    SetBgfxNativeWindow(env, surface, width, height);
+}
+
 void Java_org_tvp_kirikiri2_KR2Activity_initDump(JNIEnv *env, jclass cls,
                                                  jstring path) {
     const char *pszPath = env->GetStringUTFChars(path, nullptr);

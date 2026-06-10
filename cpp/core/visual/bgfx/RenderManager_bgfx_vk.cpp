@@ -6,7 +6,7 @@
 class tTVPBgfxVulkanRenderManager : public iTVPRenderManager {
 public:
     tTVPBgfxVulkanRenderManager() : Software(TVPGetSoftwareRenderManager()) {
-        TVPBgfx::InitializeVulkan(1, 1);
+        TVPBgfx::InitializeVulkan(0, 0);
     }
 
     ~tTVPBgfxVulkanRenderManager() override { TVPBgfx::Shutdown(); }

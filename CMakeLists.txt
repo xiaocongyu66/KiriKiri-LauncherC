@@ -102,7 +102,10 @@ elseif(MACOS)
     )
 endif()
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2CORE_PATH}/environ/cocos2d)
+target_include_directories(${PROJECT_NAME} PUBLIC
+    ${KRKR2CORE_PATH}/environ/cocos2d
+    ${KRKR2CORE_PATH}
+)
 
 find_package(TBB CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PUBLIC TBB::tbb)
@@ -132,6 +135,8 @@ if(ANDROID OR LINUX)
         json
         -Wl,--no-whole-archive
         $<$<BOOL:${ANDROID}>:dobby>
+        $<$<BOOL:${ANDROID}>:android>
+        $<$<BOOL:${ANDROID}>:log>
     )
 elseif(APPLE)
     # Apple ld: -force_load takes an absolute path; let CMake resolve
