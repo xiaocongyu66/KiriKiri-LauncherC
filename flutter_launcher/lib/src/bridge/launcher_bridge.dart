@@ -442,6 +442,8 @@ class LauncherBridge {
         return;
       } on MissingPluginException {
         // Desktop/tests keep using the C ABI fallback below.
+      } on PlatformException {
+        // Desktop/tests keep using the C ABI fallback below.
       }
     }
     final path = game.path.toNativeUtf8();
