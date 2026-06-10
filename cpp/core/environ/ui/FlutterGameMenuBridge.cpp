@@ -6,18 +6,25 @@
 #include "impl/MenuItemImpl.h"
 #include "Application.h"
 #include "Platform.h"
+#include "base/CCDirector.h"
+#include "platform/CCGLView.h"
 #if defined(__ANDROID__)
 #include <jni.h>
 #include <cocos/platform/android/jni/JniHelper.h>
 #endif
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <sstream>
 #include <string>
 #include <vector>
 
 iTJSDispatch2 *TVPGetMenuDispatch(tTVInteger hWnd);
 tTJSNI_Window *TVPGetActiveWindow();
+
+bool IsOverlayAction(const char *value, const char *expected) {
+    return value && expected && std::strcmp(value, expected) == 0;
+}
 
 namespace {
 
@@ -202,17 +209,17 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
     if(!scene)
         return -2;
 
-    if(IsSDLUIAction(actionNameUtf8, "window-manager")) {
+    if(IsOverlayAction(actionNameUtf8, "window-manager")) {
         scene->showWindowManagerOverlay(true);
         return 0;
     }
 
-    if(IsSDLUIAction(actionNameUtf8, "mouse-mode")) {
+    if(IsOverlayAction(actionNameUtf8, "mouse-mode")) {
         scene->toggleVirtualMouseCursor();
         return scene->isVirtualMouseMode() ? 1 : 0;
     }
 
-    if(IsSDLUIAction(actionNameUtf8, "keyboard")) {
+    if(IsOverlayAction(actionNameUtf8, "keyboard")) {
         cocos2d::Size screenSize =
             cocos2d::Director::getInstance()->getOpenGLView()->getFrameSize();
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
@@ -223,7 +230,7 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
         return 0;
     }
 
-    if(IsSDLUIAction(actionNameUtf8, "exit")) {
+    if(IsOverlayAction(actionNameUtf8, "exit")) {
         Application->PostUserMessage([]() {
             if(auto *window = TVPGetActiveWindow())
                 window->Close();
