@@ -440,6 +440,7 @@ class _LibraryPanel extends StatelessWidget {
     required this.games,
     required this.selectedGame,
     required this.onSelectGame,
+    required this.onUpdateGame,
     required this.onLaunch,
   });
 
