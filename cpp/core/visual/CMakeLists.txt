@@ -37,8 +37,7 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/BitmapLayerTreeOwner.cpp
     ${VISUAL_PATH}/BitmapIntf.cpp
     ${VISUAL_PATH}/argb.cpp
-    ${VISUAL_PATH}/vulkan/VulkanRuntime.cpp
-    ${VISUAL_PATH}/vulkan/RenderManager_vulkan.cpp
+    ${VISUAL_PATH}/bgfx/RenderManager_bgfx_vk.cpp
 
     ${VISUAL_PATH}/gl/blend_function.cpp
     ${VISUAL_PATH}/gl/ResampleImage.cpp
@@ -73,7 +72,7 @@ set(VISUAL_HEADERS_DIR
     ${VISUAL_PATH}/
     ${VISUAL_PATH}/gl
     ${VISUAL_PATH}/ogl
-    ${VISUAL_PATH}/vulkan
+    ${VISUAL_PATH}/bgfx
     ${VISUAL_PATH}/impl
 )
 
@@ -92,6 +91,9 @@ fix_cocos2dx_android_cpufeatures_include()
 target_link_libraries(${PROJECT_NAME} PRIVATE
         cocos2dx::cocos2d
 )
+
+include("${CMAKE_SOURCE_DIR}/cmake/KirikiBgfx.cmake")
+kiriki_configure_bgfx(${PROJECT_NAME})
 
 find_package(JXR REQUIRED)
 target_compile_definitions(${PROJECT_NAME} PRIVATE -D__ANSI__)

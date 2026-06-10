@@ -28,7 +28,6 @@ extern "C" {
 #include "tjsHashSearch.h"
 #include "EventIntf.h"
 #include "lz4.h"
-#include "vulkan/VulkanRuntime.h"
 
 // #define USE_SWSCALE
 #define USE_CV_AFFINE
@@ -4875,34 +4874,6 @@ void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)()) {
     _RenderManagerFactory->emplace(name, std::make_pair(func, nullptr));
 }
 
-class tTVPVulkanRenderManager : public tTVPSoftwareRenderManager {
-public:
-    tTVPVulkanRenderManager() :
-        RuntimeReady(false) {
-        RuntimeReady = Runtime.Initialize(RuntimeSummary);
-        if(RuntimeReady) {
-            TVPAddLog(TJS_W("[renderer] Native Vulkan runtime initialized: ") +
-                      ttstr(RuntimeSummary.c_str()) +
-                      TJS_W("; compositing currently uses the software render path."));
-        } else {
-            TVPAddLog(TJS_W("[renderer] Native Vulkan runtime unavailable: ") +
-                      ttstr(RuntimeSummary.c_str()) +
-                      TJS_W("; compositing uses the software render path."));
-        }
-    }
-
-    const char *GetName() override { return "Native Vulkan"; }
-
-private:
-    TVPVulkanRuntime Runtime;
-    std::string RuntimeSummary;
-    bool RuntimeReady;
-};
-
-iTVPRenderManager *TVPCreateNativeVulkanRenderManager() {
-    return new tTVPVulkanRenderManager();
-}
-
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
     auto it = _RenderManagerFactory->find(name);
     if(it == _RenderManagerFactory->end()) {
@@ -4923,9 +4894,7 @@ iTVPRenderManager *TVPGetRenderManager() {
         ttstr str =
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
-        if(str == TJS_W("angle") || str == TJS_W("angle-vk"))
-            str = TJS_W("opengl");
-        else if(str == TJS_W("vk"))
+        if(str == TJS_W("vk") || str == TJS_W("bgfx-vk"))
             str = TJS_W("vulkan");
         _RenderManager = TVPGetRenderManager(str);
     }

@@ -20,7 +20,8 @@ class KR2Application : Application() {
         // First-run engine prefs bootstrap. The native engine defaults
         // renderer=software, and we keep that as the Android default because
         // the OpenGL path still has compatibility render errors on some KRKR
-        // titles. The setting remains user-selectable for future ANGLE/VK work.
+        // titles. The setting remains user-selectable while the bgfx renderer
+        // migration is staged.
         runCatching {
             val prefs = getSharedPreferences("krkr2_launcher_bootstrap", MODE_PRIVATE)
             if (!prefs.getBoolean("engine_defaults_v2_applied", false)) {

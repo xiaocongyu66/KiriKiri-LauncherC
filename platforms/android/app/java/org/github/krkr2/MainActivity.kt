@@ -69,7 +69,6 @@ class MainActivity : KR2Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         currentActivity = WeakReference(this)
         logLifecycle("onCreate#enter saved=${savedInstanceState != null}")
-        AngleDriverController.configureBeforeGl(this)
         super.setEnableVirtualButton(false)
         logLifecycle("onCreate#before-super")
         super.onCreate(savedInstanceState)

@@ -645,7 +645,7 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
                       title: '渲染器',
                       value: _overrideString(values, 'renderer'),
                       fallback: '自动',
-                      choices: const {'': '自动', 'opengl': 'OpenGL', 'angle': 'ANGLE', 'angle-vk': 'ANGLE-VK', 'vulkan': 'Vulkan', 'software': '软件'},
+                      choices: const {'': '自动', 'software': '软件', 'opengl': 'OpenGL', 'vulkan': 'bgfx Vulkan'},
                       onChanged: (value) => _setOverride('renderer', value),
                     ),
                     _SelectSetting(
@@ -929,7 +929,7 @@ class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> 
               title: '渲染器',
               value: _string('renderer', 'software'),
               fallback: '软件',
-              choices: const {'opengl': 'OpenGL', 'angle': 'ANGLE', 'angle-vk': 'ANGLE-VK', 'vulkan': 'Vulkan', 'software': '软件'},
+              choices: const {'software': '软件', 'opengl': 'OpenGL', 'vulkan': 'bgfx Vulkan'},
               onChanged: (value) => _set('renderer', value),
             ),
             _SelectSetting(

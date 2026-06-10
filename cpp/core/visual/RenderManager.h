@@ -314,6 +314,7 @@ void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)());
     } __##MGR##AutoReigster_instance;
 
 iTVPRenderManager *TVPGetRenderManager();
+iTVPRenderManager *TVPGetSoftwareRenderManager();
 namespace TJS {
     class tTJSString;
 }
