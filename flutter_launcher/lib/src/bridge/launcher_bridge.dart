@@ -22,6 +22,7 @@ class LauncherBridge {
 
   static final LauncherBridge instance = LauncherBridge();
   static const MethodChannel _platformChannel = MethodChannel('org.github.krkr2/platform');
+  static const MethodChannel _overlayChannel = MethodChannel('org.github.krkr2/game_overlay');
 
   static const _gameMarkers = {
     'startup.tjs',
@@ -584,6 +585,13 @@ class LauncherBridge {
   }
 
   Future<int> performOverlayAction(String actionName) async {
+    if (Platform.isAndroid) {
+      try {
+        return await _overlayChannel.invokeMethod<int>('performOverlayAction', {'action': actionName}) ?? 0;
+      } on MissingPluginException {
+        // Fall through to the native C ABI for desktop/tests.
+      }
+    }
     if (!Platform.isAndroid && !Platform.isIOS && !Platform.isMacOS && !Platform.isLinux && !Platform.isWindows) {
       return 0;
     }
@@ -602,6 +610,19 @@ class LauncherBridge {
   }
 
   Future<List<GameMenuItem>> getMainMenu() async {
+    if (Platform.isAndroid) {
+      try {
+        final jsonText = await _overlayChannel.invokeMethod<String>('getMainMenu');
+        final decoded = jsonDecode(jsonText ?? '[]');
+        if (decoded is List) {
+          return decoded.whereType<Map>().map((item) => GameMenuItem.fromMap(item.cast<String, Object?>())).toList(growable: false);
+        }
+      } on MissingPluginException {
+        // Fall through to the native C ABI for desktop/tests.
+      } on FormatException {
+        return const [];
+      }
+    }
     Pointer<Utf8> pointer;
     try {
       pointer = _getMainMenuJson();
@@ -619,6 +640,17 @@ class LauncherBridge {
   }
 
   Future<void> activateMenuItem(GameMenuItem item) async {
+    if (Platform.isAndroid) {
+      try {
+        final result = await _overlayChannel.invokeMethod<int>('activateMenuItem', {'path': item.path}) ?? 0;
+        if (result != 0) {
+          throw StateError('KR2LauncherActivateMenuItem failed: $result');
+        }
+        return;
+      } on MissingPluginException {
+        // Fall through to the native C ABI for desktop/tests.
+      }
+    }
     final path = item.path.toNativeUtf8();
     try {
       final result = _activateMenuItem(path);

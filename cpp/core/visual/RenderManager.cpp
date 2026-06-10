@@ -4875,9 +4875,18 @@ void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)()) {
 }
 
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
+    if(!_RenderManagerFactory) {
+        TVPThrowExceptionMessage(TJS_W("renderer registry is not initialized"));
+    }
     auto it = _RenderManagerFactory->find(name);
     if(it == _RenderManagerFactory->end()) {
-        TVPThrowExceptionMessage(TJS_W("unsupported renderer %1"), name);
+        auto fallback = _RenderManagerFactory->find(TJS_W("software"));
+        if(fallback == _RenderManagerFactory->end() || name == TJS_W("software")) {
+            TVPThrowExceptionMessage(TJS_W("unsupported renderer %1"), name);
+        }
+        TVPAddLog(TJS_W("[renderer] unsupported renderer '") + name +
+                  TJS_W("'; falling back to software for compatibility."));
+        it = fallback;
     }
     if(it->second.second) {
         return it->second.second;

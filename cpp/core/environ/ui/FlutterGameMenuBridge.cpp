@@ -93,6 +93,11 @@ void AppendMenuItemJson(std::string &out, tTJSNI_MenuItem *item,
         auto *child = static_cast<tTJSNI_MenuItem *>(children.at(index));
         if(!tTJSNI_BaseMenuItem::IsLiveInstance(child))
             continue;
+        ttstr childCaption;
+        child->GetCaption(childCaption);
+        if(childCaption.IsEmpty() || childCaption == TJS_W("+") ||
+           childCaption == TJS_W("-"))
+            continue;
         if(!first)
             out.push_back(',');
         first = false;
@@ -180,6 +185,10 @@ extern "C" const char *KR2LauncherGetMainMenuJson() {
         auto *child = static_cast<tTJSNI_MenuItem *>(children.at(index));
         if(!tTJSNI_BaseMenuItem::IsLiveInstance(child))
             continue;
+        ttstr caption;
+        child->GetCaption(caption);
+        if(caption.IsEmpty() || caption == TJS_W("+") || caption == TJS_W("-"))
+            continue;
         if(!first)
             LastMenuJson.push_back(',');
         first = false;
@@ -190,15 +199,18 @@ extern "C" const char *KR2LauncherGetMainMenuJson() {
 }
 
 extern "C" int KR2LauncherActivateMenuItem(const char *itemPathUtf8) {
-    tTJSNI_MenuItem *root = GetActiveRootMenu();
-    if(!root)
+    const std::string path = itemPathUtf8 ? itemPathUtf8 : "";
+    if(path.empty())
         return -1;
 
-    tTJSNI_MenuItem *item = FindMenuItem(root, ParsePath(itemPathUtf8));
-    if(!item)
-        return -2;
-
-    item->OnClick();
+    RunOnCocosThread([path]() {
+        tTJSNI_MenuItem *root = GetActiveRootMenu();
+        if(!root)
+            return;
+        tTJSNI_MenuItem *item = FindMenuItem(root, ParsePath(path.c_str()));
+        if(item)
+            item->OnClick();
+    });
     return 0;
 }
 
@@ -265,3 +277,34 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
 
     return -3;
 }
+
+#if defined(__ANDROID__)
+extern "C" JNIEXPORT jstring JNICALL
+Java_org_github_krkr2_MainActivity_nativeGetMainMenuJson(JNIEnv *env,
+                                                         jobject /*thiz*/) {
+    const char *json = KR2LauncherGetMainMenuJson();
+    return env->NewStringUTF(json ? json : "[]");
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_github_krkr2_MainActivity_nativeActivateMenuItem(JNIEnv *env,
+                                                          jobject /*thiz*/,
+                                                          jstring path) {
+    const char *chars = path ? env->GetStringUTFChars(path, nullptr) : nullptr;
+    int result = KR2LauncherActivateMenuItem(chars ? chars : "");
+    if(chars)
+        env->ReleaseStringUTFChars(path, chars);
+    return result;
+}
+
+extern "C" JNIEXPORT jint JNICALL
+Java_org_github_krkr2_MainActivity_nativePerformOverlayAction(JNIEnv *env,
+                                                              jobject /*thiz*/,
+                                                              jstring action) {
+    const char *chars = action ? env->GetStringUTFChars(action, nullptr) : nullptr;
+    int result = KR2LauncherPerformOverlayAction(chars ? chars : "");
+    if(chars)
+        env->ReleaseStringUTFChars(action, chars);
+    return result;
+}
+#endif

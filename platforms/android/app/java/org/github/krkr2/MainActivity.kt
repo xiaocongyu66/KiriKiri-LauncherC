@@ -53,6 +53,10 @@ class MainActivity : KR2Activity() {
     private var overlayParams: FrameLayout.LayoutParams? = null
     private var overlayChannel: MethodChannel? = null
 
+    private external fun nativeGetMainMenuJson(): String
+    private external fun nativeActivateMenuItem(path: String): Int
+    private external fun nativePerformOverlayAction(action: String): Int
+
     private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
 
     private fun logLifecycle(message: String, throwable: Throwable? = null) {
@@ -208,6 +212,22 @@ class MainActivity : KR2Activity() {
                     resizeOverlay(expanded, menuMode)
                     result.success(null)
                 }
+                "getMainMenu" -> result.success(runCatching { nativeGetMainMenuJson() }.getOrElse {
+                    LauncherPrefs.writeLauncherLog(this, "MainActivity.overlay getMainMenu failed", it)
+                    "[]"
+                })
+                "activateMenuItem" -> result.success(runCatching {
+                    nativeActivateMenuItem(call.argument<String>("path").orEmpty())
+                }.getOrElse {
+                    LauncherPrefs.writeLauncherLog(this, "MainActivity.overlay activateMenuItem failed", it)
+                    -100
+                })
+                "performOverlayAction" -> result.success(runCatching {
+                    nativePerformOverlayAction(call.argument<String>("action").orEmpty())
+                }.getOrElse {
+                    LauncherPrefs.writeLauncherLog(this, "MainActivity.overlay performOverlayAction failed", it)
+                    -100
+                })
                 else -> result.notImplemented()
             }
         }
