@@ -1,4 +1,5 @@
 #include "../RenderManager.h"
+#include "DebugIntf.h"
 #include "MsgIntf.h"
 
 #if defined(KIRIKIRI_HAS_BGFX)
