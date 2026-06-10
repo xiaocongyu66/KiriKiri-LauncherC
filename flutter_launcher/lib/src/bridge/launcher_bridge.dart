@@ -487,6 +487,35 @@ class LauncherBridge {
     };
   }
 
+  Future<Map<String, Object?>> getLauncherSettings() async {
+    try {
+      final settings = await _platformChannel.invokeMapMethod<String, Object?>('getLauncherSettings');
+      if (settings != null) {
+        return settings;
+      }
+    } on MissingPluginException {
+      // Desktop fallback below.
+    }
+    return {
+      'language': 'en',
+      'forceLandscape': false,
+      'useFfmpegImageDecoder': false,
+      'ffmpegDecodeMode': 'software',
+      'fileLogEnabled': false,
+      'fileLogAutoCleanup': false,
+      'fileLogRetentionDays': 15,
+      'scanDepth': await getScanDepth(),
+    };
+  }
+
+  Future<void> updateLauncherSetting(String key, Object? value) async {
+    await _platformChannel.invokeMethod<void>('updateLauncherSetting', {'key': key, 'value': value});
+  }
+
+  Future<void> launchOriginalEngine() async {
+    await _platformChannel.invokeMethod<void>('launchOriginalEngine');
+  }
+
   Future<List<GameMenuItem>> getMainMenu() async {
     final pointer = _getMainMenuJson();
     if (pointer == nullptr) {

@@ -324,6 +324,17 @@ jobs:
                               case "getDiagnosticsInfo":
                                   result.success(getDiagnosticsInfo());
                                   break;
+                              case "getLauncherSettings":
+                                  result.success(getLauncherSettings());
+                                  break;
+                              case "updateLauncherSetting":
+                                  updateLauncherSetting(call.argument("key"), call.argument("value"));
+                                  result.success(null);
+                                  break;
+                              case "launchOriginalEngine":
+                                  launchGame("", "", "");
+                                  result.success(null);
+                                  break;
                               case "openSettings":
                               case "openDiagnostics":
                                   openApplicationSettings();
@@ -394,6 +405,63 @@ jobs:
                   info.put("fileLogEnabled", LauncherPrefs.INSTANCE.getFileLogEnabled(this));
                   info.put("nativeLogConfigured", latest != null && latest.exists());
                   return info;
+              }
+
+              private Map<String, Object> getLauncherSettings() {
+                  Map<String, Object> settings = new HashMap<>();
+                  settings.put("language", LauncherPrefs.INSTANCE.getLanguage(this));
+                  settings.put("forceLandscape", LauncherPrefs.INSTANCE.getForceLandscape(this));
+                  settings.put("useFfmpegImageDecoder", LauncherPrefs.INSTANCE.getUseFfmpegImageDecoder(this));
+                  settings.put("ffmpegDecodeMode", LauncherPrefs.INSTANCE.getFfmpegDecodeMode(this));
+                  settings.put("fileLogEnabled", LauncherPrefs.INSTANCE.getFileLogEnabled(this));
+                  settings.put("fileLogAutoCleanup", LauncherPrefs.INSTANCE.getFileLogAutoCleanup(this));
+                  settings.put("fileLogRetentionDays", LauncherPrefs.INSTANCE.getFileLogRetentionDays(this));
+                  settings.put("scanDepth", LauncherPrefs.INSTANCE.getScanDepth(this));
+                  return settings;
+              }
+
+              private void updateLauncherSetting(String key, Object value) {
+                  if (key == null) return;
+                  switch (key) {
+                      case "language":
+                          LauncherPrefs.INSTANCE.setLanguage(this, value == null ? "en" : value.toString());
+                          break;
+                      case "forceLandscape":
+                          LauncherPrefs.INSTANCE.setForceLandscape(this, Boolean.TRUE.equals(value));
+                          break;
+                      case "useFfmpegImageDecoder":
+                          LauncherPrefs.INSTANCE.setUseFfmpegImageDecoder(this, Boolean.TRUE.equals(value));
+                          break;
+                      case "ffmpegDecodeMode":
+                          LauncherPrefs.INSTANCE.setFfmpegDecodeMode(this, value == null ? "software" : value.toString());
+                          break;
+                      case "fileLogEnabled":
+                          LauncherPrefs.INSTANCE.setFileLogEnabled(this, Boolean.TRUE.equals(value));
+                          break;
+                      case "fileLogAutoCleanup":
+                          LauncherPrefs.INSTANCE.setFileLogAutoCleanup(this, Boolean.TRUE.equals(value));
+                          break;
+                      case "fileLogRetentionDays":
+                          LauncherPrefs.INSTANCE.setFileLogRetentionDays(this, toInt(value, LauncherPrefs.FILE_LOG_RETENTION_DEFAULT_DAYS));
+                          break;
+                      case "scanDepth":
+                          LauncherPrefs.INSTANCE.setScanDepth(this, toInt(value, LauncherPrefs.SCAN_DEPTH_DEFAULT));
+                          break;
+                      default:
+                          break;
+                  }
+              }
+
+              private int toInt(Object value, int fallback) {
+                  if (value instanceof Number) return ((Number) value).intValue();
+                  if (value instanceof String) {
+                      try {
+                          return Integer.parseInt((String) value);
+                      } catch (NumberFormatException ignored) {
+                          return fallback;
+                      }
+                  }
+                  return fallback;
               }
           }
           EOF
