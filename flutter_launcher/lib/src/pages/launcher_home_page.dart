@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../bridge/launcher_bridge.dart';
@@ -16,7 +18,7 @@ class LauncherHomePage extends StatefulWidget {
 }
 
 class _LauncherHomePageState extends State<LauncherHomePage> {
-  final TextEditingController _rootController = TextEditingController(text: '/sdcard');
+  final TextEditingController _rootController = TextEditingController(text: '/storage/emulated/0/krkr2pro');
   _LauncherDest _dest = _LauncherDest.library;
   List<GameEntry> _games = const [];
   GameEntry? _selectedGame;
@@ -27,8 +29,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   @override
   void initState() {
     super.initState();
-    _refreshPermission();
-    _scanGames();
+    _bootstrapFromOldPrefs();
   }
 
   @override
@@ -50,6 +51,19 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     }
   }
 
+  Future<void> _bootstrapFromOldPrefs() async {
+    await _refreshPermission();
+    try {
+      final root = await widget.bridge.getGameRoot();
+      if (mounted) {
+        _rootController.text = root;
+      }
+    } catch (_) {
+      // Keep old default path.
+    }
+    await _scanGames();
+  }
+
   Future<void> _requestPermission() async {
     try {
       await widget.bridge.requestFileManagementPermission();
@@ -62,10 +76,13 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   Future<void> _scanGames() async {
     setState(() {
       _loading = true;
-      _scanStatus = '正在扫描 ${_rootController.text.trim().isEmpty ? '/sdcard' : _rootController.text.trim()}';
+      _scanStatus = '正在扫描 ${_rootController.text.trim().isEmpty ? '/storage/emulated/0/krkr2pro' : _rootController.text.trim()}';
     });
     try {
-      final games = await widget.bridge.scanGames(rootPath: _rootController.text);
+      final root = _rootController.text.trim().isEmpty ? '/storage/emulated/0/krkr2pro' : _rootController.text.trim();
+      await widget.bridge.setGameRoot(root);
+      final depth = await widget.bridge.getScanDepth();
+      final games = await widget.bridge.scanGames(rootPath: root, maxDepth: depth);
       if (!mounted) {
         return;
       }
@@ -109,6 +126,13 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     } catch (_) {
       _showSnack('C API 启动桥接失败：${game.path}');
     }
+  }
+
+  void _updateGame(GameEntry updated) {
+    setState(() {
+      _games = _games.map((game) => game.path == updated.path ? updated : game).toList(growable: false);
+      _selectedGame = updated;
+    });
   }
 
   Future<void> _openSettings() async {
@@ -157,6 +181,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                 onPickRoot: _pickGameRoot,
                 onScan: _scanGames,
                 onSelectGame: (game) => setState(() => _selectedGame = game),
+                onUpdateGame: _updateGame,
                 onLaunch: _launch,
                 onOpenSettings: _openSettings,
                 onOpenDiagnostics: _openDiagnostics,
@@ -194,6 +219,7 @@ class _LauncherContent extends StatelessWidget {
     required this.onPickRoot,
     required this.onScan,
     required this.onSelectGame,
+    required this.onUpdateGame,
     required this.onLaunch,
     required this.onOpenSettings,
     required this.onOpenDiagnostics,
@@ -211,6 +237,7 @@ class _LauncherContent extends StatelessWidget {
   final VoidCallback onPickRoot;
   final VoidCallback onScan;
   final ValueChanged<GameEntry> onSelectGame;
+  final ValueChanged<GameEntry> onUpdateGame;
   final ValueChanged<GameEntry> onLaunch;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenDiagnostics;
@@ -248,6 +275,7 @@ class _LauncherContent extends StatelessWidget {
                   games: games,
                   selectedGame: selectedGame,
                   onSelectGame: onSelectGame,
+                  onUpdateGame: onUpdateGame,
                   onLaunch: onLaunch,
                 )
               else if (dest == _LauncherDest.settings)
@@ -388,7 +416,7 @@ class _RootConfigCard extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: controller,
-                    decoration: const InputDecoration(prefixIcon: Icon(Icons.folder), border: OutlineInputBorder(), hintText: '/sdcard'),
+                    decoration: const InputDecoration(prefixIcon: Icon(Icons.folder), border: OutlineInputBorder(), hintText: '/storage/emulated/0/krkr2pro'),
                     onSubmitted: (_) => onScan(),
                   ),
                 ),
@@ -420,6 +448,7 @@ class _LibraryPanel extends StatelessWidget {
   final List<GameEntry> games;
   final GameEntry? selectedGame;
   final ValueChanged<GameEntry> onSelectGame;
+  final ValueChanged<GameEntry> onUpdateGame;
   final ValueChanged<GameEntry> onLaunch;
 
   @override
@@ -438,7 +467,7 @@ class _LibraryPanel extends StatelessWidget {
           children: [
             Expanded(flex: 3, child: _GameGrid(games: games, selectedGame: selectedGame, onSelectGame: onSelectGame, onLaunch: onLaunch)),
             const SizedBox(width: 14),
-            Expanded(flex: 2, child: _GameDetailPane(game: selectedGame ?? games.first, onLaunch: onLaunch)),
+            Expanded(flex: 2, child: _GameDetailPane(game: selectedGame ?? games.first, onUpdateGame: onUpdateGame, onLaunch: onLaunch)),
           ],
         ),
       );
@@ -447,7 +476,7 @@ class _LibraryPanel extends StatelessWidget {
       children: [
         _GameGrid(games: games, selectedGame: selectedGame, onSelectGame: onSelectGame, onLaunch: onLaunch, shrinkWrap: true),
         const SizedBox(height: 14),
-        if (selectedGame != null) _GameDetailPane(game: selectedGame!, onLaunch: onLaunch),
+        if (selectedGame != null) _GameDetailPane(game: selectedGame!, onUpdateGame: onUpdateGame, onLaunch: onLaunch),
       ],
     );
   }
@@ -512,7 +541,7 @@ class _GameCard extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  CircleAvatar(backgroundColor: scheme.surface, child: const ResourceIcon('windows_icon.png')),
+                  _CoverAvatar(path: game.coverPath),
                   const Spacer(),
                   IconButton.filledTonal(onPressed: onLaunch, icon: const Icon(Icons.play_arrow), tooltip: '启动'),
                 ],
@@ -529,30 +558,201 @@ class _GameCard extends StatelessWidget {
   }
 }
 
+class _CoverAvatar extends StatelessWidget {
+  const _CoverAvatar({required this.path});
+
+  final String? path;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _fileImage(path);
+    return CircleAvatar(
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      backgroundImage: image,
+      child: image == null ? const ResourceIcon('windows_icon.png') : null,
+    );
+  }
+}
+
 class _GameDetailPane extends StatelessWidget {
-  const _GameDetailPane({required this.game, required this.onLaunch});
+  const _GameDetailPane({required this.game, required this.onUpdateGame, required this.onLaunch});
 
   final GameEntry game;
+  final ValueChanged<GameEntry> onUpdateGame;
   final ValueChanged<GameEntry> onLaunch;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(20),
+      clipBehavior: Clip.antiAlias,
+      child: SingleChildScrollView(
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Row(children: [const ResourceIcon('menu_icon.png'), const SizedBox(width: 10), Expanded(child: Text(game.title, style: Theme.of(context).textTheme.headlineSmall))]),
-            const SizedBox(height: 14),
-            Text(game.path, style: Theme.of(context).textTheme.bodyMedium),
-            const SizedBox(height: 14),
-            Wrap(spacing: 8, runSpacing: 8, children: const [Chip(label: Text('data.xp3')), Chip(label: Text('startup.tjs')), Chip(label: Text('KiriKiri'))]),
-            const SizedBox(height: 24),
-            SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => onLaunch(game), icon: const Icon(Icons.play_arrow), label: const Text('启动游戏'))),
+            _GameBanner(game: game),
+            Padding(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const ResourceIcon('menu_icon.png'),
+                      const SizedBox(width: 10),
+                      Expanded(child: Text(game.title, style: Theme.of(context).textTheme.headlineSmall)),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  Text(game.path, style: Theme.of(context).textTheme.bodySmall),
+                  const SizedBox(height: 14),
+                  _LaunchFilePicker(game: game, onChanged: onUpdateGame),
+                  const SizedBox(height: 12),
+                  const _PerGameEngineOverrides(),
+                  const SizedBox(height: 18),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(onPressed: () => onLaunch(game), icon: const Icon(Icons.play_arrow), label: const Text('启动')),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
       ),
+    );
+  }
+}
+
+class _GameBanner extends StatelessWidget {
+  const _GameBanner({required this.game});
+
+  final GameEntry game;
+
+  @override
+  Widget build(BuildContext context) {
+    final imagePath = game.backgroundPath ?? game.coverPath;
+    final image = _fileImage(imagePath);
+    return SizedBox(
+      height: 150,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          if (image != null)
+            Image(image: image, fit: BoxFit.cover)
+          else
+            Container(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [Theme.of(context).colorScheme.primaryContainer, Theme.of(context).colorScheme.surfaceContainerHighest]),
+              ),
+            ),
+          DecoratedBox(decoration: BoxDecoration(color: Colors.black.withOpacity(0.22))),
+        ],
+      ),
+    );
+  }
+}
+
+class _LaunchFilePicker extends StatefulWidget {
+  const _LaunchFilePicker({required this.game, required this.onChanged});
+
+  final GameEntry game;
+  final ValueChanged<GameEntry> onChanged;
+
+  @override
+  State<_LaunchFilePicker> createState() => _LaunchFilePickerState();
+}
+
+class _LaunchFilePickerState extends State<_LaunchFilePicker> {
+  late Future<List<String>> _future;
+  String _selected = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _selected = widget.game.launchFile ?? '';
+    _future = LauncherBridge.instance.listLaunchCandidates(widget.game.path);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LaunchFilePicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.game.path != widget.game.path) {
+      _selected = widget.game.launchFile ?? '';
+      _future = LauncherBridge.instance.listLaunchCandidates(widget.game.path);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<String>>(
+      future: _future,
+      builder: (context, snapshot) {
+        final candidates = snapshot.data ?? const <String>[];
+        final values = ['', ...candidates];
+        return DropdownButtonFormField<String>(
+          value: values.contains(_selected) ? _selected : '',
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: '启动文件', helperText: '自动检测会按 startup.tjs / start.tjs / data.xp3 优先级启动', border: OutlineInputBorder()),
+          items: values.map((path) {
+            final label = path.isEmpty ? '自动检测' : _relativeToGame(path, widget.game.path);
+            return DropdownMenuItem(value: path, child: Text(label, overflow: TextOverflow.ellipsis));
+          }).toList(growable: false),
+          onChanged: (path) {
+            final next = path ?? '';
+            setState(() => _selected = next);
+            widget.onChanged(widget.game.copyWith(launchFile: next));
+          },
+        );
+      },
+    );
+  }
+}
+
+class _PerGameEngineOverrides extends StatefulWidget {
+  const _PerGameEngineOverrides();
+
+  @override
+  State<_PerGameEngineOverrides> createState() => _PerGameEngineOverridesState();
+}
+
+class _PerGameEngineOverridesState extends State<_PerGameEngineOverrides> {
+  String _renderer = '';
+  String _fpsLimit = '';
+  bool _showFps = false;
+  bool _accurateRender = false;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('单游戏设置', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _renderer,
+          decoration: const InputDecoration(labelText: 'Renderer', border: OutlineInputBorder()),
+          items: const [
+            DropdownMenuItem(value: '', child: Text('全局默认')),
+            DropdownMenuItem(value: 'opengl', child: Text('OpenGL')),
+            DropdownMenuItem(value: 'software', child: Text('Software')),
+          ],
+          onChanged: (value) => setState(() => _renderer = value ?? ''),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _fpsLimit,
+          decoration: const InputDecoration(labelText: 'FPS Limit', border: OutlineInputBorder()),
+          items: const [
+            DropdownMenuItem(value: '', child: Text('全局默认')),
+            DropdownMenuItem(value: '30', child: Text('30')),
+            DropdownMenuItem(value: '60', child: Text('60')),
+            DropdownMenuItem(value: '120', child: Text('120')),
+          ],
+          onChanged: (value) => setState(() => _fpsLimit = value ?? ''),
+        ),
+        SwitchListTile(value: _showFps, onChanged: (value) => setState(() => _showFps = value), title: const Text('显示 FPS'), contentPadding: EdgeInsets.zero),
+        SwitchListTile(value: _accurateRender, onChanged: (value) => setState(() => _accurateRender = value), title: const Text('精确渲染'), contentPadding: EdgeInsets.zero),
+      ],
     );
   }
 }
@@ -674,4 +874,24 @@ class _ToolTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return Card(child: ListTile(leading: icon, title: Text(title), subtitle: Text(subtitle), trailing: action));
   }
+}
+
+ImageProvider? _fileImage(String? path) {
+  if (path == null || path.isEmpty) {
+    return null;
+  }
+  final file = File(path);
+  if (!file.existsSync()) {
+    return null;
+  }
+  return FileImage(file);
+}
+
+String _relativeToGame(String path, String gameDir) {
+  final normalizedPath = path.replaceAll('\\', '/');
+  final normalizedGameDir = gameDir.replaceAll('\\', '/');
+  if (normalizedPath.startsWith('$normalizedGameDir/')) {
+    return normalizedPath.substring(normalizedGameDir.length + 1);
+  }
+  return normalizedPath.split('/').last;
 }
