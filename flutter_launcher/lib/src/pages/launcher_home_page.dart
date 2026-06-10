@@ -116,6 +116,29 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     }
   }
 
+  void _showRootConfig() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (context) => Padding(
+        padding: EdgeInsets.only(
+          left: 16,
+          right: 16,
+          top: 16,
+          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
+        ),
+        child: _RootConfigCard(
+          controller: _rootController,
+          onPickRoot: _pickGameRoot,
+          onScan: () {
+            Navigator.of(context).pop();
+            _scanGames();
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _launch(GameEntry game) async {
     if (game.path.isEmpty) {
       _showSnack('请先选择有效游戏目录');
@@ -158,6 +181,15 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
+  void _selectDest(_LauncherDest dest) {
+    setState(() => _dest = dest);
+    if (dest == _LauncherDest.settings) {
+      _openSettings();
+    } else if (dest == _LauncherDest.tools) {
+      _openDiagnostics();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
@@ -165,7 +197,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     return Scaffold(
       body: Row(
         children: [
-          if (expanded) _LauncherRail(dest: _dest, onChanged: (dest) => setState(() => _dest = dest)),
+          if (expanded) _LauncherRail(dest: _dest, onChanged: _selectDest),
           Expanded(
             child: SafeArea(
               child: _LauncherContent(
@@ -174,11 +206,10 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
                 storageGranted: _storageGranted,
                 loading: _loading,
                 scanStatus: _scanStatus,
-                rootController: _rootController,
                 games: _games,
                 selectedGame: _selectedGame,
                 onRequestPermission: _requestPermission,
-                onPickRoot: _pickGameRoot,
+                onEditRoot: _showRootConfig,
                 onScan: _scanGames,
                 onSelectGame: (game) => setState(() => _selectedGame = game),
                 onUpdateGame: _updateGame,
@@ -194,7 +225,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
           ? null
           : NavigationBar(
               selectedIndex: _dest.index,
-              onDestinationSelected: (index) => setState(() => _dest = _LauncherDest.values[index]),
+              onDestinationSelected: (index) => _selectDest(_LauncherDest.values[index]),
               destinations: const [
                 NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '游戏库'),
                 NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: '设置'),
@@ -212,11 +243,10 @@ class _LauncherContent extends StatelessWidget {
     required this.storageGranted,
     required this.loading,
     required this.scanStatus,
-    required this.rootController,
     required this.games,
     required this.selectedGame,
     required this.onRequestPermission,
-    required this.onPickRoot,
+    required this.onEditRoot,
     required this.onScan,
     required this.onSelectGame,
     required this.onUpdateGame,
@@ -230,11 +260,10 @@ class _LauncherContent extends StatelessWidget {
   final bool storageGranted;
   final bool loading;
   final String scanStatus;
-  final TextEditingController rootController;
   final List<GameEntry> games;
   final GameEntry? selectedGame;
   final VoidCallback onRequestPermission;
-  final VoidCallback onPickRoot;
+  final VoidCallback onEditRoot;
   final VoidCallback onScan;
   final ValueChanged<GameEntry> onSelectGame;
   final ValueChanged<GameEntry> onUpdateGame;
@@ -249,7 +278,7 @@ class _LauncherContent extends StatelessWidget {
         SliverAppBar.large(
           title: const Text('KiriKiri Launcher'),
           actions: [
-            IconButton(onPressed: onPickRoot, icon: const Icon(Icons.folder_open), tooltip: '选择目录'),
+            IconButton(onPressed: onEditRoot, icon: const Icon(Icons.add), tooltip: '游戏根目录'),
             IconButton(onPressed: onScan, icon: const Icon(Icons.refresh), tooltip: '重新扫描'),
           ],
         ),
@@ -265,8 +294,6 @@ class _LauncherContent extends StatelessWidget {
                 onRequestPermission: onRequestPermission,
                 onScan: onScan,
               ),
-              const SizedBox(height: 14),
-              _RootConfigCard(controller: rootController, onPickRoot: onPickRoot, onScan: onScan),
               const SizedBox(height: 14),
               if (dest == _LauncherDest.library)
                 _LibraryPanel(
@@ -361,11 +388,11 @@ class _LauncherHero extends StatelessWidget {
                     children: [
                       CircleAvatar(backgroundColor: scheme.primary, child: const ResourceIcon('menu_icon.png')),
                       const SizedBox(width: 12),
-                      Text('现代化启动器', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+                      Text('KrKr2 启动器', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
                     ],
                   ),
                   const SizedBox(height: 10),
-                  Text('保留旧版权限、设置、工具入口；游戏运行和菜单逐步迁移到 C API + Flutter UI。', style: Theme.of(context).textTheme.bodyMedium),
+                  Text('选择游戏目录，扫描 KiriKiri 游戏，然后启动。', style: Theme.of(context).textTheme.bodyMedium),
                   const SizedBox(height: 12),
                   Wrap(
                     spacing: 8,
@@ -421,7 +448,7 @@ class _RootConfigCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(width: 10),
-                IconButton.filledTonal(onPressed: onPickRoot, icon: const Icon(Icons.folder_open), tooltip: '选择'),
+                IconButton(onPressed: onPickRoot, icon: const Icon(Icons.folder_open), tooltip: '选择'),
                 const SizedBox(width: 6),
                 IconButton.filled(onPressed: onScan, icon: const Icon(Icons.search), tooltip: '扫描'),
               ],
@@ -544,7 +571,7 @@ class _GameCard extends StatelessWidget {
                 children: [
                   _CoverAvatar(path: game.coverPath),
                   const Spacer(),
-                  IconButton.filledTonal(onPressed: onLaunch, icon: const Icon(Icons.play_arrow), tooltip: '启动'),
+                  IconButton(onPressed: onLaunch, icon: const Icon(Icons.play_arrow), tooltip: '启动'),
                 ],
               ),
               const Spacer(),
@@ -607,8 +634,6 @@ class _GameDetailPane extends StatelessWidget {
                   Text(game.path, style: Theme.of(context).textTheme.bodySmall),
                   const SizedBox(height: 14),
                   _LaunchFilePicker(game: game, onChanged: onUpdateGame),
-                  const SizedBox(height: 12),
-                  const _PerGameEngineOverrides(),
                   const SizedBox(height: 18),
                   SizedBox(
                     width: double.infinity,
@@ -709,55 +734,6 @@ class _LaunchFilePickerState extends State<_LaunchFilePicker> {
   }
 }
 
-class _PerGameEngineOverrides extends StatefulWidget {
-  const _PerGameEngineOverrides();
-
-  @override
-  State<_PerGameEngineOverrides> createState() => _PerGameEngineOverridesState();
-}
-
-class _PerGameEngineOverridesState extends State<_PerGameEngineOverrides> {
-  String _renderer = '';
-  String _fpsLimit = '';
-  bool _showFps = false;
-  bool _accurateRender = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('单游戏设置', style: Theme.of(context).textTheme.titleMedium),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: _renderer,
-          decoration: const InputDecoration(labelText: 'Renderer', border: OutlineInputBorder()),
-          items: const [
-            DropdownMenuItem(value: '', child: Text('全局默认')),
-            DropdownMenuItem(value: 'opengl', child: Text('OpenGL')),
-            DropdownMenuItem(value: 'software', child: Text('Software')),
-          ],
-          onChanged: (value) => setState(() => _renderer = value ?? ''),
-        ),
-        const SizedBox(height: 8),
-        DropdownButtonFormField<String>(
-          value: _fpsLimit,
-          decoration: const InputDecoration(labelText: 'FPS Limit', border: OutlineInputBorder()),
-          items: const [
-            DropdownMenuItem(value: '', child: Text('全局默认')),
-            DropdownMenuItem(value: '30', child: Text('30')),
-            DropdownMenuItem(value: '60', child: Text('60')),
-            DropdownMenuItem(value: '120', child: Text('120')),
-          ],
-          onChanged: (value) => setState(() => _fpsLimit = value ?? ''),
-        ),
-        SwitchListTile(value: _showFps, onChanged: (value) => setState(() => _showFps = value), title: const Text('显示 FPS'), contentPadding: EdgeInsets.zero),
-        SwitchListTile(value: _accurateRender, onChanged: (value) => setState(() => _accurateRender = value), title: const Text('精确渲染'), contentPadding: EdgeInsets.zero),
-      ],
-    );
-  }
-}
-
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
 
@@ -782,7 +758,7 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-class _SettingsPanel extends StatefulWidget {
+class _SettingsPanel extends StatelessWidget {
   const _SettingsPanel({required this.storageGranted, required this.onRequestPermission, required this.onOpenSettings, required this.onOpenDiagnostics});
 
   final bool storageGranted;
@@ -791,24 +767,12 @@ class _SettingsPanel extends StatefulWidget {
   final VoidCallback onOpenDiagnostics;
 
   @override
-  State<_SettingsPanel> createState() => _SettingsPanelState();
-}
-
-class _SettingsPanelState extends State<_SettingsPanel> {
-  bool _landscape = true;
-  bool _fps = false;
-  bool _mouse = true;
-
-  @override
   Widget build(BuildContext context) {
     return Column(
       children: [
-        _SettingsTile(icon: Icons.folder_special, title: '文件管理权限', subtitle: widget.storageGranted ? '已授权，可扫描外部存储游戏目录' : '未授权，Android 11+ 需要所有文件访问权限', trailing: FilledButton(onPressed: widget.onRequestPermission, child: const Text('申请'))),
-        _SwitchTile(icon: Icons.screen_rotation_alt, title: '强制横屏', subtitle: '保留旧启动器的方向控制入口', value: _landscape, onChanged: (value) => setState(() => _landscape = value)),
-        _SwitchTile(icon: Icons.speed, title: '显示 FPS', subtitle: '后续迁移到 C 配置存储', value: _fps, onChanged: (value) => setState(() => _fps = value)),
-        _SwitchTile(icon: Icons.mouse, title: '鼠标模式', subtitle: '复刻旧版触摸/鼠标控制开关', value: _mouse, onChanged: (value) => setState(() => _mouse = value)),
-        _SettingsTile(icon: Icons.tune, title: '渲染与运行设置', subtitle: '打开旧版设置入口，后续逐项迁移到 Flutter', trailing: OutlinedButton(onPressed: widget.onOpenSettings, child: const Text('打开'))),
-        _SettingsTile(icon: Icons.bug_report_outlined, title: '诊断日志', subtitle: '查看崩溃、原生日志和环境信息', trailing: OutlinedButton(onPressed: widget.onOpenDiagnostics, child: const Text('诊断'))),
+        _SettingsTile(icon: Icons.folder_special, title: '文件管理权限', subtitle: storageGranted ? '已授权' : '未授权，Android 11+ 需要所有文件访问权限', trailing: FilledButton(onPressed: onRequestPermission, child: const Text('申请'))),
+        _SettingsTile(icon: Icons.tune, title: '设置', subtitle: '打开旧版启动器设置', trailing: OutlinedButton(onPressed: onOpenSettings, child: const Text('打开'))),
+        _SettingsTile(icon: Icons.bug_report_outlined, title: '诊断', subtitle: '打开旧版诊断页', trailing: OutlinedButton(onPressed: onOpenDiagnostics, child: const Text('打开'))),
       ],
     );
   }
@@ -845,21 +809,6 @@ class _SettingsTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Card(child: ListTile(leading: Icon(icon), title: Text(title), subtitle: Text(subtitle), trailing: trailing));
-  }
-}
-
-class _SwitchTile extends StatelessWidget {
-  const _SwitchTile({required this.icon, required this.title, required this.subtitle, required this.value, required this.onChanged});
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final bool value;
-  final ValueChanged<bool> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(child: SwitchListTile(value: value, onChanged: onChanged, secondary: Icon(icon), title: Text(title), subtitle: Text(subtitle)));
   }
 }
 

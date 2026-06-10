@@ -432,8 +432,7 @@ class LauncherBridge {
   }
 
   Future<void> launchGame(GameEntry game) async {
-    final launchPath = game.launchFile?.isNotEmpty == true ? game.launchFile! : game.path;
-    final path = launchPath.toNativeUtf8();
+    final path = game.path.toNativeUtf8();
     try {
       final result = _launchGame(path);
       if (result != 0) {
