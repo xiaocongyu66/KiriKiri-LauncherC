@@ -203,6 +203,7 @@ jobs:
           cp platforms/android/app/java/org/github/krkr2/KrkrPrefsSchema.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/KrkrPrefsCaptions.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/GamePrefsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/GameScanner.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/ForceLandscapeHelper.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/AngleDriverController.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
 

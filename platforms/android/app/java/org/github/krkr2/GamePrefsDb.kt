@@ -183,7 +183,7 @@ object GamePrefsDb {
                     $COL_LAUNCH_COUNT = $COL_LAUNCH_COUNT + 1,
                     $COL_LAST_LAUNCH_MS = excluded.$COL_LAST_LAUNCH_MS
                 """.trimIndent(),
-                arrayOf(uuid, System.currentTimeMillis())
+                arrayOf<Any>(uuid, System.currentTimeMillis())
             )
         }
     }
@@ -199,7 +199,7 @@ object GamePrefsDb {
                 ON CONFLICT($COL_UUID) DO UPDATE SET
                     $COL_PLAY_TIME_MS = $COL_PLAY_TIME_MS + excluded.$COL_PLAY_TIME_MS
                 """.trimIndent(),
-                arrayOf(uuid, millis)
+                arrayOf<Any>(uuid, millis)
             )
         }
     }
