@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.view.WindowManager
+import java.lang.ref.WeakReference
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -22,6 +23,20 @@ class MainActivity : KR2Activity() {
         const val EXTRA_GAME_DIR = "extra_game_dir"
         const val EXTRA_GAME_TITLE = "extra_game_title"
         const val EXTRA_LAUNCH_FILE = "extra_launch_file"
+
+        private var currentActivity = WeakReference<MainActivity>(null)
+
+        @JvmStatic
+        fun showFlutterGameMainMenu(): Boolean {
+            val activity = currentActivity.get() ?: return false
+            activity.runOnUiThread {
+                val intent = Intent(activity, GameMenuFlutterActivity::class.java)
+                intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
+                activity.startActivity(intent)
+                activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+            }
+            return true
+        }
     }
 
     private var sessionStartedAt = 0L
@@ -42,6 +57,7 @@ class MainActivity : KR2Activity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        currentActivity = WeakReference(this)
         logLifecycle("onCreate#enter saved=${savedInstanceState != null}")
         AngleDriverController.configureBeforeGl(this)
         super.setEnableVirtualButton(false)
@@ -95,6 +111,7 @@ class MainActivity : KR2Activity() {
 
     override fun onStart() {
         super.onStart()
+        currentActivity = WeakReference(this)
         logLifecycle("onStart")
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR)
         if (!gameDir.isNullOrEmpty()) {
@@ -135,6 +152,9 @@ class MainActivity : KR2Activity() {
 
     override fun onDestroy() {
         logLifecycle("onDestroy#enter sessionStartedAt=$sessionStartedAt")
+        if (currentActivity.get() === this) {
+            currentActivity.clear()
+        }
         recordSessionTime()
         orientationListener?.disable()
         orientationListener = null

@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../bridge/launcher_bridge.dart';
 import '../models/game_entry.dart';
-import '../models/game_menu_item.dart';
 import '../widgets/resource_icon.dart';
 
 class LauncherHomePage extends StatefulWidget {
@@ -179,7 +178,6 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
               onScan: _scanGames,
               onOpenSystemSettings: () => widget.bridge.openSettings(),
             ),
-          2 => _GameMenuPage(bridge: widget.bridge),
           _ => _DiagnosticsPage(bridge: widget.bridge, storageGranted: _storageGranted, rootPath: _rootPath, scanStatus: _scanStatus),
         };
 
@@ -205,7 +203,6 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
                   destinations: const [
                     NavigationRailDestination(icon: Icon(Icons.sports_esports_outlined), selectedIcon: Icon(Icons.sports_esports), label: Text('游戏')),
                     NavigationRailDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: Text('设置')),
-                    NavigationRailDestination(icon: Icon(Icons.menu_open_outlined), selectedIcon: Icon(Icons.menu_open_rounded), label: Text('菜单')),
                     NavigationRailDestination(icon: Icon(Icons.bug_report_outlined), selectedIcon: Icon(Icons.bug_report), label: Text('诊断')),
                   ],
                 ),
@@ -220,7 +217,6 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
                   destinations: const [
                     NavigationDestination(icon: Icon(Icons.sports_esports_outlined), selectedIcon: Icon(Icons.sports_esports), label: '游戏'),
                     NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: '设置'),
-                    NavigationDestination(icon: Icon(Icons.menu_open_outlined), selectedIcon: Icon(Icons.menu_open_rounded), label: '菜单'),
                     NavigationDestination(icon: Icon(Icons.bug_report_outlined), selectedIcon: Icon(Icons.bug_report), label: '诊断'),
                   ],
                 ),
@@ -647,170 +643,6 @@ class _SettingsPageState extends State<_SettingsPage> {
           ],
         );
       },
-    );
-  }
-}
-
-class _GameMenuPage extends StatefulWidget {
-  const _GameMenuPage({required this.bridge});
-
-  final LauncherBridge bridge;
-
-  @override
-  State<_GameMenuPage> createState() => _GameMenuPageState();
-}
-
-class _GameMenuPageState extends State<_GameMenuPage> {
-  late Future<List<GameMenuItem>> _future = widget.bridge.getMainMenu();
-
-  void _reload() {
-    setState(() => _future = widget.bridge.getMainMenu());
-  }
-
-  Future<void> _activate(GameMenuItem item) async {
-    if (!item.enabled) {
-      return;
-    }
-    if (item.children.isNotEmpty) {
-      await showModalBottomSheet<void>(
-        context: context,
-        showDragHandle: true,
-        builder: (context) => _MenuSheet(
-          title: item.title,
-          items: item.children,
-          onActivate: (child) async {
-            Navigator.of(context).pop();
-            await _activate(child);
-          },
-        ),
-      );
-      return;
-    }
-    try {
-      await widget.bridge.activateMenuItem(item);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('已执行：${item.title}')));
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('菜单执行失败：$error')));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<List<GameMenuItem>>(
-      future: _future,
-      builder: (context, snapshot) {
-        final items = snapshot.data ?? const <GameMenuItem>[];
-        return ListView(
-          padding: const EdgeInsets.all(16),
-          children: [
-            _Card(
-              child: Row(
-                children: [
-                  const ResourceIcon('menu_icon.png', size: 36),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('游戏内菜单', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                        const SizedBox(height: 4),
-                        Text('Flutter 版 TVPGameMainMenu：读取 TJS 菜单 JSON，点击后通过 C API 执行。', style: Theme.of(context).textTheme.bodySmall),
-                      ],
-                    ),
-                  ),
-                  IconButton(onPressed: _reload, tooltip: '刷新菜单', icon: const Icon(Icons.refresh_rounded)),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionTitle(icon: Icons.menu_open_rounded, title: '当前菜单'),
-                  const SizedBox(height: 8),
-                  if (snapshot.connectionState == ConnectionState.waiting) const LinearProgressIndicator(),
-                  if (items.isEmpty && snapshot.connectionState != ConnectionState.waiting)
-                    const _EmptyState(message: '当前没有可用游戏菜单。启动游戏后，TVPGameMainMenu 会从这里读取并渲染菜单项。'),
-                  for (final item in items) _MenuItemTile(item: item, depth: 0, onTap: _activate),
-                ],
-              ),
-            ),
-            const SizedBox(height: 12),
-            const _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SectionTitle(icon: Icons.integration_instructions_outlined, title: '替换进度'),
-                  SizedBox(height: 8),
-                  Text('UI 渲染和菜单动作已在 Flutter 侧就绪；下一步把 TVPShowFlutterGameMainMenu() 的平台实现接到 Flutter 宿主或缓存 FlutterEngine。'),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _MenuSheet extends StatelessWidget {
-  const _MenuSheet({required this.title, required this.items, required this.onActivate});
-
-  final String title;
-  final List<GameMenuItem> items;
-  final ValueChanged<GameMenuItem> onActivate;
-
-  @override
-  Widget build(BuildContext context) {
-    return SafeArea(
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-        shrinkWrap: true,
-        children: [
-          Text(title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 12),
-          for (final item in items) _MenuItemTile(item: item, depth: 0, onTap: onActivate),
-        ],
-      ),
-    );
-  }
-}
-
-class _MenuItemTile extends StatelessWidget {
-  const _MenuItemTile({required this.item, required this.depth, required this.onTap});
-
-  final GameMenuItem item;
-  final int depth;
-  final ValueChanged<GameMenuItem> onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasChildren = item.children.isNotEmpty;
-    final colorScheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: EdgeInsets.only(left: depth * 14.0),
-      child: Column(
-        children: [
-          ListTile(
-            enabled: item.enabled,
-            contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            leading: Icon(
-              hasChildren ? Icons.folder_open_rounded : item.checked ? Icons.check_circle_rounded : Icons.radio_button_unchecked_rounded,
-              color: item.enabled ? colorScheme.primary : colorScheme.onSurfaceVariant,
-            ),
-            title: Text(item.title.isEmpty ? '(未命名)' : item.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: hasChildren ? Text('${item.children.length} 个子项') : null,
-            trailing: hasChildren ? const Icon(Icons.chevron_right_rounded) : null,
-            onTap: () => onTap(item),
-          ),
-          if (depth == 0) const Divider(height: 1),
-        ],
-      ),
     );
   }
 }

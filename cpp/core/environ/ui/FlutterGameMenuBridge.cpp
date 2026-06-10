@@ -4,6 +4,10 @@
 #include "cocos2d/MainScene.h"
 #include "MenuItemIntf.h"
 #include "impl/MenuItemImpl.h"
+#if defined(__ANDROID__)
+#include <jni.h>
+#include <cocos/platform/android/jni/JniHelper.h>
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <sstream>
@@ -126,14 +130,18 @@ tTJSNI_MenuItem *FindMenuItem(tTJSNI_MenuItem *root,
 
 } // namespace
 
-#if defined(__GNUC__) || defined(__clang__)
-extern "C" bool TVPShowPlatformFlutterGameMainMenu() __attribute__((weak));
-#endif
-
 bool TVPShowFlutterGameMainMenu() {
-#if defined(__GNUC__) || defined(__clang__)
-    if(TVPShowPlatformFlutterGameMainMenu)
-        return TVPShowPlatformFlutterGameMainMenu();
+#if defined(__ANDROID__)
+    cocos2d::JniMethodInfo methodInfo;
+    if(!cocos2d::JniHelper::getStaticMethodInfo(
+           methodInfo, "org/github/krkr2/MainActivity",
+           "showFlutterGameMainMenu", "()Z")) {
+        return false;
+    }
+    jboolean shown = methodInfo.env->CallStaticBooleanMethod(
+        methodInfo.classID, methodInfo.methodID);
+    methodInfo.env->DeleteLocalRef(methodInfo.classID);
+    return shown == JNI_TRUE;
 #endif
     return false;
 }

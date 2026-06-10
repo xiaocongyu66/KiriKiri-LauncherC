@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import 'src/bridge/launcher_bridge.dart';
+import 'src/pages/game_menu_page.dart';
 import 'src/pages/launcher_home_page.dart';
 import 'src/theme/launcher_theme.dart';
 
@@ -27,7 +28,10 @@ class KiriKiriLauncherApp extends StatelessWidget {
         GlobalWidgetsLocalizations.delegate,
       ],
       supportedLocales: const [Locale('en'), Locale('zh')],
-      home: LauncherHomePage(bridge: LauncherBridge.instance),
+      routes: {
+        '/': (_) => LauncherHomePage(bridge: LauncherBridge.instance),
+        '/game-menu': (_) => GameMenuPage(bridge: LauncherBridge.instance, embedded: true),
+      },
     );
   }
 }

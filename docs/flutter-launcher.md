@@ -25,15 +25,15 @@ The Dart side loads `libkrkr2.so`/process symbols from `flutter_launcher/lib/src
 
 ## `TVPGameMainMenu` Replacement Seam
 
-`cpp/core/environ/ui/GameMainMenu.cpp` now calls `TVPShowFlutterGameMainMenu()` before opening the legacy `TVPInGameMenuForm`. `FlutterGameMenuBridge.cpp` first tries a weak platform hook named `TVPShowPlatformFlutterGameMainMenu()`, then falls back to `false`, so existing builds keep working until a platform host is connected.
+`cpp/core/environ/ui/GameMainMenu.cpp` now calls `TVPShowFlutterGameMainMenu()` before opening the legacy `TVPInGameMenuForm`. On Android, `FlutterGameMenuBridge.cpp` directly calls `MainActivity.showFlutterGameMainMenu()` through JNI. Other platforms currently return `false`, so existing desktop builds keep the legacy menu until their Flutter host integration is added.
 
 The Flutter side now has a dedicated game-menu page that renders `KR2LauncherGetMainMenuJson()` data and invokes `KR2LauncherActivateMenuItem()` for leaf actions. This makes the visual replacement ready independently of the Android/desktop host handoff.
 
 Next bridge step per platform:
 
-1. Android: implement `TVPShowPlatformFlutterGameMainMenu()` with a JNI call into the Flutter host activity or cached Flutter engine.
-2. Desktop: implement the same hook through the Flutter runner/window integration.
-3. Flutter: continue expanding the menu page into an in-game overlay route once the host handoff is available.
+1. Android: `TVPShowFlutterGameMainMenu()` calls `MainActivity.showFlutterGameMainMenu()`, which opens `GameMenuFlutterActivity` on the `/game-menu` route. Returning `true` prevents the legacy Cocos `TVPInGameMenuForm` from opening.
+2. Desktop: add an equivalent direct platform implementation through the Flutter runner/window integration.
+3. Flutter: keep improving `/game-menu` as the shared in-game menu surface, reusing assets from `ui/cocos-studio`.
 
 ## Migration Boundaries
 
