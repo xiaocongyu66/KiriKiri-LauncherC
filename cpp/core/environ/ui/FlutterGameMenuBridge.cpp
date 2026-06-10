@@ -16,7 +16,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <chrono>
 #include <functional>
+#include <future>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -154,6 +157,47 @@ void RunOnCocosThread(const std::function<void()> &task) {
     Application->PostUserMessage(task);
 }
 
+std::string BuildMainMenuJson() {
+    tTJSNI_MenuItem *root = GetActiveRootMenu();
+    if(!root)
+        return "[]";
+
+    std::string json = "[";
+    bool first = true;
+    const auto &children = root->GetChildren();
+    for(size_t index = 0; index < children.size(); ++index) {
+        auto *child = static_cast<tTJSNI_MenuItem *>(children.at(index));
+        if(!tTJSNI_BaseMenuItem::IsLiveInstance(child))
+            continue;
+        ttstr caption;
+        child->GetCaption(caption);
+        if(caption.IsEmpty() || caption == TJS_W("+") || caption == TJS_W("-"))
+            continue;
+        if(!first)
+            json.push_back(',');
+        first = false;
+        AppendMenuItemJson(json, child, std::to_string(index));
+    }
+    json.push_back(']');
+    return json;
+}
+
+std::string BuildMainMenuJsonOnCocosThread() {
+    auto *director = cocos2d::Director::getInstance();
+    auto *scheduler = director ? director->getScheduler() : nullptr;
+    if(!scheduler)
+        return BuildMainMenuJson();
+
+    auto promise = std::make_shared<std::promise<std::string>>();
+    auto future = promise->get_future();
+    scheduler->performFunctionInCocosThread([promise]() {
+        promise->set_value(BuildMainMenuJson());
+    });
+    if(future.wait_for(std::chrono::milliseconds(750)) != std::future_status::ready)
+        return "[]";
+    return future.get();
+}
+
 } // namespace
 
 bool TVPShowFlutterGameMainMenu() {
@@ -173,28 +217,7 @@ bool TVPShowFlutterGameMainMenu() {
 }
 
 extern "C" const char *KR2LauncherGetMainMenuJson() {
-    LastMenuJson = "[]";
-    tTJSNI_MenuItem *root = GetActiveRootMenu();
-    if(!root)
-        return LastMenuJson.c_str();
-
-    LastMenuJson = "[";
-    bool first = true;
-    const auto &children = root->GetChildren();
-    for(size_t index = 0; index < children.size(); ++index) {
-        auto *child = static_cast<tTJSNI_MenuItem *>(children.at(index));
-        if(!tTJSNI_BaseMenuItem::IsLiveInstance(child))
-            continue;
-        ttstr caption;
-        child->GetCaption(caption);
-        if(caption.IsEmpty() || caption == TJS_W("+") || caption == TJS_W("-"))
-            continue;
-        if(!first)
-            LastMenuJson.push_back(',');
-        first = false;
-        AppendMenuItemJson(LastMenuJson, child, std::to_string(index));
-    }
-    LastMenuJson.push_back(']');
+    LastMenuJson = BuildMainMenuJson();
     return LastMenuJson.c_str();
 }
 
@@ -282,8 +305,8 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
 extern "C" JNIEXPORT jstring JNICALL
 Java_org_github_krkr2_MainActivity_nativeGetMainMenuJson(JNIEnv *env,
                                                          jobject /*thiz*/) {
-    const char *json = KR2LauncherGetMainMenuJson();
-    return env->NewStringUTF(json ? json : "[]");
+    const std::string json = BuildMainMenuJsonOnCocosThread();
+    return env->NewStringUTF(json.c_str());
 }
 
 extern "C" JNIEXPORT jint JNICALL

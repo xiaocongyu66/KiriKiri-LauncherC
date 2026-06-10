@@ -275,6 +275,22 @@ class _LibraryPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    void openDetailSheet(GameEntry game) {
+      onSelect(game);
+      showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.92),
+        builder: (sheetContext) => _GameDetailPane(
+          bridge: bridge,
+          game: game,
+          onUpdate: onUpdate,
+          onLaunch: onLaunch,
+        ),
+      );
+    }
+
     final body = wide
         ? Row(
             children: [
@@ -285,6 +301,7 @@ class _LibraryPage extends StatelessWidget {
                   games: games,
                   selectedGame: selectedGame,
                   onSelect: onSelect,
+                  onDetails: onSelect,
                   onLaunch: onLaunch,
                 ),
               ),
@@ -295,7 +312,7 @@ class _LibraryPage extends StatelessWidget {
         : ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              _GameGridPane(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect, onLaunch: onLaunch, shrinkWrap: true),
+              _GameGridPane(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect, onDetails: openDetailSheet, onLaunch: onLaunch, shrinkWrap: true),
               const SizedBox(height: 12),
               _GameDetailPane(bridge: bridge, game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
             ],
@@ -396,6 +413,7 @@ class _GameGridPane extends StatelessWidget {
     required this.games,
     required this.selectedGame,
     required this.onSelect,
+    required this.onDetails,
     required this.onLaunch,
     this.shrinkWrap = false,
   });
@@ -404,6 +422,7 @@ class _GameGridPane extends StatelessWidget {
   final List<GameEntry> games;
   final GameEntry? selectedGame;
   final ValueChanged<GameEntry> onSelect;
+  final ValueChanged<GameEntry> onDetails;
   final ValueChanged<GameEntry> onLaunch;
   final bool shrinkWrap;
 
@@ -439,6 +458,7 @@ class _GameGridPane extends StatelessWidget {
                 game: game,
                 selected: selectedGame?.path == game.path,
                 onSelect: () => onSelect(game),
+                onDetails: () => onDetails(game),
                 onLaunch: () => onLaunch(game),
               );
             },
@@ -450,11 +470,12 @@ class _GameGridPane extends StatelessWidget {
 }
 
 class _GameCard extends StatelessWidget {
-  const _GameCard({required this.game, required this.selected, required this.onSelect, required this.onLaunch});
+  const _GameCard({required this.game, required this.selected, required this.onSelect, required this.onDetails, required this.onLaunch});
 
   final GameEntry game;
   final bool selected;
   final VoidCallback onSelect;
+  final VoidCallback onDetails;
   final VoidCallback onLaunch;
 
   @override
@@ -487,7 +508,7 @@ class _GameCard extends StatelessWidget {
                       children: [
                         TextButton.icon(onPressed: onLaunch, icon: const Icon(Icons.play_arrow_rounded, size: 18), label: const Text('启动')),
                         const Spacer(),
-                        TextButton.icon(onPressed: onSelect, icon: const Icon(Icons.info_outline_rounded, size: 18), label: const Text('详情')),
+                        TextButton.icon(onPressed: onDetails, icon: const Icon(Icons.info_outline_rounded, size: 18), label: const Text('详情')),
                       ],
                     ),
                   ],
