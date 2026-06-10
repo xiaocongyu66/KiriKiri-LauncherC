@@ -340,6 +340,12 @@ class _FloatingMenuTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (item.separator) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+        child: Divider(height: 1, thickness: 1, color: Colors.white.withOpacity(0.16)),
+      );
+    }
     final hasChildren = item.children.isNotEmpty;
     final enabledColor = item.enabled ? Colors.white.withOpacity(0.84) : Colors.white.withOpacity(0.32);
     return InkWell(

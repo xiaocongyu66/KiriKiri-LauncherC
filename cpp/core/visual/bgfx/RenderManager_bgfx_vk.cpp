@@ -1,36 +1,15 @@
 #include "../RenderManager.h"
+#include "BgfxRuntime.h"
 #include "DebugIntf.h"
 #include "MsgIntf.h"
-
-#if defined(KIRIKIRI_HAS_BGFX)
-#include <bgfx/bgfx.h>
-#endif
 
 class tTVPBgfxVulkanRenderManager : public iTVPRenderManager {
 public:
     tTVPBgfxVulkanRenderManager() : Software(TVPGetSoftwareRenderManager()) {
-#if defined(KIRIKIRI_HAS_BGFX)
-        bgfx::Init init;
-        init.type = bgfx::RendererType::Vulkan;
-        init.resolution.width = 1;
-        init.resolution.height = 1;
-        init.resolution.reset = BGFX_RESET_NONE;
-        BgfxReady = bgfx::init(init);
-        TVPAddLog(BgfxReady
-                      ? TJS_W("[renderer] bgfx Vulkan runtime initialized; TVP compositing migration is staged and currently delegates to the software path.")
-                      : TJS_W("[renderer] bgfx Vulkan runtime initialization failed; delegating to the software path."));
-#else
-        TVPAddLog(TJS_W("[renderer] bgfx Vulkan renderer selected; bgfx runtime is not compiled in and compositing delegates to the software path."));
-#endif
+        TVPBgfx::InitializeVulkan(1, 1);
     }
 
-    ~tTVPBgfxVulkanRenderManager() override {
-#if defined(KIRIKIRI_HAS_BGFX)
-        if(BgfxReady) {
-            bgfx::shutdown();
-        }
-#endif
-    }
+    ~tTVPBgfxVulkanRenderManager() override { TVPBgfx::Shutdown(); }
 
     bool IsSoftware() override { return true; }
     const char *GetName() override { return "bgfx Vulkan"; }
@@ -94,7 +73,6 @@ public:
 
 private:
     iTVPRenderManager *Software = nullptr;
-    bool BgfxReady = false;
 };
 
 static iTVPRenderManager *TVPCreateBgfxVulkanRenderManager() {

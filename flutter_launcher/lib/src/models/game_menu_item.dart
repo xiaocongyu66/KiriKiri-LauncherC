@@ -4,6 +4,7 @@ class GameMenuItem {
     required this.path,
     this.enabled = true,
     this.checked = false,
+    this.separator = false,
     this.children = const [],
   });
 
@@ -13,6 +14,7 @@ class GameMenuItem {
       path: map['path'] as String? ?? '',
       enabled: map['enabled'] as bool? ?? true,
       checked: map['checked'] as bool? ?? false,
+      separator: map['separator'] as bool? ?? false,
       children: ((map['children'] as List?) ?? const [])
           .whereType<Map>()
           .map((child) => GameMenuItem.fromMap(child.cast<String, Object?>()))
@@ -24,5 +26,6 @@ class GameMenuItem {
   final String path;
   final bool enabled;
   final bool checked;
+  final bool separator;
   final List<GameMenuItem> children;
 }

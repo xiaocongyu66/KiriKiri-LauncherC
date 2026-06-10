@@ -5,6 +5,7 @@
 #include "MenuItemIntf.h"
 #include "impl/MenuItemImpl.h"
 #include "Application.h"
+#include "DebugIntf.h"
 #include "Platform.h"
 #include "base/CCDirector.h"
 #include "base/CCScheduler.h"
@@ -22,10 +23,12 @@
 #include <memory>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <vector>
 
 iTJSDispatch2 *TVPGetMenuDispatch(tTVInteger hWnd);
 tTJSNI_Window *TVPGetActiveWindow();
+extern std::thread::id TVPMainThreadID;
 
 bool IsOverlayAction(const char *value, const char *expected) {
     return value && expected && std::strcmp(value, expected) == 0;
@@ -74,6 +77,14 @@ tTJSNI_MenuItem *GetActiveRootMenu() {
     return menu;
 }
 
+bool IsVisibleMenuCaption(const ttstr &caption) {
+    return !caption.IsEmpty() && caption != TJS_W("+");
+}
+
+bool IsSeparatorMenuCaption(const ttstr &caption) {
+    return caption == TJS_W("-");
+}
+
 void AppendMenuItemJson(std::string &out, tTJSNI_MenuItem *item,
                         const std::string &path) {
     ttstr caption;
@@ -88,6 +99,8 @@ void AppendMenuItemJson(std::string &out, tTJSNI_MenuItem *item,
     out += item->GetEnabled() ? "true" : "false";
     out += ",\"checked\":";
     out += item->GetChecked() ? "true" : "false";
+    out += ",\"separator\":";
+    out += IsSeparatorMenuCaption(caption) ? "true" : "false";
     out += ",\"children\":[";
 
     bool first = true;
@@ -98,8 +111,7 @@ void AppendMenuItemJson(std::string &out, tTJSNI_MenuItem *item,
             continue;
         ttstr childCaption;
         child->GetCaption(childCaption);
-        if(childCaption.IsEmpty() || childCaption == TJS_W("+") ||
-           childCaption == TJS_W("-"))
+        if(!IsVisibleMenuCaption(childCaption))
             continue;
         if(!first)
             out.push_back(',');
@@ -159,11 +171,14 @@ void RunOnCocosThread(const std::function<void()> &task) {
 
 std::string BuildMainMenuJson() {
     tTJSNI_MenuItem *root = GetActiveRootMenu();
-    if(!root)
+    if(!root) {
+        TVPAddLog(TJS_W("[flutter-menu] root menu is not available"));
         return "[]";
+    }
 
     std::string json = "[";
     bool first = true;
+    int visibleCount = 0;
     const auto &children = root->GetChildren();
     for(size_t index = 0; index < children.size(); ++index) {
         auto *child = static_cast<tTJSNI_MenuItem *>(children.at(index));
@@ -171,18 +186,26 @@ std::string BuildMainMenuJson() {
             continue;
         ttstr caption;
         child->GetCaption(caption);
-        if(caption.IsEmpty() || caption == TJS_W("+") || caption == TJS_W("-"))
+        if(!IsVisibleMenuCaption(caption))
             continue;
         if(!first)
             json.push_back(',');
         first = false;
+        ++visibleCount;
         AppendMenuItemJson(json, child, std::to_string(index));
     }
     json.push_back(']');
+    TVPAddLog(TJS_W("[flutter-menu] built root menu children=") +
+              ttstr((int)children.size()) + TJS_W(" visible=") +
+              ttstr(visibleCount) + TJS_W(" bytes=") +
+              ttstr((int)json.size()));
     return json;
 }
 
 std::string BuildMainMenuJsonOnCocosThread() {
+    if(TVPMainThreadID == std::this_thread::get_id())
+        return BuildMainMenuJson();
+
     auto *director = cocos2d::Director::getInstance();
     auto *scheduler = director ? director->getScheduler() : nullptr;
     if(!scheduler)

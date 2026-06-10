@@ -37,6 +37,7 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/BitmapLayerTreeOwner.cpp
     ${VISUAL_PATH}/BitmapIntf.cpp
     ${VISUAL_PATH}/argb.cpp
+    ${VISUAL_PATH}/bgfx/BgfxRuntime.cpp
     ${VISUAL_PATH}/bgfx/RenderManager_bgfx_vk.cpp
 
     ${VISUAL_PATH}/gl/blend_function.cpp
