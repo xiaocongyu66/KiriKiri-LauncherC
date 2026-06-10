@@ -51,6 +51,7 @@ class MainActivity : KR2Activity() {
     private var overlayEngine: FlutterEngine? = null
     private var overlayView: FlutterView? = null
     private var overlayParams: FrameLayout.LayoutParams? = null
+    private var overlayChannel: MethodChannel? = null
 
     private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
 
@@ -169,6 +170,7 @@ class MainActivity : KR2Activity() {
         overlayEngine?.destroy()
         overlayView = null
         overlayEngine = null
+        overlayChannel = null
         recordSessionTime()
         orientationListener?.disable()
         orientationListener = null
@@ -192,22 +194,23 @@ class MainActivity : KR2Activity() {
         val engine = FlutterEngine(this)
         engine.navigationChannel.setInitialRoute("/game-overlay")
         GeneratedPluginRegistrant.registerWith(engine)
-        MethodChannel(engine.dartExecutor.binaryMessenger, "org.github.krkr2/game_overlay")
-            .setMethodCallHandler { call, result ->
-                when (call.method) {
-                    "move" -> {
-                        moveOverlay((call.argument<Double>("dx") ?: 0.0).toFloat(), (call.argument<Double>("dy") ?: 0.0).toFloat())
-                        result.success(null)
-                    }
-                    "setExpanded" -> {
-                        val expanded = call.argument<Boolean>("expanded") ?: false
-                        val menuMode = call.argument<Boolean>("menuMode") ?: false
-                        resizeOverlay(expanded, menuMode)
-                        result.success(null)
-                    }
-                    else -> result.notImplemented()
+        val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "org.github.krkr2/game_overlay")
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "move" -> {
+                    moveOverlay((call.argument<Double>("dx") ?: 0.0).toFloat(), (call.argument<Double>("dy") ?: 0.0).toFloat())
+                    result.success(null)
                 }
+                "setExpanded" -> {
+                    val expanded = call.argument<Boolean>("expanded") ?: false
+                    val menuMode = call.argument<Boolean>("menuMode") ?: false
+                    resizeOverlay(expanded, menuMode)
+                    result.success(null)
+                }
+                else -> result.notImplemented()
             }
+        }
+        overlayChannel = channel
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
 
         val textureView = FlutterTextureView(this)
@@ -229,6 +232,7 @@ class MainActivity : KR2Activity() {
     private fun showFlutterOverlayMenu() {
         installFlutterGameOverlay()
         resizeOverlay(true, true)
+        overlayChannel?.invokeMethod("showMenu", null)
     }
 
     private fun placeOverlayAtDefault() {
@@ -240,17 +244,17 @@ class MainActivity : KR2Activity() {
 
     private fun resizeOverlay(expanded: Boolean, menuMode: Boolean) {
         val params = overlayParams ?: return
+        val anchorRight = params.leftMargin + params.width
+        val anchorBottom = params.topMargin + params.height
         if (expanded) {
-            params.width = FrameLayout.LayoutParams.MATCH_PARENT
-            params.height = if (menuMode) dp(360) else dp(178)
-            params.leftMargin = 0
-            params.topMargin = (mFrameLayout.height - params.height).coerceAtLeast(0)
+            params.width = if (menuMode) dp(340) else dp(286)
+            params.height = if (menuMode) dp(316) else dp(64)
         } else {
             params.width = dp(56)
             params.height = dp(56)
-            params.leftMargin = (mFrameLayout.width - params.width).coerceAtLeast(0)
-            params.topMargin = (mFrameLayout.height - params.height).coerceAtLeast(0)
         }
+        params.leftMargin = (anchorRight - params.width).coerceIn(0, (mFrameLayout.width - params.width).coerceAtLeast(0))
+        params.topMargin = (anchorBottom - params.height).coerceIn(0, (mFrameLayout.height - params.height).coerceAtLeast(0))
         overlayView?.layoutParams = params
     }
 

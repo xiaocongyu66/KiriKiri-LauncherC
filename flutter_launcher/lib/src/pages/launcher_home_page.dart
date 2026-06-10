@@ -131,7 +131,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
     }
   }
 
-  void _setSelected(GameEntry game) {
+  void _selectGame(GameEntry game) {
     setState(() => _selectedGame = game);
   }
 
@@ -153,8 +153,8 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 840;
-        final content = switch (_pageIndex) {
-          0 => _GamesPage(
+        final page = switch (_pageIndex) {
+          0 => _LibraryPage(
               wide: wide,
               loading: _loading,
               storageGranted: _storageGranted,
@@ -165,7 +165,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
               onRequestPermission: _requestPermission,
               onPickRoot: _pickRoot,
               onScan: _scanGames,
-              onSelect: _setSelected,
+              onSelect: _selectGame,
               onUpdate: _updateSelected,
               onLaunch: _launch,
             ),
@@ -183,7 +183,17 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
 
         return Scaffold(
           appBar: AppBar(
-            title: const Text('KiriKiri Launcher'),
+            titleSpacing: 16,
+            title: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const ResourceIcon('menu_icon.png', size: 24),
+                const SizedBox(width: 8),
+                const Text('KiriKiri'),
+                const SizedBox(width: 10),
+                _StatusDot(active: _storageGranted),
+              ],
+            ),
             actions: [
               IconButton(onPressed: _scanGames, tooltip: '扫描', icon: const Icon(Icons.refresh_rounded)),
               IconButton(onPressed: _requestPermission, tooltip: '文件权限', icon: const Icon(Icons.folder_special_outlined)),
@@ -196,17 +206,13 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
                   selectedIndex: _pageIndex,
                   onDestinationSelected: (index) => setState(() => _pageIndex = index),
                   labelType: NavigationRailLabelType.all,
-                  leading: const Padding(
-                    padding: EdgeInsets.only(bottom: 12),
-                    child: ResourceIcon('menu_icon.png', size: 28),
-                  ),
                   destinations: const [
-                    NavigationRailDestination(icon: Icon(Icons.sports_esports_outlined), selectedIcon: Icon(Icons.sports_esports), label: Text('游戏')),
-                    NavigationRailDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: Text('设置')),
-                    NavigationRailDestination(icon: Icon(Icons.bug_report_outlined), selectedIcon: Icon(Icons.bug_report), label: Text('诊断')),
+                    NavigationRailDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: Text('库')),
+                    NavigationRailDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune_rounded), label: Text('设置')),
+                    NavigationRailDestination(icon: Icon(Icons.monitor_heart_outlined), selectedIcon: Icon(Icons.monitor_heart_rounded), label: Text('诊断')),
                   ],
                 ),
-              Expanded(child: SafeArea(child: content)),
+              Expanded(child: SafeArea(child: page)),
             ],
           ),
           bottomNavigationBar: wide
@@ -215,9 +221,9 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
                   selectedIndex: _pageIndex,
                   onDestinationSelected: (index) => setState(() => _pageIndex = index),
                   destinations: const [
-                    NavigationDestination(icon: Icon(Icons.sports_esports_outlined), selectedIcon: Icon(Icons.sports_esports), label: '游戏'),
-                    NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune), label: '设置'),
-                    NavigationDestination(icon: Icon(Icons.bug_report_outlined), selectedIcon: Icon(Icons.bug_report), label: '诊断'),
+                    NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: '库'),
+                    NavigationDestination(icon: Icon(Icons.tune_outlined), selectedIcon: Icon(Icons.tune_rounded), label: '设置'),
+                    NavigationDestination(icon: Icon(Icons.monitor_heart_outlined), selectedIcon: Icon(Icons.monitor_heart_rounded), label: '诊断'),
                   ],
                 ),
         );
@@ -226,8 +232,8 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
   }
 }
 
-class _GamesPage extends StatelessWidget {
-  const _GamesPage({
+class _LibraryPage extends StatelessWidget {
+  const _LibraryPage({
     required this.wide,
     required this.loading,
     required this.storageGranted,
@@ -259,154 +265,171 @@ class _GamesPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListView(
-      padding: const EdgeInsets.all(16),
+    final body = wide
+        ? Row(
+            children: [
+              SizedBox(
+                width: 420,
+                child: _GameListPane(
+                  loading: loading,
+                  games: games,
+                  selectedGame: selectedGame,
+                  onSelect: onSelect,
+                ),
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: _GameDetailPane(game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch)),
+            ],
+          )
+        : ListView(
+            padding: const EdgeInsets.all(12),
+            children: [
+              _GameListPane(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect, shrinkWrap: true),
+              const SizedBox(height: 12),
+              _GameDetailPane(game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
+            ],
+          );
+
+    return Column(
       children: [
-        _StatusPanel(
+        _CommandStrip(
           storageGranted: storageGranted,
           scanStatus: scanStatus,
           gameCount: games.length,
+          rootController: rootController,
           onRequestPermission: onRequestPermission,
+          onPickRoot: onPickRoot,
           onScan: onScan,
         ),
-        const SizedBox(height: 12),
-        _RootPanel(controller: rootController, onPickRoot: onPickRoot, onScan: onScan),
-        const SizedBox(height: 12),
-        if (wide)
-          SizedBox(
-            height: 560,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(flex: 5, child: _GameList(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect)),
-                const SizedBox(width: 12),
-                Expanded(flex: 4, child: _GameDetail(game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch)),
-              ],
-            ),
-          )
-        else ...[
-          _GameList(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect),
-          const SizedBox(height: 12),
-          _GameDetail(game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
-        ],
+        const Divider(height: 1),
+        Expanded(child: body),
       ],
     );
   }
 }
 
-class _StatusPanel extends StatelessWidget {
-  const _StatusPanel({
+class _CommandStrip extends StatelessWidget {
+  const _CommandStrip({
     required this.storageGranted,
     required this.scanStatus,
     required this.gameCount,
+    required this.rootController,
     required this.onRequestPermission,
+    required this.onPickRoot,
     required this.onScan,
   });
 
   final bool storageGranted;
   final String scanStatus;
   final int gameCount;
+  final TextEditingController rootController;
   final VoidCallback onRequestPermission;
-  final VoidCallback onScan;
-
-  @override
-  Widget build(BuildContext context) {
-    return _Card(
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        crossAxisAlignment: WrapCrossAlignment.center,
-        children: [
-          _Metric(icon: Icons.folder_special_outlined, title: storageGranted ? '文件权限已授权' : '需要文件管理权限', subtitle: storageGranted ? '可扫描外部存储游戏' : 'Android 11+ 必须授权后才能读取游戏'),
-          _Metric(icon: Icons.search_rounded, title: scanStatus, subtitle: '游戏数量：$gameCount'),
-          FilledButton.icon(onPressed: onScan, icon: const Icon(Icons.refresh_rounded), label: const Text('扫描')),
-          if (!storageGranted) OutlinedButton.icon(onPressed: onRequestPermission, icon: const Icon(Icons.admin_panel_settings_outlined), label: const Text('授权')),
-        ],
-      ),
-    );
-  }
-}
-
-class _RootPanel extends StatelessWidget {
-  const _RootPanel({required this.controller, required this.onPickRoot, required this.onScan});
-
-  final TextEditingController controller;
   final VoidCallback onPickRoot;
   final VoidCallback onScan;
 
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionTitle(icon: Icons.folder_open_outlined, title: '游戏目录'),
-          const SizedBox(height: 12),
-          TextField(
-            controller: controller,
-            decoration: const InputDecoration(hintText: '/storage/emulated/0/krkr2pro', labelText: '扫描根目录'),
-            onSubmitted: (_) => onScan(),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 10,
-            children: [
-              OutlinedButton.icon(onPressed: onPickRoot, icon: const Icon(Icons.drive_folder_upload_outlined), label: const Text('选择目录')),
-              FilledButton.icon(onPressed: onScan, icon: const Icon(Icons.saved_search), label: const Text('保存并扫描')),
-            ],
-          ),
-        ],
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLowest,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final compact = constraints.maxWidth < 720;
+            final pathField = TextField(
+              controller: rootController,
+              decoration: const InputDecoration(prefixIcon: Icon(Icons.folder_open_rounded), labelText: '游戏目录', isDense: true),
+              onSubmitted: (_) => onScan(),
+            );
+            final actions = Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _MiniStatus(icon: storageGranted ? Icons.verified_rounded : Icons.warning_amber_rounded, label: storageGranted ? '已授权' : '未授权'),
+                _MiniStatus(icon: Icons.sports_esports_rounded, label: '$gameCount'),
+                _MiniStatus(icon: Icons.search_rounded, label: scanStatus),
+                IconButton.filledTonal(onPressed: onPickRoot, tooltip: '选择目录', icon: const Icon(Icons.drive_folder_upload_rounded)),
+                IconButton.filled(onPressed: onScan, tooltip: '扫描', icon: const Icon(Icons.refresh_rounded)),
+                if (!storageGranted) IconButton.outlined(onPressed: onRequestPermission, tooltip: '申请文件权限', icon: const Icon(Icons.admin_panel_settings_rounded)),
+              ],
+            );
+            if (compact) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  pathField,
+                  const SizedBox(height: 8),
+                  actions,
+                ],
+              );
+            }
+            return Row(
+              children: [
+                Expanded(child: pathField),
+                const SizedBox(width: 12),
+                actions,
+              ],
+            );
+          },
+        ),
       ),
     );
   }
 }
 
-class _GameList extends StatelessWidget {
-  const _GameList({required this.loading, required this.games, required this.selectedGame, required this.onSelect});
+class _GameListPane extends StatelessWidget {
+  const _GameListPane({
+    required this.loading,
+    required this.games,
+    required this.selectedGame,
+    required this.onSelect,
+    this.shrinkWrap = false,
+  });
 
   final bool loading;
   final List<GameEntry> games;
   final GameEntry? selectedGame;
   final ValueChanged<GameEntry> onSelect;
+  final bool shrinkWrap;
 
   @override
   Widget build(BuildContext context) {
-    return _Card(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const _SectionTitle(icon: Icons.list_alt_rounded, title: '游戏列表'),
-          const SizedBox(height: 8),
-          if (loading) const LinearProgressIndicator(),
-          if (!loading && games.isEmpty) const _EmptyState(message: '没有找到游戏。请检查权限、目录和扫描深度。'),
-          if (games.isNotEmpty)
-            SizedBox(
-              height: (games.length * 72.0).clamp(120.0, 420.0).toDouble(),
-              child: ListView.separated(
-                itemCount: games.length,
-                separatorBuilder: (_, __) => const Divider(height: 1),
-                itemBuilder: (context, index) {
-                  final game = games[index];
-                  final selected = selectedGame?.path == game.path;
-                  return ListTile(
-                    selected: selected,
-                    leading: _Cover(path: game.coverPath, size: 44),
-                    title: Text(game.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    subtitle: Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    trailing: const Icon(Icons.chevron_right_rounded),
-                    onTap: () => onSelect(game),
-                  );
-                },
-              ),
-            ),
-        ],
+    if (loading) {
+      return const _Pane(child: Center(child: CircularProgressIndicator()));
+    }
+    if (games.isEmpty) {
+      return const _Pane(child: _EmptyState(icon: Icons.search_off_rounded, message: '未找到游戏'));
+    }
+    return _Pane(
+      padding: EdgeInsets.zero,
+      child: ListView.separated(
+        shrinkWrap: shrinkWrap,
+        physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: games.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (context, index) {
+          final game = games[index];
+          final selected = selectedGame?.path == game.path;
+          return ListTile(
+            dense: true,
+            selected: selected,
+            leading: _Cover(path: game.coverPath, size: 42),
+            title: Text(game.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis),
+            trailing: selected ? const Icon(Icons.check_circle_rounded) : const Icon(Icons.chevron_right_rounded),
+            onTap: () => onSelect(game),
+          );
+        },
       ),
     );
   }
 }
 
-class _GameDetail extends StatelessWidget {
-  const _GameDetail({required this.game, required this.onUpdate, required this.onLaunch});
+class _GameDetailPane extends StatelessWidget {
+  const _GameDetailPane({required this.game, required this.onUpdate, required this.onLaunch});
 
   final GameEntry? game;
   final ValueChanged<GameEntry> onUpdate;
@@ -415,38 +438,36 @@ class _GameDetail extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final item = game;
-    return _Card(
-      child: item == null
-          ? const _EmptyState(message: '请选择一个游戏')
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+    if (item == null) {
+      return const _Pane(child: _EmptyState(icon: Icons.videogame_asset_outlined, message: '选择一个游戏'));
+    }
+    return _Pane(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _Cover(path: item.coverPath, size: 76),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _Cover(path: item.coverPath, size: 64),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(item.title, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 4),
-                          Text(item.path, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
-                        ],
-                      ),
-                    ),
+                    Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    SelectableText(item.path, style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
-                const SizedBox(height: 16),
-                _LaunchFilePicker(game: item, onChanged: onUpdate),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () => onLaunch(item),
-                  icon: const Icon(Icons.play_arrow_rounded),
-                  label: const Text('启动游戏'),
-                ),
-              ],
-            ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          _LaunchFilePicker(game: item, onChanged: onUpdate),
+          const SizedBox(height: 12),
+          FilledButton.icon(onPressed: () => onLaunch(item), icon: const Icon(Icons.play_arrow_rounded), label: const Text('启动')),
+        ],
+      ),
     );
   }
 }
@@ -515,130 +536,64 @@ class _SettingsPageState extends State<_SettingsPage> {
         final retentionDays = _int('fileLogRetentionDays', 15).clamp(1, 60).toInt();
         final scanDepth = _int('scanDepth', 2).clamp(1, 10).toInt();
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           children: [
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SectionTitle(icon: Icons.security_outlined, title: '权限', trailing: IconButton(onPressed: _reload, icon: const Icon(Icons.refresh_rounded))),
-                  _ActionRow(
-                    icon: Icons.folder_special_outlined,
-                    title: widget.storageGranted ? '文件管理权限已授权' : '申请文件管理权限',
-                    subtitle: '沿用旧版启动器逻辑，Android 11+ 打开所有文件访问权限页。',
-                    onTap: widget.onRequestPermission,
-                  ),
-                  _ActionRow(
-                    icon: Icons.settings_applications_outlined,
-                    title: '系统应用设置',
-                    subtitle: '打开 Android 应用详情，处理通知、存储等系统权限。',
-                    onTap: () => widget.onOpenSystemSettings(),
-                  ),
-                ],
-              ),
+            _SettingsGroup(
+              title: '权限',
+              icon: Icons.security_rounded,
+              trailing: IconButton(onPressed: _reload, tooltip: '刷新', icon: const Icon(Icons.refresh_rounded)),
+              children: [
+                _ActionTile(icon: Icons.folder_special_rounded, title: widget.storageGranted ? '文件管理权限' : '申请文件管理权限', subtitle: widget.storageGranted ? '已授权' : '需要授权后扫描外部存储', onTap: widget.onRequestPermission),
+                _ActionTile(icon: Icons.settings_applications_rounded, title: '系统应用设置', subtitle: '权限、存储、通知', onTap: () => widget.onOpenSystemSettings()),
+              ],
             ),
-            const SizedBox(height: 12),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionTitle(icon: Icons.folder_open_outlined, title: '游戏扫描'),
-                  const SizedBox(height: 12),
-                  TextField(controller: widget.rootController, decoration: const InputDecoration(labelText: '游戏根目录')),
-                  const SizedBox(height: 10),
-                  Wrap(
-                    spacing: 10,
+            _SettingsGroup(
+              title: '扫描',
+              icon: Icons.saved_search_rounded,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+                  child: TextField(controller: widget.rootController, decoration: const InputDecoration(labelText: '游戏根目录', isDense: true)),
+                ),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
                     children: [
-                      OutlinedButton.icon(onPressed: widget.onPickRoot, icon: const Icon(Icons.drive_folder_upload_outlined), label: const Text('选择目录')),
-                      FilledButton.icon(onPressed: widget.onScan, icon: const Icon(Icons.saved_search), label: const Text('保存并扫描')),
+                      OutlinedButton.icon(onPressed: widget.onPickRoot, icon: const Icon(Icons.drive_folder_upload_rounded), label: const Text('选择')),
+                      FilledButton.icon(onPressed: widget.onScan, icon: const Icon(Icons.refresh_rounded), label: const Text('扫描')),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  _SliderSetting(
-                    title: '扫描深度',
-                    value: scanDepth,
-                    min: 1,
-                    max: 10,
-                    onChanged: (value) => _set('scanDepth', value),
-                  ),
-                ],
-              ),
+                ),
+                _SliderTile(title: '扫描深度', value: scanDepth, min: 1, max: 10, onChanged: (value) => _set('scanDepth', value)),
+              ],
             ),
-            const SizedBox(height: 12),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionTitle(icon: Icons.display_settings_outlined, title: '显示'),
-                  _ChoiceSetting(
-                    title: '语言',
-                    value: language,
-                    choices: const {'en': 'English', 'zh': '中文'},
-                    onChanged: (value) => _set('language', value),
-                  ),
-                  _SwitchSetting(
-                    title: '强制横屏',
-                    subtitle: '旧版默认开启，启动器和引擎界面优先横屏。',
-                    value: _bool('forceLandscape', true),
-                    onChanged: (value) => _set('forceLandscape', value),
-                  ),
-                ],
-              ),
+            _SettingsGroup(
+              title: '显示',
+              icon: Icons.display_settings_rounded,
+              children: [
+                _ChoiceTile(title: '语言', value: language, choices: const {'en': 'English', 'zh': '中文'}, onChanged: (value) => _set('language', value)),
+                _SwitchTile(title: '强制横屏', subtitle: '启动器和引擎优先横屏', value: _bool('forceLandscape', true), onChanged: (value) => _set('forceLandscape', value)),
+              ],
             ),
-            const SizedBox(height: 12),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionTitle(icon: Icons.tune_outlined, title: '引擎'),
-                  _ChoiceSetting(
-                    title: 'FFmpeg 解码模式',
-                    value: decodeMode,
-                    choices: const {'software': '软件', 'hardware': '硬件'},
-                    onChanged: (value) => _set('ffmpegDecodeMode', value),
-                  ),
-                  _SwitchSetting(
-                    title: 'FFmpeg 图片解码器',
-                    subtitle: '同步写入旧引擎偏好，启动游戏前由 MainActivity 应用。',
-                    value: _bool('useFfmpegImageDecoder', false),
-                    onChanged: (value) => _set('useFfmpegImageDecoder', value),
-                  ),
-                  _ActionRow(
-                    icon: Icons.open_in_new_rounded,
-                    title: '打开原始引擎',
-                    subtitle: '不选择游戏，直接进入旧版引擎入口。',
-                    onTap: () => widget.bridge.launchOriginalEngine(),
-                  ),
-                ],
-              ),
+            _SettingsGroup(
+              title: '引擎',
+              icon: Icons.tune_rounded,
+              children: [
+                _ChoiceTile(title: 'FFmpeg 解码', value: decodeMode, choices: const {'software': '软件', 'hardware': '硬件'}, onChanged: (value) => _set('ffmpegDecodeMode', value)),
+                _SwitchTile(title: 'FFmpeg 图片解码', subtitle: '启动游戏前应用', value: _bool('useFfmpegImageDecoder', false), onChanged: (value) => _set('useFfmpegImageDecoder', value)),
+                _ActionTile(icon: Icons.open_in_new_rounded, title: '打开原始引擎', subtitle: '无游戏参数启动', onTap: () => widget.bridge.launchOriginalEngine()),
+              ],
             ),
-            const SizedBox(height: 12),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionTitle(icon: Icons.article_outlined, title: '日志'),
-                  _SwitchSetting(
-                    title: '文件日志',
-                    subtitle: '/storage/emulated/0/krkr2pro/logs',
-                    value: _bool('fileLogEnabled', true),
-                    onChanged: (value) => _set('fileLogEnabled', value),
-                  ),
-                  _SwitchSetting(
-                    title: '自动清理旧日志',
-                    subtitle: '沿用旧版保留策略。',
-                    value: _bool('fileLogAutoCleanup', true),
-                    onChanged: (value) => _set('fileLogAutoCleanup', value),
-                  ),
-                  _SliderSetting(
-                    title: '日志保留天数',
-                    value: retentionDays,
-                    min: 1,
-                    max: 60,
-                    onChanged: (value) => _set('fileLogRetentionDays', value),
-                  ),
-                ],
-              ),
+            _SettingsGroup(
+              title: '日志',
+              icon: Icons.article_rounded,
+              children: [
+                _SwitchTile(title: '文件日志', subtitle: '/storage/emulated/0/krkr2pro/logs', value: _bool('fileLogEnabled', true), onChanged: (value) => _set('fileLogEnabled', value)),
+                _SwitchTile(title: '自动清理', subtitle: '按保留天数删除旧日志', value: _bool('fileLogAutoCleanup', true), onChanged: (value) => _set('fileLogAutoCleanup', value)),
+                _SliderTile(title: '保留天数', value: retentionDays, min: 1, max: 60, onChanged: (value) => _set('fileLogRetentionDays', value)),
+              ],
             ),
           ],
         );
@@ -673,38 +628,32 @@ class _DiagnosticsPageState extends State<_DiagnosticsPage> {
       builder: (context, snapshot) {
         final info = snapshot.data ?? const <String, Object?>{};
         return ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(12),
           children: [
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  _SectionTitle(icon: Icons.bug_report_outlined, title: '诊断', trailing: IconButton(onPressed: _reload, icon: const Icon(Icons.refresh_rounded))),
-                  const SizedBox(height: 8),
-                  if (snapshot.connectionState == ConnectionState.waiting) const LinearProgressIndicator(),
-                  _InfoLine('平台', '${info['platform'] ?? Platform.operatingSystem} ${info['platformVersion'] ?? ''}'.trim()),
-                  _InfoLine('设备', '${info['device'] ?? '-'}'),
-                  _InfoLine('包名', '${info['packageName'] ?? '-'}'),
-                  _InfoLine('文件权限', '${info['fileManagementGranted'] ?? widget.storageGranted}'),
-                  _InfoLine('扫描状态', widget.scanStatus),
-                  _InfoLine('游戏目录', '${info['gameRoot'] ?? widget.rootPath}'),
-                  _InfoLine('扫描深度', '${info['scanDepth'] ?? '-'}'),
-                ],
-              ),
+            _SettingsGroup(
+              title: '运行状态',
+              icon: Icons.monitor_heart_rounded,
+              trailing: IconButton(onPressed: _reload, tooltip: '刷新', icon: const Icon(Icons.refresh_rounded)),
+              children: [
+                if (snapshot.connectionState == ConnectionState.waiting) const LinearProgressIndicator(),
+                _InfoRow('平台', '${info['platform'] ?? Platform.operatingSystem} ${info['platformVersion'] ?? ''}'.trim()),
+                _InfoRow('设备', '${info['device'] ?? '-'}'),
+                _InfoRow('包名', '${info['packageName'] ?? '-'}'),
+                _InfoRow('文件权限', '${info['fileManagementGranted'] ?? widget.storageGranted}'),
+                _InfoRow('扫描状态', widget.scanStatus),
+                _InfoRow('游戏目录', '${info['gameRoot'] ?? widget.rootPath}'),
+                _InfoRow('扫描深度', '${info['scanDepth'] ?? '-'}'),
+              ],
             ),
-            const SizedBox(height: 12),
-            _Card(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const _SectionTitle(icon: Icons.article_outlined, title: '日志'),
-                  const SizedBox(height: 8),
-                  _InfoLine('日志目录', '${info['logDir'] ?? '-'}'),
-                  _InfoLine('最新日志', '${info['latestLog'] ?? '-'}'),
-                  _InfoLine('文件日志', '${info['fileLogEnabled'] ?? false}'),
-                  _InfoLine('Native 日志', '${info['nativeLogConfigured'] ?? false}'),
-                ],
-              ),
+            _SettingsGroup(
+              title: '日志',
+              icon: Icons.article_rounded,
+              children: [
+                _InfoRow('目录', '${info['logDir'] ?? '-'}'),
+                _InfoRow('最新', '${info['latestLog'] ?? '-'}'),
+                _InfoRow('文件日志', '${info['fileLogEnabled'] ?? false}'),
+                _InfoRow('Native', '${info['nativeLogConfigured'] ?? false}'),
+              ],
             ),
           ],
         );
@@ -753,7 +702,7 @@ class _LaunchFilePickerState extends State<_LaunchFilePicker> {
         return DropdownButtonFormField<String>(
           value: values.contains(_selected) ? _selected : '',
           isExpanded: true,
-          decoration: const InputDecoration(labelText: '启动文件'),
+          decoration: const InputDecoration(labelText: '启动文件', isDense: true),
           items: values.map((path) => DropdownMenuItem(value: path, child: Text(path.isEmpty ? '自动检测' : _relativeToGame(path, widget.game.path), overflow: TextOverflow.ellipsis))).toList(growable: false),
           onChanged: (path) {
             final next = path ?? '';
@@ -766,70 +715,59 @@ class _LaunchFilePickerState extends State<_LaunchFilePicker> {
   }
 }
 
-class _Card extends StatelessWidget {
-  const _Card({required this.child});
+class _Pane extends StatelessWidget {
+  const _Pane({required this.child, this.padding = const EdgeInsets.all(12)});
 
   final Widget child;
+  final EdgeInsetsGeometry padding;
 
   @override
   Widget build(BuildContext context) {
-    return Card(child: Padding(padding: const EdgeInsets.all(16), child: child));
+    return Material(color: Theme.of(context).colorScheme.surfaceContainerLowest, child: Padding(padding: padding, child: child));
   }
 }
 
-class _SectionTitle extends StatelessWidget {
-  const _SectionTitle({required this.icon, required this.title, this.trailing});
+class _SettingsGroup extends StatelessWidget {
+  const _SettingsGroup({required this.title, required this.icon, required this.children, this.trailing});
 
-  final IconData icon;
   final String title;
+  final IconData icon;
+  final List<Widget> children;
   final Widget? trailing;
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-        const SizedBox(width: 8),
-        Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
-        if (trailing != null) trailing!,
-      ],
-    );
-  }
-}
-
-class _Metric extends StatelessWidget {
-  const _Metric({required this.icon, required this.title, required this.subtitle});
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(minWidth: 220, maxWidth: 360),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: Theme.of(context).colorScheme.primary),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall),
-              ],
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Theme.of(context).colorScheme.surface,
+        borderRadius: BorderRadius.circular(8),
+        clipBehavior: Clip.antiAlias,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
+              child: Row(
+                children: [
+                  Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
+                  if (trailing != null) trailing!,
+                ],
+              ),
             ),
-          ),
-        ],
+            const Divider(height: 1),
+            ...children,
+          ],
+        ),
       ),
     );
   }
 }
 
-class _ActionRow extends StatelessWidget {
-  const _ActionRow({required this.icon, required this.title, required this.subtitle, required this.onTap});
+class _ActionTile extends StatelessWidget {
+  const _ActionTile({required this.icon, required this.title, required this.subtitle, required this.onTap});
 
   final IconData icon;
   final String title;
@@ -839,18 +777,18 @@ class _ActionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      contentPadding: EdgeInsets.zero,
+      dense: true,
       leading: Icon(icon),
       title: Text(title),
-      subtitle: Text(subtitle),
+      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: onTap,
     );
   }
 }
 
-class _SwitchSetting extends StatelessWidget {
-  const _SwitchSetting({required this.title, required this.subtitle, required this.value, required this.onChanged});
+class _SwitchTile extends StatelessWidget {
+  const _SwitchTile({required this.title, required this.subtitle, required this.value, required this.onChanged});
 
   final String title;
   final String subtitle;
@@ -860,17 +798,17 @@ class _SwitchSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SwitchListTile(
-      contentPadding: EdgeInsets.zero,
+      dense: true,
       title: Text(title),
-      subtitle: Text(subtitle),
+      subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       value: value,
       onChanged: onChanged,
     );
   }
 }
 
-class _ChoiceSetting extends StatelessWidget {
-  const _ChoiceSetting({required this.title, required this.value, required this.choices, required this.onChanged});
+class _ChoiceTile extends StatelessWidget {
+  const _ChoiceTile({required this.title, required this.value, required this.choices, required this.onChanged});
 
   final String title;
   final String value;
@@ -880,23 +818,15 @@ class _ChoiceSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      child: Row(
         children: [
-          Text(title, style: Theme.of(context).textTheme.titleSmall),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            children: choices.entries
-                .map(
-                  (entry) => ChoiceChip(
-                    label: Text(entry.value),
-                    selected: value == entry.key,
-                    onSelected: (_) => onChanged(entry.key),
-                  ),
-                )
-                .toList(growable: false),
+          Expanded(child: Text(title)),
+          SegmentedButton<String>(
+            segments: choices.entries.map((entry) => ButtonSegment<String>(value: entry.key, label: Text(entry.value))).toList(growable: false),
+            selected: {value},
+            showSelectedIcon: false,
+            onSelectionChanged: (selection) => onChanged(selection.first),
           ),
         ],
       ),
@@ -904,8 +834,8 @@ class _ChoiceSetting extends StatelessWidget {
   }
 }
 
-class _SliderSetting extends StatelessWidget {
-  const _SliderSetting({required this.title, required this.value, required this.min, required this.max, required this.onChanged});
+class _SliderTile extends StatelessWidget {
+  const _SliderTile({required this.title, required this.value, required this.min, required this.max, required this.onChanged});
 
   final String title;
   final int value;
@@ -916,18 +846,19 @@ class _SliderSetting extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Row(
         children: [
-          Text('$title：$value', style: Theme.of(context).textTheme.titleSmall),
-          Slider(
-            value: value.toDouble(),
-            min: min.toDouble(),
-            max: max.toDouble(),
-            divisions: max - min,
-            label: '$value',
-            onChanged: (next) => onChanged(next.round().clamp(min, max).toInt()),
+          SizedBox(width: 96, child: Text('$title: $value')),
+          Expanded(
+            child: Slider(
+              value: value.toDouble(),
+              min: min.toDouble(),
+              max: max.toDouble(),
+              divisions: max - min,
+              label: '$value',
+              onChanged: (next) => onChanged(next.round().clamp(min, max).toInt()),
+            ),
           ),
         ],
       ),
@@ -935,8 +866,24 @@ class _SliderSetting extends StatelessWidget {
   }
 }
 
-class _InfoLine extends StatelessWidget {
-  const _InfoLine(this.label, this.value);
+class _MiniStatus extends StatelessWidget {
+  const _MiniStatus({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Chip(
+      visualDensity: VisualDensity.compact,
+      avatar: Icon(icon, size: 16),
+      label: Text(label),
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow(this.label, this.value);
 
   final String label;
   final String value;
@@ -944,7 +891,7 @@ class _InfoLine extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -956,16 +903,40 @@ class _InfoLine extends StatelessWidget {
   }
 }
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.message});
+class _StatusDot extends StatelessWidget {
+  const _StatusDot({required this.active});
 
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: active ? '文件权限已授权' : '文件权限未授权',
+      child: Icon(active ? Icons.verified_rounded : Icons.error_outline_rounded, size: 18, color: active ? Colors.green : Theme.of(context).colorScheme.error),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.icon, required this.message});
+
+  final IconData icon;
   final String message;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 36),
-      child: Center(child: Text(message, textAlign: TextAlign.center, style: Theme.of(context).textTheme.bodyMedium)),
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 40, color: Theme.of(context).colorScheme.onSurfaceVariant),
+            const SizedBox(height: 8),
+            Text(message, style: Theme.of(context).textTheme.bodyMedium),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -980,12 +951,12 @@ class _Cover extends StatelessWidget {
   Widget build(BuildContext context) {
     final image = _fileImage(path);
     return ClipRRect(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(8),
       child: Container(
         width: size,
         height: size,
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: image == null ? Icon(Icons.videogame_asset_outlined, size: size * 0.45) : Image(image: image, fit: BoxFit.cover),
+        child: image == null ? Icon(Icons.videogame_asset_outlined, size: size * 0.44) : Image(image: image, fit: BoxFit.cover),
       ),
     );
   }

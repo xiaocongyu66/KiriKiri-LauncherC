@@ -22,6 +22,28 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   bool _mouseMode = true;
   late Future<List<GameMenuItem>> _menuFuture = widget.bridge.getMainMenu();
 
+  @override
+  void initState() {
+    super.initState();
+    _channel.setMethodCallHandler(_handleHostCall);
+  }
+
+  @override
+  void dispose() {
+    _channel.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  Future<void> _handleHostCall(MethodCall call) async {
+    if (call.method == 'showMenu') {
+      setState(() {
+        _expanded = true;
+        _menuMode = true;
+        _menuFuture = widget.bridge.getMainMenu();
+      });
+    }
+  }
+
   Future<void> _setExpanded(bool value, {bool menuMode = false}) async {
     setState(() {
       _expanded = value;
@@ -91,24 +113,16 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       type: MaterialType.transparency,
       child: Stack(
         children: [
-          if (_expanded)
-            Positioned.fill(
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: () => _setExpanded(false),
-                child: const SizedBox.expand(),
-              ),
-            ),
           Align(
-            alignment: Alignment.bottomCenter,
+            alignment: Alignment.bottomRight,
             child: _menuMode
-                ? _LegacyMenuPanel(
+                ? _FloatingMenuPanel(
                     future: _menuFuture,
                     onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
                     onClose: () => _setExpanded(false),
                     onActivate: _activateMenu,
                   )
-                : _LegacyActionBar(
+                : _FloatingActionTray(
                     expanded: _expanded,
                     mouseMode: _mouseMode,
                     onDrag: _move,
@@ -122,8 +136,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 }
 
-class _LegacyActionBar extends StatelessWidget {
-  const _LegacyActionBar({
+class _FloatingActionTray extends StatelessWidget {
+  const _FloatingActionTray({
     required this.expanded,
     required this.mouseMode,
     required this.onDrag,
@@ -139,84 +153,36 @@ class _LegacyActionBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SizedBox(
-      height: expanded ? 178 : 56,
-      child: Stack(
-        children: [
-          if (expanded)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              height: 130,
-              child: DecoratedBox(
-                decoration: BoxDecoration(color: const Color(0xff2a2a2a).withOpacity(0.94)),
-                child: Row(
-                  children: [
-                    _LegacyButton(asset: 'menu_icon.png', label: '菜单', onTap: () => onAction('game-menu')),
-                    _LegacyButton(asset: 'windows_icon.png', label: '窗口', onTap: () => onAction('window-manager')),
-                    _LegacyButton(asset: mouseMode ? 'mouse_icon.png' : 'touch_icon.png', label: mouseMode ? '鼠标' : '触摸', onTap: () => onAction('mouse-mode')),
-                    _LegacyButton(asset: 'keyboard_icon.png', label: '键盘', onTap: () => onAction('keyboard')),
-                    _LegacyButton(asset: 'exit_icon.png', label: '退出', onTap: () => onAction('exit')),
-                  ],
-                ),
-              ),
-            ),
-          Positioned(
-            right: 0,
-            bottom: expanded ? 130 : 0,
-            child: GestureDetector(
-              onPanUpdate: onDrag,
-              child: _LegacyHandle(onTap: onToggle),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _LegacyHandle extends StatelessWidget {
-  const _LegacyHandle({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
-      child: Opacity(
-        opacity: 0.72,
-        child: Container(
-          width: 56,
-          height: 56,
-          alignment: Alignment.center,
-          child: const ResourceIcon('menu_handler.png', size: 48),
+      behavior: HitTestBehavior.translucent,
+      onPanUpdate: expanded ? null : onDrag,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOutCubic,
+        height: 56,
+        decoration: BoxDecoration(
+          color: const Color(0xd90b0b0d),
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(color: Colors.white.withOpacity(0.10)),
+          boxShadow: const [
+            BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 6)),
+          ],
         ),
-      ),
-    );
-  }
-}
-
-class _LegacyButton extends StatelessWidget {
-  const _LegacyButton({required this.asset, required this.label, required this.onTap});
-
-  final String asset;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: InkWell(
-        onTap: onTap,
-        child: SizedBox.expand(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(28),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              ResourceIcon(asset, size: 64),
-              const SizedBox(height: 8),
-              Text(label, style: Theme.of(context).textTheme.labelMedium?.copyWith(color: Colors.white70)),
+              if (expanded) ...[
+                const SizedBox(width: 4),
+                _TrayButton(asset: 'menu_icon.png', label: '菜单', onTap: () => onAction('game-menu')),
+                _TrayButton(asset: 'windows_icon.png', label: '窗口', onTap: () => onAction('window-manager')),
+                _TrayButton(asset: mouseMode ? 'mouse_icon.png' : 'touch_icon.png', label: mouseMode ? '鼠标' : '触摸', onTap: () => onAction('mouse-mode')),
+                _TrayButton(asset: 'exit_icon.png', label: '退出', destructive: true, onTap: () => onAction('exit')),
+                const SizedBox(width: 2),
+                Container(width: 1, height: 28, color: Colors.white.withOpacity(0.12)),
+              ],
+              _FloatingHandle(onTap: onToggle),
             ],
           ),
         ),
@@ -225,8 +191,67 @@ class _LegacyButton extends StatelessWidget {
   }
 }
 
-class _LegacyMenuPanel extends StatelessWidget {
-  const _LegacyMenuPanel({required this.future, required this.onBack, required this.onClose, required this.onActivate});
+class _FloatingHandle extends StatelessWidget {
+  const _FloatingHandle({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(28),
+      child: Container(
+        width: 52,
+        height: 56,
+        alignment: Alignment.center,
+        child: const Opacity(
+          opacity: 0.82,
+          child: ResourceIcon('menu_handler.png', size: 40),
+        ),
+      ),
+    );
+  }
+}
+
+class _TrayButton extends StatelessWidget {
+  const _TrayButton({required this.asset, required this.label, required this.onTap, this.destructive = false});
+
+  final String asset;
+  final String label;
+  final VoidCallback onTap;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground = destructive ? const Color(0xffffb4ab) : Colors.white.withOpacity(0.82);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(18),
+      child: SizedBox(
+        width: 52,
+        height: 56,
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            ResourceIcon(asset, size: 24),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.fade,
+              softWrap: false,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: foreground, fontSize: 10),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _FloatingMenuPanel extends StatelessWidget {
+  const _FloatingMenuPanel({required this.future, required this.onBack, required this.onClose, required this.onActivate});
 
   final Future<List<GameMenuItem>> future;
   final VoidCallback onBack;
@@ -235,52 +260,80 @@ class _LegacyMenuPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 360,
-      decoration: BoxDecoration(color: const Color(0xff2a2a2a).withOpacity(0.96)),
-      child: Column(
-        children: [
-          SizedBox(
-            height: 56,
-            child: Row(
-              children: [
-                IconButton(onPressed: onBack, icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70), tooltip: '返回'),
-                const ResourceIcon('menu_icon.png', size: 28),
-                const SizedBox(width: 8),
-                Expanded(child: Text('菜单', style: Theme.of(context).textTheme.titleMedium?.copyWith(color: Colors.white, fontWeight: FontWeight.w700))),
-                IconButton(onPressed: onClose, icon: const Icon(Icons.close_rounded, color: Colors.white70), tooltip: '收起'),
-              ],
-            ),
+    return Padding(
+      padding: const EdgeInsets.all(6),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(18),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0xe60b0b0d),
+            border: Border.all(color: Colors.white.withOpacity(0.10)),
+            boxShadow: const [
+              BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 8)),
+            ],
           ),
-          const Divider(height: 1, color: Colors.white24),
-          Expanded(
-            child: FutureBuilder<List<GameMenuItem>>(
-              future: future,
-              builder: (context, snapshot) {
-                final items = snapshot.data ?? const <GameMenuItem>[];
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                if (items.isEmpty) {
-                  return const Center(child: Text('当前游戏没有菜单', style: TextStyle(color: Colors.white70)));
-                }
-                return ListView.separated(
-                  padding: const EdgeInsets.symmetric(vertical: 4),
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1, color: Colors.white12),
-                  itemBuilder: (context, index) => _LegacyMenuTile(item: items[index], onTap: onActivate),
-                );
-              },
-            ),
+          child: Column(
+            children: [
+              SizedBox(
+                height: 46,
+                child: Row(
+                  children: [
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onBack,
+                      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
+                      tooltip: '返回',
+                    ),
+                    const ResourceIcon('menu_icon.png', size: 24),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '游戏菜单',
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                    IconButton(
+                      visualDensity: VisualDensity.compact,
+                      onPressed: onClose,
+                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                      tooltip: '收起',
+                    ),
+                  ],
+                ),
+              ),
+              Divider(height: 1, color: Colors.white.withOpacity(0.12)),
+              Expanded(
+                child: FutureBuilder<List<GameMenuItem>>(
+                  future: future,
+                  builder: (context, snapshot) {
+                    final items = snapshot.data ?? const <GameMenuItem>[];
+                    if (snapshot.connectionState == ConnectionState.waiting) {
+                      return const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)));
+                    }
+                    if (items.isEmpty) {
+                      return const Center(child: Text('当前游戏没有菜单', style: TextStyle(color: Colors.white70)));
+                    }
+                    return Scrollbar(
+                      child: ListView.separated(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
+                        itemCount: items.length,
+                        separatorBuilder: (_, __) => Divider(height: 1, indent: 48, color: Colors.white.withOpacity(0.08)),
+                        itemBuilder: (context, index) => _FloatingMenuTile(item: items[index], onTap: onActivate),
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _LegacyMenuTile extends StatelessWidget {
-  const _LegacyMenuTile({required this.item, required this.onTap});
+class _FloatingMenuTile extends StatelessWidget {
+  const _FloatingMenuTile({required this.item, required this.onTap});
 
   final GameMenuItem item;
   final ValueChanged<GameMenuItem> onTap;
@@ -288,12 +341,33 @@ class _LegacyMenuTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasChildren = item.children.isNotEmpty;
-    return ListTile(
-      enabled: item.enabled,
-      leading: Icon(hasChildren ? Icons.folder_open_rounded : item.checked ? Icons.check_rounded : Icons.circle_outlined, color: item.enabled ? Colors.white70 : Colors.white30),
-      title: Text(item.title.isEmpty ? '(未命名)' : item.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: item.enabled ? Colors.white : Colors.white38)),
-      trailing: hasChildren ? const Icon(Icons.chevron_right_rounded, color: Colors.white70) : null,
-      onTap: () => onTap(item),
+    final enabledColor = item.enabled ? Colors.white.withOpacity(0.84) : Colors.white.withOpacity(0.32);
+    return InkWell(
+      onTap: item.enabled ? () => onTap(item) : null,
+      child: SizedBox(
+        height: 42,
+        child: Row(
+          children: [
+            const SizedBox(width: 12),
+            Icon(
+              hasChildren ? Icons.folder_open_rounded : item.checked ? Icons.check_rounded : Icons.radio_button_unchecked_rounded,
+              color: enabledColor,
+              size: 19,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                item.title.isEmpty ? '(未命名)' : item.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: enabledColor),
+              ),
+            ),
+            if (hasChildren) const Icon(Icons.chevron_right_rounded, color: Colors.white70, size: 20),
+            const SizedBox(width: 10),
+          ],
+        ),
+      ),
     );
   }
 }
