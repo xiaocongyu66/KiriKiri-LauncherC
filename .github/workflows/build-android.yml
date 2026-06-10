@@ -662,6 +662,7 @@ jobs:
                               "-DANDROID=ON",
                               "-DENABLE_TESTS=OFF",
                               "-DBUILD_TOOLS=OFF",
+                              "-DKIRIKIRI_ENABLE_BGFX=ON",
                           )
                       }
                   }

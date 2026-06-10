@@ -4867,6 +4867,16 @@ public:
 static std::map<ttstr, std::pair<iTVPRenderManager *(*)(), iTVPRenderManager *>>
     *_RenderManagerFactory;
 
+void TVPRegisterBgfxVulkanRenderManager();
+
+static void TVPEnsureRenderManagersRegistered() {
+    static bool registered = false;
+    if(registered)
+        return;
+    registered = true;
+    TVPRegisterBgfxVulkanRenderManager();
+}
+
 void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)()) {
     if(!_RenderManagerFactory)
         _RenderManagerFactory = new std::map<
@@ -4875,6 +4885,7 @@ void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)()) {
 }
 
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
+    TVPEnsureRenderManagersRegistered();
     if(!_RenderManagerFactory) {
         TVPThrowExceptionMessage(TJS_W("renderer registry is not initialized"));
     }

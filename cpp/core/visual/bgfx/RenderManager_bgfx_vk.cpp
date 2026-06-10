@@ -79,10 +79,7 @@ static iTVPRenderManager *TVPCreateBgfxVulkanRenderManager() {
     return new tTVPBgfxVulkanRenderManager();
 }
 
-static class __TVPBgfxVulkanRenderManagerAutoRegister {
-public:
-    __TVPBgfxVulkanRenderManagerAutoRegister() {
-        TVPRegisterRenderManager("vulkan", TVPCreateBgfxVulkanRenderManager);
-        TVPRegisterRenderManager("bgfx-vk", TVPCreateBgfxVulkanRenderManager);
-    }
-} __TVPBgfxVulkanRenderManagerAutoRegister_instance;
+void TVPRegisterBgfxVulkanRenderManager() {
+    TVPRegisterRenderManager("vulkan", TVPCreateBgfxVulkanRenderManager);
+    TVPRegisterRenderManager("bgfx-vk", TVPCreateBgfxVulkanRenderManager);
+}

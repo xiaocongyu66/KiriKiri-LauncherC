@@ -1,117 +1,118 @@
 {
-  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
-  "name": "krkr2",
-  "version-string": "1.5.0",
-  "dependencies": [
-    "7zip",
-    {
-      "name": "argparse",
-      "platform": "linux | windows | osx"
-    },
-    "boost-iostreams",
-    {
-      "name": "boost-locale",
-      "default-features": false,
-      "features": [
-        "icu"
-      ]
-    },
-    "bullet3",
-    "boost-phoenix",
-    "boost-spirit",
-    {
-      "name": "breakpad",
-      "default-features": false,
-      "platform": "android"
-    },
-    {
-      "name": "catch2",
-      "default-features": false,
-      "platform": "!android & !ios"
-    },
-    "cocos2dx",
-    "curl",
-    {
-      "name": "dirent",
-      "platform": "windows"
-    },
-    "ffmpeg",
-    "fmt",
-    {
-      "name": "glfw3",
-      "platform": "linux | windows | osx"
-    },
-    "jxrlib",
-    "libarchive",
-    {
-      "name": "blend2d",
-      "platform": "!windows"
-    },
-    "libjpeg-turbo",
-    {
-      "name": "libogg",
-      "platform": "android"
-    },
-    {
-      "name": "libpng",
-      "platform": "!linux"
-    },
-    "libvorbis",
-    "libwebp",
-    "lz4",
-    {
-      "name": "mimalloc",
-      "default-features": false,
-      "features": [
-        "override",
-        "nooptarch"
-      ]
-    },
-    "oniguruma",
-    "openal-soft",
-    {
-      "name": "opencv4",
-      "default-features": false,
-      "features": [
-        "openmp"
-      ]
-    },
-    {
-      "name": "opus",
-      "platform": "android"
-    },
-    {
-      "name": "opusfile",
-      "default-features": false
-    },
-    {
-      "name": "sdl2",
-      "default-features": false
-    },
-    "sqlite3",
-    "spdlog",
-    {
-      "name": "tbb",
-      "default-features": false
-    },
-    "uchardet",
-    "unrar",
-    {
-      "name": "vcpkg-cmake",
-      "host": true
-    },
-    "zlib",
-    "zstd"
-  ],
-  "overrides": [
-    {
-      "name": "opencv4",
-      "version": "4.7.0#6"
-    },
-    {
-      "name": "sdl2",
-      "version": "2.32.10",
-      "port-version": 1
-    }
-  ]
+    "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+    "name": "krkr2",
+    "version-string": "1.5.0",
+    "dependencies": [
+        "7zip",
+        {
+            "name": "argparse",
+            "platform": "linux | windows | osx"
+        },
+        "boost-iostreams",
+        {
+            "name": "boost-locale",
+            "default-features": false,
+            "features": [
+                "icu"
+            ]
+        },
+        "bullet3",
+        "boost-phoenix",
+        "boost-spirit",
+        {
+            "name": "breakpad",
+            "default-features": false,
+            "platform": "android"
+        },
+        "bgfx",
+        {
+            "name": "catch2",
+            "default-features": false,
+            "platform": "!android & !ios"
+        },
+        "cocos2dx",
+        "curl",
+        {
+            "name": "dirent",
+            "platform": "windows"
+        },
+        "ffmpeg",
+        "fmt",
+        {
+            "name": "glfw3",
+            "platform": "linux | windows | osx"
+        },
+        "jxrlib",
+        "libarchive",
+        {
+            "name": "blend2d",
+            "platform": "!windows"
+        },
+        "libjpeg-turbo",
+        {
+            "name": "libogg",
+            "platform": "android"
+        },
+        {
+            "name": "libpng",
+            "platform": "!linux"
+        },
+        "libvorbis",
+        "libwebp",
+        "lz4",
+        {
+            "name": "mimalloc",
+            "default-features": false,
+            "features": [
+                "override",
+                "nooptarch"
+            ]
+        },
+        "oniguruma",
+        "openal-soft",
+        {
+            "name": "opencv4",
+            "default-features": false,
+            "features": [
+                "openmp"
+            ]
+        },
+        {
+            "name": "opus",
+            "platform": "android"
+        },
+        {
+            "name": "opusfile",
+            "default-features": false
+        },
+        {
+            "name": "sdl2",
+            "default-features": false
+        },
+        "sqlite3",
+        "spdlog",
+        {
+            "name": "tbb",
+            "default-features": false
+        },
+        "uchardet",
+        "unrar",
+        {
+            "name": "vcpkg-cmake",
+            "host": true
+        },
+        "zlib",
+        "zstd"
+    ],
+    "overrides": [
+        {
+            "name": "opencv4",
+            "version": "4.7.0#6"
+        },
+        {
+            "name": "sdl2",
+            "version": "2.32.10",
+            "port-version": 1
+        }
+    ]
 }
