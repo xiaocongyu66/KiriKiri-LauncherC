@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 
 import '../bridge/launcher_bridge.dart';
 import '../models/game_entry.dart';
-import '../widgets/resource_icon.dart';
 
 class LauncherHomePage extends StatefulWidget {
   const LauncherHomePage({required this.bridge, super.key});
@@ -155,6 +154,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
         final wide = constraints.maxWidth >= 840;
         final page = switch (_pageIndex) {
           0 => _LibraryPage(
+              bridge: widget.bridge,
               wide: wide,
               loading: _loading,
               storageGranted: _storageGranted,
@@ -187,9 +187,17 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
             title: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const ResourceIcon('menu_icon.png', size: 24),
-                const SizedBox(width: 8),
-                const Text('KiriKiri'),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('KiriKiri'),
+                    Text(
+                      _loading ? '扫描中' : '${_games.length} 个游戏',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                    ),
+                  ],
+                ),
                 const SizedBox(width: 10),
                 _StatusDot(active: _storageGranted),
               ],
@@ -234,6 +242,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
 
 class _LibraryPage extends StatelessWidget {
   const _LibraryPage({
+    required this.bridge,
     required this.wide,
     required this.loading,
     required this.storageGranted,
@@ -249,6 +258,7 @@ class _LibraryPage extends StatelessWidget {
     required this.onLaunch,
   });
 
+  final LauncherBridge bridge;
   final bool wide;
   final bool loading;
   final bool storageGranted;
@@ -268,25 +278,26 @@ class _LibraryPage extends StatelessWidget {
     final body = wide
         ? Row(
             children: [
-              SizedBox(
-                width: 420,
-                child: _GameListPane(
+              Expanded(
+                flex: 6,
+                child: _GameGridPane(
                   loading: loading,
                   games: games,
                   selectedGame: selectedGame,
                   onSelect: onSelect,
+                  onLaunch: onLaunch,
                 ),
               ),
               const VerticalDivider(width: 1),
-              Expanded(child: _GameDetailPane(game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch)),
+              Expanded(flex: 4, child: _GameDetailPane(bridge: bridge, game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch)),
             ],
           )
         : ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              _GameListPane(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect, shrinkWrap: true),
+              _GameGridPane(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect, onLaunch: onLaunch, shrinkWrap: true),
               const SizedBox(height: 12),
-              _GameDetailPane(game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
+              _GameDetailPane(bridge: bridge, game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
             ],
           );
 
@@ -379,12 +390,13 @@ class _CommandStrip extends StatelessWidget {
   }
 }
 
-class _GameListPane extends StatelessWidget {
-  const _GameListPane({
+class _GameGridPane extends StatelessWidget {
+  const _GameGridPane({
     required this.loading,
     required this.games,
     required this.selectedGame,
     required this.onSelect,
+    required this.onLaunch,
     this.shrinkWrap = false,
   });
 
@@ -392,6 +404,7 @@ class _GameListPane extends StatelessWidget {
   final List<GameEntry> games;
   final GameEntry? selectedGame;
   final ValueChanged<GameEntry> onSelect;
+  final ValueChanged<GameEntry> onLaunch;
   final bool shrinkWrap;
 
   @override
@@ -403,24 +416,32 @@ class _GameListPane extends StatelessWidget {
       return const _Pane(child: _EmptyState(icon: Icons.search_off_rounded, message: '未找到游戏'));
     }
     return _Pane(
-      padding: EdgeInsets.zero,
-      child: ListView.separated(
-        shrinkWrap: shrinkWrap,
-        physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        itemCount: games.length,
-        separatorBuilder: (_, __) => const Divider(height: 1),
-        itemBuilder: (context, index) {
-          final game = games[index];
-          final selected = selectedGame?.path == game.path;
-          return ListTile(
-            dense: true,
-            selected: selected,
-            leading: _Cover(path: game.coverPath, size: 42),
-            title: Text(game.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-            subtitle: Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis),
-            trailing: selected ? const Icon(Icons.check_circle_rounded) : const Icon(Icons.chevron_right_rounded),
-            onTap: () => onSelect(game),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final columns = constraints.maxWidth >= 900
+              ? 4
+              : constraints.maxWidth >= 620
+                  ? 3
+                  : 2;
+          return GridView.builder(
+            shrinkWrap: shrinkWrap,
+            physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
+            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: columns,
+              mainAxisSpacing: 10,
+              crossAxisSpacing: 10,
+              childAspectRatio: 0.82,
+            ),
+            itemCount: games.length,
+            itemBuilder: (context, index) {
+              final game = games[index];
+              return _GameCard(
+                game: game,
+                selected: selectedGame?.path == game.path,
+                onSelect: () => onSelect(game),
+                onLaunch: () => onLaunch(game),
+              );
+            },
           );
         },
       ),
@@ -428,46 +449,224 @@ class _GameListPane extends StatelessWidget {
   }
 }
 
-class _GameDetailPane extends StatelessWidget {
-  const _GameDetailPane({required this.game, required this.onUpdate, required this.onLaunch});
+class _GameCard extends StatelessWidget {
+  const _GameCard({required this.game, required this.selected, required this.onSelect, required this.onLaunch});
 
+  final GameEntry game;
+  final bool selected;
+  final VoidCallback onSelect;
+  final VoidCallback onLaunch;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      color: selected ? scheme.primaryContainer.withOpacity(0.55) : scheme.surfaceContainerLow,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: selected ? scheme.primary : scheme.outlineVariant.withOpacity(0.45)),
+      ),
+      child: InkWell(
+        onTap: onSelect,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _GameBanner(game: game, height: 92),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(game.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 4),
+                    Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                    const Spacer(),
+                    Row(
+                      children: [
+                        TextButton.icon(onPressed: onLaunch, icon: const Icon(Icons.play_arrow_rounded, size: 18), label: const Text('启动')),
+                        const Spacer(),
+                        TextButton.icon(onPressed: onSelect, icon: const Icon(Icons.info_outline_rounded, size: 18), label: const Text('详情')),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GameBanner extends StatelessWidget {
+  const _GameBanner({required this.game, required this.height});
+
+  final GameEntry game;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _fileImage(game.backgroundPath) ?? _fileImage(game.coverPath);
+    final scheme = Theme.of(context).colorScheme;
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: image == null
+          ? DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [scheme.primary.withOpacity(0.30), scheme.surfaceContainerHighest],
+                ),
+              ),
+              child: Icon(Icons.grid_view_rounded, color: scheme.onSurfaceVariant),
+            )
+          : Image(image: image, fit: BoxFit.cover),
+    );
+  }
+}
+
+class _GameDetailPane extends StatefulWidget {
+  const _GameDetailPane({required this.bridge, required this.game, required this.onUpdate, required this.onLaunch});
+
+  final LauncherBridge bridge;
   final GameEntry? game;
   final ValueChanged<GameEntry> onUpdate;
   final ValueChanged<GameEntry> onLaunch;
 
   @override
+  State<_GameDetailPane> createState() => _GameDetailPaneState();
+}
+
+class _GameDetailPaneState extends State<_GameDetailPane> {
+  late Future<Map<String, Object?>> _overrides = _loadOverrides();
+
+  Future<Map<String, Object?>> _loadOverrides() {
+    final game = widget.game;
+    if (game == null) {
+      return Future.value(const {});
+    }
+    return widget.bridge.getGameOverrides(game.path);
+  }
+
+  @override
+  void didUpdateWidget(covariant _GameDetailPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.game?.path != widget.game?.path) {
+      _overrides = _loadOverrides();
+    }
+  }
+
+  Future<void> _setOverride(String key, Object? value) async {
+    final game = widget.game;
+    if (game == null) {
+      return;
+    }
+    await widget.bridge.updateGameOverride(game.path, key, value);
+    if (mounted) {
+      setState(() => _overrides = _loadOverrides());
+    }
+  }
+
+  Future<void> _clearOverrides() async {
+    final game = widget.game;
+    if (game == null) {
+      return;
+    }
+    await widget.bridge.clearGameOverrides(game.path);
+    if (mounted) {
+      setState(() => _overrides = _loadOverrides());
+    }
+  }
+
+  bool _overrideBool(Map<String, Object?> values, String key) => values[key] == true;
+
+  String _overrideString(Map<String, Object?> values, String key) => values[key] as String? ?? '';
+
+
+  @override
   Widget build(BuildContext context) {
-    final item = game;
+    final item = widget.game;
     if (item == null) {
       return const _Pane(child: _EmptyState(icon: Icons.videogame_asset_outlined, message: '选择一个游戏'));
     }
-    return _Pane(
-      child: ListView(
-        padding: const EdgeInsets.all(16),
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return FutureBuilder<Map<String, Object?>>(
+      future: _overrides,
+      builder: (context, snapshot) {
+        final values = snapshot.data ?? const <String, Object?>{};
+        return _Pane(
+          child: ListView(
+            padding: const EdgeInsets.all(12),
             children: [
-              _Cover(path: item.coverPath, size: 76),
-              const SizedBox(width: 12),
-              Expanded(
+              ClipRRect(borderRadius: BorderRadius.circular(18), child: _GameBanner(game: item, height: 126)),
+              const SizedBox(height: 12),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _Cover(path: item.coverPath, size: 64),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 6),
+                        SelectableText(item.path, style: Theme.of(context).textTheme.bodySmall),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              _DetailSection(
+                title: '启动文件',
+                subtitle: '默认自动检测 startup.tjs / data.xp3 / ks；也可为单个游戏指定。',
+                child: _LaunchFilePicker(
+                  bridge: widget.bridge,
+                  game: item,
+                  selectedOverride: _overrideString(values, 'customLaunch'),
+                  onChanged: (next) {
+                    widget.onUpdate(next);
+                    _setOverride('customLaunch', next.launchFile ?? '');
+                  },
+                ),
+              ),
+              const SizedBox(height: 10),
+              _DetailSection(
+                title: '游戏自定义参数',
+                subtitle: '与旧版一致：启动前写入该游戏自己的渲染覆盖。',
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(item.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
-                    SelectableText(item.path, style: Theme.of(context).textTheme.bodySmall),
+                    _SelectSetting(
+                      title: '渲染器',
+                      value: _overrideString(values, 'renderer'),
+                      fallback: '自动',
+                      choices: const {'': '自动', 'opengl': 'OpenGL', 'angle': 'ANGLE', 'angle-vk': 'ANGLE-VK', 'vulkan': 'Vulkan', 'software': '软件'},
+                      onChanged: (value) => _setOverride('renderer', value),
+                    ),
+                    _SelectSetting(
+                      title: '帧率上限',
+                      value: _overrideString(values, 'fps_limit'),
+                      fallback: '自动',
+                      choices: const {'': '自动', '60': '60', '45': '45', '30': '30', '15': '15'},
+                      onChanged: (value) => _setOverride('fps_limit', value),
+                    ),
+                    _SwitchTile(title: '显示 FPS', subtitle: '仅当前游戏', value: _overrideBool(values, 'showfps'), onChanged: (value) => _setOverride('showfps', value)),
+                    _SwitchTile(title: 'OpenGL 精确渲染', subtitle: '仅当前游戏', value: _overrideBool(values, 'ogl_accurate_render'), onChanged: (value) => _setOverride('ogl_accurate_render', value)),
+                    Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: _clearOverrides, child: const Text('重置当前游戏参数'))),
                   ],
                 ),
               ),
+              const SizedBox(height: 12),
+              FilledButton.icon(onPressed: () => widget.onLaunch(item), icon: const Icon(Icons.play_arrow_rounded), label: const Text('启动游戏')),
             ],
           ),
-          const SizedBox(height: 16),
-          _LaunchFilePicker(game: item, onChanged: onUpdate),
-          const SizedBox(height: 12),
-          FilledButton.icon(onPressed: () => onLaunch(item), icon: const Icon(Icons.play_arrow_rounded), label: const Text('启动')),
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -586,6 +785,7 @@ class _SettingsPageState extends State<_SettingsPage> {
                 _ActionTile(icon: Icons.open_in_new_rounded, title: '打开原始引擎', subtitle: '无游戏参数启动', onTap: () => widget.bridge.launchOriginalEngine()),
               ],
             ),
+            _GlobalRenderSettingsGroup(bridge: widget.bridge),
             _SettingsGroup(
               title: '日志',
               icon: Icons.article_rounded,
@@ -662,10 +862,129 @@ class _DiagnosticsPageState extends State<_DiagnosticsPage> {
   }
 }
 
-class _LaunchFilePicker extends StatefulWidget {
-  const _LaunchFilePicker({required this.game, required this.onChanged});
+class _GlobalRenderSettingsGroup extends StatefulWidget {
+  const _GlobalRenderSettingsGroup({required this.bridge});
 
+  final LauncherBridge bridge;
+
+  @override
+  State<_GlobalRenderSettingsGroup> createState() => _GlobalRenderSettingsGroupState();
+}
+
+class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> {
+  late Future<Map<String, Object?>> _future = widget.bridge.getEngineSettings();
+  Map<String, Object?> _settings = const {};
+
+  Future<void> _reload() async {
+    final settings = await widget.bridge.getEngineSettings();
+    if (mounted) {
+      setState(() {
+        _settings = settings;
+        _future = Future.value(settings);
+      });
+    }
+  }
+
+  Future<void> _set(String key, Object? value) async {
+    setState(() => _settings = {..._settings, key: value});
+    await widget.bridge.updateEngineSetting(key, value);
+    await _reload();
+  }
+
+  Future<void> _reset() async {
+    await widget.bridge.resetEngineSettings();
+    await _reload();
+  }
+
+  bool _bool(String key, bool fallback) => _settings[key] is bool ? _settings[key] as bool : fallback;
+
+  String _string(String key, String fallback) => _settings[key] is String ? _settings[key] as String : fallback;
+
+  double _double(String key, double fallback) {
+    final value = _settings[key];
+    if (value is num) {
+      return value.toDouble();
+    }
+    if (value is String) {
+      return double.tryParse(value) ?? fallback;
+    }
+    return fallback;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<Map<String, Object?>>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.hasData && !identical(_settings, snapshot.data)) {
+          _settings = snapshot.data!;
+        }
+        return _SettingsGroup(
+          title: '渲染与引擎',
+          icon: Icons.developer_board_rounded,
+          trailing: IconButton(onPressed: _reset, tooltip: '恢复默认', icon: const Icon(Icons.restart_alt_rounded)),
+          children: [
+            if (snapshot.connectionState == ConnectionState.waiting) const LinearProgressIndicator(),
+            _SelectSetting(
+              title: '渲染器',
+              value: _string('renderer', 'software'),
+              fallback: '软件',
+              choices: const {'opengl': 'OpenGL', 'angle': 'ANGLE', 'angle-vk': 'ANGLE-VK', 'vulkan': 'Vulkan', 'software': '软件'},
+              onChanged: (value) => _set('renderer', value),
+            ),
+            _SelectSetting(
+              title: '帧率上限',
+              value: _string('fps_limit', '60'),
+              fallback: '60',
+              choices: const {'60': '60', '45': '45', '30': '30', '15': '15'},
+              onChanged: (value) => _set('fps_limit', value),
+            ),
+            _SwitchTile(title: '输出日志', subtitle: '对应旧版 outputlog', value: _bool('outputlog', false), onChanged: (value) => _set('outputlog', value)),
+            _SwitchTile(title: '显示 FPS', subtitle: '对应旧版 showfps', value: _bool('showfps', false), onChanged: (value) => _set('showfps', value)),
+            _SwitchTile(title: 'OpenGL 精确渲染', subtitle: '对应旧版 ogl_accurate_render', value: _bool('ogl_accurate_render', false), onChanged: (value) => _set('ogl_accurate_render', value)),
+            _SelectSetting(
+              title: 'OpenGL 最大纹理',
+              value: _string('ogl_max_texsize', '0'),
+              fallback: '自动',
+              choices: const {'0': '自动', '1024': '1024', '2048': '2048', '4096': '4096', '8192': '8192', '16384': '16384'},
+              onChanged: (value) => _set('ogl_max_texsize', value),
+            ),
+            _SelectSetting(
+              title: 'OpenGL 压缩纹理',
+              value: _string('ogl_compress_tex', 'none'),
+              fallback: '无',
+              choices: const {'none': '无', 'half': '半尺寸', 'etc2': 'ETC2', 'pvrtc': 'PVRTC'},
+              onChanged: (value) => _set('ogl_compress_tex', value),
+            ),
+            _SelectSetting(
+              title: '软件绘制线程',
+              value: _string('software_draw_thread', '0'),
+              fallback: '自动',
+              choices: const {'0': '自动', '1': '1', '2': '2', '3': '3', '4': '4', '5': '5', '6': '6', '7': '7', '8': '8'},
+              onChanged: (value) => _set('software_draw_thread', value),
+            ),
+            _SelectSetting(
+              title: '软件压缩纹理',
+              value: _string('software_compress_tex', 'none'),
+              fallback: '无',
+              choices: const {'none': '无', 'halfline': '半行', 'lz4': 'lz4', 'lz4+tlg5': 'lz4+TLG5'},
+              onChanged: (value) => _set('software_compress_tex', value),
+            ),
+            _DoubleSliderTile(title: '虚拟鼠标缩放', value: _double('vcursor_scale', 0.5).clamp(0.1, 2.0).toDouble(), min: 0.1, max: 2.0, onChanged: (value) => _set('vcursor_scale', value)),
+            _DoubleSliderTile(title: '菜单按钮透明度', value: _double('menu_handler_opa', 0.15).clamp(0.0, 1.0).toDouble(), min: 0.0, max: 1.0, onChanged: (value) => _set('menu_handler_opa', value)),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _LaunchFilePicker extends StatefulWidget {
+  const _LaunchFilePicker({required this.bridge, required this.game, required this.selectedOverride, required this.onChanged});
+
+  final LauncherBridge bridge;
   final GameEntry game;
+  final String selectedOverride;
   final ValueChanged<GameEntry> onChanged;
 
   @override
@@ -679,16 +998,18 @@ class _LaunchFilePickerState extends State<_LaunchFilePicker> {
   @override
   void initState() {
     super.initState();
-    _selected = widget.game.launchFile ?? '';
-    _future = LauncherBridge.instance.listLaunchCandidates(widget.game.path);
+    _selected = widget.selectedOverride.isNotEmpty ? widget.selectedOverride : widget.game.launchFile ?? '';
+    _future = widget.bridge.listLaunchCandidates(widget.game.path);
   }
 
   @override
   void didUpdateWidget(covariant _LaunchFilePicker oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.game.path != widget.game.path) {
-      _selected = widget.game.launchFile ?? '';
-      _future = LauncherBridge.instance.listLaunchCandidates(widget.game.path);
+      _selected = widget.selectedOverride.isNotEmpty ? widget.selectedOverride : widget.game.launchFile ?? '';
+      _future = widget.bridge.listLaunchCandidates(widget.game.path);
+    } else if (oldWidget.selectedOverride != widget.selectedOverride && widget.selectedOverride != _selected) {
+      _selected = widget.selectedOverride;
     }
   }
 
@@ -724,6 +1045,38 @@ class _Pane extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(color: Theme.of(context).colorScheme.surfaceContainerLowest, child: Padding(padding: padding, child: child));
+  }
+}
+
+class _DetailSection extends StatelessWidget {
+  const _DetailSection({required this.title, required this.child, this.subtitle});
+
+  final String title;
+  final String? subtitle;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.surfaceContainerLow,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            if (subtitle != null) ...[
+              const SizedBox(height: 4),
+              Text(subtitle!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+            const SizedBox(height: 8),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            child,
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -783,6 +1136,45 @@ class _ActionTile extends StatelessWidget {
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
       trailing: const Icon(Icons.chevron_right_rounded),
       onTap: onTap,
+    );
+  }
+}
+
+class _SelectSetting extends StatelessWidget {
+  const _SelectSetting({required this.title, required this.value, required this.fallback, required this.choices, required this.onChanged});
+
+  final String title;
+  final String value;
+  final String fallback;
+  final Map<String, String> choices;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = choices.containsKey(value) ? value : choices.keys.first;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        children: [
+          Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: 12),
+          SizedBox(
+            width: 156,
+            child: DropdownButtonFormField<String>(
+              value: selected,
+              isDense: true,
+              decoration: const InputDecoration(isDense: true),
+              items: choices.entries
+                  .map((entry) => DropdownMenuItem<String>(
+                        value: entry.key,
+                        child: Text(entry.value.isEmpty ? fallback : entry.value, maxLines: 1, overflow: TextOverflow.ellipsis),
+                      ))
+                  .toList(growable: false),
+              onChanged: (next) => onChanged(next ?? ''),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -858,6 +1250,39 @@ class _SliderTile extends StatelessWidget {
               divisions: max - min,
               label: '$value',
               onChanged: (next) => onChanged(next.round().clamp(min, max).toInt()),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DoubleSliderTile extends StatelessWidget {
+  const _DoubleSliderTile({required this.title, required this.value, required this.min, required this.max, required this.onChanged});
+
+  final String title;
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final clamped = value.clamp(min, max).toDouble();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
+      child: Row(
+        children: [
+          SizedBox(width: 128, child: Text('$title: ${clamped.toStringAsFixed(2)}')),
+          Expanded(
+            child: Slider(
+              value: clamped,
+              min: min,
+              max: max,
+              divisions: 20,
+              label: clamped.toStringAsFixed(2),
+              onChanged: (next) => onChanged(next.clamp(min, max).toDouble()),
             ),
           ),
         ],

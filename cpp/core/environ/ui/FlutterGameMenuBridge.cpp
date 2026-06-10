@@ -7,6 +7,7 @@
 #include "Application.h"
 #include "Platform.h"
 #include "base/CCDirector.h"
+#include "base/CCScheduler.h"
 #include "platform/CCGLView.h"
 #if defined(__ANDROID__)
 #include <jni.h>
@@ -15,6 +16,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -137,6 +139,16 @@ tTJSNI_MenuItem *FindMenuItem(tTJSNI_MenuItem *root,
     return current;
 }
 
+void RunOnCocosThread(const std::function<void()> &task) {
+    auto *director = cocos2d::Director::getInstance();
+    auto *scheduler = director ? director->getScheduler() : nullptr;
+    if(scheduler) {
+        scheduler->performFunctionInCocosThread(task);
+        return;
+    }
+    Application->PostUserMessage(task);
+}
+
 } // namespace
 
 bool TVPShowFlutterGameMainMenu() {
@@ -210,23 +222,36 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
         return -2;
 
     if(IsOverlayAction(actionNameUtf8, "window-manager")) {
-        scene->showWindowManagerOverlay(true);
+        RunOnCocosThread([]() {
+            if(auto *scene = TVPMainScene::GetInstance())
+                scene->showWindowManagerOverlay(true);
+        });
         return 0;
     }
 
     if(IsOverlayAction(actionNameUtf8, "mouse-mode")) {
-        scene->toggleVirtualMouseCursor();
-        return scene->isVirtualMouseMode() ? 1 : 0;
+        const bool nextMode = !scene->isVirtualMouseMode();
+        RunOnCocosThread([]() {
+            if(auto *scene = TVPMainScene::GetInstance())
+                scene->toggleVirtualMouseCursor();
+        });
+        return nextMode ? 1 : 0;
     }
 
     if(IsOverlayAction(actionNameUtf8, "keyboard")) {
-        cocos2d::Size screenSize =
-            cocos2d::Director::getInstance()->getOpenGLView()->getFrameSize();
+        RunOnCocosThread([]() {
+            auto *director = cocos2d::Director::getInstance();
+            auto *view = director ? director->getOpenGLView() : nullptr;
+            if(!view)
+                return;
+            cocos2d::Size screenSize = view->getFrameSize();
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
-        TVPShowIME(0, 0, screenSize.width, screenSize.height);
+            TVPShowIME(0, 0, screenSize.width, screenSize.height);
 #else
-        scene->attachWithIME();
+            if(auto *scene = TVPMainScene::GetInstance())
+                scene->attachWithIME();
 #endif
+        });
         return 0;
     }
 

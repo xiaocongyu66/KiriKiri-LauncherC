@@ -2665,13 +2665,15 @@ void TVPMainScene::showWindowManagerOverlay(bool bVisible) {
                 return;
             _windowMgrOverlay = TVPWindowManagerOverlay::create();
             GameNode->addChild(_windowMgrOverlay, GAME_WINMGR_ORDER);
-            _gameMenu->setVisible(false);
+            if(_gameMenu)
+                _gameMenu->setVisible(false);
         }
     } else {
         if(_windowMgrOverlay) {
             _windowMgrOverlay->removeFromParent();
             _windowMgrOverlay = nullptr;
-            _gameMenu->setVisible(true);
+            if(_gameMenu)
+                _gameMenu->setVisible(true);
         }
     }
 }

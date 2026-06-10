@@ -117,7 +117,9 @@ class MainActivity : KR2Activity() {
         SDLAudioManager.initialize()
         SDLAudioManager.setContext(getContext())
         logLifecycle("onCreate#sdl-audio-init-done")
-        installFlutterGameOverlay()
+        if (!intent?.getStringExtra(EXTRA_GAME_DIR).isNullOrBlank()) {
+            installFlutterGameOverlay()
+        }
     }
 
     override fun onStart() {

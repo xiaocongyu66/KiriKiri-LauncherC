@@ -463,6 +463,31 @@ class LauncherBridge {
     }
   }
 
+  Future<Map<String, Object?>> getGameOverrides(String gameDir) async {
+    try {
+      final values = await _platformChannel.invokeMapMethod<String, Object?>('getGameOverrides', {'gameDir': gameDir});
+      return values ?? const {};
+    } on MissingPluginException {
+      return const {};
+    }
+  }
+
+  Future<void> updateGameOverride(String gameDir, String key, Object? value) async {
+    try {
+      await _platformChannel.invokeMethod<void>('updateGameOverride', {'gameDir': gameDir, 'key': key, 'value': value});
+    } on MissingPluginException {
+      return;
+    }
+  }
+
+  Future<void> clearGameOverrides(String gameDir) async {
+    try {
+      await _platformChannel.invokeMethod<void>('clearGameOverrides', {'gameDir': gameDir});
+    } on MissingPluginException {
+      return;
+    }
+  }
+
   Future<void> openSettings() async {
     await _platformChannel.invokeMethod<void>('openSettings');
   }
@@ -516,6 +541,42 @@ class LauncherBridge {
 
   Future<void> updateLauncherSetting(String key, Object? value) async {
     await _platformChannel.invokeMethod<void>('updateLauncherSetting', {'key': key, 'value': value});
+  }
+
+  Future<Map<String, Object?>> getEngineSettings() async {
+    try {
+      final settings = await _platformChannel.invokeMapMethod<String, Object?>('getEngineSettings');
+      return settings ?? const {};
+    } on MissingPluginException {
+      return const {
+        'renderer': 'software',
+        'fps_limit': '60',
+        'showfps': false,
+        'ogl_accurate_render': false,
+        'ffmpeg_image_decoder': false,
+        'ffmpeg_decode_mode': 'software',
+        'software_draw_thread': '0',
+        'software_compress_tex': 'none',
+        'ogl_max_texsize': '0',
+        'ogl_compress_tex': 'none',
+      };
+    }
+  }
+
+  Future<void> updateEngineSetting(String key, Object? value) async {
+    try {
+      await _platformChannel.invokeMethod<void>('updateEngineSetting', {'key': key, 'value': value});
+    } on MissingPluginException {
+      return;
+    }
+  }
+
+  Future<void> resetEngineSettings() async {
+    try {
+      await _platformChannel.invokeMethod<void>('resetEngineSettings');
+    } on MissingPluginException {
+      return;
+    }
   }
 
   Future<void> launchOriginalEngine() async {
