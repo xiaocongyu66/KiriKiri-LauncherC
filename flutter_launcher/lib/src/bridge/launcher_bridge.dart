@@ -465,6 +465,28 @@ class LauncherBridge {
     await _platformChannel.invokeMethod<void>('openDiagnostics');
   }
 
+  Future<Map<String, Object?>> getDiagnosticsInfo() async {
+    try {
+      final info = await _platformChannel.invokeMapMethod<String, Object?>('getDiagnosticsInfo');
+      if (info != null) {
+        return info;
+      }
+    } on MissingPluginException {
+      // Non-Android platforms report the local Flutter-side state below.
+    }
+    return {
+      'platform': Platform.operatingSystem,
+      'platformVersion': Platform.operatingSystemVersion,
+      'fileManagementGranted': !Platform.isAndroid,
+      'gameRoot': await getGameRoot(),
+      'scanDepth': await getScanDepth(),
+      'logDir': '',
+      'latestLog': '',
+      'fileLogEnabled': false,
+      'nativeLogConfigured': false,
+    };
+  }
+
   Future<List<GameMenuItem>> getMainMenu() async {
     final pointer = _getMainMenuJson();
     if (pointer == nullptr) {

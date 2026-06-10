@@ -210,6 +210,7 @@ jobs:
           cp platforms/android/libcocos2dx/java/libs/*.jar flutter_launcher/android/app/libs/
           mkdir -p flutter_launcher/android/app/src/main/aidl/com/enhance/gameservice
           cp platforms/android/libcocos2dx/java/src/com/enhance/gameservice/IGameTuningService.aidl flutter_launcher/android/app/src/main/aidl/com/enhance/gameservice/
+          cp platforms/android/app/proguard-rules.pro flutter_launcher/android/app/proguard-rules.pro
 
       - name: Create Flutter launcher activity
         run: |
@@ -268,6 +269,10 @@ jobs:
           import android.os.Environment;
           import android.provider.Settings;
 
+          import java.io.File;
+          import java.util.HashMap;
+          import java.util.Map;
+
           import androidx.annotation.NonNull;
 
           import io.flutter.embedding.engine.FlutterEngine;
@@ -316,6 +321,9 @@ jobs:
                                   result.success(Math.max(1, Math.min(10, depth)));
                                   break;
                               }
+                              case "getDiagnosticsInfo":
+                                  result.success(getDiagnosticsInfo());
+                                  break;
                               case "openSettings":
                               case "openDiagnostics":
                                   openApplicationSettings();
@@ -369,6 +377,23 @@ jobs:
                       intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, launchFile.trim());
                   }
                   startActivity(intent);
+              }
+
+              private Map<String, Object> getDiagnosticsInfo() {
+                  Map<String, Object> info = new HashMap<>();
+                  File latest = LauncherPrefs.INSTANCE.latestUnifiedLogFile(this);
+                  info.put("platform", "Android");
+                  info.put("platformVersion", Build.VERSION.RELEASE + " (SDK " + Build.VERSION.SDK_INT + ")");
+                  info.put("device", Build.MANUFACTURER + " " + Build.MODEL);
+                  info.put("packageName", getPackageName());
+                  info.put("fileManagementGranted", hasFileManagementPermission());
+                  info.put("gameRoot", prefs().getString(KEY_GAME_ROOT, DEFAULT_GAME_ROOT));
+                  info.put("scanDepth", Math.max(1, Math.min(10, prefs().getInt(KEY_SCAN_DEPTH, 2))));
+                  info.put("logDir", LauncherPrefs.INSTANCE.getLogDir(this));
+                  info.put("latestLog", latest == null ? "" : latest.getAbsolutePath());
+                  info.put("fileLogEnabled", LauncherPrefs.INSTANCE.getFileLogEnabled(this));
+                  info.put("nativeLogConfigured", latest != null && latest.exists());
+                  return info;
               }
           }
           EOF
@@ -445,6 +470,17 @@ jobs:
                   cmake {
                       path = file("../../../CMakeLists.txt")
                       version = "3.31.1"
+                  }
+              }
+
+              buildTypes {
+                  release {
+                      isMinifyEnabled = false
+                      isShrinkResources = false
+                      proguardFiles(
+                          getDefaultProguardFile("proguard-android-optimize.txt"),
+                          "proguard-rules.pro",
+                      )
                   }
               }
 
