@@ -4,6 +4,8 @@
 #include "cocos2d/MainScene.h"
 #include "MenuItemIntf.h"
 #include "impl/MenuItemImpl.h"
+#include "Application.h"
+#include "Platform.h"
 #if defined(__ANDROID__)
 #include <jni.h>
 #include <cocos/platform/android/jni/JniHelper.h>
@@ -190,4 +192,44 @@ extern "C" int KR2LauncherLaunchGame(const char *gamePathUtf8) {
         return -2;
 
     return scene->startupFrom(gamePathUtf8) ? 0 : -3;
+}
+
+extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
+    if(!actionNameUtf8 || !*actionNameUtf8)
+        return -1;
+
+    auto *scene = TVPMainScene::GetInstance();
+    if(!scene)
+        return -2;
+
+    if(IsSDLUIAction(actionNameUtf8, "window-manager")) {
+        scene->showWindowManagerOverlay(true);
+        return 0;
+    }
+
+    if(IsSDLUIAction(actionNameUtf8, "mouse-mode")) {
+        scene->toggleVirtualMouseCursor();
+        return scene->isVirtualMouseMode() ? 1 : 0;
+    }
+
+    if(IsSDLUIAction(actionNameUtf8, "keyboard")) {
+        cocos2d::Size screenSize =
+            cocos2d::Director::getInstance()->getOpenGLView()->getFrameSize();
+#if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
+        TVPShowIME(0, 0, screenSize.width, screenSize.height);
+#else
+        scene->attachWithIME();
+#endif
+        return 0;
+    }
+
+    if(IsSDLUIAction(actionNameUtf8, "exit")) {
+        Application->PostUserMessage([]() {
+            if(auto *window = TVPGetActiveWindow())
+                window->Close();
+        });
+        return 0;
+    }
+
+    return -3;
 }

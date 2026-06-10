@@ -14,6 +14,8 @@ typedef _ActivateMenuItemNative = Int32 Function(Pointer<Utf8> path);
 typedef _ActivateMenuItemDart = int Function(Pointer<Utf8> path);
 typedef _LaunchGameNative = Int32 Function(Pointer<Utf8> path);
 typedef _LaunchGameDart = int Function(Pointer<Utf8> path);
+typedef _PerformOverlayActionNative = Int32 Function(Pointer<Utf8> actionName);
+typedef _PerformOverlayActionDart = int Function(Pointer<Utf8> actionName);
 
 class LauncherBridge {
   LauncherBridge({DynamicLibrary? library}) : _providedLibrary = library;
@@ -59,6 +61,10 @@ class LauncherBridge {
 
   late final _launchGame = _library.lookupFunction<_LaunchGameNative, _LaunchGameDart>(
     'KR2LauncherLaunchGame',
+  );
+
+  late final _performOverlayAction = _library.lookupFunction<_PerformOverlayActionNative, _PerformOverlayActionDart>(
+    'KR2LauncherPerformOverlayAction',
   );
 
   Future<List<GameEntry>> scanGames({String rootPath = '/storage/emulated/0/krkr2pro', int maxDepth = 2}) {
@@ -516,8 +522,31 @@ class LauncherBridge {
     await _platformChannel.invokeMethod<void>('launchOriginalEngine');
   }
 
+  Future<int> performOverlayAction(String actionName) async {
+    if (!Platform.isAndroid && !Platform.isIOS && !Platform.isMacOS && !Platform.isLinux && !Platform.isWindows) {
+      return 0;
+    }
+    final pointer = actionName.toNativeUtf8();
+    try {
+      final result = _performOverlayAction(pointer);
+      if (result < 0) {
+        throw StateError('KR2LauncherPerformOverlayAction failed: $result');
+      }
+      return result;
+    } on ArgumentError {
+      return 0;
+    } finally {
+      calloc.free(pointer);
+    }
+  }
+
   Future<List<GameMenuItem>> getMainMenu() async {
-    final pointer = _getMainMenuJson();
+    Pointer<Utf8> pointer;
+    try {
+      pointer = _getMainMenuJson();
+    } on ArgumentError {
+      return const [];
+    }
     if (pointer == nullptr) {
       return const [];
     }
@@ -535,6 +564,8 @@ class LauncherBridge {
       if (result != 0) {
         throw StateError('KR2LauncherActivateMenuItem failed: $result');
       }
+    } on ArgumentError {
+      return;
     } finally {
       calloc.free(path);
     }

@@ -24,6 +24,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/cocos-studio/img/menu_icon.png
+    - assets/cocos-studio/img/menu_handler.png
     - assets/cocos-studio/img/touch_icon.png
     - assets/cocos-studio/img/mouse_icon.png
     - assets/cocos-studio/img/keyboard_icon.png

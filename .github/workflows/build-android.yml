@@ -249,15 +249,6 @@ jobs:
                   </activity>
 
                   <activity
-                      android:name=".GameMenuFlutterActivity"
-                      android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
-                      android:exported="false"
-                      android:hardwareAccelerated="true"
-                      android:launchMode="singleTop"
-                      android:theme="@style/LaunchTheme"
-                      android:windowSoftInputMode="adjustResize" />
-
-                  <activity
                       android:name=".MainActivity"
                       android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
                       android:exported="false"
@@ -267,18 +258,6 @@ jobs:
                       android:windowSoftInputMode="adjustPan" />
               </application>
           </manifest>
-          EOF
-          cat > flutter_launcher/android/app/src/main/java/org/github/krkr2/GameMenuFlutterActivity.java <<'EOF'
-          package org.github.krkr2;
-
-          import io.flutter.embedding.android.FlutterActivity;
-
-          public class GameMenuFlutterActivity extends FlutterActivity {
-              @Override
-              public String getInitialRoute() {
-                  return "/game-menu";
-              }
-          }
           EOF
           cat > flutter_launcher/android/app/src/main/java/org/github/krkr2/LauncherHostActivity.java <<'EOF'
           package org.github.krkr2;

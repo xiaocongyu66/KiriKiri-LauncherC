@@ -4,15 +4,24 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
+import android.view.Gravity
 import android.view.WindowManager
+import android.widget.FrameLayout
 import java.lang.ref.WeakReference
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.embedding.android.FlutterTextureView
+import io.flutter.embedding.android.FlutterView
+import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.GeneratedPluginRegistrant
 import org.libsdl.app.SDLAudioManager
 import org.libsdl.app.SDLActivity
 import org.tvp.kirikiri2.KR2Activity
@@ -30,10 +39,7 @@ class MainActivity : KR2Activity() {
         fun showFlutterGameMainMenu(): Boolean {
             val activity = currentActivity.get() ?: return false
             activity.runOnUiThread {
-                val intent = Intent(activity, GameMenuFlutterActivity::class.java)
-                intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT)
-                activity.startActivity(intent)
-                activity.overridePendingTransition(android.R.anim.fade_in, android.R.anim.fade_out)
+                activity.showFlutterOverlayMenu()
             }
             return true
         }
@@ -42,6 +48,9 @@ class MainActivity : KR2Activity() {
     private var sessionStartedAt = 0L
     private var launchRecorded = false
     private var orientationListener: android.view.OrientationEventListener? = null
+    private var overlayEngine: FlutterEngine? = null
+    private var overlayView: FlutterView? = null
+    private var overlayParams: FrameLayout.LayoutParams? = null
 
     private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
 
@@ -107,6 +116,7 @@ class MainActivity : KR2Activity() {
         SDLAudioManager.initialize()
         SDLAudioManager.setContext(getContext())
         logLifecycle("onCreate#sdl-audio-init-done")
+        installFlutterGameOverlay()
     }
 
     override fun onStart() {
@@ -155,6 +165,10 @@ class MainActivity : KR2Activity() {
         if (currentActivity.get() === this) {
             currentActivity.clear()
         }
+        overlayView?.detachFromFlutterEngine()
+        overlayEngine?.destroy()
+        overlayView = null
+        overlayEngine = null
         recordSessionTime()
         orientationListener?.disable()
         orientationListener = null
@@ -172,6 +186,82 @@ class MainActivity : KR2Activity() {
         super.onDestroy()
         logLifecycle("onDestroy#after-super")
     }
+
+    private fun installFlutterGameOverlay() {
+        if (overlayView != null || mFrameLayout == null) return
+        val engine = FlutterEngine(this)
+        engine.navigationChannel.setInitialRoute("/game-overlay")
+        GeneratedPluginRegistrant.registerWith(engine)
+        MethodChannel(engine.dartExecutor.binaryMessenger, "org.github.krkr2/game_overlay")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "move" -> {
+                        moveOverlay((call.argument<Double>("dx") ?: 0.0).toFloat(), (call.argument<Double>("dy") ?: 0.0).toFloat())
+                        result.success(null)
+                    }
+                    "setExpanded" -> {
+                        val expanded = call.argument<Boolean>("expanded") ?: false
+                        val menuMode = call.argument<Boolean>("menuMode") ?: false
+                        resizeOverlay(expanded, menuMode)
+                        result.success(null)
+                    }
+                    else -> result.notImplemented()
+                }
+            }
+        engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
+
+        val textureView = FlutterTextureView(this)
+        textureView.setOpaque(false)
+        val view = FlutterView(this, textureView)
+        view.setBackgroundColor(Color.TRANSPARENT)
+        view.attachToFlutterEngine(engine)
+        val size = dp(56)
+        val params = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.LEFT)
+        params.leftMargin = 0
+        params.topMargin = 0
+        overlayEngine = engine
+        overlayView = view
+        overlayParams = params
+        mFrameLayout.addView(view, params)
+        mFrameLayout.post { placeOverlayAtDefault() }
+    }
+
+    private fun showFlutterOverlayMenu() {
+        installFlutterGameOverlay()
+        resizeOverlay(true, true)
+    }
+
+    private fun placeOverlayAtDefault() {
+        val params = overlayParams ?: return
+        params.leftMargin = (mFrameLayout.width - params.width).coerceAtLeast(0)
+        params.topMargin = (mFrameLayout.height - params.height).coerceAtLeast(0)
+        overlayView?.layoutParams = params
+    }
+
+    private fun resizeOverlay(expanded: Boolean, menuMode: Boolean) {
+        val params = overlayParams ?: return
+        if (expanded) {
+            params.width = FrameLayout.LayoutParams.MATCH_PARENT
+            params.height = if (menuMode) dp(360) else dp(178)
+            params.leftMargin = 0
+            params.topMargin = (mFrameLayout.height - params.height).coerceAtLeast(0)
+        } else {
+            params.width = dp(56)
+            params.height = dp(56)
+            params.leftMargin = (mFrameLayout.width - params.width).coerceAtLeast(0)
+            params.topMargin = (mFrameLayout.height - params.height).coerceAtLeast(0)
+        }
+        overlayView?.layoutParams = params
+    }
+
+    private fun moveOverlay(dx: Float, dy: Float) {
+        val params = overlayParams ?: return
+        params.leftMargin = (params.leftMargin + dx.toInt()).coerceIn(0, (mFrameLayout.width - params.width).coerceAtLeast(0))
+        params.topMargin = (params.topMargin + dy.toInt()).coerceIn(0, (mFrameLayout.height - params.height).coerceAtLeast(0))
+        overlayView?.layoutParams = params
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun recordSessionTime() {
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR) ?: return

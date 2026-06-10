@@ -25,15 +25,16 @@ The Dart side loads `libkrkr2.so`/process symbols from `flutter_launcher/lib/src
 
 ## `TVPGameMainMenu` Replacement Seam
 
-`cpp/core/environ/ui/GameMainMenu.cpp` now calls `TVPShowFlutterGameMainMenu()` before opening the legacy `TVPInGameMenuForm`. On Android, `FlutterGameMenuBridge.cpp` directly calls `MainActivity.showFlutterGameMainMenu()` through JNI. Other platforms currently return `false`, so existing desktop builds keep the legacy menu until their Flutter host integration is added.
+The Cocos right-bottom draggable `TVPGameMainMenu` floating control is being replaced by a shared Flutter overlay route: `/game-overlay`. The overlay starts as the same small draggable handle, expands into the old quick actions, and uses C ABI calls for engine actions.
 
-The Flutter side now has a dedicated game-menu page that renders `KR2LauncherGetMainMenuJson()` data and invokes `KR2LauncherActivateMenuItem()` for leaf actions. This makes the visual replacement ready independently of the Android/desktop host handoff.
+The Flutter overlay can also render `KR2LauncherGetMainMenuJson()` data and invokes `KR2LauncherActivateMenuItem()` for leaf actions. It is not a separate launcher page; it is layered over the game surface.
 
 Next bridge step per platform:
 
-1. Android: `TVPShowFlutterGameMainMenu()` calls `MainActivity.showFlutterGameMainMenu()`, which opens `GameMenuFlutterActivity` on the `/game-menu` route. Returning `true` prevents the legacy Cocos `TVPInGameMenuForm` from opening.
-2. Desktop: add an equivalent direct platform implementation through the Flutter runner/window integration.
-3. Flutter: keep improving `/game-menu` as the shared in-game menu surface, reusing assets from `ui/cocos-studio`.
+1. Android: `MainScene` no longer creates the Cocos `TVPGameMainMenu`; `MainActivity` installs a transparent FlutterView on `/game-overlay` instead.
+2. iOS: use the same `/game-overlay` route in a transparent `FlutterViewController` layered over the game view when the iOS runner is added to this repository.
+3. Desktop: add an equivalent direct platform overlay through the Flutter runner/window integration.
+4. Flutter: keep improving `/game-overlay` as the shared in-game floating control, reusing assets from `ui/cocos-studio`.
 
 ## Migration Boundaries
 

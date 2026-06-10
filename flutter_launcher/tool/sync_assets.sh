@@ -9,6 +9,7 @@ source_root="$repo_root/ui/cocos-studio"
 mkdir -p "$asset_root/img"
 for asset in \
   menu_icon.png \
+  menu_handler.png \
   touch_icon.png \
   mouse_icon.png \
   keyboard_icon.png \

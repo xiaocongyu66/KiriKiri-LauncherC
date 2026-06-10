@@ -2339,11 +2339,15 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     }
 #endif
     //_ResotreGLStatues(); // already in update()
+#if defined(__ANDROID__)
+    _gameMenu = nullptr;
+#else
     GLubyte handlerOpacity =
         pGlobalCfgMgr->GetValue<float>("menu_handler_opa", 0.15f) * 255;
     _gameMenu = TVPGameMainMenu::create(handlerOpacity);
     GameNode->addChild(_gameMenu, GAME_MENU_ORDER);
     _gameMenu->shrinkWithTime(1);
+#endif
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("doStartup#before-window-loop");
 #endif
