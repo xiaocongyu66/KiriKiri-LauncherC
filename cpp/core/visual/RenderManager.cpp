@@ -4881,7 +4881,7 @@ void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)()) {
     if(!_RenderManagerFactory)
         _RenderManagerFactory = new std::map<
             ttstr, std::pair<iTVPRenderManager *(*)(), iTVPRenderManager *>>;
-    _RenderManagerFactory->emplace(name, std::make_pair(func, nullptr));
+    _RenderManagerFactory->insert_or_assign(name, std::make_pair(func, nullptr));
 }
 
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
@@ -4900,11 +4900,16 @@ iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
         it = fallback;
     }
     if(it->second.second) {
+        TVPAddLog(TJS_W("[renderer] reuse '") + name + TJS_W("' -> ") +
+                  ttstr(it->second.second->GetName()));
         return it->second.second;
     }
     iTVPRenderManager *mgr = it->second.first();
     mgr->Initialize();
     it->second.second = mgr;
+    TVPAddLog(TJS_W("[renderer] selected '") + name + TJS_W("' -> ") +
+              ttstr(mgr->GetName()) + TJS_W(" software=") +
+              ttstr(mgr->IsSoftware() ? 1 : 0));
     return mgr;
 }
 
@@ -4914,6 +4919,7 @@ iTVPRenderManager *TVPGetRenderManager() {
         ttstr str =
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
+        TVPAddLog(TJS_W("[renderer] config renderer='") + str + TJS_W("'"));
         if(str == TJS_W("vk") || str == TJS_W("bgfx-vk"))
             str = TJS_W("vulkan");
         _RenderManager = TVPGetRenderManager(str);

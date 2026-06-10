@@ -404,8 +404,12 @@ jobs:
               }
 
               private void launchGame(String gameDir, String launchFile, String title) {
+                  String dir = gameDir == null ? "" : gameDir.trim();
+                  String gameRenderer = dir.isEmpty() ? "" : nullToEmpty(LauncherPrefs.INSTANCE.getGameEnginePref(this, dir, "renderer"));
+                  String globalRenderer = KrkrPrefsStore.INSTANCE.getString(this, "renderer", "software");
                   if (gameDir != null && !gameDir.trim().isEmpty()) {
-                      LauncherPrefs.INSTANCE.applyGameEngineOverrides(this, gameDir.trim());
+                      LauncherPrefs.INSTANCE.writeLauncherLog(this, "LauncherHost.launchGame dir=" + dir + " gameRenderer=" + gameRenderer + " globalRenderer=" + globalRenderer + " launchFile=" + (launchFile == null ? "" : launchFile));
+                      LauncherPrefs.INSTANCE.applyGameEngineOverrides(this, dir);
                   }
                   Intent intent = new Intent(this, MainActivity.class);
                   intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
