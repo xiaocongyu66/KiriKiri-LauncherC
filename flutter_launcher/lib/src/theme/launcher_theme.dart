@@ -11,31 +11,31 @@ ThemeData buildLauncherTheme(Brightness brightness) {
     fontFamily: 'NotoSansCJK',
   );
   return base.copyWith(
-    scaffoldBackgroundColor: scheme.surface,
+    scaffoldBackgroundColor: scheme.surfaceContainerLowest,
     appBarTheme: AppBarTheme(
       elevation: 0,
       scrolledUnderElevation: 0,
       centerTitle: false,
-      backgroundColor: scheme.surface,
+      backgroundColor: scheme.surfaceContainerLowest,
       foregroundColor: scheme.onSurface,
     ),
     cardTheme: CardThemeData(
       elevation: 0,
       margin: EdgeInsets.zero,
-      color: scheme.surfaceContainer,
+      color: scheme.surface,
       surfaceTintColor: Colors.transparent,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
     ),
     navigationBarTheme: NavigationBarThemeData(
       elevation: 0,
       backgroundColor: scheme.surfaceContainer,
-      indicatorColor: scheme.secondaryContainer,
+      indicatorColor: scheme.primaryContainer,
       labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
     ),
     navigationRailTheme: NavigationRailThemeData(
       backgroundColor: Colors.transparent,
-      indicatorColor: scheme.secondaryContainer,
-      selectedIconTheme: IconThemeData(color: scheme.onSecondaryContainer),
+      indicatorColor: scheme.primaryContainer,
+      selectedIconTheme: IconThemeData(color: scheme.onPrimaryContainer),
       selectedLabelTextStyle: base.textTheme.labelMedium?.copyWith(color: scheme.onSurface),
       unselectedLabelTextStyle: base.textTheme.labelMedium?.copyWith(color: scheme.onSurfaceVariant),
     ),

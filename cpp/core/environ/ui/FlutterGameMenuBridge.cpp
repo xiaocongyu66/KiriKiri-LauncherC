@@ -126,7 +126,17 @@ tTJSNI_MenuItem *FindMenuItem(tTJSNI_MenuItem *root,
 
 } // namespace
 
-bool TVPShowFlutterGameMainMenu() { return false; }
+#if defined(__GNUC__) || defined(__clang__)
+extern "C" bool TVPShowPlatformFlutterGameMainMenu() __attribute__((weak));
+#endif
+
+bool TVPShowFlutterGameMainMenu() {
+#if defined(__GNUC__) || defined(__clang__)
+    if(TVPShowPlatformFlutterGameMainMenu)
+        return TVPShowPlatformFlutterGameMainMenu();
+#endif
+    return false;
+}
 
 extern "C" const char *KR2LauncherGetMainMenuJson() {
     LastMenuJson = "[]";

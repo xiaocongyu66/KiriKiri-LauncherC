@@ -25,13 +25,15 @@ The Dart side loads `libkrkr2.so`/process symbols from `flutter_launcher/lib/src
 
 ## `TVPGameMainMenu` Replacement Seam
 
-`cpp/core/environ/ui/GameMainMenu.cpp` now calls `TVPShowFlutterGameMainMenu()` before opening the legacy `TVPInGameMenuForm`. The default implementation in `FlutterGameMenuBridge.cpp` returns `false`, so existing builds keep working until a platform implementation is connected.
+`cpp/core/environ/ui/GameMainMenu.cpp` now calls `TVPShowFlutterGameMainMenu()` before opening the legacy `TVPInGameMenuForm`. `FlutterGameMenuBridge.cpp` first tries a weak platform hook named `TVPShowPlatformFlutterGameMainMenu()`, then falls back to `false`, so existing builds keep working until a platform host is connected.
+
+The Flutter side now has a dedicated game-menu page that renders `KR2LauncherGetMainMenuJson()` data and invokes `KR2LauncherActivateMenuItem()` for leaf actions. This makes the visual replacement ready independently of the Android/desktop host handoff.
 
 Next bridge step per platform:
 
-1. Android: replace `TVPShowFlutterGameMainMenu()` with a JNI call into the Flutter host activity or cached Flutter engine.
-2. Desktop: expose the same call through the Flutter runner/window integration.
-3. Flutter: render menu data from `getMainMenu` and call `activateMenuItem` for selection.
+1. Android: implement `TVPShowPlatformFlutterGameMainMenu()` with a JNI call into the Flutter host activity or cached Flutter engine.
+2. Desktop: implement the same hook through the Flutter runner/window integration.
+3. Flutter: continue expanding the menu page into an in-game overlay route once the host handoff is available.
 
 ## Migration Boundaries
 
