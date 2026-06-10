@@ -363,7 +363,6 @@ jobs:
                                   result.success(null);
                                   break;
                               case "openDiagnostics":
-                                  startActivity(new Intent(this, DiagnosticsActivity.class));
                                   result.success(null);
                                   break;
                               default:
