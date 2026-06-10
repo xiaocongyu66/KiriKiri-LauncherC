@@ -189,6 +189,22 @@ jobs:
           cp -R platforms/android/app/res/. flutter_launcher/android/app/src/main/res/
           mkdir -p flutter_launcher/android/app/src/main/assets
           cp -R ui/cocos-studio/. flutter_launcher/android/app/src/main/assets/
+          mkdir -p flutter_launcher/android/app/src/main/java/org
+          cp -R platforms/android/libsdl/java/src/org/libsdl flutter_launcher/android/app/src/main/java/org/
+          cp -R platforms/android/libcocos2dx/java/src/org/cocos2dx flutter_launcher/android/app/src/main/java/org/
+          mkdir -p flutter_launcher/android/app/src/main/java/org/tvp
+          cp -R platforms/android/app/java/org/tvp/kirikiri2 flutter_launcher/android/app/src/main/java/org/tvp/
+          mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
+          cp platforms/android/app/java/org/github/krkr2/MainActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/KR2Application.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/LauncherPrefs.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/LauncherSettingsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/KrkrPrefsStore.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/KrkrPrefsSchema.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/KrkrPrefsCaptions.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/GamePrefsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/ForceLandscapeHelper.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/AngleDriverController.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
 
       - name: Create Flutter launcher activity
         run: |
@@ -203,6 +219,7 @@ jobs:
               <uses-permission android:name="android.permission.WRITE_SETTINGS" />
 
               <application
+                  android:name=".KR2Application"
                   android:allowBackup="true"
                   android:icon="@mipmap/ic_launcher"
                   android:label="KiriKiri Launcher"
@@ -212,7 +229,7 @@ jobs:
                   <meta-data android:name="android.app.lib_name" android:value="krkr2" />
 
                   <activity
-                      android:name=".MainActivity"
+                      android:name=".LauncherHostActivity"
                       android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|screenSize|smallestScreenSize|uiMode"
                       android:exported="true"
                       android:hardwareAccelerated="true"
@@ -224,10 +241,19 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
+                      android:exported="false"
+                      android:screenOrientation="userLandscape"
+                      android:launchMode="singleTask"
+                      android:theme="@style/Theme.KR2"
+                      android:windowSoftInputMode="adjustPan" />
               </application>
           </manifest>
           EOF
-          cat > flutter_launcher/android/app/src/main/java/org/github/krkr2/MainActivity.java <<'EOF'
+          cat > flutter_launcher/android/app/src/main/java/org/github/krkr2/LauncherHostActivity.java <<'EOF'
           package org.github.krkr2;
 
           import android.content.Intent;
@@ -243,7 +269,7 @@ jobs:
           import io.flutter.embedding.android.FlutterActivity;
           import io.flutter.plugin.common.MethodChannel;
 
-          public class MainActivity extends FlutterActivity {
+          public class LauncherHostActivity extends FlutterActivity {
               private static final String CHANNEL = "org.github.krkr2/platform";
               private static final String PREF = "krkr2_launcher";
               private static final String KEY_GAME_ROOT = "game_root";
@@ -265,6 +291,10 @@ jobs:
                                   break;
                               case "pickGameRoot":
                                   pickGameRoot();
+                                  result.success(null);
+                                  break;
+                              case "launchGame":
+                                  launchGame(call.argument("gameDir"), call.argument("launchFile"), call.argument("title"));
                                   result.success(null);
                                   break;
                               case "getGameRoot":
@@ -322,6 +352,17 @@ jobs:
 
               private void openApplicationSettings() {
                   Intent intent = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", getPackageName(), null));
+                  startActivity(intent);
+              }
+
+              private void launchGame(String gameDir, String launchFile, String title) {
+                  Intent intent = new Intent(this, MainActivity.class);
+                  intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                  intent.putExtra(MainActivity.EXTRA_GAME_DIR, gameDir == null ? "" : gameDir);
+                  intent.putExtra(MainActivity.EXTRA_GAME_TITLE, title == null ? "" : title);
+                  if (launchFile != null && !launchFile.trim().isEmpty()) {
+                      intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, launchFile.trim());
+                  }
                   startActivity(intent);
               }
           }
@@ -412,6 +453,9 @@ jobs:
           dependencies {
               implementation("com.google.oboe:oboe:1.9.3")
               implementation("com.google.android.material:material:1.12.0")
+              implementation("androidx.core:core-ktx:1.13.1")
+              implementation("androidx.activity:activity-ktx:1.9.3")
+              implementation("androidx.appcompat:appcompat:1.7.0")
           }
 
           flutter {

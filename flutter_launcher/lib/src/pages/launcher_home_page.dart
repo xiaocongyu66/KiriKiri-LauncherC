@@ -6,8 +6,6 @@ import '../bridge/launcher_bridge.dart';
 import '../models/game_entry.dart';
 import '../widgets/resource_icon.dart';
 
-enum _LauncherDest { library, settings, tools }
-
 class LauncherHomePage extends StatefulWidget {
   const LauncherHomePage({required this.bridge, super.key});
 
@@ -19,7 +17,8 @@ class LauncherHomePage extends StatefulWidget {
 
 class _LauncherHomePageState extends State<LauncherHomePage> {
   final TextEditingController _rootController = TextEditingController(text: '/storage/emulated/0/krkr2pro');
-  _LauncherDest _dest = _LauncherDest.library;
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   List<GameEntry> _games = const [];
   GameEntry? _selectedGame;
   bool _loading = true;
@@ -29,13 +28,24 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   @override
   void initState() {
     super.initState();
-    _bootstrapFromOldPrefs();
+    _loadInitialState();
   }
 
   @override
   void dispose() {
     _rootController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadInitialState() async {
+    await _refreshPermission();
+    try {
+      final root = await widget.bridge.getGameRoot();
+      if (mounted) {
+        _rootController.text = root;
+      }
+    } catch (_) {}
+    await _scanGames();
   }
 
   Future<void> _refreshPermission() async {
@@ -51,35 +61,22 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     }
   }
 
-  Future<void> _bootstrapFromOldPrefs() async {
-    await _refreshPermission();
-    try {
-      final root = await widget.bridge.getGameRoot();
-      if (mounted) {
-        _rootController.text = root;
-      }
-    } catch (_) {
-      // Keep old default path.
-    }
-    await _scanGames();
-  }
-
   Future<void> _requestPermission() async {
     try {
       await widget.bridge.requestFileManagementPermission();
     } catch (_) {
-      _showSnack('当前平台权限桥未接入');
+      _showSnack('当前平台暂未接入权限入口');
     }
     await _refreshPermission();
   }
 
   Future<void> _scanGames() async {
+    final root = _rootController.text.trim().isEmpty ? '/storage/emulated/0/krkr2pro' : _rootController.text.trim();
     setState(() {
       _loading = true;
-      _scanStatus = '正在扫描 ${_rootController.text.trim().isEmpty ? '/storage/emulated/0/krkr2pro' : _rootController.text.trim()}';
+      _scanStatus = '扫描中：$root';
     });
     try {
-      final root = _rootController.text.trim().isEmpty ? '/storage/emulated/0/krkr2pro' : _rootController.text.trim();
       await widget.bridge.setGameRoot(root);
       final depth = await widget.bridge.getScanDepth();
       final games = await widget.bridge.scanGames(rootPath: root, maxDepth: depth);
@@ -88,8 +85,8 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
       }
       setState(() {
         _games = games;
-        _selectedGame = games.isNotEmpty ? games.first : null;
-        _scanStatus = games.isEmpty ? '没有发现游戏，请检查根目录或权限' : '发现 ${games.length} 个游戏';
+        _selectedGame = games.isEmpty ? null : (_selectedGame == null ? games.first : games.firstWhere((game) => game.path == _selectedGame!.path, orElse: () => games.first));
+        _scanStatus = games.isEmpty ? '未找到游戏' : '已找到 ${games.length} 个游戏';
       });
     } catch (_) {
       if (!mounted) {
@@ -98,7 +95,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
       setState(() {
         _games = const [];
         _selectedGame = null;
-        _scanStatus = '扫描桥接尚未接入，先保留旧启动器功能入口';
+        _scanStatus = '扫描失败';
       });
     } finally {
       if (mounted) {
@@ -110,44 +107,20 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
   Future<void> _pickGameRoot() async {
     try {
       await widget.bridge.pickGame();
-      await _scanGames();
     } catch (_) {
-      _showSnack('目录选择桥接尚未接入，请先手动填写路径');
+      _showSnack('目录选择暂未接入，请手动输入路径');
     }
-  }
-
-  void _showRootConfig() {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          left: 16,
-          right: 16,
-          top: 16,
-          bottom: MediaQuery.viewInsetsOf(context).bottom + 16,
-        ),
-        child: _RootConfigCard(
-          controller: _rootController,
-          onPickRoot: _pickGameRoot,
-          onScan: () {
-            Navigator.of(context).pop();
-            _scanGames();
-          },
-        ),
-      ),
-    );
   }
 
   Future<void> _launch(GameEntry game) async {
     if (game.path.isEmpty) {
-      _showSnack('请先选择有效游戏目录');
+      _showSnack('请选择有效游戏目录');
       return;
     }
     try {
       await widget.bridge.launchGame(game);
     } catch (_) {
-      _showSnack('C API 启动桥接失败：${game.path}');
+      _showSnack('启动失败：${game.path}');
     }
   }
 
@@ -162,7 +135,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     try {
       await widget.bridge.openSettings();
     } catch (_) {
-      _showSnack('原生设置页桥接尚未接入');
+      _showSnack('设置入口暂未接入');
     }
   }
 
@@ -170,8 +143,30 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     try {
       await widget.bridge.openDiagnostics();
     } catch (_) {
-      _showSnack('诊断页桥接尚未接入');
+      _showSnack('诊断入口暂未接入');
     }
+  }
+
+  void _showRootSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      showDragHandle: true,
+      builder: (context) {
+        return Padding(
+          padding: EdgeInsets.fromLTRB(20, 4, 20, MediaQuery.viewInsetsOf(context).bottom + 20),
+          child: _RootSheet(
+            controller: _rootController,
+            onPickRoot: _pickGameRoot,
+            onScan: () {
+              Navigator.of(context).pop();
+              _scanGames();
+            },
+          ),
+        );
+      },
+    );
   }
 
   void _showSnack(String message) {
@@ -181,73 +176,112 @@ class _LauncherHomePageState extends State<LauncherHomePage> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
   }
 
-  void _selectDest(_LauncherDest dest) {
-    setState(() => _dest = dest);
-    if (dest == _LauncherDest.settings) {
-      _openSettings();
-    } else if (dest == _LauncherDest.tools) {
-      _openDiagnostics();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
-    final width = MediaQuery.sizeOf(context).width;
-    final expanded = width >= 840;
     return Scaffold(
-      body: Row(
-        children: [
-          if (expanded) _LauncherRail(dest: _dest, onChanged: _selectDest),
-          Expanded(
-            child: SafeArea(
-              child: _LauncherContent(
-                dest: _dest,
-                expanded: expanded,
-                storageGranted: _storageGranted,
-                loading: _loading,
-                scanStatus: _scanStatus,
-                games: _games,
-                selectedGame: _selectedGame,
-                onRequestPermission: _requestPermission,
-                onEditRoot: _showRootConfig,
-                onScan: _scanGames,
-                onSelectGame: (game) => setState(() => _selectedGame = game),
-                onUpdateGame: _updateGame,
-                onLaunch: _launch,
-                onOpenSettings: _openSettings,
-                onOpenDiagnostics: _openDiagnostics,
-              ),
-            ),
-          ),
-        ],
+      key: _scaffoldKey,
+      drawer: _LauncherDrawer(
+        storageGranted: _storageGranted,
+        onRequestPermission: _requestPermission,
+        onOpenSettings: _openSettings,
+        onOpenDiagnostics: _openDiagnostics,
       ),
-      bottomNavigationBar: expanded
-          ? null
-          : NavigationBar(
-              selectedIndex: _dest.index,
-              onDestinationSelected: (index) => _selectDest(_LauncherDest.values[index]),
-              destinations: const [
-                NavigationDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: '游戏库'),
-                NavigationDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: '设置'),
-                NavigationDestination(icon: Icon(Icons.info_outline), selectedIcon: Icon(Icons.info), label: '工具'),
-              ],
-            ),
+      body: _LauncherBackground(
+        child: SafeArea(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              final layout = _LauncherLayoutX.fromWidth(constraints.maxWidth);
+              return Row(
+                children: [
+                  if (layout.showRail)
+                    _LauncherSideBar(
+                      storageGranted: _storageGranted,
+                      onRequestPermission: _requestPermission,
+                      onOpenSettings: _openSettings,
+                      onOpenDiagnostics: _openDiagnostics,
+                    ),
+                  Expanded(
+                    child: _LauncherBody(
+                      layout: layout,
+                      games: _games,
+                      selectedGame: _selectedGame,
+                      loading: _loading,
+                      storageGranted: _storageGranted,
+                      scanStatus: _scanStatus,
+                      rootPath: _rootController.text,
+                      onMenu: () => _scaffoldKey.currentState?.openDrawer(),
+                      onRoot: _showRootSheet,
+                      onScan: _scanGames,
+                      onRequestPermission: _requestPermission,
+                      onSelectGame: (game) => setState(() => _selectedGame = game),
+                      onUpdateGame: _updateGame,
+                      onLaunch: _launch,
+                      onOpenSettings: _openSettings,
+                      onOpenDiagnostics: _openDiagnostics,
+                    ),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
     );
   }
 }
 
-class _LauncherContent extends StatelessWidget {
-  const _LauncherContent({
-    required this.dest,
-    required this.expanded,
-    required this.storageGranted,
-    required this.loading,
-    required this.scanStatus,
+enum _LauncherLayout { compact, medium, expanded }
+
+extension _LauncherLayoutX on _LauncherLayout {
+  static _LauncherLayout fromWidth(double width) {
+    if (width >= 1100) {
+      return _LauncherLayout.expanded;
+    }
+    if (width >= 720) {
+      return _LauncherLayout.medium;
+    }
+    return _LauncherLayout.compact;
+  }
+
+  bool get showRail => this == _LauncherLayout.expanded;
+  bool get showDetail => this == _LauncherLayout.expanded;
+  bool get compact => this == _LauncherLayout.compact;
+}
+
+class _LauncherBackground extends StatelessWidget {
+  const _LauncherBackground({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [scheme.surface, scheme.surfaceContainerHighest, scheme.primaryContainer.withOpacity(0.32)],
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _LauncherBody extends StatelessWidget {
+  const _LauncherBody({
+    required this.layout,
     required this.games,
     required this.selectedGame,
-    required this.onRequestPermission,
-    required this.onEditRoot,
+    required this.loading,
+    required this.storageGranted,
+    required this.scanStatus,
+    required this.rootPath,
+    required this.onMenu,
+    required this.onRoot,
     required this.onScan,
+    required this.onRequestPermission,
     required this.onSelectGame,
     required this.onUpdateGame,
     required this.onLaunch,
@@ -255,16 +289,17 @@ class _LauncherContent extends StatelessWidget {
     required this.onOpenDiagnostics,
   });
 
-  final _LauncherDest dest;
-  final bool expanded;
-  final bool storageGranted;
-  final bool loading;
-  final String scanStatus;
+  final _LauncherLayout layout;
   final List<GameEntry> games;
   final GameEntry? selectedGame;
-  final VoidCallback onRequestPermission;
-  final VoidCallback onEditRoot;
+  final bool loading;
+  final bool storageGranted;
+  final String scanStatus;
+  final String rootPath;
+  final VoidCallback onMenu;
+  final VoidCallback onRoot;
   final VoidCallback onScan;
+  final VoidCallback onRequestPermission;
   final ValueChanged<GameEntry> onSelectGame;
   final ValueChanged<GameEntry> onUpdateGame;
   final ValueChanged<GameEntry> onLaunch;
@@ -273,48 +308,65 @@ class _LauncherContent extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return CustomScrollView(
+    final content = CustomScrollView(
       slivers: [
-        SliverAppBar.large(
-          title: const Text('KiriKiri Launcher'),
-          actions: [
-            IconButton(onPressed: onEditRoot, icon: const Icon(Icons.add), tooltip: '游戏根目录'),
-            IconButton(onPressed: onScan, icon: const Icon(Icons.refresh), tooltip: '重新扫描'),
-          ],
-        ),
         SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-          sliver: SliverList(
-            delegate: SliverChildListDelegate([
-              _LauncherHero(
-                storageGranted: storageGranted,
-                gameCount: games.length,
-                loading: loading,
-                scanStatus: scanStatus,
-                onRequestPermission: onRequestPermission,
-                onScan: onScan,
-              ),
-              const SizedBox(height: 14),
-              if (dest == _LauncherDest.library)
-                _LibraryPanel(
-                  expanded: expanded,
-                  loading: loading,
-                  games: games,
-                  selectedGame: selectedGame,
-                  onSelectGame: onSelectGame,
-                  onUpdateGame: onUpdateGame,
-                  onLaunch: onLaunch,
-                )
-              else if (dest == _LauncherDest.settings)
-                _SettingsPanel(
-                  storageGranted: storageGranted,
-                  onRequestPermission: onRequestPermission,
-                  onOpenSettings: onOpenSettings,
-                  onOpenDiagnostics: onOpenDiagnostics,
-                )
-              else
-                _ToolsPanel(onOpenSettings: onOpenSettings, onOpenDiagnostics: onOpenDiagnostics),
-            ]),
+          padding: EdgeInsets.fromLTRB(layout.compact ? 16 : 24, 18, layout.compact ? 16 : 24, 0),
+          sliver: SliverToBoxAdapter(
+            child: _HeaderBar(
+              compact: layout.compact,
+              storageGranted: storageGranted,
+              scanStatus: scanStatus,
+              gameCount: games.length,
+              rootPath: rootPath,
+              onMenu: onMenu,
+              onRoot: onRoot,
+              onScan: onScan,
+              onRequestPermission: onRequestPermission,
+              onOpenSettings: onOpenSettings,
+              onOpenDiagnostics: onOpenDiagnostics,
+            ),
+          ),
+        ),
+        if (loading)
+          const SliverFillRemaining(hasScrollBody: false, child: Center(child: CircularProgressIndicator()))
+        else if (games.isEmpty)
+          SliverFillRemaining(
+            hasScrollBody: false,
+            child: Padding(
+              padding: EdgeInsets.all(layout.compact ? 16 : 24),
+              child: _EmptyLauncherState(onRoot: onRoot, onRequestPermission: onRequestPermission, storageGranted: storageGranted),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: EdgeInsets.all(layout.compact ? 16 : 24),
+            sliver: _GameGridSliver(
+              compact: layout.compact,
+              games: games,
+              selectedGame: selectedGame,
+              onSelectGame: onSelectGame,
+              onLaunch: onLaunch,
+            ),
+          ),
+      ],
+    );
+
+    if (!layout.showDetail) {
+      return content;
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Expanded(child: content),
+        SizedBox(
+          width: 390,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(0, 18, 24, 24),
+            child: selectedGame == null
+                ? _NoSelectionPanel(onRoot: onRoot)
+                : _GameDetailPanel(game: selectedGame!, onUpdateGame: onUpdateGame, onLaunch: onLaunch),
           ),
         ),
       ],
@@ -322,96 +374,88 @@ class _LauncherContent extends StatelessWidget {
   }
 }
 
-class _LauncherRail extends StatelessWidget {
-  const _LauncherRail({required this.dest, required this.onChanged});
-
-  final _LauncherDest dest;
-  final ValueChanged<_LauncherDest> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return NavigationRail(
-      selectedIndex: dest.index,
-      onDestinationSelected: (index) => onChanged(_LauncherDest.values[index]),
-      labelType: NavigationRailLabelType.all,
-      destinations: const [
-        NavigationRailDestination(icon: Icon(Icons.home_outlined), selectedIcon: Icon(Icons.home), label: Text('游戏库')),
-        NavigationRailDestination(icon: Icon(Icons.settings_outlined), selectedIcon: Icon(Icons.settings), label: Text('设置')),
-        NavigationRailDestination(icon: Icon(Icons.info_outline), selectedIcon: Icon(Icons.info), label: Text('工具')),
-      ],
-    );
-  }
-}
-
-class _LauncherHero extends StatelessWidget {
-  const _LauncherHero({
+class _HeaderBar extends StatelessWidget {
+  const _HeaderBar({
+    required this.compact,
     required this.storageGranted,
-    required this.gameCount,
-    required this.loading,
     required this.scanStatus,
-    required this.onRequestPermission,
+    required this.gameCount,
+    required this.rootPath,
+    required this.onMenu,
+    required this.onRoot,
     required this.onScan,
+    required this.onRequestPermission,
+    required this.onOpenSettings,
+    required this.onOpenDiagnostics,
   });
 
+  final bool compact;
   final bool storageGranted;
-  final int gameCount;
-  final bool loading;
   final String scanStatus;
-  final VoidCallback onRequestPermission;
+  final int gameCount;
+  final String rootPath;
+  final VoidCallback onMenu;
+  final VoidCallback onRoot;
   final VoidCallback onScan;
+  final VoidCallback onRequestPermission;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenDiagnostics;
 
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Container(
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [scheme.primaryContainer, scheme.secondaryContainer, scheme.surfaceContainerHighest],
-          ),
-        ),
-        padding: const EdgeInsets.all(20),
-        child: Wrap(
-          runSpacing: 16,
-          spacing: 16,
-          crossAxisAlignment: WrapCrossAlignment.center,
-          alignment: WrapAlignment.spaceBetween,
+      color: scheme.surface.withOpacity(0.88),
+      child: Padding(
+        padding: EdgeInsets.all(compact ? 16 : 20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 560),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+            Row(
+              children: [
+                if (compact) IconButton(onPressed: onMenu, icon: const Icon(Icons.menu)),
+                Container(
+                  width: 46,
+                  height: 46,
+                  decoration: BoxDecoration(color: scheme.primaryContainer, borderRadius: BorderRadius.circular(16)),
+                  child: const Center(child: ResourceIcon('menu_icon.png', size: 28)),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      CircleAvatar(backgroundColor: scheme.primary, child: const ResourceIcon('menu_icon.png')),
-                      const SizedBox(width: 12),
-                      Text('KrKr2 启动器', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w700)),
+                      Text('KrKr2 启动器', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 2),
+                      Text(rootPath, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
                     ],
                   ),
-                  const SizedBox(height: 10),
-                  Text('选择游戏目录，扫描 KiriKiri 游戏，然后启动。', style: Theme.of(context).textTheme.bodyMedium),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      Chip(avatar: Icon(storageGranted ? Icons.verified : Icons.warning_amber, size: 18), label: Text(storageGranted ? '文件管理权限已授权' : '需要文件管理权限')),
-                      Chip(avatar: const Icon(Icons.grid_view, size: 18), label: Text('$gameCount 个游戏')),
-                      Chip(avatar: loading ? const SizedBox.square(dimension: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.task_alt, size: 18), label: Text(scanStatus)),
-                    ],
-                  ),
+                ),
+                if (!compact) ...[
+                  _HeaderIconButton(icon: Icons.settings_outlined, label: '设置', onPressed: onOpenSettings),
+                  _HeaderIconButton(icon: Icons.bug_report_outlined, label: '诊断', onPressed: onOpenDiagnostics),
                 ],
-              ),
+              ],
             ),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                _StatusChip(icon: storageGranted ? Icons.verified_rounded : Icons.folder_off_outlined, label: storageGranted ? '文件权限已授权' : '需要文件管理权限', active: storageGranted),
+                _StatusChip(icon: Icons.grid_view_rounded, label: '$gameCount 个游戏', active: gameCount > 0),
+                _StatusChip(icon: Icons.radar_rounded, label: scanStatus, active: gameCount > 0),
+              ],
+            ),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 10,
               runSpacing: 10,
               children: [
-                FilledButton.icon(onPressed: onRequestPermission, icon: const Icon(Icons.folder_special), label: const Text('申请文件管理权限')),
-                OutlinedButton.icon(onPressed: onScan, icon: const Icon(Icons.refresh), label: const Text('重新扫描')),
+                FilledButton.icon(onPressed: onRoot, icon: const Icon(Icons.folder_open_rounded), label: const Text('游戏目录')),
+                OutlinedButton.icon(onPressed: onScan, icon: const Icon(Icons.refresh_rounded), label: const Text('重新扫描')),
+                if (!storageGranted) OutlinedButton.icon(onPressed: onRequestPermission, icon: const Icon(Icons.admin_panel_settings_outlined), label: const Text('授权文件')),
               ],
             ),
           ],
@@ -421,136 +465,89 @@ class _LauncherHero extends StatelessWidget {
   }
 }
 
-class _RootConfigCard extends StatelessWidget {
-  const _RootConfigCard({required this.controller, required this.onPickRoot, required this.onScan});
+class _HeaderIconButton extends StatelessWidget {
+  const _HeaderIconButton({required this.icon, required this.label, required this.onPressed});
 
-  final TextEditingController controller;
-  final VoidCallback onPickRoot;
-  final VoidCallback onScan;
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text('游戏根目录', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 10),
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    controller: controller,
-                    decoration: const InputDecoration(prefixIcon: Icon(Icons.folder), border: OutlineInputBorder(), hintText: '/storage/emulated/0/krkr2pro'),
-                    onSubmitted: (_) => onScan(),
-                  ),
-                ),
-                const SizedBox(width: 10),
-                IconButton(onPressed: onPickRoot, icon: const Icon(Icons.folder_open), tooltip: '选择'),
-                const SizedBox(width: 6),
-                IconButton.filled(onPressed: onScan, icon: const Icon(Icons.search), tooltip: '扫描'),
-              ],
-            ),
-          ],
-        ),
+    return Tooltip(
+      message: label,
+      child: IconButton(onPressed: onPressed, icon: Icon(icon)),
+    );
+  }
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.icon, required this.label, required this.active});
+
+  final IconData icon;
+  final String label;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: active ? scheme.primaryContainer.withOpacity(0.72) : scheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [Icon(icon, size: 17), const SizedBox(width: 6), Text(label, style: Theme.of(context).textTheme.labelMedium)],
       ),
     );
   }
 }
 
-class _LibraryPanel extends StatelessWidget {
-  const _LibraryPanel({
-    required this.expanded,
-    required this.loading,
-    required this.games,
-    required this.selectedGame,
-    required this.onSelectGame,
-    required this.onUpdateGame,
-    required this.onLaunch,
-  });
+class _GameGridSliver extends StatelessWidget {
+  const _GameGridSliver({required this.compact, required this.games, required this.selectedGame, required this.onSelectGame, required this.onLaunch});
 
-  final bool expanded;
-  final bool loading;
+  final bool compact;
   final List<GameEntry> games;
   final GameEntry? selectedGame;
   final ValueChanged<GameEntry> onSelectGame;
-  final ValueChanged<GameEntry> onUpdateGame;
   final ValueChanged<GameEntry> onLaunch;
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return const SizedBox(height: 220, child: Center(child: CircularProgressIndicator()));
-    }
-    if (games.isEmpty) {
-      return const _EmptyState();
-    }
-    if (expanded) {
-      return SizedBox(
-        height: 430,
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Expanded(flex: 3, child: _GameGrid(games: games, selectedGame: selectedGame, onSelectGame: onSelectGame, onLaunch: onLaunch)),
-            const SizedBox(width: 14),
-            Expanded(flex: 2, child: _GameDetailPane(game: selectedGame ?? games.first, onUpdateGame: onUpdateGame, onLaunch: onLaunch)),
-          ],
+    if (compact) {
+      return SliverList(
+        delegate: SliverChildBuilderDelegate(
+          (context, index) {
+            final gameIndex = index ~/ 2;
+            if (index.isOdd) {
+              return const SizedBox(height: 10);
+            }
+            final game = games[gameIndex];
+            return _GameListTile(game: game, selected: selectedGame?.path == game.path, onSelect: () => onSelectGame(game), onLaunch: () => onLaunch(game));
+          },
+          childCount: games.isEmpty ? 0 : games.length * 2 - 1,
         ),
       );
     }
-    return Column(
-      children: [
-        _GameGrid(games: games, selectedGame: selectedGame, onSelectGame: onSelectGame, onLaunch: onLaunch, shrinkWrap: true),
-        const SizedBox(height: 14),
-        if (selectedGame != null) _GameDetailPane(game: selectedGame!, onUpdateGame: onUpdateGame, onLaunch: onLaunch),
-      ],
-    );
-  }
-}
-
-class _GameGrid extends StatelessWidget {
-  const _GameGrid({
-    required this.games,
-    required this.selectedGame,
-    required this.onSelectGame,
-    required this.onLaunch,
-    this.shrinkWrap = false,
-  });
-
-  final List<GameEntry> games;
-  final GameEntry? selectedGame;
-  final ValueChanged<GameEntry> onSelectGame;
-  final ValueChanged<GameEntry> onLaunch;
-  final bool shrinkWrap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.builder(
-      shrinkWrap: shrinkWrap,
-      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 280, mainAxisSpacing: 12, crossAxisSpacing: 12, childAspectRatio: 1.35),
+    return SliverGrid.builder(
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(maxCrossAxisExtent: 260, mainAxisSpacing: 16, crossAxisSpacing: 16, childAspectRatio: 0.82),
       itemCount: games.length,
       itemBuilder: (context, index) {
         final game = games[index];
-        return _GameCard(
-          game: game,
-          selected: selectedGame?.path == game.path,
-          onTap: () => onSelectGame(game),
-          onLaunch: () => onLaunch(game),
-        );
+        return _GamePosterCard(game: game, selected: selectedGame?.path == game.path, onSelect: () => onSelectGame(game), onLaunch: () => onLaunch(game));
       },
     );
   }
 }
 
-class _GameCard extends StatelessWidget {
-  const _GameCard({required this.game, required this.selected, required this.onTap, required this.onLaunch});
+class _GamePosterCard extends StatelessWidget {
+  const _GamePosterCard({required this.game, required this.selected, required this.onSelect, required this.onLaunch});
 
   final GameEntry game;
   final bool selected;
-  final VoidCallback onTap;
+  final VoidCallback onSelect;
   final VoidCallback onLaunch;
 
   @override
@@ -558,26 +555,145 @@ class _GameCard extends StatelessWidget {
     final scheme = Theme.of(context).colorScheme;
     return Card(
       clipBehavior: Clip.antiAlias,
-      color: selected ? scheme.primaryContainer : null,
+      color: selected ? scheme.primaryContainer : scheme.surface.withOpacity(0.9),
       child: InkWell(
-        onTap: onTap,
+        onTap: onSelect,
         onDoubleTap: onLaunch,
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(flex: 7, child: _GameArtwork(game: game, radius: 0)),
+            Expanded(
+              flex: 4,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(game.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                    const Spacer(),
+                    Align(alignment: Alignment.centerRight, child: IconButton.filled(onPressed: onLaunch, icon: const Icon(Icons.play_arrow_rounded))),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _GameListTile extends StatelessWidget {
+  const _GameListTile({required this.game, required this.selected, required this.onSelect, required this.onLaunch});
+
+  final GameEntry game;
+  final bool selected;
+  final VoidCallback onSelect;
+  final VoidCallback onLaunch;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      color: selected ? scheme.primaryContainer : scheme.surface.withOpacity(0.9),
+      child: ListTile(
+        onTap: onSelect,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        leading: ClipRRect(borderRadius: BorderRadius.circular(14), child: SizedBox(width: 58, height: 58, child: _GameArtwork(game: game, radius: 14))),
+        title: Text(game.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+        subtitle: Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis),
+        trailing: IconButton.filled(onPressed: onLaunch, icon: const Icon(Icons.play_arrow_rounded)),
+      ),
+    );
+  }
+}
+
+class _GameArtwork extends StatelessWidget {
+  const _GameArtwork({required this.game, required this.radius});
+
+  final GameEntry game;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final image = _fileImage(game.coverPath ?? game.backgroundPath);
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(radius),
+        gradient: LinearGradient(colors: [scheme.primaryContainer, scheme.secondaryContainer]),
+      ),
+      child: image == null
+          ? const Center(child: ResourceIcon('windows_icon.png', size: 36))
+          : Image(image: image, fit: BoxFit.cover, errorBuilder: (_, __, ___) => const Center(child: ResourceIcon('windows_icon.png', size: 36))),
+    );
+  }
+}
+
+class _GameDetailPanel extends StatelessWidget {
+  const _GameDetailPanel({required this.game, required this.onUpdateGame, required this.onLaunch});
+
+  final GameEntry game;
+  final ValueChanged<GameEntry> onUpdateGame;
+  final ValueChanged<GameEntry> onLaunch;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      color: scheme.surface.withOpacity(0.9),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SizedBox(height: 190, child: _GameArtwork(game: game, radius: 0)),
+          Expanded(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(18),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _CoverAvatar(path: game.coverPath),
-                  const Spacer(),
-                  IconButton(onPressed: onLaunch, icon: const Icon(Icons.play_arrow), tooltip: '启动'),
+                  Text(game.title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 8),
+                  Text(game.path, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                  const SizedBox(height: 18),
+                  _LaunchFilePicker(game: game, onChanged: onUpdateGame),
+                  const SizedBox(height: 18),
+                  SizedBox(width: double.infinity, child: FilledButton.icon(onPressed: () => onLaunch(game), icon: const Icon(Icons.play_arrow_rounded), label: const Text('启动游戏'))),
                 ],
               ),
-              const Spacer(),
-              Text(game.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 4),
-              Text(game.subtitle ?? game.path, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NoSelectionPanel extends StatelessWidget {
+  const _NoSelectionPanel({required this.onRoot});
+
+  final VoidCallback onRoot;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ResourceIcon('empty.png', size: 54),
+              const SizedBox(height: 14),
+              Text('选择一个游戏', style: Theme.of(context).textTheme.titleLarge),
+              const SizedBox(height: 8),
+              const Text('从游戏库中选择条目查看详情。', textAlign: TextAlign.center),
+              const SizedBox(height: 18),
+              OutlinedButton.icon(onPressed: onRoot, icon: const Icon(Icons.folder_open_rounded), label: const Text('游戏目录')),
             ],
           ),
         ),
@@ -586,94 +702,128 @@ class _GameCard extends StatelessWidget {
   }
 }
 
-class _CoverAvatar extends StatelessWidget {
-  const _CoverAvatar({required this.path});
+class _EmptyLauncherState extends StatelessWidget {
+  const _EmptyLauncherState({required this.onRoot, required this.onRequestPermission, required this.storageGranted});
 
-  final String? path;
-
-  @override
-  Widget build(BuildContext context) {
-    final image = _fileImage(path);
-    return CircleAvatar(
-      backgroundColor: Theme.of(context).colorScheme.surface,
-      backgroundImage: image,
-      child: image == null ? const ResourceIcon('windows_icon.png') : null,
-    );
-  }
-}
-
-class _GameDetailPane extends StatelessWidget {
-  const _GameDetailPane({required this.game, required this.onUpdateGame, required this.onLaunch});
-
-  final GameEntry game;
-  final ValueChanged<GameEntry> onUpdateGame;
-  final ValueChanged<GameEntry> onLaunch;
+  final VoidCallback onRoot;
+  final VoidCallback onRequestPermission;
+  final bool storageGranted;
 
   @override
   Widget build(BuildContext context) {
     return Card(
-      clipBehavior: Clip.antiAlias,
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _GameBanner(game: game),
-            Padding(
-              padding: const EdgeInsets.all(18),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const ResourceIcon('empty.png', size: 64),
+              const SizedBox(height: 16),
+              Text('没有找到游戏', style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+              const SizedBox(height: 8),
+              const Text('请选择包含 startup.tjs、data.xp3 或 scenario.ks 的游戏目录。', textAlign: TextAlign.center),
+              const SizedBox(height: 18),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                alignment: WrapAlignment.center,
                 children: [
-                  Row(
-                    children: [
-                      const ResourceIcon('menu_icon.png'),
-                      const SizedBox(width: 10),
-                      Expanded(child: Text(game.title, style: Theme.of(context).textTheme.headlineSmall)),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Text(game.path, style: Theme.of(context).textTheme.bodySmall),
-                  const SizedBox(height: 14),
-                  _LaunchFilePicker(game: game, onChanged: onUpdateGame),
-                  const SizedBox(height: 18),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton.icon(onPressed: () => onLaunch(game), icon: const Icon(Icons.play_arrow), label: const Text('启动')),
-                  ),
+                  FilledButton.icon(onPressed: onRoot, icon: const Icon(Icons.folder_open_rounded), label: const Text('选择目录')),
+                  if (!storageGranted) OutlinedButton.icon(onPressed: onRequestPermission, icon: const Icon(Icons.admin_panel_settings_outlined), label: const Text('授权文件')),
                 ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _GameBanner extends StatelessWidget {
-  const _GameBanner({required this.game});
+class _RootSheet extends StatelessWidget {
+  const _RootSheet({required this.controller, required this.onPickRoot, required this.onScan});
 
-  final GameEntry game;
+  final TextEditingController controller;
+  final VoidCallback onPickRoot;
+  final VoidCallback onScan;
 
   @override
   Widget build(BuildContext context) {
-    final imagePath = game.backgroundPath ?? game.coverPath;
-    final image = _fileImage(imagePath);
-    return SizedBox(
-      height: 150,
-      child: Stack(
-        fit: StackFit.expand,
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('游戏根目录', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        TextField(
+          controller: controller,
+          decoration: const InputDecoration(border: OutlineInputBorder(), prefixIcon: Icon(Icons.folder_outlined), hintText: '/storage/emulated/0/krkr2pro'),
+          onSubmitted: (_) => onScan(),
+        ),
+        const SizedBox(height: 12),
+        Row(
+          children: [
+            Expanded(child: OutlinedButton.icon(onPressed: onPickRoot, icon: const Icon(Icons.folder_open_rounded), label: const Text('选择'))),
+            const SizedBox(width: 10),
+            Expanded(child: FilledButton.icon(onPressed: onScan, icon: const Icon(Icons.search_rounded), label: const Text('扫描'))),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _LauncherSideBar extends StatelessWidget {
+  const _LauncherSideBar({required this.storageGranted, required this.onRequestPermission, required this.onOpenSettings, required this.onOpenDiagnostics});
+
+  final bool storageGranted;
+  final VoidCallback onRequestPermission;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenDiagnostics;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 88,
+      margin: const EdgeInsets.all(18),
+      decoration: BoxDecoration(color: scheme.surface.withOpacity(0.78), borderRadius: BorderRadius.circular(28)),
+      child: Column(
         children: [
-          if (image != null)
-            Image(image: image, fit: BoxFit.cover)
-          else
-            Container(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(colors: [Theme.of(context).colorScheme.primaryContainer, Theme.of(context).colorScheme.surfaceContainerHighest]),
-              ),
-            ),
-          DecoratedBox(decoration: BoxDecoration(color: Colors.black.withOpacity(0.22))),
+          const SizedBox(height: 18),
+          const ResourceIcon('menu_icon.png', size: 34),
+          const Spacer(),
+          IconButton(onPressed: storageGranted ? null : onRequestPermission, icon: Icon(storageGranted ? Icons.folder_special_rounded : Icons.folder_off_outlined), tooltip: '文件权限'),
+          IconButton(onPressed: onOpenSettings, icon: const Icon(Icons.settings_outlined), tooltip: '设置'),
+          IconButton(onPressed: onOpenDiagnostics, icon: const Icon(Icons.bug_report_outlined), tooltip: '诊断'),
+          const SizedBox(height: 18),
         ],
       ),
+    );
+  }
+}
+
+class _LauncherDrawer extends StatelessWidget {
+  const _LauncherDrawer({required this.storageGranted, required this.onRequestPermission, required this.onOpenSettings, required this.onOpenDiagnostics});
+
+  final bool storageGranted;
+  final VoidCallback onRequestPermission;
+  final VoidCallback onOpenSettings;
+  final VoidCallback onOpenDiagnostics;
+
+  @override
+  Widget build(BuildContext context) {
+    return NavigationDrawer(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(24, 24, 24, 12),
+          child: Row(children: [const ResourceIcon('menu_icon.png', size: 34), const SizedBox(width: 12), Text('KrKr2', style: Theme.of(context).textTheme.titleLarge)]),
+        ),
+        ListTile(leading: Icon(storageGranted ? Icons.folder_special_rounded : Icons.folder_off_outlined), title: Text(storageGranted ? '文件权限已授权' : '申请文件权限'), onTap: storageGranted ? null : onRequestPermission),
+        ListTile(leading: const Icon(Icons.settings_outlined), title: const Text('设置'), onTap: onOpenSettings),
+        ListTile(leading: const Icon(Icons.bug_report_outlined), title: const Text('诊断'), onTap: onOpenDiagnostics),
+      ],
     );
   }
 }
@@ -718,7 +868,7 @@ class _LaunchFilePickerState extends State<_LaunchFilePicker> {
         return DropdownButtonFormField<String>(
           value: values.contains(_selected) ? _selected : '',
           isExpanded: true,
-          decoration: const InputDecoration(labelText: '启动文件', helperText: '自动检测会按 startup.tjs / start.tjs / data.xp3 优先级启动', border: OutlineInputBorder()),
+          decoration: const InputDecoration(labelText: '启动文件', border: OutlineInputBorder()),
           items: values.map((path) {
             final label = path.isEmpty ? '自动检测' : _relativeToGame(path, widget.game.path);
             return DropdownMenuItem(value: path, child: Text(label, overflow: TextOverflow.ellipsis));
@@ -731,98 +881,6 @@ class _LaunchFilePickerState extends State<_LaunchFilePicker> {
         );
       },
     );
-  }
-}
-
-class _EmptyState extends StatelessWidget {
-  const _EmptyState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(28),
-        child: Center(
-          child: Column(
-            children: [
-              const ResourceIcon('empty.png', size: 54),
-              const SizedBox(height: 12),
-              Text('没有找到游戏', style: Theme.of(context).textTheme.titleLarge),
-              const SizedBox(height: 8),
-              const Text('请先授予文件管理权限，然后选择包含 data.xp3 或 startup.tjs 的根目录。', textAlign: TextAlign.center),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsPanel extends StatelessWidget {
-  const _SettingsPanel({required this.storageGranted, required this.onRequestPermission, required this.onOpenSettings, required this.onOpenDiagnostics});
-
-  final bool storageGranted;
-  final VoidCallback onRequestPermission;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onOpenDiagnostics;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _SettingsTile(icon: Icons.folder_special, title: '文件管理权限', subtitle: storageGranted ? '已授权' : '未授权，Android 11+ 需要所有文件访问权限', trailing: FilledButton(onPressed: onRequestPermission, child: const Text('申请'))),
-        _SettingsTile(icon: Icons.tune, title: '设置', subtitle: '打开旧版启动器设置', trailing: OutlinedButton(onPressed: onOpenSettings, child: const Text('打开'))),
-        _SettingsTile(icon: Icons.bug_report_outlined, title: '诊断', subtitle: '打开旧版诊断页', trailing: OutlinedButton(onPressed: onOpenDiagnostics, child: const Text('打开'))),
-      ],
-    );
-  }
-}
-
-class _ToolsPanel extends StatelessWidget {
-  const _ToolsPanel({required this.onOpenSettings, required this.onOpenDiagnostics});
-
-  final VoidCallback onOpenSettings;
-  final VoidCallback onOpenDiagnostics;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        _ToolTile(icon: const ResourceIcon('touch_icon.png'), title: '触摸模式', subtitle: '保留旧 UI 触控配置入口，等待 C 配置接口接入'),
-        _ToolTile(icon: const ResourceIcon('mouse_icon.png'), title: '鼠标模式', subtitle: '保留左/右键与模拟鼠标入口'),
-        _ToolTile(icon: const ResourceIcon('keyboard_icon.png'), title: '键盘映射', subtitle: '后续迁移快捷键和虚拟键盘配置'),
-        _ToolTile(icon: const ResourceIcon('about_icon.png'), title: '关于与诊断', subtitle: '打开日志、设备和运行库信息', action: OutlinedButton(onPressed: onOpenDiagnostics, child: const Text('诊断'))),
-        _ToolTile(icon: const ResourceIcon('syssetting_btn_on.png'), title: '系统设置', subtitle: '旧版设置按钮的 Flutter 入口', action: OutlinedButton(onPressed: onOpenSettings, child: const Text('打开'))),
-      ],
-    );
-  }
-}
-
-class _SettingsTile extends StatelessWidget {
-  const _SettingsTile({required this.icon, required this.title, required this.subtitle, required this.trailing});
-
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final Widget trailing;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(child: ListTile(leading: Icon(icon), title: Text(title), subtitle: Text(subtitle), trailing: trailing));
-  }
-}
-
-class _ToolTile extends StatelessWidget {
-  const _ToolTile({required this.icon, required this.title, required this.subtitle, this.action});
-
-  final Widget icon;
-  final String title;
-  final String subtitle;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(child: ListTile(leading: icon, title: Text(title), subtitle: Text(subtitle), trailing: action));
   }
 }
 

@@ -432,6 +432,18 @@ class LauncherBridge {
   }
 
   Future<void> launchGame(GameEntry game) async {
+    if (Platform.isAndroid) {
+      try {
+        await _platformChannel.invokeMethod<void>('launchGame', {
+          'gameDir': game.path,
+          'launchFile': game.launchFile ?? '',
+          'title': game.title,
+        });
+        return;
+      } on MissingPluginException {
+        // Desktop/tests keep using the C ABI fallback below.
+      }
+    }
     final path = game.path.toNativeUtf8();
     try {
       final result = _launchGame(path);
