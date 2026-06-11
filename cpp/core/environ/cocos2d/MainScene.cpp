@@ -31,6 +31,7 @@
 #include "VideoOvlIntf.h"
 #include "Exception.h"
 #include "SystemControl.h"
+#include "DebugIntf.h"
 #include "ui/UIButton.h"
 #include "ui/csd/CsdUIFactory.h"
 #include "sdl/SDLGameManager.h"
