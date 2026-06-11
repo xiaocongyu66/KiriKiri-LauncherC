@@ -20,9 +20,11 @@ public:
         if(pixel && pitch > 0) {
             BgfxHandle = TVPBgfx::CreateTexture2D(
                 Width, Height, pixel, pitch, static_cast<int>(format));
+            BgfxPixelsCurrent = BgfxHandle != InvalidBgfxTextureHandle;
         } else if(Software) {
             BgfxHandle = TVPBgfx::CreateEmptyTexture2D(
                 Width, Height, static_cast<int>(Software->GetFormat()));
+            SyncFullTextureFromSoftware();
         }
     }
 
@@ -46,6 +48,7 @@ public:
         if(Software) {
             BgfxHandle = TVPBgfx::CreateEmptyTexture2D(
                 w, h, static_cast<int>(Software->GetFormat()));
+            BgfxPixelsCurrent = false;
         }
     }
 
@@ -62,6 +65,7 @@ public:
         return Software ? Software->GetPixelDataFormat() : TVPTextureFormat::None;
     }
     void *GetScanLineForWrite(tjs_uint line) override {
+        BgfxPixelsCurrent = false;
         return Software ? Software->GetScanLineForWrite(line) : nullptr;
     }
     tjs_int GetPitch() const override { return Software ? Software->GetPitch() : 0; }
@@ -69,8 +73,10 @@ public:
         return Software ? Software->GetPoint(x, y) : 0;
     }
     void SetPoint(int x, int y, uint32_t color) override {
-        if(Software)
+        if(Software) {
             Software->SetPoint(x, y, color);
+            BgfxPixelsCurrent = false;
+        }
     }
     bool IsStatic() override { return Software ? Software->IsStatic() : false; }
     bool IsOpaque() override { return Software ? Software->IsOpaque() : false; }
@@ -88,6 +94,7 @@ public:
         return Software ? Software->GetNativeGLTextureId() : 0;
     }
     void InvalidatePixelCache() override {
+        BgfxPixelsCurrent = false;
         if(Software)
             Software->InvalidatePixelCache();
     }
@@ -105,12 +112,27 @@ public:
                 BgfxHandle, Width, Height, rect.left, rect.top,
                 rect.get_width(), rect.get_height(), pixel, pitch,
                 static_cast<int>(format));
+            BgfxPixelsCurrent = true;
         }
     }
 
 private:
+    void SyncFullTextureFromSoftware() {
+        if(!Software || BgfxHandle == InvalidBgfxTextureHandle ||
+           BgfxPixelsCurrent)
+            return;
+        const void *pixel = Software->GetScanLineForRead(0);
+        const int pitch = Software->GetPitch();
+        if(!pixel || pitch <= 0)
+            return;
+        TVPBgfx::UpdateTexture2D(BgfxHandle, Width, Height, pixel, pitch,
+                                 static_cast<int>(Software->GetPixelDataFormat()));
+        BgfxPixelsCurrent = true;
+    }
+
     iTVPTexture2D *Software = nullptr;
     uint16_t BgfxHandle = InvalidBgfxTextureHandle;
+    bool BgfxPixelsCurrent = false;
 };
 
 iTVPTexture2D *WrapBgfxTexture(iTVPTexture2D *software, const void *pixel = nullptr,

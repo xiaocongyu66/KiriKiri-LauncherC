@@ -1,6 +1,7 @@
 #include "BgfxRuntime.h"
 
 #include "DebugIntf.h"
+#include "../GraphicsLoaderIntf.h"
 
 #if defined(KIRIKIRI_HAS_BGFX)
 #include <bgfx/bgfx.h>
@@ -112,9 +113,20 @@ bool SupportsManagedTextureFormat(int format) {
     return format == 1 || format == 3 || format == 4;
 }
 
+uint64_t GetManagedTextureTotalBudgetBytes() {
+    uint64_t oldStyleBudget = TVPGetGraphicCacheLimit();
+    if(!oldStyleBudget)
+        oldStyleBudget = TVPGraphicCacheSystemLimit;
+    if(!oldStyleBudget)
+        oldStyleBudget = MaxManagedTextureTotalBytes;
+    return std::min<uint64_t>(oldStyleBudget, MaxManagedTextureTotalBytes);
+}
+
 bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
     if(!width || !height)
         return false;
+
+    const uint64_t totalBudgetBytes = GetManagedTextureTotalBudgetBytes();
 
     if(!LoggedTextureBudget) {
         LoggedTextureBudget = true;
@@ -122,14 +134,16 @@ bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
                   ttstr(static_cast<int>(MaxManagedTextureBytes /
                                          (1024 * 1024))) +
                   TJS_W("MB total=") +
-                  ttstr(static_cast<int>(MaxManagedTextureTotalBytes /
+                  ttstr(static_cast<int>(totalBudgetBytes / (1024 * 1024))) +
+                  TJS_W("MB oldStyleLimit=") +
+                  ttstr(static_cast<int>(TVPGetGraphicCacheLimit() /
                                          (1024 * 1024))) +
                   TJS_W("MB"));
     }
 
     const uint64_t bytes = static_cast<uint64_t>(width) * height * 4;
     if(bytes <= MaxManagedTextureBytes &&
-       TextureUploadBytes + bytes <= MaxManagedTextureTotalBytes)
+       TextureUploadBytes + bytes <= totalBudgetBytes)
         return true;
 
     ++TextureUploadSkipCount;
