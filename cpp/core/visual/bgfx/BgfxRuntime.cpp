@@ -23,6 +23,7 @@ bool Requested = false;
 uint32_t BackbufferWidth = 1;
 uint32_t BackbufferHeight = 1;
 uint32_t TextureUploadCount = 0;
+uint32_t TextureUploadSkipCount = 0;
 
 #if defined(KIRIKIRI_HAS_BGFX)
 constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
@@ -97,6 +98,28 @@ bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
     default:
         return false;
     }
+}
+
+bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
+    if(!width || !height)
+        return false;
+#if defined(__ANDROID__)
+    constexpr uint32_t MaxAndroidStagedTexturePixels = 1024 * 1024;
+    if(width > 1024 || height > 1024 ||
+       width * height > MaxAndroidStagedTexturePixels) {
+        ++TextureUploadSkipCount;
+        if(TextureUploadSkipCount <= 8 || TextureUploadSkipCount == 16 ||
+           TextureUploadSkipCount == 32 ||
+           (TextureUploadSkipCount % 256) == 0) {
+            TVPAddLog(TJS_W("[renderer] bgfx texture upload skipped large #") +
+                      ttstr(static_cast<int>(TextureUploadSkipCount)) +
+                      TJS_W(" ") + ttstr(static_cast<int>(width)) + TJS_W("x") +
+                      ttstr(static_cast<int>(height)));
+        }
+        return false;
+    }
+#endif
+    return true;
 }
 
 bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
@@ -182,6 +205,8 @@ uint16_t CreateTexture2D(uint32_t width, uint32_t height, const void *pixel,
 #if defined(KIRIKIRI_HAS_BGFX)
     if(!Ready)
         return InvalidTextureHandle;
+    if(!ShouldStageTextureUpload(width, height))
+        return InvalidTextureHandle;
     std::vector<uint8_t> rgba;
     if(!CopyAsRgba8(rgba, width, height, pixel, pitch, format))
         return InvalidTextureHandle;
@@ -211,6 +236,8 @@ void UpdateTexture2D(uint16_t handle, uint32_t width, uint32_t height,
     std::lock_guard<std::mutex> lock(RuntimeMutex);
     bgfx::TextureHandle texture{handle};
     if(!Ready || !bgfx::isValid(texture))
+        return;
+    if(!ShouldStageTextureUpload(width, height))
         return;
     std::vector<uint8_t> rgba;
     if(!CopyAsRgba8(rgba, width, height, pixel, pitch, format))
@@ -377,6 +404,7 @@ void Shutdown() {
     SoftwareFrameTexture = InvalidTextureHandle;
     SoftwareFrameWidth = 0;
     SoftwareFrameHeight = 0;
+    TextureUploadSkipCount = 0;
     FrameUploadCount = 0;
     RectBatchCount = 0;
     TriangleBatchCount = 0;
