@@ -20,6 +20,7 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 namespace {
 
@@ -272,6 +273,31 @@ void UploadSDLSoftwareFrameToBgfx(SDL_Surface *surface) {
     TVPBgfx::UploadSoftwareFrame(static_cast<uint32_t>(surface->w),
                                  static_cast<uint32_t>(surface->h),
                                  surface->pixels, surface->pitch, 4);
+}
+
+void UploadCurrentSDLSurfaceMirrorToBgfx() {
+    std::vector<tjs_uint8> pixels;
+    int width = 0;
+    int height = 0;
+    int pitch = 0;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        SDL_Surface *surface = gSDLSurfaceMirrorState.surface;
+        if(!surface || !surface->pixels || surface->w <= 0 || surface->h <= 0 ||
+           surface->pitch <= 0)
+            return;
+
+        width = surface->w;
+        height = surface->h;
+        pitch = surface->pitch;
+        pixels.resize(static_cast<size_t>(pitch) * height);
+        std::memcpy(pixels.data(), surface->pixels, pixels.size());
+    }
+
+    TVPBgfx::UploadSoftwareFrame(static_cast<uint32_t>(width),
+                                 static_cast<uint32_t>(height), pixels.data(),
+                                 pitch, 4);
 }
 
 void DestroySDLScreenTextureLocked() {
@@ -1436,6 +1462,10 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         unionRect = gSDLBitmapCompletionState.unionRect;
         hasUnion = gSDLBitmapCompletionState.hasUnion;
         gSDLBitmapCompletionState.active = false;
+    }
+
+    if(surfaceCopied > 0) {
+        UploadCurrentSDLSurfaceMirrorToBgfx();
     }
 
     if(TVPSDLIsScreenTakeoverEnabled()) {
