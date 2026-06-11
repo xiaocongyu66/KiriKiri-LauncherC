@@ -17,10 +17,9 @@ public:
         iTVPTexture2D(software ? software->GetWidth() : 0,
                       software ? software->GetHeight() : 0),
         Software(software) {
-        if(pixel)
-            Upload(pixel, pitch, format);
-        else
-            UploadFromSoftware();
+        (void)pixel;
+        (void)pitch;
+        (void)format;
     }
 
     ~tTVPBgfxTexture2D() override {
@@ -62,10 +61,8 @@ public:
         return Software ? Software->GetPoint(x, y) : 0;
     }
     void SetPoint(int x, int y, uint32_t color) override {
-        if(Software) {
+        if(Software)
             Software->SetPoint(x, y, color);
-            UploadFromSoftware();
-        }
     }
     bool IsStatic() override { return Software ? Software->IsStatic() : false; }
     bool IsOpaque() override { return Software ? Software->IsOpaque() : false; }
@@ -89,32 +86,11 @@ public:
 
     void Update(const void *pixel, TVPTextureFormat::e format, int pitch,
                 const tTVPRect &rect) override {
-        if(Software) {
+        if(Software)
             Software->Update(pixel, format, pitch, rect);
-            UploadFromSoftware();
-        }
     }
 
 private:
-    void Upload(const void *pixel, int pitch, TVPTextureFormat::e format) {
-        if(!pixel || pitch <= 0)
-            return;
-        if(BgfxHandle == InvalidBgfxTextureHandle) {
-            BgfxHandle = TVPBgfx::CreateTexture2D(GetWidth(), GetHeight(), pixel,
-                                                  pitch, static_cast<int>(format));
-        } else {
-            TVPBgfx::UpdateTexture2D(BgfxHandle, GetWidth(), GetHeight(), pixel,
-                                     pitch, static_cast<int>(format));
-        }
-    }
-
-    void UploadFromSoftware() {
-        if(!Software)
-            return;
-        Upload(Software->GetPixelData(), Software->GetPitch(),
-               Software->GetPixelDataFormat());
-    }
-
     iTVPTexture2D *Software = nullptr;
     uint16_t BgfxHandle = InvalidBgfxTextureHandle;
 };
