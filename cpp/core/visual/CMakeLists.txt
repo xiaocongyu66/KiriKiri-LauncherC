@@ -39,7 +39,8 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/BitmapIntf.cpp
     ${VISUAL_PATH}/argb.cpp
     ${CORE_PATH}/render/bgfx/BgfxRuntime.cpp
-    ${CORE_PATH}/render/bgfx/RenderManager_bgfx_vk.cpp
+    ${CORE_PATH}/render/bgfx/TVPBgfxTextureAdapter.cpp
+    ${CORE_PATH}/render/bgfx/TVPBgfxRenderManager.cpp
 
     ${VISUAL_PATH}/gl/blend_function.cpp
     ${VISUAL_PATH}/gl/ResampleImage.cpp

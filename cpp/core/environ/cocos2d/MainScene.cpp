@@ -15,6 +15,7 @@
 #include "Random.h"
 #include "UtilStreams.h"
 #include "vkdefine.h"
+#include "render/bgfx/BgfxRuntime.h"
 #include "base/CCEventListenerController.h"
 #include "base/CCController.h"
 #include "ConfigManager/IndividualConfigManager.h"
@@ -2436,6 +2437,8 @@ void TVPCheckRuntimeMemoryPressure() {
     if(TVPGetRenderManager())
         TVPGetRenderManager()->GetRenderStat(drawCount, renderMemoryBytes);
     const tjs_uint graphicCacheBytes = TVPGetGraphicCacheTotalBytes();
+    const uint64_t bgfxTextureBytes = TVPBgfx::GetManagedTextureBytes();
+    const uint64_t bgfxBudgetBytes = TVPBgfx::GetManagedTextureBudgetBytes();
     TVPAddLog(TJS_W("[memory] runtime pressure compact level=") +
               ttstr(static_cast<int>(level)) + TJS_W(" self=") +
               ttstr(static_cast<int>(selfUsedMb)) + TJS_W("MB free=") +
@@ -2443,6 +2446,10 @@ void TVPCheckRuntimeMemoryPressure() {
               ttstr(static_cast<int>(renderMemoryBytes / (1024 * 1024))) +
               TJS_W("MB graphicCache=") +
               ttstr(static_cast<int>(graphicCacheBytes / (1024 * 1024))) +
+              TJS_W("MB bgfx=") +
+              ttstr(static_cast<int>(bgfxTextureBytes / (1024 * 1024))) +
+              TJS_W("/") +
+              ttstr(static_cast<int>(bgfxBudgetBytes / (1024 * 1024))) +
               TJS_W("MB"));
     TVPDeliverCompactEvent(level);
     TVPClearStorageCaches();

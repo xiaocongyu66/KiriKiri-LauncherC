@@ -387,6 +387,16 @@ void DestroyTexture2D(uint16_t handle) {
 #endif
 }
 
+uint64_t GetManagedTextureBytes() {
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    return TextureUploadBytes;
+}
+
+uint64_t GetManagedTextureBudgetBytes() {
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    return GetManagedTextureTotalBudgetBytes();
+}
+
 void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
                          int pitch, int format) {
 #if defined(KIRIKIRI_HAS_BGFX)
