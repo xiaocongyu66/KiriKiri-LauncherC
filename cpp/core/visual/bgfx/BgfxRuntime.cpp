@@ -34,6 +34,7 @@ uint32_t FrameUploadCount = 0;
 uint16_t SoftwareFrameTexture = InvalidTextureHandle;
 uint32_t SoftwareFrameWidth = 0;
 uint32_t SoftwareFrameHeight = 0;
+uint32_t RectBatchCount = 0;
 uint32_t TriangleBatchCount = 0;
 
 struct tTVPBgfxVertex {
@@ -44,6 +45,7 @@ struct tTVPBgfxVertex {
 };
 
 std::vector<tTVPBgfxVertex> StagedTriangleVertices;
+std::array<tTVPBgfxVertex, 6> StagedRectVertices;
 std::array<tTVPBgfxVertex, 6> SoftwareFrameQuad;
 
 #if defined(KIRIKIRI_HAS_BGFX)
@@ -297,6 +299,33 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
 #endif
 }
 
+void StageRectBatch(int targetLeft, int targetTop, int targetWidth,
+                    int targetHeight, uint32_t textureCount) {
+    if(targetWidth <= 0 || targetHeight <= 0)
+        return;
+
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    StagedRectVertices = {
+        tTVPBgfxVertex{ -1.0f, -1.0f, 0.0f, 0.0f },
+        tTVPBgfxVertex{ 1.0f, -1.0f, 1.0f, 0.0f },
+        tTVPBgfxVertex{ -1.0f, 1.0f, 0.0f, 1.0f },
+        tTVPBgfxVertex{ 1.0f, -1.0f, 1.0f, 0.0f },
+        tTVPBgfxVertex{ -1.0f, 1.0f, 0.0f, 1.0f },
+        tTVPBgfxVertex{ 1.0f, 1.0f, 1.0f, 1.0f },
+    };
+
+    ++RectBatchCount;
+    if(RectBatchCount <= 8 || RectBatchCount == 16 ||
+       RectBatchCount == 32 || (RectBatchCount % 256) == 0) {
+        TVPAddLog(TJS_W("[renderer] bgfx rect batch staged #") +
+                  ttstr(static_cast<int>(RectBatchCount)) + TJS_W(" rect=") +
+                  ttstr(targetLeft) + TJS_W(",") + ttstr(targetTop) +
+                  TJS_W(",") + ttstr(targetWidth) + TJS_W("x") +
+                  ttstr(targetHeight) + TJS_W(" textures=") +
+                  ttstr(static_cast<int>(textureCount)));
+    }
+}
+
 void StageTriangleBatch(uint32_t nTriangles, int clipLeft, int clipTop,
                         int clipWidth, int clipHeight,
                         const double *targetPointsXY) {
@@ -347,6 +376,7 @@ void Shutdown() {
     SoftwareFrameWidth = 0;
     SoftwareFrameHeight = 0;
     FrameUploadCount = 0;
+    RectBatchCount = 0;
     TriangleBatchCount = 0;
     StagedTriangleVertices.clear();
     Ready = false;

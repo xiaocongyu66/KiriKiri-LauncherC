@@ -150,6 +150,9 @@ public:
     void OperateRect(iTVPRenderMethod *method, iTVPTexture2D *target,
                      iTVPTexture2D *refTarget, const tTVPRect &targetRect,
                      const tRenderTexRectArray &textures) override {
+        TVPBgfx::StageRectBatch(targetRect.left, targetRect.top,
+                                targetRect.get_width(), targetRect.get_height(),
+                                static_cast<uint32_t>(textures.size()));
         Software->OperateRect(method, target, refTarget, targetRect, textures);
     }
 
