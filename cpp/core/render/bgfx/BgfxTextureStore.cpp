@@ -12,9 +12,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include <oneapi/tbb/blocked_range.h>
-#include <oneapi/tbb/parallel_for.h>
-
 namespace TVPBgfx {
 namespace {
 
@@ -27,8 +24,6 @@ std::unordered_map<uint16_t, uint32_t> TextureUploadSizes;
 
 constexpr uint32_t MaxManagedTextureBytes = 10 * 1024 * 1024;
 constexpr uint64_t MaxManagedTextureTotalBytes = 256 * 1024 * 1024;
-constexpr uint32_t ParallelTextureConvertPixels = 512 * 1024;
-
 #if defined(KIRIKIRI_HAS_BGFX)
 constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
 #else
@@ -45,17 +40,8 @@ bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
     out.resize(pixelCount * 4);
 
     auto forEachRow = [&](const auto &convertRow) {
-        if(pixelCount >= ParallelTextureConvertPixels) {
-            oneapi::tbb::parallel_for(
-                oneapi::tbb::blocked_range<uint32_t>(0, height),
-                [&](const oneapi::tbb::blocked_range<uint32_t> &range) {
-                    for(uint32_t row = range.begin(); row != range.end(); ++row)
-                        convertRow(row);
-                });
-        } else {
-            for(uint32_t row = 0; row < height; ++row)
-                convertRow(row);
-        }
+        for(uint32_t row = 0; row < height; ++row)
+            convertRow(row);
     };
 
     switch(format) {
