@@ -4,8 +4,6 @@
 
 #include <vector>
 
-namespace {
-
 class tTVPBgfxVulkanRenderManager : public iTVPRenderManager {
 public:
     tTVPBgfxVulkanRenderManager() : Software(TVPGetSoftwareRenderManager()) {
@@ -127,5 +125,3 @@ void TVPRegisterBgfxVulkanRenderManager() {
     TVPRegisterRenderManager("vulkan", TVPCreateBgfxVulkanRenderManager);
     TVPRegisterRenderManager("bgfx-vk", TVPCreateBgfxVulkanRenderManager);
 }
-
-} // namespace
