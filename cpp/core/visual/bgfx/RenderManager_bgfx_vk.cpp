@@ -4,6 +4,7 @@
 #include "MsgIntf.h"
 
 #include <cstdint>
+#include <vector>
 
 namespace {
 
@@ -156,6 +157,18 @@ public:
                           iTVPTexture2D *target, iTVPTexture2D *refTarget,
                           const tTVPRect &clipRect, const tTVPPointD *targetPoints,
                           const tRenderTexQuadArray &textures) override {
+        if(nTriangles > 0 && targetPoints && clipRect.get_width() > 0 &&
+           clipRect.get_height() > 0) {
+            const int pointCount = nTriangles * 3;
+            std::vector<double> points(static_cast<size_t>(pointCount) * 2);
+            for(int i = 0; i < pointCount; ++i) {
+                points[static_cast<size_t>(i) * 2 + 0] = targetPoints[i].x;
+                points[static_cast<size_t>(i) * 2 + 1] = targetPoints[i].y;
+            }
+            TVPBgfx::StageTriangleBatch(
+                static_cast<uint32_t>(nTriangles), clipRect.left, clipRect.top,
+                clipRect.get_width(), clipRect.get_height(), points.data());
+        }
         Software->OperateTriangles(method, nTriangles, target, refTarget, clipRect, targetPoints, textures);
     }
 

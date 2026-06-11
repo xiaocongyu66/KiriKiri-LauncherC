@@ -8,6 +8,7 @@
 #endif
 
 #include <algorithm>
+#include <array>
 #include <cstring>
 #include <mutex>
 #include <vector>
@@ -33,6 +34,21 @@ uint32_t FrameUploadCount = 0;
 uint16_t SoftwareFrameTexture = InvalidTextureHandle;
 uint32_t SoftwareFrameWidth = 0;
 uint32_t SoftwareFrameHeight = 0;
+uint32_t TriangleBatchCount = 0;
+
+struct tTVPBgfxVertex {
+    float x = 0.0f;
+    float y = 0.0f;
+    float u = 0.0f;
+    float v = 0.0f;
+};
+
+std::vector<tTVPBgfxVertex> StagedTriangleVertices;
+std::array<tTVPBgfxVertex, 6> SoftwareFrameQuad;
+
+#if defined(KIRIKIRI_HAS_BGFX)
+bgfx::VertexLayout ScreenVertexLayout;
+#endif
 
 bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
                  const void *pixel, int pitch, int format) {
@@ -99,6 +115,12 @@ bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
     init.platformData.nwh = NativeWindow;
 
     Ready = bgfx::init(init);
+    if(Ready) {
+        ScreenVertexLayout.begin()
+            .add(bgfx::Attrib::Position, 2, bgfx::AttribType::Float)
+            .add(bgfx::Attrib::TexCoord0, 2, bgfx::AttribType::Float)
+            .end();
+    }
     TVPAddLog(Ready
                   ? TJS_W("[renderer] bgfx Vulkan runtime initialized; TVP compositing migration is staged and currently delegates to the software path.")
                   : TJS_W("[renderer] bgfx Vulkan runtime initialization failed; delegating to the software path."));
@@ -107,6 +129,19 @@ bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
     TVPAddLog(TJS_W("[renderer] bgfx Vulkan renderer selected; bgfx runtime is not compiled in and compositing delegates to the software path."));
     return false;
 #endif
+}
+
+void StageSoftwareFrameQuadLocked(uint32_t width, uint32_t height) {
+    (void)width;
+    (void)height;
+    SoftwareFrameQuad = {
+        tTVPBgfxVertex{ -1.0f, -1.0f, 0.0f, 0.0f },
+        tTVPBgfxVertex{ 1.0f, -1.0f, 1.0f, 0.0f },
+        tTVPBgfxVertex{ -1.0f, 1.0f, 0.0f, 1.0f },
+        tTVPBgfxVertex{ 1.0f, -1.0f, 1.0f, 0.0f },
+        tTVPBgfxVertex{ -1.0f, 1.0f, 0.0f, 1.0f },
+        tTVPBgfxVertex{ 1.0f, 1.0f, 1.0f, 1.0f },
+    };
 }
 
 } // namespace
@@ -240,6 +275,8 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
             memory);
     }
 
+    StageSoftwareFrameQuadLocked(width, height);
+
     bgfx::touch(0);
     bgfx::frame();
 
@@ -260,6 +297,41 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
 #endif
 }
 
+void StageTriangleBatch(uint32_t nTriangles, int clipLeft, int clipTop,
+                        int clipWidth, int clipHeight,
+                        const double *targetPointsXY) {
+    if(!nTriangles || clipWidth <= 0 || clipHeight <= 0 || !targetPointsXY)
+        return;
+
+    const uint32_t pointCount = nTriangles * 3;
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    StagedTriangleVertices.resize(pointCount);
+    const float clipWidthFloat = static_cast<float>(clipWidth);
+    const float clipHeightFloat = static_cast<float>(clipHeight);
+    const float clipLeftFloat = static_cast<float>(clipLeft);
+    const float clipTopFloat = static_cast<float>(clipTop);
+    for(uint32_t i = 0; i < pointCount; ++i) {
+        const float x = static_cast<float>(targetPointsXY[i * 2 + 0]);
+        const float y = static_cast<float>(targetPointsXY[i * 2 + 1]);
+        StagedTriangleVertices[i].x =
+            ((x - clipLeftFloat) / clipWidthFloat - 0.5f) * 2.0f;
+        StagedTriangleVertices[i].y =
+            ((y - clipTopFloat) / clipHeightFloat - 0.5f) * 2.0f;
+        StagedTriangleVertices[i].u = (x - clipLeftFloat) / clipWidthFloat;
+        StagedTriangleVertices[i].v = (y - clipTopFloat) / clipHeightFloat;
+    }
+
+    ++TriangleBatchCount;
+    if(TriangleBatchCount <= 8 || TriangleBatchCount == 16 ||
+       TriangleBatchCount == 32 || (TriangleBatchCount % 256) == 0) {
+        TVPAddLog(TJS_W("[renderer] bgfx triangle batch staged #") +
+                  ttstr(static_cast<int>(TriangleBatchCount)) +
+                  TJS_W(" tris=") + ttstr(static_cast<int>(nTriangles)) +
+                  TJS_W(" clip=") + ttstr(clipWidth) + TJS_W("x") +
+                  ttstr(clipHeight));
+    }
+}
+
 void Shutdown() {
     std::lock_guard<std::mutex> lock(RuntimeMutex);
 #if defined(KIRIKIRI_HAS_BGFX)
@@ -275,6 +347,8 @@ void Shutdown() {
     SoftwareFrameWidth = 0;
     SoftwareFrameHeight = 0;
     FrameUploadCount = 0;
+    TriangleBatchCount = 0;
+    StagedTriangleVertices.clear();
     Ready = false;
     Requested = false;
 }

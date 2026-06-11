@@ -15,6 +15,9 @@ void UpdateTexture2D(uint16_t handle, uint32_t width, uint32_t height,
 void DestroyTexture2D(uint16_t handle);
 void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
                          int pitch, int format);
+void StageTriangleBatch(uint32_t nTriangles, int clipLeft, int clipTop,
+                        int clipWidth, int clipHeight,
+                        const double *targetPointsXY);
 void Shutdown();
 
 } // namespace TVPBgfx
