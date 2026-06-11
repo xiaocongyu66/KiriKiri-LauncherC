@@ -30,6 +30,8 @@ public:
             Software->Release();
     }
 
+    iTVPTexture2D *GetSoftwareTexture() const { return Software; }
+
     void SetSize(unsigned int w, unsigned int h) override {
         iTVPTexture2D::SetSize(w, h);
         if(Software)
@@ -40,30 +42,57 @@ public:
         }
     }
 
-    TVPTextureFormat::e GetFormat() const override { return Software->GetFormat(); }
-    const void *GetScanLineForRead(tjs_uint line) override { return Software->GetScanLineForRead(line); }
-    const void *GetPixelData() override { return Software->GetPixelData(); }
-    TVPTextureFormat::e GetPixelDataFormat() const override { return Software->GetPixelDataFormat(); }
-    void *GetScanLineForWrite(tjs_uint line) override { return Software->GetScanLineForWrite(line); }
-    tjs_int GetPitch() const override { return Software->GetPitch(); }
-    uint32_t GetPoint(int x, int y) override { return Software->GetPoint(x, y); }
+    TVPTextureFormat::e GetFormat() const override {
+        return Software ? Software->GetFormat() : TVPTextureFormat::None;
+    }
+    const void *GetScanLineForRead(tjs_uint line) override {
+        return Software ? Software->GetScanLineForRead(line) : nullptr;
+    }
+    const void *GetPixelData() override {
+        return Software ? Software->GetPixelData() : nullptr;
+    }
+    TVPTextureFormat::e GetPixelDataFormat() const override {
+        return Software ? Software->GetPixelDataFormat() : TVPTextureFormat::None;
+    }
+    void *GetScanLineForWrite(tjs_uint line) override {
+        return Software ? Software->GetScanLineForWrite(line) : nullptr;
+    }
+    tjs_int GetPitch() const override { return Software ? Software->GetPitch() : 0; }
+    uint32_t GetPoint(int x, int y) override {
+        return Software ? Software->GetPoint(x, y) : 0;
+    }
     void SetPoint(int x, int y, uint32_t color) override {
-        Software->SetPoint(x, y, color);
-        UploadFromSoftware();
+        if(Software) {
+            Software->SetPoint(x, y, color);
+            UploadFromSoftware();
+        }
     }
-    bool IsStatic() override { return Software->IsStatic(); }
-    bool IsOpaque() override { return Software->IsOpaque(); }
+    bool IsStatic() override { return Software ? Software->IsStatic() : false; }
+    bool IsOpaque() override { return Software ? Software->IsOpaque() : false; }
     cocos2d::Texture2D *GetAdapterTexture(cocos2d::Texture2D *origTex) override {
-        return Software->GetAdapterTexture(origTex);
+        return Software ? Software->GetAdapterTexture(origTex) : origTex;
     }
-    bool GetScale(float &x, float &y) override { return Software->GetScale(x, y); }
-    unsigned int GetNativeGLTextureId() const override { return Software->GetNativeGLTextureId(); }
-    void InvalidatePixelCache() override { Software->InvalidatePixelCache(); }
+    bool GetScale(float &x, float &y) override {
+        if(Software)
+            return Software->GetScale(x, y);
+        x = 1.0f;
+        y = 1.0f;
+        return false;
+    }
+    unsigned int GetNativeGLTextureId() const override {
+        return Software ? Software->GetNativeGLTextureId() : 0;
+    }
+    void InvalidatePixelCache() override {
+        if(Software)
+            Software->InvalidatePixelCache();
+    }
 
     void Update(const void *pixel, TVPTextureFormat::e format, int pitch,
                 const tTVPRect &rect) override {
-        Software->Update(pixel, format, pitch, rect);
-        UploadFromSoftware();
+        if(Software) {
+            Software->Update(pixel, format, pitch, rect);
+            UploadFromSoftware();
+        }
     }
 
 private:
@@ -93,7 +122,36 @@ private:
 iTVPTexture2D *WrapBgfxTexture(iTVPTexture2D *software, const void *pixel = nullptr,
                                int pitch = 0,
                                TVPTextureFormat::e format = TVPTextureFormat::None) {
+    if(!software)
+        return nullptr;
     return new tTVPBgfxTexture2D(software, pixel, pitch, format);
+}
+
+iTVPTexture2D *UnwrapBgfxTexture(iTVPTexture2D *texture) {
+    auto *bgfxTexture = dynamic_cast<tTVPBgfxTexture2D *>(texture);
+    if(bgfxTexture && bgfxTexture->GetSoftwareTexture())
+        return bgfxTexture->GetSoftwareTexture();
+    return texture;
+}
+
+tRenderTexRectArray UnwrapRectTextures(
+    const tRenderTexRectArray &textures,
+    std::vector<tRenderTexRectArray::Element> &storage) {
+    storage.clear();
+    storage.reserve(textures.size());
+    for(size_t i = 0; i < textures.size(); ++i)
+        storage.emplace_back(UnwrapBgfxTexture(textures[i].first), textures[i].second);
+    return tRenderTexRectArray(storage.data(), storage.size());
+}
+
+tRenderTexQuadArray UnwrapQuadTextures(
+    const tRenderTexQuadArray &textures,
+    std::vector<tRenderTexQuadArray::Element> &storage) {
+    storage.clear();
+    storage.reserve(textures.size());
+    for(size_t i = 0; i < textures.size(); ++i)
+        storage.emplace_back(UnwrapBgfxTexture(textures[i].first), textures[i].second);
+    return tRenderTexQuadArray(storage.data(), storage.size());
 }
 
 } // namespace
@@ -126,7 +184,8 @@ public:
 
     iTVPTexture2D *CreateTexture2D(unsigned int neww, unsigned int newh,
                                    iTVPTexture2D *tex) override {
-        return WrapBgfxTexture(Software->CreateTexture2D(neww, newh, tex));
+        return WrapBgfxTexture(
+            Software->CreateTexture2D(neww, newh, UnwrapBgfxTexture(tex)));
     }
 
     iTVPRenderMethod *GetRenderMethod(const char *name, uint32_t *hint = nullptr) override {
@@ -137,9 +196,17 @@ public:
         return Software->GetRenderStat(drawCount, vmemsize);
     }
 
-    void BeginStencil(iTVPTexture2D *reftex) override { Software->BeginStencil(reftex); }
+    bool GetTextureStat(iTVPTexture2D *texture, uint64_t &vmemsize) override {
+        return Software->GetTextureStat(UnwrapBgfxTexture(texture), vmemsize);
+    }
+
+    void BeginStencil(iTVPTexture2D *reftex) override {
+        Software->BeginStencil(UnwrapBgfxTexture(reftex));
+    }
     void EndStencil() override { Software->EndStencil(); }
-    void SetRenderTarget(iTVPTexture2D *target) override { Software->SetRenderTarget(target); }
+    void SetRenderTarget(iTVPTexture2D *target) override {
+        Software->SetRenderTarget(UnwrapBgfxTexture(target));
+    }
 
     int EnumParameterID(const char *name) override { return Software->EnumParameterID(name); }
     void SetParameterUInt(int id, unsigned int value) override { Software->SetParameterUInt(id, value); }
@@ -155,7 +222,11 @@ public:
                                 targetRect.top, targetRect.get_width(),
                                 targetRect.get_height(),
                                 static_cast<uint32_t>(textures.size()));
-        Software->OperateRect(method, target, refTarget, targetRect, textures);
+        std::vector<tRenderTexRectArray::Element> unwrappedStorage;
+        auto unwrappedTextures = UnwrapRectTextures(textures, unwrappedStorage);
+        Software->OperateRect(method, UnwrapBgfxTexture(target),
+                              UnwrapBgfxTexture(refTarget), targetRect,
+                              unwrappedTextures);
     }
 
     void OperateTriangles(iTVPRenderMethod *method, int nTriangles,
@@ -176,14 +247,22 @@ public:
                 clipRect.top, clipRect.get_width(), clipRect.get_height(),
                 points.data());
         }
-        Software->OperateTriangles(method, nTriangles, target, refTarget, clipRect, targetPoints, textures);
+        std::vector<tRenderTexQuadArray::Element> unwrappedStorage;
+        auto unwrappedTextures = UnwrapQuadTextures(textures, unwrappedStorage);
+        Software->OperateTriangles(method, nTriangles, UnwrapBgfxTexture(target),
+                                   UnwrapBgfxTexture(refTarget), clipRect,
+                                   targetPoints, unwrappedTextures);
     }
 
     void OperatePerspective(iTVPRenderMethod *method, int nQuads,
                             iTVPTexture2D *target, iTVPTexture2D *refTarget,
                             const tTVPRect &clipRect, const tTVPPointD *targetPoints,
                             const tRenderTexQuadArray &textures) override {
-        Software->OperatePerspective(method, nQuads, target, refTarget, clipRect, targetPoints, textures);
+        std::vector<tRenderTexQuadArray::Element> unwrappedStorage;
+        auto unwrappedTextures = UnwrapQuadTextures(textures, unwrappedStorage);
+        Software->OperatePerspective(method, nQuads, UnwrapBgfxTexture(target),
+                                     UnwrapBgfxTexture(refTarget), clipRect,
+                                     targetPoints, unwrappedTextures);
     }
 
 private:
