@@ -1596,25 +1596,31 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                                     int frameWidth, int frameHeight,
                                     int sceneWidth, int sceneHeight) {
     TVPSDLInitializeRuntime();
+    bool effectiveEnabled = enabled;
+#if defined(__ANDROID__) && !defined(KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW)
+    if(enabled)
+        effectiveEnabled = false;
+#endif
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-        gSDLScreenPresenterState.takeoverEnabled = enabled;
+        gSDLScreenPresenterState.takeoverEnabled = effectiveEnabled;
         gSDLScreenPresenterState.frameWidth = frameWidth;
         gSDLScreenPresenterState.frameHeight = frameHeight;
         gSDLScreenPresenterState.sceneWidth = sceneWidth;
         gSDLScreenPresenterState.sceneHeight = sceneHeight;
-        if(!enabled) {
+        if(!effectiveEnabled) {
             DestroySDLScreenPresenterLocked();
         }
     }
 
     const Uint32 initialized = SDL_WasInit(0);
-    char message[384];
+    char message[512];
     std::snprintf(message, sizeof(message),
-                  "takeover enabled=%d reason=%s frame=%dx%d scene=%dx%d "
-                  "events=%d video=%d audio=%d ticks=%u",
-                  enabled ? 1 : 0, reason ? reason : "", frameWidth,
-                  frameHeight, sceneWidth, sceneHeight,
+                  "takeover enabled=%d requested=%d reason=%s frame=%dx%d "
+                  "scene=%dx%d events=%d video=%d audio=%d ticks=%u",
+                  effectiveEnabled ? 1 : 0, enabled ? 1 : 0,
+                  reason ? reason : "", frameWidth, frameHeight, sceneWidth,
+                  sceneHeight,
                   (initialized & SDL_INIT_EVENTS) ? 1 : 0,
                   (initialized & SDL_INIT_VIDEO) ? 1 : 0,
                   (initialized & SDL_INIT_AUDIO) ? 1 : 0,
