@@ -169,6 +169,52 @@ void RunOnCocosThread(const std::function<void()> &task) {
     Application->PostUserMessage(task);
 }
 
+template <typename TResult>
+TResult RunOnCocosThreadSync(const std::function<TResult()> &task,
+                             TResult timeoutValue) {
+    if(TVPMainThreadID == std::this_thread::get_id())
+        return task();
+
+    auto *director = cocos2d::Director::getInstance();
+    auto *scheduler = director ? director->getScheduler() : nullptr;
+    if(!scheduler)
+        return task();
+
+    auto promise = std::make_shared<std::promise<TResult>>();
+    auto future = promise->get_future();
+    scheduler->performFunctionInCocosThread([promise, task]() {
+        promise->set_value(task());
+    });
+    if(future.wait_for(std::chrono::milliseconds(1500)) !=
+       std::future_status::ready) {
+        TVPAddLog(TJS_W("[flutter-menu] cocos thread request timed out"));
+        return timeoutValue;
+    }
+    return future.get();
+}
+
+int ActivateMenuItemOnCocosThread(const std::string &path) {
+    if(path.empty())
+        return -1;
+
+    return RunOnCocosThreadSync<int>([path]() {
+        tTJSNI_MenuItem *root = GetActiveRootMenu();
+        if(!root) {
+            TVPAddLog(TJS_W("[flutter-menu] activate failed: root menu is not available"));
+            return -2;
+        }
+        tTJSNI_MenuItem *item = FindMenuItem(root, ParsePath(path.c_str()));
+        if(!item) {
+            TVPAddLog(TJS_W("[flutter-menu] activate failed: menu item not found path=") +
+                      ttstr(path.c_str()));
+            return -3;
+        }
+        item->OnClick();
+        TVPAddLog(TJS_W("[flutter-menu] activated path=") + ttstr(path.c_str()));
+        return 0;
+    }, -4);
+}
+
 std::string BuildMainMenuJson() {
     tTJSNI_MenuItem *root = GetActiveRootMenu();
     if(!root) {
@@ -203,22 +249,8 @@ std::string BuildMainMenuJson() {
 }
 
 std::string BuildMainMenuJsonOnCocosThread() {
-    if(TVPMainThreadID == std::this_thread::get_id())
-        return BuildMainMenuJson();
-
-    auto *director = cocos2d::Director::getInstance();
-    auto *scheduler = director ? director->getScheduler() : nullptr;
-    if(!scheduler)
-        return BuildMainMenuJson();
-
-    auto promise = std::make_shared<std::promise<std::string>>();
-    auto future = promise->get_future();
-    scheduler->performFunctionInCocosThread([promise]() {
-        promise->set_value(BuildMainMenuJson());
-    });
-    if(future.wait_for(std::chrono::milliseconds(750)) != std::future_status::ready)
-        return "[]";
-    return future.get();
+    return RunOnCocosThreadSync<std::string>([]() { return BuildMainMenuJson(); },
+                                             "[]");
 }
 
 } // namespace
@@ -240,24 +272,13 @@ bool TVPShowFlutterGameMainMenu() {
 }
 
 extern "C" const char *KR2LauncherGetMainMenuJson() {
-    LastMenuJson = BuildMainMenuJson();
+    LastMenuJson = BuildMainMenuJsonOnCocosThread();
     return LastMenuJson.c_str();
 }
 
 extern "C" int KR2LauncherActivateMenuItem(const char *itemPathUtf8) {
     const std::string path = itemPathUtf8 ? itemPathUtf8 : "";
-    if(path.empty())
-        return -1;
-
-    RunOnCocosThread([path]() {
-        tTJSNI_MenuItem *root = GetActiveRootMenu();
-        if(!root)
-            return;
-        tTJSNI_MenuItem *item = FindMenuItem(root, ParsePath(path.c_str()));
-        if(item)
-            item->OnClick();
-    });
-    return 0;
+    return ActivateMenuItemOnCocosThread(path);
 }
 
 extern "C" int KR2LauncherLaunchGame(const char *gamePathUtf8) {
@@ -275,33 +296,33 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
     if(!actionNameUtf8 || !*actionNameUtf8)
         return -1;
 
-    auto *scene = TVPMainScene::GetInstance();
-    if(!scene)
-        return -2;
-
     if(IsOverlayAction(actionNameUtf8, "window-manager")) {
-        RunOnCocosThread([]() {
-            if(auto *scene = TVPMainScene::GetInstance())
-                scene->showWindowManagerOverlay(true);
-        });
-        return 0;
+        return RunOnCocosThreadSync<int>([]() {
+            auto *scene = TVPMainScene::GetInstance();
+            if(!scene)
+                return -2;
+            scene->showWindowManagerOverlay(true);
+            return 0;
+        }, -4);
     }
 
     if(IsOverlayAction(actionNameUtf8, "mouse-mode")) {
-        const bool nextMode = !scene->isVirtualMouseMode();
-        RunOnCocosThread([]() {
-            if(auto *scene = TVPMainScene::GetInstance())
-                scene->toggleVirtualMouseCursor();
-        });
-        return nextMode ? 1 : 0;
+        return RunOnCocosThreadSync<int>([]() {
+            auto *scene = TVPMainScene::GetInstance();
+            if(!scene)
+                return -2;
+            const bool nextMode = !scene->isVirtualMouseMode();
+            scene->toggleVirtualMouseCursor();
+            return nextMode ? 1 : 0;
+        }, -4);
     }
 
     if(IsOverlayAction(actionNameUtf8, "keyboard")) {
-        RunOnCocosThread([]() {
+        return RunOnCocosThreadSync<int>([]() {
             auto *director = cocos2d::Director::getInstance();
             auto *view = director ? director->getOpenGLView() : nullptr;
             if(!view)
-                return;
+                return -2;
             cocos2d::Size screenSize = view->getFrameSize();
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
             TVPShowIME(0, 0, screenSize.width, screenSize.height);
@@ -309,8 +330,8 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
             if(auto *scene = TVPMainScene::GetInstance())
                 scene->attachWithIME();
 #endif
-        });
-        return 0;
+            return 0;
+        }, -4);
     }
 
     if(IsOverlayAction(actionNameUtf8, "exit")) {
