@@ -37,6 +37,8 @@
 #include "ui/csd/CsdUIFactory.h"
 #include "sdl/SDLGameManager.h"
 
+#include <mimalloc.h>
+
 #if defined(__ANDROID__)
 #include <android/log.h>
 extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
@@ -2454,6 +2456,7 @@ void TVPCheckRuntimeMemoryPressure() {
     TVPDeliverCompactEvent(level);
     TVPClearStorageCaches();
     iTVPTexture2D::RecycleProcess();
+    mi_collect(level >= TVP_COMPACT_LEVEL_MAX);
 }
 } // namespace
 
