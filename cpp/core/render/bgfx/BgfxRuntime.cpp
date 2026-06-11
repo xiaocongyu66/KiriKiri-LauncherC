@@ -435,9 +435,8 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
 #endif
 }
 
-void StageRectBatch(const char *methodName, int targetLeft, int targetTop,
-                    int targetWidth, int targetHeight, uint32_t textureCount) {
-    if(targetWidth <= 0 || targetHeight <= 0)
+void SubmitRectBatch(const RectBatchCommand &command) {
+    if(command.targetWidth <= 0 || command.targetHeight <= 0)
         return;
 
     std::lock_guard<std::mutex> lock(RuntimeMutex);
@@ -455,36 +454,44 @@ void StageRectBatch(const char *methodName, int targetLeft, int targetTop,
        RectBatchCount == 32 || (RectBatchCount % 256) == 0) {
         TVPAddLog(TJS_W("[renderer] bgfx rect batch staged #") +
                   ttstr(static_cast<int>(RectBatchCount)) + TJS_W(" rect=") +
-                  ttstr(targetLeft) + TJS_W(",") + ttstr(targetTop) +
-                  TJS_W(",") + ttstr(targetWidth) + TJS_W("x") +
-                  ttstr(targetHeight) + TJS_W(" textures=") +
-                  ttstr(static_cast<int>(textureCount)) + TJS_W(" method=") +
-                  ttstr(methodName ? methodName : ""));
+                  ttstr(command.targetLeft) + TJS_W(",") +
+                  ttstr(command.targetTop) + TJS_W(",") +
+                  ttstr(command.targetWidth) + TJS_W("x") +
+                  ttstr(command.targetHeight) + TJS_W(" textures=") +
+                  ttstr(static_cast<int>(command.textureCount)) +
+                  TJS_W(" method=") +
+                  ttstr(command.methodName ? command.methodName : ""));
     }
 }
 
-void StageTriangleBatch(const char *methodName, uint32_t nTriangles,
-                        int clipLeft, int clipTop, int clipWidth,
-                        int clipHeight, const double *targetPointsXY) {
-    if(!nTriangles || clipWidth <= 0 || clipHeight <= 0 || !targetPointsXY)
+void StageRectBatch(const char *methodName, int targetLeft, int targetTop,
+                    int targetWidth, int targetHeight, uint32_t textureCount) {
+    SubmitRectBatch(RectBatchCommand{ methodName, targetLeft, targetTop,
+                                      targetWidth, targetHeight,
+                                      textureCount });
+}
+
+void SubmitTriangleBatch(const TriangleBatchCommand &command) {
+    if(!command.triangleCount || command.clipWidth <= 0 ||
+       command.clipHeight <= 0 || !command.targetPointsXY)
         return;
 
-    const uint32_t pointCount = nTriangles * 3;
+    const uint32_t pointCount = command.triangleCount * 3;
     std::lock_guard<std::mutex> lock(RuntimeMutex);
     StagedTriangleVertices.resize(pointCount);
-    const float clipWidthFloat = static_cast<float>(clipWidth);
-    const float clipHeightFloat = static_cast<float>(clipHeight);
-    const float clipLeftFloat = static_cast<float>(clipLeft);
-    const float clipTopFloat = static_cast<float>(clipTop);
-    for(uint32_t i = 0; i < pointCount; ++i) {
-        const float x = static_cast<float>(targetPointsXY[i * 2 + 0]);
-        const float y = static_cast<float>(targetPointsXY[i * 2 + 1]);
-        StagedTriangleVertices[i].x =
+    const float clipWidthFloat = static_cast<float>(command.clipWidth);
+    const float clipHeightFloat = static_cast<float>(command.clipHeight);
+    const float clipLeftFloat = static_cast<float>(command.clipLeft);
+    const float clipTopFloat = static_cast<float>(command.clipTop);
+    for(uint32_t index = 0; index < pointCount; ++index) {
+        const float x = static_cast<float>(command.targetPointsXY[index * 2 + 0]);
+        const float y = static_cast<float>(command.targetPointsXY[index * 2 + 1]);
+        StagedTriangleVertices[index].x =
             ((x - clipLeftFloat) / clipWidthFloat - 0.5f) * 2.0f;
-        StagedTriangleVertices[i].y =
+        StagedTriangleVertices[index].y =
             ((y - clipTopFloat) / clipHeightFloat - 0.5f) * 2.0f;
-        StagedTriangleVertices[i].u = (x - clipLeftFloat) / clipWidthFloat;
-        StagedTriangleVertices[i].v = (y - clipTopFloat) / clipHeightFloat;
+        StagedTriangleVertices[index].u = (x - clipLeftFloat) / clipWidthFloat;
+        StagedTriangleVertices[index].v = (y - clipTopFloat) / clipHeightFloat;
     }
 
     ++TriangleBatchCount;
@@ -492,11 +499,20 @@ void StageTriangleBatch(const char *methodName, uint32_t nTriangles,
        TriangleBatchCount == 32 || (TriangleBatchCount % 256) == 0) {
         TVPAddLog(TJS_W("[renderer] bgfx triangle batch staged #") +
                   ttstr(static_cast<int>(TriangleBatchCount)) +
-                  TJS_W(" tris=") + ttstr(static_cast<int>(nTriangles)) +
-                  TJS_W(" clip=") + ttstr(clipWidth) + TJS_W("x") +
-                  ttstr(clipHeight) + TJS_W(" method=") +
-                  ttstr(methodName ? methodName : ""));
+                  TJS_W(" tris=") +
+                  ttstr(static_cast<int>(command.triangleCount)) +
+                  TJS_W(" clip=") + ttstr(command.clipWidth) + TJS_W("x") +
+                  ttstr(command.clipHeight) + TJS_W(" method=") +
+                  ttstr(command.methodName ? command.methodName : ""));
     }
+}
+
+void StageTriangleBatch(const char *methodName, uint32_t nTriangles,
+                        int clipLeft, int clipTop, int clipWidth,
+                        int clipHeight, const double *targetPointsXY) {
+    SubmitTriangleBatch(TriangleBatchCommand{ methodName, nTriangles, clipLeft,
+                                              clipTop, clipWidth, clipHeight,
+                                              targetPointsXY });
 }
 
 void Shutdown() {

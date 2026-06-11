@@ -66,10 +66,10 @@ public:
                      iTVPTexture2D *refTarget, const tTVPRect &targetRect,
                      const tRenderTexRectArray &textures) override {
         const char *methodName = method ? method->GetName().c_str() : "";
-        TVPBgfx::StageRectBatch(methodName, targetRect.left,
-                                targetRect.top, targetRect.get_width(),
-                                targetRect.get_height(),
-                                static_cast<uint32_t>(textures.size()));
+        TVPBgfx::SubmitRectBatch(TVPBgfx::RectBatchCommand{
+            methodName, targetRect.left, targetRect.top,
+            targetRect.get_width(), targetRect.get_height(),
+            static_cast<uint32_t>(textures.size()) });
         std::vector<tRenderTexRectArray::Element> unwrappedStorage;
         auto unwrappedTextures = TVPBgfxAdapter::UnwrapRectTextures(textures, unwrappedStorage);
         Software->OperateRect(method, TVPBgfxAdapter::UnwrapTexture(target),
@@ -90,10 +90,10 @@ public:
                 points[static_cast<size_t>(i) * 2 + 1] = targetPoints[i].y;
             }
             const char *methodName = method ? method->GetName().c_str() : "";
-            TVPBgfx::StageTriangleBatch(
+            TVPBgfx::SubmitTriangleBatch(TVPBgfx::TriangleBatchCommand{
                 methodName, static_cast<uint32_t>(nTriangles), clipRect.left,
                 clipRect.top, clipRect.get_width(), clipRect.get_height(),
-                points.data());
+                points.data() });
         }
         std::vector<tRenderTexQuadArray::Element> unwrappedStorage;
         auto unwrappedTextures = TVPBgfxAdapter::UnwrapQuadTextures(textures, unwrappedStorage);

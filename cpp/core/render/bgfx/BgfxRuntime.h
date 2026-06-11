@@ -22,6 +22,25 @@ uint64_t GetManagedTextureBytes();
 uint64_t GetManagedTextureBudgetBytes();
 void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
                          int pitch, int format);
+struct RectBatchCommand {
+    const char *methodName = nullptr;
+    int targetLeft = 0;
+    int targetTop = 0;
+    int targetWidth = 0;
+    int targetHeight = 0;
+    uint32_t textureCount = 0;
+};
+struct TriangleBatchCommand {
+    const char *methodName = nullptr;
+    uint32_t triangleCount = 0;
+    int clipLeft = 0;
+    int clipTop = 0;
+    int clipWidth = 0;
+    int clipHeight = 0;
+    const double *targetPointsXY = nullptr;
+};
+void SubmitRectBatch(const RectBatchCommand &command);
+void SubmitTriangleBatch(const TriangleBatchCommand &command);
 void StageRectBatch(const char *methodName, int targetLeft, int targetTop,
                     int targetWidth, int targetHeight, uint32_t textureCount);
 void StageTriangleBatch(const char *methodName, uint32_t nTriangles,
