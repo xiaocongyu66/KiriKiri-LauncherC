@@ -24,6 +24,7 @@ uint32_t BackbufferWidth = 1;
 uint32_t BackbufferHeight = 1;
 uint32_t TextureUploadCount = 0;
 uint32_t TextureUploadSkipCount = 0;
+bool LoggedIntermediateTextureUploadDisabled = false;
 
 #if defined(KIRIKIRI_HAS_BGFX)
 constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
@@ -103,23 +104,20 @@ bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
 bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
     if(!width || !height)
         return false;
-#if defined(__ANDROID__)
-    constexpr uint32_t MaxAndroidStagedTexturePixels = 1024 * 1024;
-    if(width > 1024 || height > 1024 ||
-       width * height > MaxAndroidStagedTexturePixels) {
-        ++TextureUploadSkipCount;
-        if(TextureUploadSkipCount <= 8 || TextureUploadSkipCount == 16 ||
-           TextureUploadSkipCount == 32 ||
-           (TextureUploadSkipCount % 256) == 0) {
-            TVPAddLog(TJS_W("[renderer] bgfx texture upload skipped large #") +
-                      ttstr(static_cast<int>(TextureUploadSkipCount)) +
-                      TJS_W(" ") + ttstr(static_cast<int>(width)) + TJS_W("x") +
-                      ttstr(static_cast<int>(height)));
-        }
-        return false;
+
+    ++TextureUploadSkipCount;
+    if(!LoggedIntermediateTextureUploadDisabled) {
+        LoggedIntermediateTextureUploadDisabled = true;
+        TVPAddLog(TJS_W("[renderer] bgfx intermediate texture upload disabled while software compositing is active; using final frame upload only."));
     }
-#endif
-    return true;
+    if(TextureUploadSkipCount <= 8 || TextureUploadSkipCount == 16 ||
+       TextureUploadSkipCount == 32 || (TextureUploadSkipCount % 512) == 0) {
+        TVPAddLog(TJS_W("[renderer] bgfx intermediate texture upload skipped #") +
+                  ttstr(static_cast<int>(TextureUploadSkipCount)) + TJS_W(" ") +
+                  ttstr(static_cast<int>(width)) + TJS_W("x") +
+                  ttstr(static_cast<int>(height)));
+    }
+    return false;
 }
 
 bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
@@ -404,7 +402,9 @@ void Shutdown() {
     SoftwareFrameTexture = InvalidTextureHandle;
     SoftwareFrameWidth = 0;
     SoftwareFrameHeight = 0;
+    TextureUploadCount = 0;
     TextureUploadSkipCount = 0;
+    LoggedIntermediateTextureUploadDisabled = false;
     FrameUploadCount = 0;
     RectBatchCount = 0;
     TriangleBatchCount = 0;
