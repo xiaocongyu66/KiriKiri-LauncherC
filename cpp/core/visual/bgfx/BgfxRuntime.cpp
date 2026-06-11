@@ -15,6 +15,9 @@
 #include <unordered_map>
 #include <vector>
 
+#include <oneapi/tbb/blocked_range.h>
+#include <oneapi/tbb/parallel_for.h>
+
 namespace TVPBgfx {
 namespace {
 
@@ -33,6 +36,7 @@ std::unordered_map<uint16_t, uint32_t> TextureUploadSizes;
 
 constexpr uint32_t MaxManagedTextureBytes = 10 * 1024 * 1024;
 constexpr uint64_t MaxManagedTextureTotalBytes = 256 * 1024 * 1024;
+constexpr uint32_t ParallelTextureConvertPixels = 512 * 1024;
 
 #if defined(KIRIKIRI_HAS_BGFX)
 constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
@@ -71,38 +75,52 @@ bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
     const size_t pixelCount = static_cast<size_t>(width) * height;
     out.resize(pixelCount * 4);
 
+    auto forEachRow = [&](const auto &convertRow) {
+        if(pixelCount >= ParallelTextureConvertPixels) {
+            oneapi::tbb::parallel_for(
+                oneapi::tbb::blocked_range<uint32_t>(0, height),
+                [&](const oneapi::tbb::blocked_range<uint32_t> &range) {
+                    for(uint32_t row = range.begin(); row != range.end(); ++row)
+                        convertRow(row);
+                });
+        } else {
+            for(uint32_t row = 0; row < height; ++row)
+                convertRow(row);
+        }
+    };
+
     switch(format) {
     case 4:
-        for(uint32_t y = 0; y < height; ++y) {
-            std::memcpy(out.data() + static_cast<size_t>(y) * width * 4,
-                        source + static_cast<size_t>(y) * pitch,
+        forEachRow([&](uint32_t row) {
+            std::memcpy(out.data() + static_cast<size_t>(row) * width * 4,
+                        source + static_cast<size_t>(row) * pitch,
                         static_cast<size_t>(width) * 4);
-        }
+        });
         return true;
     case 3:
-        for(uint32_t y = 0; y < height; ++y) {
-            const uint8_t *line = source + static_cast<size_t>(y) * pitch;
-            uint8_t *dest = out.data() + static_cast<size_t>(y) * width * 4;
-            for(uint32_t x = 0; x < width; ++x) {
-                dest[x * 4 + 0] = line[x * 3 + 0];
-                dest[x * 4 + 1] = line[x * 3 + 1];
-                dest[x * 4 + 2] = line[x * 3 + 2];
-                dest[x * 4 + 3] = 0xff;
+        forEachRow([&](uint32_t row) {
+            const uint8_t *line = source + static_cast<size_t>(row) * pitch;
+            uint8_t *dest = out.data() + static_cast<size_t>(row) * width * 4;
+            for(uint32_t column = 0; column < width; ++column) {
+                dest[column * 4 + 0] = line[column * 3 + 0];
+                dest[column * 4 + 1] = line[column * 3 + 1];
+                dest[column * 4 + 2] = line[column * 3 + 2];
+                dest[column * 4 + 3] = 0xff;
             }
-        }
+        });
         return true;
     case 1:
-        for(uint32_t y = 0; y < height; ++y) {
-            const uint8_t *line = source + static_cast<size_t>(y) * pitch;
-            uint8_t *dest = out.data() + static_cast<size_t>(y) * width * 4;
-            for(uint32_t x = 0; x < width; ++x) {
-                const uint8_t gray = line[x];
-                dest[x * 4 + 0] = gray;
-                dest[x * 4 + 1] = gray;
-                dest[x * 4 + 2] = gray;
-                dest[x * 4 + 3] = 0xff;
+        forEachRow([&](uint32_t row) {
+            const uint8_t *line = source + static_cast<size_t>(row) * pitch;
+            uint8_t *dest = out.data() + static_cast<size_t>(row) * width * 4;
+            for(uint32_t column = 0; column < width; ++column) {
+                const uint8_t gray = line[column];
+                dest[column * 4 + 0] = gray;
+                dest[column * 4 + 1] = gray;
+                dest[column * 4 + 2] = gray;
+                dest[column * 4 + 3] = 0xff;
             }
-        }
+        });
         return true;
     default:
         return false;
