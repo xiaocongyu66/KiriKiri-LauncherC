@@ -17,9 +17,13 @@ public:
         iTVPTexture2D(software ? software->GetWidth() : 0,
                       software ? software->GetHeight() : 0),
         Software(software) {
-        (void)pixel;
-        (void)pitch;
-        (void)format;
+        if(pixel && pitch > 0) {
+            BgfxHandle = TVPBgfx::CreateTexture2D(
+                Width, Height, pixel, pitch, static_cast<int>(format));
+        } else if(Software) {
+            BgfxHandle = TVPBgfx::CreateEmptyTexture2D(
+                Width, Height, static_cast<int>(Software->GetFormat()));
+        }
     }
 
     ~tTVPBgfxTexture2D() override {
@@ -38,6 +42,10 @@ public:
         if(BgfxHandle != InvalidBgfxTextureHandle) {
             TVPBgfx::DestroyTexture2D(BgfxHandle);
             BgfxHandle = InvalidBgfxTextureHandle;
+        }
+        if(Software) {
+            BgfxHandle = TVPBgfx::CreateEmptyTexture2D(
+                w, h, static_cast<int>(Software->GetFormat()));
         }
     }
 
@@ -88,6 +96,16 @@ public:
                 const tTVPRect &rect) override {
         if(Software)
             Software->Update(pixel, format, pitch, rect);
+        if(BgfxHandle == InvalidBgfxTextureHandle) {
+            BgfxHandle = TVPBgfx::CreateEmptyTexture2D(
+                Width, Height, static_cast<int>(format));
+        }
+        if(BgfxHandle != InvalidBgfxTextureHandle) {
+            TVPBgfx::UpdateTexture2DRect(
+                BgfxHandle, Width, Height, rect.left, rect.top,
+                rect.get_width(), rect.get_height(), pixel, pitch,
+                static_cast<int>(format));
+        }
     }
 
 private:

@@ -11,6 +11,7 @@
 #include <array>
 #include <cstring>
 #include <mutex>
+#include <unordered_map>
 #include <vector>
 
 namespace TVPBgfx {
@@ -25,6 +26,11 @@ uint32_t BackbufferHeight = 1;
 uint32_t TextureUploadCount = 0;
 uint32_t TextureUploadSkipCount = 0;
 bool LoggedIntermediateTextureUploadDisabled = false;
+uint64_t TextureUploadBytes = 0;
+std::unordered_map<uint16_t, uint32_t> TextureUploadSizes;
+
+constexpr uint32_t MaxManagedTextureBytes = 4 * 1024 * 1024;
+constexpr uint64_t MaxManagedTextureTotalBytes = 64 * 1024 * 1024;
 
 #if defined(KIRIKIRI_HAS_BGFX)
 constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
@@ -32,7 +38,6 @@ constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
 constexpr uint16_t InvalidTextureHandle = UINT16_MAX;
 #endif
 
-uint32_t FrameUploadCount = 0;
 uint16_t SoftwareFrameTexture = InvalidTextureHandle;
 uint32_t SoftwareFrameWidth = 0;
 uint32_t SoftwareFrameHeight = 0;
@@ -50,7 +55,6 @@ struct tTVPBgfxVertex {
 
 std::vector<tTVPBgfxVertex> StagedTriangleVertices;
 std::array<tTVPBgfxVertex, 6> StagedRectVertices;
-std::array<tTVPBgfxVertex, 6> SoftwareFrameQuad;
 
 #if defined(KIRIKIRI_HAS_BGFX)
 bgfx::VertexLayout ScreenVertexLayout;
@@ -103,14 +107,23 @@ bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
     }
 }
 
+bool SupportsManagedTextureFormat(int format) {
+    return format == 4;
+}
+
 bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
     if(!width || !height)
         return false;
 
+    const uint64_t bytes = static_cast<uint64_t>(width) * height * 4;
+    if(bytes <= MaxManagedTextureBytes &&
+       TextureUploadBytes + bytes <= MaxManagedTextureTotalBytes)
+        return true;
+
     ++TextureUploadSkipCount;
     if(!LoggedIntermediateTextureUploadDisabled) {
         LoggedIntermediateTextureUploadDisabled = true;
-        TVPAddLog(TJS_W("[renderer] bgfx intermediate texture upload disabled while software compositing is active; using final frame upload only."));
+        TVPAddLog(TJS_W("[renderer] bgfx intermediate texture upload budget active; large or over-budget software textures stay CPU-side."));
     }
     if(TextureUploadSkipCount <= 8 || TextureUploadSkipCount == 16 ||
        TextureUploadSkipCount == 32 || (TextureUploadSkipCount % 512) == 0) {
@@ -121,6 +134,26 @@ bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
     }
     return false;
 }
+
+#if defined(KIRIKIRI_HAS_BGFX)
+void TrackTextureUpload(bgfx::TextureHandle handle, uint32_t width,
+                        uint32_t height) {
+    const uint32_t bytes = width * height * 4;
+    TextureUploadSizes[handle.idx] = bytes;
+    TextureUploadBytes += bytes;
+}
+
+void UntrackTextureUpload(uint16_t handle) {
+    auto it = TextureUploadSizes.find(handle);
+    if(it == TextureUploadSizes.end())
+        return;
+    if(TextureUploadBytes >= it->second)
+        TextureUploadBytes -= it->second;
+    else
+        TextureUploadBytes = 0;
+    TextureUploadSizes.erase(it);
+}
+#endif
 
 bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
     if(Ready)
@@ -154,19 +187,6 @@ bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
     TVPAddLog(TJS_W("[renderer] bgfx Vulkan renderer selected; bgfx runtime is not compiled in and compositing delegates to the software path."));
     return false;
 #endif
-}
-
-void StageSoftwareFrameQuadLocked(uint32_t width, uint32_t height) {
-    (void)width;
-    (void)height;
-    SoftwareFrameQuad = {
-        tTVPBgfxVertex{ -1.0f, -1.0f, 0.0f, 0.0f },
-        tTVPBgfxVertex{ 1.0f, -1.0f, 1.0f, 0.0f },
-        tTVPBgfxVertex{ -1.0f, 1.0f, 0.0f, 1.0f },
-        tTVPBgfxVertex{ 1.0f, -1.0f, 1.0f, 0.0f },
-        tTVPBgfxVertex{ -1.0f, 1.0f, 0.0f, 1.0f },
-        tTVPBgfxVertex{ 1.0f, 1.0f, 1.0f, 1.0f },
-    };
 }
 
 } // namespace
@@ -205,6 +225,8 @@ uint16_t CreateTexture2D(uint32_t width, uint32_t height, const void *pixel,
 #if defined(KIRIKIRI_HAS_BGFX)
     if(!Ready)
         return InvalidTextureHandle;
+    if(!SupportsManagedTextureFormat(format))
+        return InvalidTextureHandle;
     if(!ShouldStageTextureUpload(width, height))
         return InvalidTextureHandle;
     std::vector<uint8_t> rgba;
@@ -217,6 +239,7 @@ uint16_t CreateTexture2D(uint32_t width, uint32_t height, const void *pixel,
         static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)), false, 1,
         bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_NONE, memory);
     if(bgfx::isValid(handle)) {
+        TrackTextureUpload(handle, width, height);
         ++TextureUploadCount;
         if(TextureUploadCount <= 8 || (TextureUploadCount % 256) == 0) {
             TVPAddLog(TJS_W("[renderer] bgfx texture upload #") +
@@ -230,24 +253,82 @@ uint16_t CreateTexture2D(uint32_t width, uint32_t height, const void *pixel,
     return InvalidTextureHandle;
 }
 
+uint16_t CreateEmptyTexture2D(uint32_t width, uint32_t height, int format) {
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+#if defined(KIRIKIRI_HAS_BGFX)
+    if(!Ready)
+        return InvalidTextureHandle;
+    if(!SupportsManagedTextureFormat(format))
+        return InvalidTextureHandle;
+    if(!ShouldStageTextureUpload(width, height))
+        return InvalidTextureHandle;
+    bgfx::TextureHandle handle = bgfx::createTexture2D(
+        static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
+        static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)), false, 1,
+        bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_NONE, nullptr);
+    if(bgfx::isValid(handle)) {
+        TrackTextureUpload(handle, width, height);
+        ++TextureUploadCount;
+        if(TextureUploadCount <= 8 || (TextureUploadCount % 256) == 0) {
+            TVPAddLog(TJS_W("[renderer] bgfx texture allocate #") +
+                      ttstr(static_cast<int>(TextureUploadCount)) + TJS_W(" ") +
+                      ttstr(static_cast<int>(width)) + TJS_W("x") +
+                      ttstr(static_cast<int>(height)));
+        }
+        return handle.idx;
+    }
+#else
+    (void)width;
+    (void)height;
+    (void)format;
+#endif
+    return InvalidTextureHandle;
+}
+
 void UpdateTexture2D(uint16_t handle, uint32_t width, uint32_t height,
                      const void *pixel, int pitch, int format) {
+    UpdateTexture2DRect(handle, width, height, 0, 0, width, height, pixel,
+                        pitch, format);
+}
+
+void UpdateTexture2DRect(uint16_t handle, uint32_t textureWidth,
+                         uint32_t textureHeight, uint32_t x, uint32_t y,
+                         uint32_t width, uint32_t height, const void *pixel,
+                         int pitch, int format) {
 #if defined(KIRIKIRI_HAS_BGFX)
     std::lock_guard<std::mutex> lock(RuntimeMutex);
     bgfx::TextureHandle texture{handle};
-    if(!Ready || !bgfx::isValid(texture))
+    if(!Ready || !bgfx::isValid(texture) || !pixel || !width || !height ||
+       pitch <= 0)
         return;
-    if(!ShouldStageTextureUpload(width, height))
+    if(!SupportsManagedTextureFormat(format))
         return;
+    if(x >= textureWidth || y >= textureHeight)
+        return;
+    width = std::min(width, textureWidth - x);
+    height = std::min(height, textureHeight - y);
     std::vector<uint8_t> rgba;
     if(!CopyAsRgba8(rgba, width, height, pixel, pitch, format))
         return;
-    const bgfx::Memory *memory = bgfx::copy(rgba.data(),
-                                           static_cast<uint32_t>(rgba.size()));
-    bgfx::updateTexture2D(texture, 0, 0, 0, 0,
-                          static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
-                          static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)),
-                          memory);
+    const bgfx::Memory *memory = bgfx::copy(
+        rgba.data(), static_cast<uint32_t>(rgba.size()));
+    bgfx::updateTexture2D(
+        texture, 0, 0, static_cast<uint16_t>(std::min<uint32_t>(x, UINT16_MAX)),
+        static_cast<uint16_t>(std::min<uint32_t>(y, UINT16_MAX)),
+        static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
+        static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)), memory,
+        static_cast<uint16_t>(width * 4));
+#else
+    (void)handle;
+    (void)textureWidth;
+    (void)textureHeight;
+    (void)x;
+    (void)y;
+    (void)width;
+    (void)height;
+    (void)pixel;
+    (void)pitch;
+    (void)format;
 #endif
 }
 
@@ -255,8 +336,10 @@ void DestroyTexture2D(uint16_t handle) {
 #if defined(KIRIKIRI_HAS_BGFX)
     std::lock_guard<std::mutex> lock(RuntimeMutex);
     bgfx::TextureHandle texture{handle};
-    if(Ready && bgfx::isValid(texture))
+    if(Ready && bgfx::isValid(texture)) {
         bgfx::destroy(texture);
+        UntrackTextureUpload(handle);
+    }
 #endif
 }
 
@@ -289,57 +372,6 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
     }
     (void)format;
     return;
-
-    std::vector<uint8_t> rgba;
-    if(!CopyAsRgba8(rgba, width, height, pixel, pitch, format))
-        return;
-
-    if(SoftwareFrameTexture == InvalidTextureHandle ||
-       SoftwareFrameWidth != width || SoftwareFrameHeight != height) {
-        if(SoftwareFrameTexture != InvalidTextureHandle) {
-            bgfx::TextureHandle oldTexture{SoftwareFrameTexture};
-            if(bgfx::isValid(oldTexture))
-                bgfx::destroy(oldTexture);
-            SoftwareFrameTexture = InvalidTextureHandle;
-        }
-
-        const bgfx::Memory *memory = bgfx::copy(
-            rgba.data(), static_cast<uint32_t>(rgba.size()));
-        bgfx::TextureHandle texture = bgfx::createTexture2D(
-            static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
-            static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)),
-            false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_NONE, memory);
-        if(!bgfx::isValid(texture))
-            return;
-        SoftwareFrameTexture = texture.idx;
-        SoftwareFrameWidth = width;
-        SoftwareFrameHeight = height;
-    } else {
-        bgfx::TextureHandle texture{SoftwareFrameTexture};
-        if(!bgfx::isValid(texture))
-            return;
-        const bgfx::Memory *memory = bgfx::copy(
-            rgba.data(), static_cast<uint32_t>(rgba.size()));
-        bgfx::updateTexture2D(
-            texture, 0, 0, 0, 0,
-            static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
-            static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)),
-            memory);
-    }
-
-    StageSoftwareFrameQuadLocked(width, height);
-
-    bgfx::touch(0);
-    bgfx::frame();
-
-    ++FrameUploadCount;
-    if(FrameUploadCount <= 8 || FrameUploadCount == 16 ||
-       FrameUploadCount == 32 || (FrameUploadCount % 256) == 0) {
-        TVPAddLog(TJS_W("[renderer] bgfx software frame upload #") +
-                  ttstr(static_cast<int>(FrameUploadCount)) + TJS_W(" ") +
-                  ttstr(static_cast<int>(width)) + TJS_W("x") +
-                  ttstr(static_cast<int>(height)));
-    }
 #else
     (void)width;
     (void)height;
@@ -429,8 +461,9 @@ void Shutdown() {
     SoftwareFrameHeight = 0;
     TextureUploadCount = 0;
     TextureUploadSkipCount = 0;
+    TextureUploadBytes = 0;
+    TextureUploadSizes.clear();
     LoggedIntermediateTextureUploadDisabled = false;
-    FrameUploadCount = 0;
     SoftwareFrameSkipCount = 0;
     LoggedSoftwareFrameUploadDisabled = false;
     RectBatchCount = 0;
