@@ -26,11 +26,12 @@ uint32_t BackbufferHeight = 1;
 uint32_t TextureUploadCount = 0;
 uint32_t TextureUploadSkipCount = 0;
 bool LoggedIntermediateTextureUploadDisabled = false;
+bool LoggedTextureBudget = false;
 uint64_t TextureUploadBytes = 0;
 std::unordered_map<uint16_t, uint32_t> TextureUploadSizes;
 
-constexpr uint32_t MaxManagedTextureBytes = 4 * 1024 * 1024;
-constexpr uint64_t MaxManagedTextureTotalBytes = 64 * 1024 * 1024;
+constexpr uint32_t MaxManagedTextureBytes = 10 * 1024 * 1024;
+constexpr uint64_t MaxManagedTextureTotalBytes = 256 * 1024 * 1024;
 
 #if defined(KIRIKIRI_HAS_BGFX)
 constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
@@ -108,12 +109,23 @@ bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
 }
 
 bool SupportsManagedTextureFormat(int format) {
-    return format == 4;
+    return format == 1 || format == 3 || format == 4;
 }
 
 bool ShouldStageTextureUpload(uint32_t width, uint32_t height) {
     if(!width || !height)
         return false;
+
+    if(!LoggedTextureBudget) {
+        LoggedTextureBudget = true;
+        TVPAddLog(TJS_W("[renderer] bgfx managed texture budget single=") +
+                  ttstr(static_cast<int>(MaxManagedTextureBytes /
+                                         (1024 * 1024))) +
+                  TJS_W("MB total=") +
+                  ttstr(static_cast<int>(MaxManagedTextureTotalBytes /
+                                         (1024 * 1024))) +
+                  TJS_W("MB"));
+    }
 
     const uint64_t bytes = static_cast<uint64_t>(width) * height * 4;
     if(bytes <= MaxManagedTextureBytes &&
@@ -464,6 +476,7 @@ void Shutdown() {
     TextureUploadBytes = 0;
     TextureUploadSizes.clear();
     LoggedIntermediateTextureUploadDisabled = false;
+    LoggedTextureBudget = false;
     SoftwareFrameSkipCount = 0;
     LoggedSoftwareFrameUploadDisabled = false;
     RectBatchCount = 0;
