@@ -7,6 +7,7 @@
 #include "LayerBitmapIntf.h"
 #include "RenderManager.h"
 #include "SDLUIManager.h"
+#include "../../visual/bgfx/BgfxRuntime.h"
 
 #include <SDL2/SDL.h>
 #include <spdlog/spdlog.h>
@@ -262,6 +263,15 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
 
 void LogSDLScreenPresenter(const char *message) {
     TVPNativeLogInfo("sdl-screen", message ? message : "");
+}
+
+void UploadSDLSoftwareFrameToBgfx(SDL_Surface *surface) {
+    if(!surface || !surface->pixels || surface->w <= 0 || surface->h <= 0 ||
+       surface->pitch <= 0)
+        return;
+    TVPBgfx::UploadSoftwareFrame(static_cast<uint32_t>(surface->w),
+                                 static_cast<uint32_t>(surface->h),
+                                 surface->pixels, surface->pitch, 4);
 }
 
 void DestroySDLScreenTextureLocked() {
@@ -1739,6 +1749,7 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
             LogSDLScreenPresenter(message);
             return false;
         }
+        UploadSDLSoftwareFrameToBgfx(surface);
         gSDLSurfaceMirrorState.hasUpdate = false;
         const uint64_t presented = ++gSDLScreenPresenterState.presentedFrames;
         if(ShouldLogScreenPresenter(presented)) {
@@ -1790,6 +1801,7 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         return false;
     }
     SDL_RenderPresent(gSDLScreenPresenterState.renderer);
+    UploadSDLSoftwareFrameToBgfx(surface);
     gSDLSurfaceMirrorState.hasUpdate = false;
 
     const uint64_t presented = ++gSDLScreenPresenterState.presentedFrames;

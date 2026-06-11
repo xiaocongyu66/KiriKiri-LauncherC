@@ -29,6 +29,11 @@ constexpr uint16_t InvalidTextureHandle = bgfx::kInvalidHandle;
 constexpr uint16_t InvalidTextureHandle = UINT16_MAX;
 #endif
 
+uint32_t FrameUploadCount = 0;
+uint16_t SoftwareFrameTexture = InvalidTextureHandle;
+uint32_t SoftwareFrameWidth = 0;
+uint32_t SoftwareFrameHeight = 0;
+
 bool CopyAsRgba8(std::vector<uint8_t> &out, uint32_t width, uint32_t height,
                  const void *pixel, int pitch, int format) {
     if(!pixel || !width || !height || pitch <= 0)
@@ -191,12 +196,85 @@ void DestroyTexture2D(uint16_t handle) {
 #endif
 }
 
+void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
+                         int pitch, int format) {
+#if defined(KIRIKIRI_HAS_BGFX)
+    std::lock_guard<std::mutex> lock(RuntimeMutex);
+    if(!Ready || !pixel || !width || !height || pitch <= 0)
+        return;
+
+    std::vector<uint8_t> rgba;
+    if(!CopyAsRgba8(rgba, width, height, pixel, pitch, format))
+        return;
+
+    if(SoftwareFrameTexture == InvalidTextureHandle ||
+       SoftwareFrameWidth != width || SoftwareFrameHeight != height) {
+        if(SoftwareFrameTexture != InvalidTextureHandle) {
+            bgfx::TextureHandle oldTexture{SoftwareFrameTexture};
+            if(bgfx::isValid(oldTexture))
+                bgfx::destroy(oldTexture);
+            SoftwareFrameTexture = InvalidTextureHandle;
+        }
+
+        const bgfx::Memory *memory = bgfx::copy(
+            rgba.data(), static_cast<uint32_t>(rgba.size()));
+        bgfx::TextureHandle texture = bgfx::createTexture2D(
+            static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
+            static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)),
+            false, 1, bgfx::TextureFormat::RGBA8, BGFX_TEXTURE_NONE, memory);
+        if(!bgfx::isValid(texture))
+            return;
+        SoftwareFrameTexture = texture.idx;
+        SoftwareFrameWidth = width;
+        SoftwareFrameHeight = height;
+    } else {
+        bgfx::TextureHandle texture{SoftwareFrameTexture};
+        if(!bgfx::isValid(texture))
+            return;
+        const bgfx::Memory *memory = bgfx::copy(
+            rgba.data(), static_cast<uint32_t>(rgba.size()));
+        bgfx::updateTexture2D(
+            texture, 0, 0, 0, 0,
+            static_cast<uint16_t>(std::min<uint32_t>(width, UINT16_MAX)),
+            static_cast<uint16_t>(std::min<uint32_t>(height, UINT16_MAX)),
+            memory);
+    }
+
+    bgfx::touch(0);
+    bgfx::frame();
+
+    ++FrameUploadCount;
+    if(FrameUploadCount <= 8 || FrameUploadCount == 16 ||
+       FrameUploadCount == 32 || (FrameUploadCount % 256) == 0) {
+        TVPAddLog(TJS_W("[renderer] bgfx software frame upload #") +
+                  ttstr(static_cast<int>(FrameUploadCount)) + TJS_W(" ") +
+                  ttstr(static_cast<int>(width)) + TJS_W("x") +
+                  ttstr(static_cast<int>(height)));
+    }
+#else
+    (void)width;
+    (void)height;
+    (void)pixel;
+    (void)pitch;
+    (void)format;
+#endif
+}
+
 void Shutdown() {
     std::lock_guard<std::mutex> lock(RuntimeMutex);
 #if defined(KIRIKIRI_HAS_BGFX)
+    if(Ready && SoftwareFrameTexture != InvalidTextureHandle) {
+        bgfx::TextureHandle texture{SoftwareFrameTexture};
+        if(bgfx::isValid(texture))
+            bgfx::destroy(texture);
+    }
     if(Ready)
         bgfx::shutdown();
 #endif
+    SoftwareFrameTexture = InvalidTextureHandle;
+    SoftwareFrameWidth = 0;
+    SoftwareFrameHeight = 0;
+    FrameUploadCount = 0;
     Ready = false;
     Requested = false;
 }
