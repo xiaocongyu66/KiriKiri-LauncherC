@@ -408,7 +408,7 @@ jobs:
                   String gameRenderer = dir.isEmpty() ? "" : nullToEmpty(LauncherPrefs.INSTANCE.getGameEnginePref(this, dir, "renderer"));
                   String globalRenderer = KrkrPrefsStore.INSTANCE.getString(this, "renderer", "software");
                   if (gameDir != null && !gameDir.trim().isEmpty()) {
-                      LauncherPrefs.INSTANCE.writeLauncherLog(this, "LauncherHost.launchGame dir=" + dir + " gameRenderer=" + gameRenderer + " globalRenderer=" + globalRenderer + " launchFile=" + (launchFile == null ? "" : launchFile));
+                      LauncherPrefs.INSTANCE.writeLauncherLog(this, "LauncherHost.launchGame dir=" + dir + " gameRenderer=" + gameRenderer + " globalRenderer=" + globalRenderer + " launchFile=" + (launchFile == null ? "" : launchFile), null);
                       LauncherPrefs.INSTANCE.applyGameEngineOverrides(this, dir);
                   }
                   Intent intent = new Intent(this, MainActivity.class);
