@@ -130,6 +130,7 @@ public:
     int16_t _volume_raw[8];
     SDL_AudioCVT *_cvt = nullptr;
     std::vector<uint8_t> _cvtbuf;
+    int _buffer_frame_size = 0;
     int _frame_size = 0;
 
     void RecalcVolume() {
@@ -152,8 +153,8 @@ public:
     tjs_uint _sendedFrontBuffer = 0;
     tjs_uint _sendedSamples = 0, _inCachedSamples = 0;
 
-    tTVPSoundBuffer(int framesize, SDL_AudioCVT *cvt) :
-        _frame_size(framesize), _cvt(cvt) {
+    tTVPSoundBuffer(int framesize, int bufferframesize, SDL_AudioCVT *cvt) :
+        _buffer_frame_size(bufferframesize), _frame_size(framesize), _cvt(cvt) {
         RecalcVolume();
         if(cvt) {
             _cvtbuf.resize(
@@ -224,14 +225,14 @@ public:
                               _cvt->buf + _cvt->len_cvt);
             }
             std::lock_guard<std::mutex> lk(_buffer_mtx);
-            _inCachedSamples += buffer.size() / _frame_size;
+            _inCachedSamples += buffer.size() / _buffer_frame_size;
             _buffers.emplace_back();
             _buffers.back().swap(buffer);
         } else {
             std::lock_guard<std::mutex> lk(_buffer_mtx);
             _buffers.emplace_back((uint8_t *)_inbuf,
                                   ((uint8_t *)_inbuf) + inlen);
-            _inCachedSamples += inlen / _frame_size;
+            _inCachedSamples += inlen / _buffer_frame_size;
         }
     }
 
@@ -366,7 +367,8 @@ public:
         }
 
         tTVPSoundBuffer *s =
-            new tTVPSoundBuffer(fmt.BytesPerSample * fmt.Channels, cvt);
+            new tTVPSoundBuffer(fmt.BytesPerSample * fmt.Channels, _frame_size,
+                                cvt);
         std::lock_guard<std::mutex> lk(_streams_mtx);
         _streams.emplace(s);
         if(TVPShouldLogAudioStream(sequence)) {
@@ -433,7 +435,8 @@ tjs_uint tTVPSoundBuffer::GetCurrentPlaySamples() {
 }
 
 float tTVPSoundBuffer::GetLatencySeconds() {
-    return GetLatencySamples() / TVPAudioRenderer->GetSpec().freq;
+    return GetLatencySamples() /
+        static_cast<float>(TVPAudioRenderer->GetSpec().freq);
 }
 
 void tTVPSoundBuffer::FillBuffer(uint8_t *out, int len) {
@@ -611,7 +614,8 @@ class tTVPSoundBufferAL : public tTVPSoundBuffer {
 
 public:
     tTVPSoundBufferAL(tTVPWaveFormat &desired, int bufcount) :
-        tTVPSoundBuffer(desired.BytesPerSample * desired.Channels, nullptr),
+        tTVPSoundBuffer(desired.BytesPerSample * desired.Channels,
+                        desired.BytesPerSample * desired.Channels, nullptr),
         _bufferCount(bufcount) {
         _bufferIds = new ALuint[bufcount];
         _bufferIds2 = new ALuint[bufcount];
