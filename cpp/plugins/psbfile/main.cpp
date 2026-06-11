@@ -14,6 +14,7 @@
 #include "PSBMedia.h"
 #include "PSBValue.h"
 #include "SystemControl.h"
+#include "EventIntf.h"
 
 #define NCB_MODULE_NAME TJS_W("psbfile.dll")
 
@@ -50,16 +51,41 @@ static bool psbCacheInfoCallback(size_t &usedBytes, size_t &limitBytes) {
     return true;
 }
 
+struct PSBCacheCompactCallback : public tTVPCompactEventCallbackIntf {
+    void OnCompact(tjs_int level) override {
+        if(level < TVP_COMPACT_LEVEL_MAX || psbMedia == nullptr)
+            return;
+        PSBMediaCacheStats before;
+        const bool hasStats = GetPSBMediaCacheStats(before);
+        psbMedia->clear();
+        if(hasStats) {
+            LOGGER->info("PSB media cache compact: entries={} bytes={}",
+                         before.entryCount, before.bytesInUse);
+        } else {
+            LOGGER->info("PSB media cache compact");
+        }
+    }
+} static g_psbCacheCompactCallback;
+static bool g_psbCacheCompactCallbackRegistered = false;
+
 void initPsbFile() {
     psbMedia = new PSBMedia();
     TVPRegisterStorageMedia(psbMedia);
     psbMedia->Release();
     TVPRegisterPSBCacheInfoCallback(psbCacheInfoCallback);
+    if(!g_psbCacheCompactCallbackRegistered) {
+        TVPAddCompactEventHook(&g_psbCacheCompactCallback);
+        g_psbCacheCompactCallbackRegistered = true;
+    }
     LOGGER->info("initPsbFile");
 }
 
 void deInitPsbFile() {
     TVPRegisterPSBCacheInfoCallback(nullptr);
+    if(g_psbCacheCompactCallbackRegistered) {
+        TVPRemoveCompactEventHook(&g_psbCacheCompactCallback);
+        g_psbCacheCompactCallbackRegistered = false;
+    }
     if(psbMedia != nullptr) {
         psbMedia->clear();
         TVPUnregisterStorageMedia(psbMedia);

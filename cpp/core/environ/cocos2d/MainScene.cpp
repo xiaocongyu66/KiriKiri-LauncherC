@@ -2406,10 +2406,45 @@ void TVPOnError();
 
 tjs_uint TVPGetGraphicCacheTotalBytes();
 
+namespace {
+void TVPCheckRuntimeMemoryPressure() {
+    static tjs_uint32 lastCheckTick = 0;
+    static tjs_uint32 lastCompactTick = 0;
+
+    const tjs_uint32 now = TVPGetRoughTickCount32();
+    if(lastCheckTick && now - lastCheckTick < 2000)
+        return;
+    lastCheckTick = now;
+
+    const tjs_int selfUsedMb = TVPGetSelfUsedMemory();
+    const tjs_int freeMb = TVPGetSystemFreeMemory();
+    const bool critical = selfUsedMb >= 1800 || (freeMb >= 0 && freeMb < 512);
+    const bool pressured = selfUsedMb >= 1400 || (freeMb >= 0 && freeMb < 768);
+    if(!critical && !pressured)
+        return;
+
+    const tjs_uint32 cooldown = critical ? 5000 : 12000;
+    if(lastCompactTick && now - lastCompactTick < cooldown)
+        return;
+    lastCompactTick = now;
+
+    const tjs_int level = critical ? TVP_COMPACT_LEVEL_MAX
+                                   : TVP_COMPACT_LEVEL_DEACTIVATE;
+    TVPAddLog(TJS_W("[memory] runtime pressure compact level=") +
+              ttstr(static_cast<int>(level)) + TJS_W(" self=") +
+              ttstr(static_cast<int>(selfUsedMb)) + TJS_W("MB free=") +
+              ttstr(static_cast<int>(freeMb)) + TJS_W("MB"));
+    TVPDeliverCompactEvent(level);
+    TVPClearStorageCaches();
+    iTVPTexture2D::RecycleProcess();
+}
+} // namespace
+
 void TVPMainScene::update(float delta) {
     ::Application->Run();
     //	if (_currentWindowLayer) _currentWindowLayer->UpdateOverlay();
     iTVPTexture2D::RecycleProcess();
+    TVPCheckRuntimeMemoryPressure();
     //_ResotreGLStatues();
     if(_postUpdate)
         _postUpdate();

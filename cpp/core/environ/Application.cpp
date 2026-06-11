@@ -27,6 +27,7 @@
 #include "GraphicsLoadThread.h"
 #include "Platform.h"
 #include "EventIntf.h"
+#include "RenderManager.h"
 #include "NativeEventQueue.h"
 #include "sdl/SDLGameManager.h"
 #include <thread>
@@ -812,6 +813,8 @@ void tTVPApplication::OnLowMemory() {
     if(!_project_startup)
         return;
     TVPDeliverCompactEvent(TVP_COMPACT_LEVEL_MAX);
+    TVPClearStorageCaches();
+    iTVPTexture2D::RecycleProcess();
 }
 
 bool tTVPApplication::GetNotMinimizing() const {
