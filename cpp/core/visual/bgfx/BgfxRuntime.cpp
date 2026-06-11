@@ -299,8 +299,8 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
 #endif
 }
 
-void StageRectBatch(int targetLeft, int targetTop, int targetWidth,
-                    int targetHeight, uint32_t textureCount) {
+void StageRectBatch(const char *methodName, int targetLeft, int targetTop,
+                    int targetWidth, int targetHeight, uint32_t textureCount) {
     if(targetWidth <= 0 || targetHeight <= 0)
         return;
 
@@ -322,13 +322,14 @@ void StageRectBatch(int targetLeft, int targetTop, int targetWidth,
                   ttstr(targetLeft) + TJS_W(",") + ttstr(targetTop) +
                   TJS_W(",") + ttstr(targetWidth) + TJS_W("x") +
                   ttstr(targetHeight) + TJS_W(" textures=") +
-                  ttstr(static_cast<int>(textureCount)));
+                  ttstr(static_cast<int>(textureCount)) + TJS_W(" method=") +
+                  ttstr(methodName ? methodName : ""));
     }
 }
 
-void StageTriangleBatch(uint32_t nTriangles, int clipLeft, int clipTop,
-                        int clipWidth, int clipHeight,
-                        const double *targetPointsXY) {
+void StageTriangleBatch(const char *methodName, uint32_t nTriangles,
+                        int clipLeft, int clipTop, int clipWidth,
+                        int clipHeight, const double *targetPointsXY) {
     if(!nTriangles || clipWidth <= 0 || clipHeight <= 0 || !targetPointsXY)
         return;
 
@@ -357,7 +358,8 @@ void StageTriangleBatch(uint32_t nTriangles, int clipLeft, int clipTop,
                   ttstr(static_cast<int>(TriangleBatchCount)) +
                   TJS_W(" tris=") + ttstr(static_cast<int>(nTriangles)) +
                   TJS_W(" clip=") + ttstr(clipWidth) + TJS_W("x") +
-                  ttstr(clipHeight));
+                  ttstr(clipHeight) + TJS_W(" method=") +
+                  ttstr(methodName ? methodName : ""));
     }
 }
 

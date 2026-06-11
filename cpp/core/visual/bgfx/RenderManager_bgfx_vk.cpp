@@ -150,8 +150,10 @@ public:
     void OperateRect(iTVPRenderMethod *method, iTVPTexture2D *target,
                      iTVPTexture2D *refTarget, const tTVPRect &targetRect,
                      const tRenderTexRectArray &textures) override {
-        TVPBgfx::StageRectBatch(targetRect.left, targetRect.top,
-                                targetRect.get_width(), targetRect.get_height(),
+        const char *methodName = method ? method->GetName().c_str() : "";
+        TVPBgfx::StageRectBatch(methodName, targetRect.left,
+                                targetRect.top, targetRect.get_width(),
+                                targetRect.get_height(),
                                 static_cast<uint32_t>(textures.size()));
         Software->OperateRect(method, target, refTarget, targetRect, textures);
     }
@@ -168,9 +170,11 @@ public:
                 points[static_cast<size_t>(i) * 2 + 0] = targetPoints[i].x;
                 points[static_cast<size_t>(i) * 2 + 1] = targetPoints[i].y;
             }
+            const char *methodName = method ? method->GetName().c_str() : "";
             TVPBgfx::StageTriangleBatch(
-                static_cast<uint32_t>(nTriangles), clipRect.left, clipRect.top,
-                clipRect.get_width(), clipRect.get_height(), points.data());
+                methodName, static_cast<uint32_t>(nTriangles), clipRect.left,
+                clipRect.top, clipRect.get_width(), clipRect.get_height(),
+                points.data());
         }
         Software->OperateTriangles(method, nTriangles, target, refTarget, clipRect, targetPoints, textures);
     }
