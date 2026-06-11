@@ -1,4 +1,4 @@
-#include "../RenderManager.h"
+#include "../../visual/RenderManager.h"
 #include "BgfxRuntime.h"
 #include "DebugIntf.h"
 #include "MsgIntf.h"

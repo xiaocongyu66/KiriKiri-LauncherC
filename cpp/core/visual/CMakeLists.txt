@@ -2,6 +2,7 @@ cmake_minimum_required(VERSION 3.19)
 project(core_visual_module LANGUAGES CXX)
 
 set(VISUAL_PATH ${CMAKE_CURRENT_LIST_DIR})
+get_filename_component(CORE_PATH ${VISUAL_PATH}/.. ABSOLUTE)
 set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/LoadWEBP.cpp
     ${VISUAL_PATH}/TransIntf.cpp
@@ -37,8 +38,8 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/BitmapLayerTreeOwner.cpp
     ${VISUAL_PATH}/BitmapIntf.cpp
     ${VISUAL_PATH}/argb.cpp
-    ${VISUAL_PATH}/bgfx/BgfxRuntime.cpp
-    ${VISUAL_PATH}/bgfx/RenderManager_bgfx_vk.cpp
+    ${CORE_PATH}/render/bgfx/BgfxRuntime.cpp
+    ${CORE_PATH}/render/bgfx/RenderManager_bgfx_vk.cpp
 
     ${VISUAL_PATH}/gl/blend_function.cpp
     ${VISUAL_PATH}/gl/ResampleImage.cpp
@@ -73,7 +74,7 @@ set(VISUAL_HEADERS_DIR
     ${VISUAL_PATH}/
     ${VISUAL_PATH}/gl
     ${VISUAL_PATH}/ogl
-    ${VISUAL_PATH}/bgfx
+    ${CORE_PATH}/render/bgfx
     ${VISUAL_PATH}/impl
 )
 

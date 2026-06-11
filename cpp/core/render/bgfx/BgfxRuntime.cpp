@@ -1,7 +1,7 @@
 #include "BgfxRuntime.h"
 
 #include "DebugIntf.h"
-#include "../GraphicsLoaderIntf.h"
+#include "../../visual/GraphicsLoaderIntf.h"
 
 #if defined(KIRIKIRI_HAS_BGFX)
 #include <bgfx/bgfx.h>

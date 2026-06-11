@@ -7,7 +7,7 @@
 #include "LayerBitmapIntf.h"
 #include "RenderManager.h"
 #include "SDLUIManager.h"
-#include "../../visual/bgfx/BgfxRuntime.h"
+#include "../../render/bgfx/BgfxRuntime.h"
 
 #include <SDL2/SDL.h>
 #include <spdlog/spdlog.h>

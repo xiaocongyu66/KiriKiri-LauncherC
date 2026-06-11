@@ -13,7 +13,7 @@
 #include "environ/android/AndroidUtils.h"
 #include "environ/sdl/SDLGameManager.h"
 #include "common/FFmpegDecodeConfig.h"
-#include "visual/bgfx/BgfxRuntime.h"
+#include "render/bgfx/BgfxRuntime.h"
 
 /*******************************************************************************
                  Functions called by JNI
