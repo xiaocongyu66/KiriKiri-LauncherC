@@ -33,8 +33,6 @@ import android.util.AttributeSet;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
-import android.view.Surface;
-import android.view.SurfaceHolder;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 
@@ -63,8 +61,6 @@ public class Cocos2dxGLSurfaceView extends GLSurfaceView {
 
     private boolean mSoftKeyboardShown = false;
     private boolean mMultipleTouchEnabled = true;
-
-    private static native void nativeSetBgfxSurface(final Surface surface, final int width, final int height);
 
     public boolean isSoftKeyboardShown() {
         return mSoftKeyboardShown;
@@ -304,22 +300,9 @@ public class Cocos2dxGLSurfaceView extends GLSurfaceView {
      * width and height is correct.
      */
     @Override
-    public void surfaceCreated(final SurfaceHolder holder) {
-        Cocos2dxGLSurfaceView.nativeSetBgfxSurface(holder != null ? holder.getSurface() : null, getWidth(), getHeight());
-        super.surfaceCreated(holder);
-    }
-
-    @Override
-    public void surfaceDestroyed(final SurfaceHolder holder) {
-        Cocos2dxGLSurfaceView.nativeSetBgfxSurface(null, 0, 0);
-        super.surfaceDestroyed(holder);
-    }
-
-    @Override
     protected void onSizeChanged(final int pNewSurfaceWidth, final int pNewSurfaceHeight, final int pOldSurfaceWidth, final int pOldSurfaceHeight) {
         if(!this.isInEditMode()) {
             this.mCocos2dxRenderer.setScreenWidthAndHeight(pNewSurfaceWidth, pNewSurfaceHeight);
-            Cocos2dxGLSurfaceView.nativeSetBgfxSurface(getHolder() != null ? getHolder().getSurface() : null, pNewSurfaceWidth, pNewSurfaceHeight);
         }
     }
 

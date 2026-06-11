@@ -10,6 +10,9 @@ import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
 import android.view.Gravity
+import android.view.Surface
+import android.view.SurfaceHolder
+import android.view.SurfaceView
 import android.view.WindowManager
 import android.widget.FrameLayout
 import java.lang.ref.WeakReference
@@ -52,10 +55,12 @@ class MainActivity : KR2Activity() {
     private var overlayView: FlutterView? = null
     private var overlayParams: FrameLayout.LayoutParams? = null
     private var overlayChannel: MethodChannel? = null
+    private var bgfxSurfaceView: SurfaceView? = null
 
     private external fun nativeGetMainMenuJson(): String
     private external fun nativeActivateMenuItem(path: String): Int
     private external fun nativePerformOverlayAction(action: String): Int
+    private external fun nativeSetBgfxSurface(surface: Surface?, width: Int, height: Int)
 
     private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
 
@@ -121,6 +126,7 @@ class MainActivity : KR2Activity() {
         SDLAudioManager.setContext(getContext())
         logLifecycle("onCreate#sdl-audio-init-done")
         if (!intent?.getStringExtra(EXTRA_GAME_DIR).isNullOrBlank()) {
+            installIndependentBgfxSurface()
             installFlutterGameOverlay()
         }
     }
@@ -176,6 +182,11 @@ class MainActivity : KR2Activity() {
         overlayView = null
         overlayEngine = null
         overlayChannel = null
+        nativeSetBgfxSurface(null, 0, 0)
+        bgfxSurfaceView?.let { view ->
+            runCatching { mFrameLayout?.removeView(view) }
+        }
+        bgfxSurfaceView = null
         recordSessionTime()
         orientationListener?.disable()
         orientationListener = null
@@ -192,6 +203,32 @@ class MainActivity : KR2Activity() {
         // observed in 78.log PID 14643 / GLThread 105.
         super.onDestroy()
         logLifecycle("onDestroy#after-super")
+    }
+
+    private fun installIndependentBgfxSurface() {
+        if (bgfxSurfaceView != null || mFrameLayout == null) return
+        val surfaceView = SurfaceView(this)
+        surfaceView.setZOrderMediaOverlay(false)
+        surfaceView.holder.addCallback(object : SurfaceHolder.Callback {
+            override fun surfaceCreated(holder: SurfaceHolder) {
+                nativeSetBgfxSurface(holder.surface, surfaceView.width.coerceAtLeast(1), surfaceView.height.coerceAtLeast(1))
+            }
+
+            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                nativeSetBgfxSurface(holder.surface, width.coerceAtLeast(1), height.coerceAtLeast(1))
+            }
+
+            override fun surfaceDestroyed(holder: SurfaceHolder) {
+                nativeSetBgfxSurface(null, 0, 0)
+            }
+        })
+        val size = dp(2).coerceAtLeast(1)
+        val params = FrameLayout.LayoutParams(size, size, Gravity.LEFT or Gravity.TOP)
+        params.leftMargin = 0
+        params.topMargin = 0
+        bgfxSurfaceView = surfaceView
+        mFrameLayout.addView(surfaceView, 0, params)
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.bgfx independent SurfaceView installed size=$size")
     }
 
     private fun installFlutterGameOverlay() {

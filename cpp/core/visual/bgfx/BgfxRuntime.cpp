@@ -29,10 +29,6 @@ bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
         return false;
     }
 
-#if defined(__ANDROID__) && !defined(KIRIKIRI_ENABLE_UNSAFE_BGFX_ANDROID_PROBE)
-    TVPAddLog(TJS_W("[renderer] bgfx Vulkan runtime is packaged, but Android runtime probing is disabled because vcpkg bgfx can fall back to EGL/GL and abort on the Cocos surface; delegating to the software path."));
-    return false;
-#else
     bgfx::Init init;
     init.type = bgfx::RendererType::Vulkan;
     init.resolution.width = width ? width : BackbufferWidth;
@@ -45,7 +41,6 @@ bool InitializeVulkanLocked(uint32_t width, uint32_t height) {
                   ? TJS_W("[renderer] bgfx Vulkan runtime initialized; TVP compositing migration is staged and currently delegates to the software path.")
                   : TJS_W("[renderer] bgfx Vulkan runtime initialization failed; delegating to the software path."));
     return Ready;
-#endif
 #else
     TVPAddLog(TJS_W("[renderer] bgfx Vulkan renderer selected; bgfx runtime is not compiled in and compositing delegates to the software path."));
     return false;

@@ -134,11 +134,10 @@ static std::string JStringToStdString(JNIEnv *env, jstring value) {
 
 extern "C" {
 JNIEXPORT void JNICALL
-Java_org_cocos2dx_lib_Cocos2dxGLSurfaceView_nativeSetBgfxSurface(JNIEnv *env,
-                                                                 jclass,
-                                                                 jobject surface,
-                                                                 jint width,
-                                                                 jint height) {
+Java_org_github_krkr2_MainActivity_nativeSetBgfxSurface(JNIEnv *env, jobject,
+                                                        jobject surface,
+                                                        jint width,
+                                                        jint height) {
     SetBgfxNativeWindow(env, surface, width, height);
 }
 
