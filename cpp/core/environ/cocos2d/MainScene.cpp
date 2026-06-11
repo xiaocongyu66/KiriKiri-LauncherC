@@ -15,7 +15,7 @@
 #include "Random.h"
 #include "UtilStreams.h"
 #include "vkdefine.h"
-#include "render/bgfx/BgfxRuntime.h"
+#include "../../render/bgfx/BgfxRuntime.h"
 #include "base/CCEventListenerController.h"
 #include "base/CCController.h"
 #include "ConfigManager/IndividualConfigManager.h"
