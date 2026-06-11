@@ -2431,10 +2431,19 @@ void TVPCheckRuntimeMemoryPressure() {
 
     const tjs_int level = critical ? TVP_COMPACT_LEVEL_MAX
                                    : TVP_COMPACT_LEVEL_DEACTIVATE;
+    unsigned int drawCount = 0;
+    uint64_t renderMemoryBytes = 0;
+    if(TVPGetRenderManager())
+        TVPGetRenderManager()->GetRenderStat(drawCount, renderMemoryBytes);
+    const tjs_uint graphicCacheBytes = TVPGetGraphicCacheTotalBytes();
     TVPAddLog(TJS_W("[memory] runtime pressure compact level=") +
               ttstr(static_cast<int>(level)) + TJS_W(" self=") +
               ttstr(static_cast<int>(selfUsedMb)) + TJS_W("MB free=") +
-              ttstr(static_cast<int>(freeMb)) + TJS_W("MB"));
+              ttstr(static_cast<int>(freeMb)) + TJS_W("MB render=") +
+              ttstr(static_cast<int>(renderMemoryBytes / (1024 * 1024))) +
+              TJS_W("MB graphicCache=") +
+              ttstr(static_cast<int>(graphicCacheBytes / (1024 * 1024))) +
+              TJS_W("MB"));
     TVPDeliverCompactEvent(level);
     TVPClearStorageCaches();
     iTVPTexture2D::RecycleProcess();

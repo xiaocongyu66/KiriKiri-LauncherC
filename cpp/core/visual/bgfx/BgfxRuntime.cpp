@@ -36,6 +36,8 @@ uint32_t FrameUploadCount = 0;
 uint16_t SoftwareFrameTexture = InvalidTextureHandle;
 uint32_t SoftwareFrameWidth = 0;
 uint32_t SoftwareFrameHeight = 0;
+uint32_t SoftwareFrameSkipCount = 0;
+bool LoggedSoftwareFrameUploadDisabled = false;
 uint32_t RectBatchCount = 0;
 uint32_t TriangleBatchCount = 0;
 
@@ -265,6 +267,29 @@ void UploadSoftwareFrame(uint32_t width, uint32_t height, const void *pixel,
     if(!Ready || !pixel || !width || !height || pitch <= 0)
         return;
 
+    ++SoftwareFrameSkipCount;
+    if(!LoggedSoftwareFrameUploadDisabled) {
+        LoggedSoftwareFrameUploadDisabled = true;
+        TVPAddLog(TJS_W("[renderer] bgfx software frame upload disabled while SDL/software presentation is active; avoiding per-frame full-surface copies."));
+    }
+    if(SoftwareFrameSkipCount <= 8 || SoftwareFrameSkipCount == 16 ||
+       SoftwareFrameSkipCount == 32 || (SoftwareFrameSkipCount % 512) == 0) {
+        TVPAddLog(TJS_W("[renderer] bgfx software frame upload skipped #") +
+                  ttstr(static_cast<int>(SoftwareFrameSkipCount)) + TJS_W(" ") +
+                  ttstr(static_cast<int>(width)) + TJS_W("x") +
+                  ttstr(static_cast<int>(height)));
+    }
+    if(SoftwareFrameTexture != InvalidTextureHandle) {
+        bgfx::TextureHandle oldTexture{SoftwareFrameTexture};
+        if(bgfx::isValid(oldTexture))
+            bgfx::destroy(oldTexture);
+        SoftwareFrameTexture = InvalidTextureHandle;
+        SoftwareFrameWidth = 0;
+        SoftwareFrameHeight = 0;
+    }
+    (void)format;
+    return;
+
     std::vector<uint8_t> rgba;
     if(!CopyAsRgba8(rgba, width, height, pixel, pitch, format))
         return;
@@ -406,6 +431,8 @@ void Shutdown() {
     TextureUploadSkipCount = 0;
     LoggedIntermediateTextureUploadDisabled = false;
     FrameUploadCount = 0;
+    SoftwareFrameSkipCount = 0;
+    LoggedSoftwareFrameUploadDisabled = false;
     RectBatchCount = 0;
     TriangleBatchCount = 0;
     StagedTriangleVertices.clear();
