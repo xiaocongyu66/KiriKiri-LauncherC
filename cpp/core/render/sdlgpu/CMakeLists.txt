@@ -5,13 +5,15 @@ set(SDLGPU_RENDER_PATH ${CMAKE_CURRENT_LIST_DIR})
 
 add_library(${PROJECT_NAME} STATIC
     ${SDLGPU_RENDER_PATH}/SDLGpuBackend.cpp
+    ${SDLGPU_RENDER_PATH}/SDLGpuTvpAdapter.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
     ${SDLGPU_RENDER_PATH}
+    ${CMAKE_CURRENT_LIST_DIR}/../../visual
 )
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 find_package(SDL3 CONFIG REQUIRED)
-target_link_libraries(${PROJECT_NAME} PUBLIC SDL3::SDL3)
+target_link_libraries(${PROJECT_NAME} PUBLIC SDL3::SDL3 tjs2)
