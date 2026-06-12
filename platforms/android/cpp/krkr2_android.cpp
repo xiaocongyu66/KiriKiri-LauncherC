@@ -61,22 +61,22 @@ static bool DumpFilter(void *data) {
 
     JavaVM *vm{};
     env->GetJavaVM(&vm);
-    void *handle = dlopen("libSDL2.so", RTLD_LAZY);
+    void *handle = dlopen("libSDL3.so", RTLD_LAZY);
     if(handle) {
         typedef jint (*JNI_OnLoad)(JavaVM *, void *);
-        void *sdl2Init = dlsym(handle, "JNI_OnLoad");
-        if(!sdl2Init ||
-           ((JNI_OnLoad)sdl2Init)(vm, nullptr) != JNI_VERSION_1_4) {
-            spdlog::critical("invoke libSDL2.so JNI_OnLoad method failed");
+        void *sdl3Init = dlsym(handle, "JNI_OnLoad");
+        if(!sdl3Init ||
+           ((JNI_OnLoad)sdl3Init)(vm, nullptr) != JNI_VERSION_1_4) {
+            spdlog::critical("invoke libSDL3.so JNI_OnLoad method failed");
             TVPAppendNativeFatalBreadcrumb("jni",
-                                           "libSDL2.so JNI_OnLoad failed");
+                                           "libSDL3.so JNI_OnLoad failed");
         } else {
             TVPAppendNativeFatalBreadcrumb("jni",
-                                           "libSDL2.so JNI_OnLoad ok");
+                                           "libSDL3.so JNI_OnLoad ok");
         }
     } else {
-        spdlog::critical("load libSDL2.so failed");
-        TVPAppendNativeFatalBreadcrumb("jni", "dlopen libSDL2.so failed");
+        spdlog::critical("load libSDL3.so failed");
+        TVPAppendNativeFatalBreadcrumb("jni", "dlopen libSDL3.so failed");
     }
 
     static std::unique_ptr<TVPAppDelegate> pAppDelegate =

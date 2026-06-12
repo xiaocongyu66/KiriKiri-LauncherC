@@ -42,7 +42,7 @@ find_package(uchardet CONFIG REQUIRED)
 find_package(TBB CONFIG REQUIRED)
 find_package(unrar CONFIG REQUIRED)
 find_package(LibArchive REQUIRED)
-find_package(SDL2 CONFIG REQUIRED)
+find_package(SDL3 CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
 find_package(cocos2dx CONFIG REQUIRED)
@@ -58,8 +58,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     zstd::libzstd
     lz4::lz4
 
-    $<TARGET_NAME_IF_EXISTS:SDL2::SDL2main>
-    $<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,SDL2::SDL2-static>
+    SDL3::SDL3
     cocos2dx::cocos2d
     unofficial::sqlite3::sqlite3
 )

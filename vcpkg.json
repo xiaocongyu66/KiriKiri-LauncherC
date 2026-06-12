@@ -84,10 +84,7 @@
       "name": "opusfile",
       "default-features": false
     },
-    {
-      "name": "sdl2",
-      "default-features": false
-    },
+    "sdl3",
     "sqlite3",
     "spdlog",
     {
@@ -109,8 +106,8 @@
       "version": "4.7.0#6"
     },
     {
-      "name": "sdl2",
-      "version": "2.32.10",
+      "name": "sdl3",
+      "version": "3.4.10",
       "port-version": 1
     }
   ]

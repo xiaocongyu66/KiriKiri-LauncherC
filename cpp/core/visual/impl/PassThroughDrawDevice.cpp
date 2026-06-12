@@ -182,7 +182,7 @@ public:
         // TVPGetRenderManager()->DrawScreen(rcdst,
         // _bmp->GetTexture(), rcsrc);
         //        SDL_DestroyTexture(texture);
-        //        SDL_FreeSurface(surface);
+        //        SDL_DestroySurface(surface);
     }
     void Show() override {
         /* Update the screen! */

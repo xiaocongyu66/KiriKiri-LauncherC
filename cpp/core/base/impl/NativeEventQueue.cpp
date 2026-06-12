@@ -3,7 +3,7 @@
 #include "Application.h"
 #include "NativeLog.h"
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 #include <atomic>
 #include <cstdio>
@@ -58,7 +58,7 @@ namespace {
     bool EnsureNativeEventQueue() {
         std::call_once(gNativeEventQueueInitOnce, []() {
             if(SDL_WasInit(SDL_INIT_EVENTS) == 0 &&
-               SDL_InitSubSystem(SDL_INIT_EVENTS) != 0) {
+               !SDL_InitSubSystem(SDL_INIT_EVENTS)) {
                 char message[256];
                 std::snprintf(message, sizeof(message),
                               "init events failed: %s", SDL_GetError());
@@ -155,7 +155,7 @@ void NativeEventQueueImplement::PostEvent(const NativeEvent &ev) {
     event.user.code = static_cast<Sint32>(ev.Message);
     event.user.data1 = pending;
 
-    if(SDL_PushEvent(&event) != 1) {
+    if(!SDL_PushEvent(&event)) {
         delete pending;
         char message[256];
         std::snprintf(message, sizeof(message),

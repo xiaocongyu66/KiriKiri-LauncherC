@@ -12,6 +12,8 @@
 #include "sdl/SDLGameManager.h"
 #include "sdl/SDLUIManager.h"
 
+#include <SDL3/SDL_main.h>
+
 #include <cstdio>
 
 #if defined(__ANDROID__)
@@ -28,8 +30,6 @@
 static cocos2d::Size designSize(960, 640);
 static constexpr float TVPLegacyMobileDesignWidth = 2048.0f;
 extern std::thread::id TVPMainThreadID;
-
-extern "C" void SDL_SetMainReady();
 
 std::string TVPGetCurrentLanguage();
 

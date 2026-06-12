@@ -8,7 +8,8 @@
 #include "RenderManager.h"
 #include "SDLUIManager.h"
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_main.h>
 #include <spdlog/spdlog.h>
 
 #include <atomic>
@@ -149,11 +150,11 @@ struct TVPSDLQueuedInputEvent {
     uint64_t sequence = 0;
 };
 
-std::string FormatVersion(const SDL_version &version) {
+std::string FormatVersion(int version) {
     std::ostringstream os;
-    os << static_cast<int>(version.major) << "."
-       << static_cast<int>(version.minor) << "."
-       << static_cast<int>(version.patch);
+    os << SDL_VERSIONNUM_MAJOR(version) << "."
+       << SDL_VERSIONNUM_MINOR(version) << "."
+       << SDL_VERSIONNUM_MICRO(version);
     return os.str();
 }
 
@@ -318,7 +319,7 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
 
     if(!gSDLScreenPresenterState.videoInitTried) {
         gSDLScreenPresenterState.videoInitTried = true;
-        if(SDL_InitSubSystem(SDL_INIT_VIDEO) == 0) {
+        if(SDL_InitSubSystem(SDL_INIT_VIDEO)) {
             gSDLScreenPresenterState.videoReady = true;
             const char *driver = SDL_GetCurrentVideoDriver();
             char message[384];
@@ -354,24 +355,19 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
     int windowHeight = gSDLScreenPresenterState.frameHeight > 0
         ? gSDLScreenPresenterState.frameHeight
         : surfaceHeight;
-    Uint32 windowFlags = 0;
+    SDL_WindowFlags windowFlags = 0;
 #if defined(__ANDROID__)
     windowFlags |= SDL_WINDOW_RESIZABLE;
-    windowFlags |= SDL_WINDOW_ALLOW_HIGHDPI;
-    windowFlags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
+    windowFlags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    windowFlags |= SDL_WINDOW_FULLSCREEN;
     windowWidth = 0;
     windowHeight = 0;
 #endif
 
     if(!gSDLScreenPresenterState.window &&
        !gSDLScreenPresenterState.windowFailed) {
-#ifdef SDL_HINT_RENDER_SCALE_QUALITY
-        SDL_SetHintWithPriority(SDL_HINT_RENDER_SCALE_QUALITY, "2",
-                                SDL_HINT_DEFAULT);
-#endif
         gSDLScreenPresenterState.window = SDL_CreateWindow(
-            "KiriKiri SDL Presenter", SDL_WINDOWPOS_UNDEFINED,
-            SDL_WINDOWPOS_UNDEFINED, windowWidth, windowHeight, windowFlags);
+            "KiriKiri SDL Presenter", windowWidth, windowHeight, windowFlags);
         if(!gSDLScreenPresenterState.window) {
             gSDLScreenPresenterState.windowFailed = true;
             char message[384];
@@ -399,9 +395,8 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
     if(!gSDLScreenPresenterState.renderer &&
        !gSDLScreenPresenterState.rendererFailed &&
        !gSDLScreenPresenterState.windowSurface) {
-        gSDLScreenPresenterState.renderer = SDL_CreateRenderer(
-            gSDLScreenPresenterState.window, -1,
-            SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+        gSDLScreenPresenterState.renderer =
+            SDL_CreateRenderer(gSDLScreenPresenterState.window, nullptr);
         if(!gSDLScreenPresenterState.renderer) {
             char rendererError[256];
             std::snprintf(rendererError, sizeof(rendererError), "%s",
@@ -433,8 +428,10 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
             LogSDLScreenPresenter(message);
             return true;
         }
-        SDL_RenderSetLogicalSize(gSDLScreenPresenterState.renderer,
-                                 surfaceWidth, surfaceHeight);
+        SDL_SetRenderVSync(gSDLScreenPresenterState.renderer, 1);
+        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer,
+                                         surfaceWidth, surfaceHeight,
+                                         SDL_LOGICAL_PRESENTATION_STRETCH);
         char message[320];
         std::snprintf(message, sizeof(message),
                       "renderer created stage=%s renderer=%p logical=%dx%d",
@@ -455,7 +452,7 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
        gSDLScreenPresenterState.textureHeight != surfaceHeight) {
         DestroySDLScreenTextureLocked();
         gSDLScreenPresenterState.texture = SDL_CreateTexture(
-            gSDLScreenPresenterState.renderer, SDL_PIXELFORMAT_RGB888,
+            gSDLScreenPresenterState.renderer, SDL_PIXELFORMAT_XRGB8888,
             SDL_TEXTUREACCESS_STREAMING, surfaceWidth, surfaceHeight);
         if(!gSDLScreenPresenterState.texture) {
             char message[384];
@@ -469,8 +466,11 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
         }
         gSDLScreenPresenterState.textureWidth = surfaceWidth;
         gSDLScreenPresenterState.textureHeight = surfaceHeight;
-        SDL_RenderSetLogicalSize(gSDLScreenPresenterState.renderer,
-                                 surfaceWidth, surfaceHeight);
+        SDL_SetTextureScaleMode(gSDLScreenPresenterState.texture,
+                                SDL_SCALEMODE_LINEAR);
+        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer,
+                                         surfaceWidth, surfaceHeight,
+                                         SDL_LOGICAL_PRESENTATION_STRETCH);
         char message[320];
         std::snprintf(message, sizeof(message),
                       "texture created stage=%s texture=%p size=%dx%d",
@@ -543,12 +543,12 @@ bool EnsureSDLSurfaceMirrorLocked(int width, int height) {
         return true;
 
     if(gSDLSurfaceMirrorState.surface) {
-        SDL_FreeSurface(gSDLSurfaceMirrorState.surface);
+        SDL_DestroySurface(gSDLSurfaceMirrorState.surface);
         gSDLSurfaceMirrorState.surface = nullptr;
     }
 
-    gSDLSurfaceMirrorState.surface = SDL_CreateRGBSurface(
-        0, width, height, 32, 0x00ff0000, 0x0000ff00, 0x000000ff, 0);
+    gSDLSurfaceMirrorState.surface =
+        SDL_CreateSurface(width, height, SDL_PIXELFORMAT_XRGB8888);
     if(!gSDLSurfaceMirrorState.surface) {
         char message[256];
         std::snprintf(message, sizeof(message),
@@ -573,8 +573,7 @@ bool EnsureSDLSurfaceMirrorLocked(int width, int height) {
                       gSDLSurfaceMirrorState.creates),
                   static_cast<void *>(gSDLSurfaceMirrorState.surface), width,
                   height, gSDLSurfaceMirrorState.surface->pitch,
-                  SDL_GetPixelFormatName(
-                      gSDLSurfaceMirrorState.surface->format->format));
+                  SDL_GetPixelFormatName(gSDLSurfaceMirrorState.surface->format));
     TVPNativeLogInfo("sdl-surface", message);
     return true;
 }
@@ -821,7 +820,7 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
     event.user.code = code;
     event.user.data1 = queued;
 
-    if(SDL_PushEvent(&event) != 1) {
+    if(!SDL_PushEvent(&event)) {
         delete queued;
         const uint64_t dropped =
             gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -866,7 +865,7 @@ bool TVPSDLInitializeRuntime() {
 #if defined(SDL_HINT_MOUSE_TOUCH_EVENTS)
         SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
 #endif
-        if(SDL_InitSubSystem(SDL_INIT_EVENTS) == 0) {
+        if(SDL_InitSubSystem(SDL_INIT_EVENTS)) {
             gSDLRuntimeInitialized = true;
         } else {
             gSDLRuntimeInitialized = false;
@@ -879,13 +878,8 @@ bool TVPSDLInitializeRuntime() {
 TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo() {
     TVPSDLRuntimeInfo info;
 
-    SDL_version compiled;
-    SDL_VERSION(&compiled);
-    SDL_version linked;
-    SDL_GetVersion(&linked);
-
-    info.compiledVersion = FormatVersion(compiled);
-    info.linkedVersion = FormatVersion(linked);
+    info.compiledVersion = FormatVersion(SDL_VERSION);
+    info.linkedVersion = FormatVersion(SDL_GetVersion());
     info.revision = SafeSDLString(SDL_GetRevision());
     info.platform = SafeSDLString(SDL_GetPlatform());
     info.videoDriver = SafeSDLString(SDL_GetCurrentVideoDriver());
@@ -1689,12 +1683,12 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
        gSDLScreenPresenterState.window &&
        gSDLScreenPresenterState.windowSurface) {
         SDL_Rect dstRect = rect;
-        int updateResult = 0;
+        bool updateResult = false;
         if(gSDLScreenPresenterState.windowSurface->w == surfaceWidth &&
            gSDLScreenPresenterState.windowSurface->h == surfaceHeight) {
-            if(SDL_BlitSurface(surface, &rect,
-                               gSDLScreenPresenterState.windowSurface,
-                               &dstRect) != 0) {
+            if(!SDL_BlitSurface(surface, &rect,
+                                gSDLScreenPresenterState.windowSurface,
+                                &dstRect)) {
                 const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
                 char message[384];
                 std::snprintf(message, sizeof(message),
@@ -1709,9 +1703,9 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
             updateResult = SDL_UpdateWindowSurfaceRects(
                 gSDLScreenPresenterState.window, &dstRect, 1);
         } else {
-            if(SDL_BlitScaled(surface, nullptr,
-                              gSDLScreenPresenterState.windowSurface,
-                              nullptr) != 0) {
+            if(!SDL_BlitSurfaceScaled(surface, nullptr,
+                                      gSDLScreenPresenterState.windowSurface,
+                                      nullptr, SDL_SCALEMODE_LINEAR)) {
                 const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
                 char message[384];
                 std::snprintf(message, sizeof(message),
@@ -1728,7 +1722,7 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
             updateResult =
                 SDL_UpdateWindowSurface(gSDLScreenPresenterState.window);
         }
-        if(updateResult != 0) {
+        if(!updateResult) {
             const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
             char message[384];
             std::snprintf(message, sizeof(message),
@@ -1761,8 +1755,8 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         return true;
     }
 
-    if(SDL_UpdateTexture(gSDLScreenPresenterState.texture, &rect,
-                         surface->pixels, pitch) != 0) {
+    if(!SDL_UpdateTexture(gSDLScreenPresenterState.texture, &rect,
+                          surface->pixels, pitch)) {
         const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
         char message[384];
         std::snprintf(message, sizeof(message),
@@ -1776,8 +1770,13 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         return false;
     }
 
-    if(SDL_RenderCopy(gSDLScreenPresenterState.renderer,
-                      gSDLScreenPresenterState.texture, &rect, &rect) != 0) {
+    const SDL_FRect renderRect{
+        static_cast<float>(rect.x), static_cast<float>(rect.y),
+        static_cast<float>(rect.w), static_cast<float>(rect.h),
+    };
+    if(!SDL_RenderTexture(gSDLScreenPresenterState.renderer,
+                          gSDLScreenPresenterState.texture, &renderRect,
+                          &renderRect)) {
         const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
         char message[384];
         std::snprintf(message, sizeof(message),

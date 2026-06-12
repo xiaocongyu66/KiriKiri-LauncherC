@@ -5,7 +5,7 @@
 # directive in build.gradle.
 
 ############################################################
-# KRKR2 / cocos2d-x / SDL2 — native FindClass / JNI bindings
+# KRKR2 / cocos2d-x / SDL3 — native FindClass / JNI bindings
 #
 # These classes are looked up from native code via
 # JNIEnv::FindClass / GetMethodID / RegisterNatives, so R8 cannot
@@ -15,7 +15,7 @@
 # in release builds.
 ############################################################
 
-# SDL2 — referenced from libSDL2.so JNI_OnLoad (FindClass "org/libsdl/app/SDLActivity")
+# SDL3 — referenced from libSDL3.so JNI_OnLoad (FindClass "org/libsdl/app/SDLActivity")
 -keep class org.libsdl.app.** { *; }
 -keepnames class org.libsdl.app.**
 -keep interface org.libsdl.app.** { *; }

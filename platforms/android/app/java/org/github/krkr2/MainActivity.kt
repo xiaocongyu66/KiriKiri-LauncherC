@@ -22,7 +22,7 @@ import io.flutter.embedding.android.FlutterTextureView
 import io.flutter.embedding.android.FlutterView
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
-import org.libsdl.app.SDLAudioManager
+import org.libsdl.app.SDL
 import org.libsdl.app.SDLActivity
 import org.tvp.kirikiri2.KR2Activity
 
@@ -113,9 +113,9 @@ class MainActivity : KR2Activity() {
         )
 
         logLifecycle("onCreate#sdl-audio-init-start")
-        SDLAudioManager.nativeSetupJNI()
-        SDLAudioManager.initialize()
-        SDLAudioManager.setContext(getContext())
+        SDL.setupJNI()
+        SDL.initialize()
+        SDL.setContext(this)
         logLifecycle("onCreate#sdl-audio-init-done")
         if (!intent?.getStringExtra(EXTRA_GAME_DIR).isNullOrBlank()) {
             installFlutterGameOverlay()
@@ -178,12 +178,10 @@ class MainActivity : KR2Activity() {
         orientationListener = null
         // Restore the user's auto-rotate setting before the activity is gone.
         ForceLandscapeHelper.release(this)
-        // Do NOT call SDLAudioManager.release(this) here. Cocos2dxActivity ->
-        // SDLActivity.onDestroy() already calls it once (libsdl/SDLActivity
-        // line 591). Calling release twice in a row triggers a double
-        // unregisterAudioDeviceCallback, which on Android 13+ destroys an
-        // internal SDL audio mutex while the GLThread is still draining a
-        // final frame and ends in:
+        // Do NOT call SDL audio release here. SDL owns its Android audio
+        // callback lifecycle, and forcing a second release during Cocos GL
+        // teardown can destroy an internal audio mutex while the GLThread is
+        // still draining a final frame and ends in:
         //   FORTIFY: pthread_mutex_lock called on a destroyed mutex
         //   Fatal signal 6 (SIGABRT) in tid X (GLThread Y)
         // observed in 78.log PID 14643 / GLThread 105.
