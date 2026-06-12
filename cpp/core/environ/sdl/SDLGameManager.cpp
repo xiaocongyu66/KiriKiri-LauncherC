@@ -96,6 +96,7 @@ struct TVPSDLSurfaceMirrorState {
 
 std::mutex gSDLSurfaceMirrorMutex;
 TVPSDLSurfaceMirrorState gSDLSurfaceMirrorState;
+std::atomic_bool gSDLSurfaceMirrorConsumerActive{false};
 
 struct TVPSDLScreenPresenterState {
     bool takeoverEnabled = false;
@@ -279,6 +280,38 @@ const char *SDLScreenPresenterUnsupportedReason() {
 #else
     return "";
 #endif
+}
+
+bool IsSDLSurfaceMirrorConsumerActive() {
+    return gSDLSurfaceMirrorConsumerActive.load(std::memory_order_relaxed);
+}
+
+void DestroySDLSurfaceMirrorLocked() {
+    if(gSDLSurfaceMirrorState.surface) {
+        SDL_DestroySurface(gSDLSurfaceMirrorState.surface);
+        gSDLSurfaceMirrorState.surface = nullptr;
+    }
+    gSDLSurfaceMirrorState.width = 0;
+    gSDLSurfaceMirrorState.height = 0;
+    gSDLSurfaceMirrorState.hasUpdate = false;
+    gSDLSurfaceMirrorState.updateRect.clear();
+}
+
+void DropSDLSurfaceMirror(const char *reason) {
+    std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+    if(!gSDLSurfaceMirrorState.surface)
+        return;
+
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "drop reason=%s copiedRegions=%llu copiedBytes=%llu",
+                  reason ? reason : "",
+                  static_cast<unsigned long long>(
+                      gSDLSurfaceMirrorState.copiedRegions),
+                  static_cast<unsigned long long>(
+                      gSDLSurfaceMirrorState.copiedBytes));
+    DestroySDLSurfaceMirrorLocked();
+    TVPNativeLogInfo("sdl-surface", message);
 }
 
 void DestroySDLScreenTextureLocked() {
@@ -1336,13 +1369,15 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
     uint64_t surfaceCopiedTotal = 0;
     uint64_t surfaceCopiedBytesTotal = 0;
     uint64_t surfaceSkippedTotal = 0;
-    const bool surfaceCopied = copyReady &&
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    const bool surfaceCopied = surfaceMirrorWanted && copyReady &&
         CopyRegionToSDLSurfaceMirror(texture, clipRect, x, y, sourceWidth,
                                      sourceHeight, format, globalRegion,
                                      batchRegion, surfaceCopiedTotal,
                                      surfaceCopiedBytesTotal,
                                      surfaceSkippedTotal);
-    const bool surfaceSkipped = copyReady && !surfaceCopied;
+    const bool surfaceSkipped =
+        surfaceMirrorWanted && copyReady && !surfaceCopied;
 
     {
         std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
@@ -1569,6 +1604,7 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
     const bool requested = enabled;
     const bool supported = IsSDLScreenPresenterWindowSupported();
     enabled = enabled && supported;
+    gSDLSurfaceMirrorConsumerActive.store(enabled, std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
         gSDLScreenPresenterState.takeoverEnabled = enabled;
@@ -1594,6 +1630,9 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                   (initialized & SDL_INIT_AUDIO) ? 1 : 0,
                   static_cast<unsigned>(SDL_GetTicks()));
     LogSDLScreenPresenter(message);
+    if(!enabled) {
+        DropSDLSurfaceMirror("takeover-disabled");
+    }
 }
 
 bool TVPSDLIsScreenTakeoverSupported() {

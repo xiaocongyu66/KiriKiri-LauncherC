@@ -7,6 +7,7 @@
 - The first backend layer provides SDL_GPU device creation, texture creation, texture upload, release, and basic memory/upload statistics.
 - No game path is switched to SDL_GPU yet.
 - Android hybrid builds keep Cocos as the active presenter until an SDL or Flutter texture presenter is actually available; SDL screen takeover requests stay disabled in this mode.
+- The SDL surface mirror copies frames only while a real screen presenter consumer is active, so Android hybrid builds do not pay the extra CPU copy cost.
 
 ## Migration order
 
