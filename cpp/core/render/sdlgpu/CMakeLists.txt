@@ -6,6 +6,7 @@ set(SDLGPU_RENDER_PATH ${CMAKE_CURRENT_LIST_DIR})
 add_library(${PROJECT_NAME} STATIC
     ${SDLGPU_RENDER_PATH}/SDLGpuBackend.cpp
     ${SDLGPU_RENDER_PATH}/SDLGpuTvpAdapter.cpp
+    ${SDLGPU_RENDER_PATH}/SDLGpuTextureCache.cpp
 )
 
 target_include_directories(${PROJECT_NAME} PUBLIC
