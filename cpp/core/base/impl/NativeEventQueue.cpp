@@ -101,24 +101,24 @@ namespace {
             queue, static_cast<int>(ev.Message));
     }
 
-    int FilterNativeEvent(void *userdata, SDL_Event *event) {
+    bool FilterNativeEvent(void *userdata, SDL_Event *event) {
         auto *context = static_cast<NativeEventFilterContext *>(userdata);
         if(!context || event->type != gNativeEventQueueEventType)
-            return 1;
+            return true;
 
         auto *pending =
             static_cast<PendingNativeEvent *>(event->user.data1);
         if(!pending)
-            return 0;
+            return false;
 
         if(pending->queue == context->queue &&
            (!context->msg ||
             pending->event.Message == static_cast<unsigned int>(context->msg))) {
             delete pending;
             context->removed++;
-            return 0;
+            return false;
         }
-        return 1;
+        return true;
     }
 } // namespace
 
