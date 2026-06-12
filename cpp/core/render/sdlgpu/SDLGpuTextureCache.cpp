@@ -39,6 +39,10 @@ const TextureCacheLimits &TextureCache::Limits() const { return limits_; }
 
 TextureCacheStats TextureCache::Stats() const { return stats_; }
 
+bool TextureCache::Contains(const iTVPTexture2D *source) const {
+    return source && records_.find(source) != records_.end();
+}
+
 TextureCacheResult TextureCache::Upsert(iTVPTexture2D &source,
                                         const tTVPRect *sourceRect,
                                         const char *debugName) {

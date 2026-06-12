@@ -45,6 +45,7 @@ public:
     void SetLimits(const TextureCacheLimits &limits);
     const TextureCacheLimits &Limits() const;
     TextureCacheStats Stats() const;
+    bool Contains(const iTVPTexture2D *source) const;
 
     TextureCacheResult Upsert(iTVPTexture2D &source,
                               const tTVPRect *sourceRect = nullptr,

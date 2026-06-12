@@ -6,6 +6,8 @@
 #include "ComplexRect.h"
 #include "LayerBitmapIntf.h"
 #include "RenderManager.h"
+#include "SDLGpuBackend.h"
+#include "SDLGpuTextureCache.h"
 #include "SDLUIManager.h"
 
 #include <SDL3/SDL.h>
@@ -124,6 +126,20 @@ struct TVPSDLScreenPresenterState {
 
 std::mutex gSDLScreenPresenterMutex;
 TVPSDLScreenPresenterState gSDLScreenPresenterState;
+
+struct TVPSDLGpuPresenterState {
+    krkr::render::sdlgpu::Backend backend;
+    krkr::render::sdlgpu::tvp::TextureCache textureCache;
+    bool initializeTried = false;
+    bool ready = false;
+    uint64_t attempts = 0;
+    uint64_t uploads = 0;
+    uint64_t skippedClean = 0;
+    uint64_t failures = 0;
+};
+
+std::mutex gSDLGpuPresenterMutex;
+TVPSDLGpuPresenterState gSDLGpuPresenterState;
 
 struct TVPSDLLoadingConsoleLine {
     std::string message;
@@ -264,6 +280,52 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
 
 void LogSDLScreenPresenter(const char *message) {
     TVPNativeLogInfo("sdl-screen", message ? message : "");
+}
+
+void LogSDLGpuPresenter(const char *message) {
+    TVPNativeLogInfo("sdl-gpu-presenter", message ? message : "");
+}
+
+bool EnsureSDLGpuPresenterLocked(const char *stage) {
+    if(gSDLGpuPresenterState.ready)
+        return true;
+    if(gSDLGpuPresenterState.initializeTried)
+        return false;
+
+    gSDLGpuPresenterState.initializeTried = true;
+    TVPSDLInitializeRuntime();
+
+    if((SDL_WasInit(0) & SDL_INIT_VIDEO) == 0 &&
+       !SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "video init failed stage=%s error=%s",
+                      stage ? stage : "", SDL_GetError());
+        LogSDLGpuPresenter(message);
+        return false;
+    }
+
+    if(!gSDLGpuPresenterState.backend.Initialize(nullptr, false)) {
+        char message[384];
+        std::snprintf(message, sizeof(message),
+                      "backend init failed stage=%s error=%s",
+                      stage ? stage : "",
+                      gSDLGpuPresenterState.backend.LastError().c_str());
+        LogSDLGpuPresenter(message);
+        return false;
+    }
+
+    gSDLGpuPresenterState.textureCache.SetBackend(
+        &gSDLGpuPresenterState.backend);
+    gSDLGpuPresenterState.ready = true;
+
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "backend ready stage=%s driver=%s",
+                  stage ? stage : "",
+                  gSDLGpuPresenterState.backend.DriverName());
+    LogSDLGpuPresenter(message);
+    return true;
 }
 
 bool IsSDLScreenPresenterWindowSupported() {
@@ -1649,6 +1711,137 @@ bool TVPSDLHasScreenPresenterPresented() {
     return gSDLScreenPresenterState.presentedFrames > 0;
 }
 
+bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
+                             int layerWidth, int layerHeight) {
+    if(!texture)
+        return false;
+    if(!TVPSDLIsScreenTakeoverEnabled() || !TVPSDLIsScreenTakeoverSupported())
+        return false;
+
+    TVPSDLInitializeRuntime();
+    TVPSDLRecordPresenterFrame(texture, stage, layerWidth, layerHeight);
+
+    tTVPRect updateRect;
+    const tTVPRect fullRect(0, 0, static_cast<tjs_int>(texture->GetWidth()),
+                            static_cast<tjs_int>(texture->GetHeight()));
+    bool hasDirty = texture->PeekDirtyRect(updateRect);
+    if(hasDirty)
+        updateRect.clip(fullRect);
+
+    bool knownTexture = false;
+    {
+        std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
+        knownTexture = gSDLGpuPresenterState.textureCache.Contains(texture);
+        if(!hasDirty && knownTexture) {
+            const uint64_t skipped = ++gSDLGpuPresenterState.skippedClean;
+            if(ShouldLogScreenPresenter(skipped)) {
+                char message[256];
+                std::snprintf(message, sizeof(message),
+                              "skip clean #%llu stage=%s tex=%p size=%ux%u",
+                              static_cast<unsigned long long>(skipped),
+                              stage ? stage : "", static_cast<void *>(texture),
+                              texture->GetWidth(), texture->GetHeight());
+                LogSDLGpuPresenter(message);
+            }
+            return false;
+        }
+    }
+
+    if(!hasDirty)
+        updateRect = fullRect;
+    if(updateRect.is_empty())
+        return false;
+
+    bool gpuUploaded = false;
+    bool gpuConverted = false;
+    uint64_t gpuUploadBytes = 0;
+    uint64_t gpuUploads = 0;
+    uint64_t gpuFailures = 0;
+    uint64_t gpuAttempts = 0;
+    std::string gpuError;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
+        gpuAttempts = ++gSDLGpuPresenterState.attempts;
+        if(EnsureSDLGpuPresenterLocked(stage)) {
+            const tTVPRect *sourceRect = hasDirty ? &updateRect : nullptr;
+            auto result = gSDLGpuPresenterState.textureCache.Upsert(
+                *texture, sourceRect, "tvp-window-presenter");
+            if(result.uploaded) {
+                gpuUploaded = true;
+                gpuConverted = result.converted;
+                gpuUploadBytes = result.uploadBytes;
+                gpuUploads = ++gSDLGpuPresenterState.uploads;
+            } else {
+                gpuError = result.error;
+                gpuFailures = ++gSDLGpuPresenterState.failures;
+            }
+        } else {
+            gpuError = "SDL_GPU presenter backend is unavailable";
+            gpuFailures = ++gSDLGpuPresenterState.failures;
+        }
+    }
+
+    if(!gpuUploaded) {
+        if(ShouldLogScreenPresenter(gpuFailures)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "upload failed #%llu attempt=%llu stage=%s tex=%p "
+                          "dirty=%d,%d,%dx%d error=%s",
+                          static_cast<unsigned long long>(gpuFailures),
+                          static_cast<unsigned long long>(gpuAttempts),
+                          stage ? stage : "", static_cast<void *>(texture),
+                          updateRect.left, updateRect.top,
+                          updateRect.get_width(), updateRect.get_height(),
+                          gpuError.c_str());
+            LogSDLGpuPresenter(message);
+        }
+        return false;
+    }
+
+    TVPTextureFormat::e copyFormat = texture->GetPixelDataFormat();
+    if(copyFormat == TVPTextureFormat::None)
+        copyFormat = texture->GetFormat();
+
+    uint64_t surfaceCopiedTotal = 0;
+    uint64_t surfaceCopiedBytes = 0;
+    uint64_t surfaceSkippedTotal = 0;
+    const bool surfaceCopied = CopyRegionToSDLSurfaceMirror(
+        texture, updateRect, updateRect.left, updateRect.top,
+        static_cast<int>(texture->GetWidth()),
+        static_cast<int>(texture->GetHeight()), copyFormat, gpuUploads,
+        gpuAttempts, surfaceCopiedTotal, surfaceCopiedBytes,
+        surfaceSkippedTotal);
+    if(!surfaceCopied)
+        return false;
+
+    const bool pumped = TVPSDLPumpScreenPresenter(stage);
+    if(!pumped)
+        return false;
+
+    tTVPRect consumed;
+    texture->ConsumeDirtyRect(consumed);
+
+    if(ShouldLogScreenPresenter(gpuUploads)) {
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "present #%llu stage=%s tex=%p size=%ux%u "
+                      "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
+                      "surfaceRegions=%llu surfaceBytes=%llu",
+                      static_cast<unsigned long long>(gpuUploads),
+                      stage ? stage : "", static_cast<void *>(texture),
+                      texture->GetWidth(), texture->GetHeight(),
+                      updateRect.left, updateRect.top,
+                      updateRect.get_width(), updateRect.get_height(),
+                      static_cast<unsigned long long>(gpuUploadBytes),
+                      gpuConverted ? 1 : 0,
+                      static_cast<unsigned long long>(surfaceCopiedTotal),
+                      static_cast<unsigned long long>(surfaceCopiedBytes));
+        LogSDLGpuPresenter(message);
+    }
+    return true;
+}
+
 bool TVPSDLPumpScreenPresenter(const char *stage) {
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
@@ -1819,8 +2012,10 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         return true;
     }
 
+    const auto *updatePixels = static_cast<const Uint8 *>(surface->pixels) +
+        static_cast<size_t>(rect.y) * pitch + static_cast<size_t>(rect.x) * 4;
     if(!SDL_UpdateTexture(gSDLScreenPresenterState.texture, &rect,
-                          surface->pixels, pitch)) {
+                          updatePixels, pitch)) {
         const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
         char message[384];
         std::snprintf(message, sizeof(message),

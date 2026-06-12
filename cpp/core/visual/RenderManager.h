@@ -147,6 +147,15 @@ public:
     }
     virtual unsigned int GetNativeGLTextureId() const { return 0; }
     virtual void InvalidatePixelCache() {}
+    virtual void MarkDirtyRect(const tTVPRect &rect) { (void)rect; }
+    virtual bool PeekDirtyRect(tTVPRect &rect) const {
+        (void)rect;
+        return false;
+    }
+    virtual bool ConsumeDirtyRect(tTVPRect &rect) {
+        (void)rect;
+        return false;
+    }
 
     static void RecycleProcess();
 };

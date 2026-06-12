@@ -7,6 +7,8 @@ typedef cocos2d::Texture2D::PixelFormat CCPixelFormat;
 #include "tvpgl.h"
 #include <assert.h>
 #include <algorithm>
+#include <cstring>
+#include <vector>
 #include "ThreadIntf.h"
 #include "argb.h"
 extern "C" {
@@ -325,10 +327,16 @@ public:
     tjs_int Pitch;
     TVPTextureFormat::e Format;
     tjs_uint8 *BmpData; // pointer to bitmap bits
+    bool AdapterDirty = false;
+    tTVPRect AdapterDirtyRect;
+
     tTVPSoftwareTexture2D_static(const void *pixel, int pitch, unsigned int w,
                                  unsigned int h, TVPTextureFormat::e format) :
         iTVPSoftwareTexture2D(w, h), Format(format),
-        BmpData((tjs_uint8 *)pixel), Pitch(pitch) {}
+        BmpData((tjs_uint8 *)pixel), Pitch(pitch) {
+        AdapterDirtyRect = tTVPRect(0, 0, Width, Height);
+        AdapterDirty = !AdapterDirtyRect.is_empty();
+    }
     ~tTVPSoftwareTexture2D_static() override {}
     void Update(const void *pixel, TVPTextureFormat::e format, int pitch,
                 const tTVPRect &rc) override {
@@ -337,6 +345,7 @@ public:
         BmpData = (tjs_uint8 *)pixel;
         Width = rc.get_width();
         Height = rc.get_height();
+        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
     }
     bool IsStatic() override { return true; }
     bool IsOpaque() override { return false; }
@@ -357,17 +366,98 @@ public:
     }
     tjs_int GetPitch() const override { return Pitch; }
 
+    void MarkDirtyRect(const tTVPRect &rect) override {
+        tTVPRect dirty = rect;
+        const tTVPRect bounds(0, 0, Width, Height);
+        dirty.clip(bounds);
+        if(dirty.is_empty())
+            return;
+        if(AdapterDirty) {
+            AdapterDirtyRect.do_union(dirty);
+        } else {
+            AdapterDirtyRect = dirty;
+            AdapterDirty = true;
+        }
+    }
+
+    bool ConsumeDirtyRect(tTVPRect &rect) override {
+        if(!AdapterDirty)
+            return false;
+        rect = AdapterDirtyRect;
+        AdapterDirty = false;
+        AdapterDirtyRect.clear();
+        return true;
+    }
+
+    bool PeekDirtyRect(tTVPRect &rect) const override {
+        if(!AdapterDirty)
+            return false;
+        rect = AdapterDirtyRect;
+        return true;
+    }
+
+protected:
+    int GetAdapterTextureWidth() const {
+        return Format == TVPTextureFormat::RGBA && Pitch > 0 ? Pitch / 4
+                                                             : Width;
+    }
+
+    void ClearAdapterDirtyRect() {
+        AdapterDirty = false;
+        AdapterDirtyRect.clear();
+    }
+
+    bool UploadAdapterDirtyRect(cocos2d::Texture2D *texture,
+                                const tTVPRect &dirty) {
+        if(!texture || !BmpData || Format != TVPTextureFormat::RGBA ||
+           Pitch <= 0)
+            return false;
+
+        tTVPRect clipped = dirty;
+        clipped.clip(tTVPRect(0, 0, Width, Height));
+        if(clipped.is_empty())
+            return true;
+
+        const int uploadWidth = clipped.get_width();
+        const int uploadHeight = clipped.get_height();
+        const int rowBytes = uploadWidth * 4;
+        const auto *firstRow = BmpData + clipped.top * Pitch + clipped.left * 4;
+        if(clipped.left == 0 && rowBytes == Pitch) {
+            texture->updateWithData(firstRow, clipped.left, clipped.top,
+                                    uploadWidth, uploadHeight);
+            return true;
+        }
+
+        std::vector<tjs_uint8> packed(
+            static_cast<size_t>(rowBytes) * uploadHeight);
+        for(int y = 0; y < uploadHeight; ++y) {
+            std::memcpy(packed.data() + static_cast<size_t>(y) * rowBytes,
+                        firstRow + static_cast<size_t>(y) * Pitch, rowBytes);
+        }
+        texture->updateWithData(packed.data(), clipped.left, clipped.top,
+                                uploadWidth, uploadHeight);
+        return true;
+    }
+
+public:
     cocos2d::Texture2D *
     GetAdapterTexture(cocos2d::Texture2D *origTex) override {
-        if(!origTex || origTex->getPixelsWide() != Width ||
+        const int textureWidth = GetAdapterTextureWidth();
+        if(!origTex || origTex->getPixelsWide() != textureWidth ||
            origTex->getPixelsHigh() != Height) {
             origTex = new cocos2d::Texture2D;
             origTex->autorelease();
             origTex->initWithData(BmpData, Pitch * Height,
-                                  CCPixelFormat::RGBA8888, Pitch / 4, Height,
+                                  CCPixelFormat::RGBA8888, textureWidth, Height,
                                   cocos2d::Size::ZERO);
+            ClearAdapterDirtyRect();
         } else {
-            origTex->updateWithData(BmpData, 0, 0, Pitch / 4, Height);
+            tTVPRect dirty;
+            if(ConsumeDirtyRect(dirty)) {
+                if(!UploadAdapterDirtyRect(origTex, dirty)) {
+                    origTex->updateWithData(BmpData, 0, 0, Pitch / 4, Height);
+                }
+            }
         }
         return origTex;
     }
@@ -469,16 +559,24 @@ public:
 
     cocos2d::Texture2D *
     GetAdapterTexture(cocos2d::Texture2D *origTex) override {
-        GetPixelData();
-        if(!origTex || origTex->getPixelsWide() != Width ||
+        const int textureWidth = GetAdapterTextureWidth();
+        if(!origTex || origTex->getPixelsWide() != textureWidth ||
            origTex->getPixelsHigh() != Height) {
+            GetPixelData();
             origTex = new cocos2d::Texture2D;
             origTex->autorelease();
             origTex->initWithData(BmpData, Pitch * Height,
-                                  CCPixelFormat::RGBA8888, Width, Height,
+                                  CCPixelFormat::RGBA8888, textureWidth, Height,
                                   cocos2d::Size::ZERO);
+            ClearAdapterDirtyRect();
         } else {
-            origTex->updateWithData(BmpData, 0, 0, Width, Height);
+            tTVPRect dirty;
+            if(ConsumeDirtyRect(dirty)) {
+                GetPixelData();
+                if(!UploadAdapterDirtyRect(origTex, dirty)) {
+                    origTex->updateWithData(BmpData, 0, 0, Width, Height);
+                }
+            }
         }
         return origTex;
     }
@@ -567,11 +665,19 @@ public:
             origTex->initWithData(nullptr, Pitch * _scanline.size(),
                                   CCPixelFormat::RGBA8888, Width,
                                   _scanline.size(), cocos2d::Size::ZERO);
+            MarkDirtyRect(tTVPRect(0, 0, Width, Height));
         }
-        int y = 0;
-        for(const tjs_uint8 *line : _scanline) {
-            origTex->updateWithData(line, 0, y, Width, 1);
-            ++y;
+        tTVPRect dirty;
+        if(!ConsumeDirtyRect(dirty))
+            return origTex;
+        int top = dirty.top / 2;
+        int bottom = (dirty.bottom + 1) / 2;
+        if(top < 0)
+            top = 0;
+        if(bottom > static_cast<int>(_scanline.size()))
+            bottom = static_cast<int>(_scanline.size());
+        for(int y = top; y < bottom; ++y) {
+            origTex->updateWithData(_scanline[y], 0, y, Width, 1);
         }
         return origTex;
     }
@@ -937,6 +1043,7 @@ public:
             }
         }
         Bitmap->IsOpaque = false;
+        MarkDirtyRect(rc);
     }
 
     uint32_t GetPoint(int x, int y) override {
@@ -957,11 +1064,13 @@ public:
         else
             *((tjs_uint8 *)Bitmap->GetScanLine(y) + x) = (tjs_uint8)clr; // 8bpp
         Bitmap->IsOpaque = false;
+        MarkDirtyRect(tTVPRect(x, y, x + 1, y + 1));
     }
     bool IsStatic() override { return false; }
     bool IsOpaque() override { return Bitmap->IsOpaque; }
     void *GetScanLineForWrite(tjs_uint l) override {
         Bitmap->IsOpaque = false;
+        MarkDirtyRect(tTVPRect(0, l, Width, l + 1));
         return (void *)GetScanLineForRead(l);
     }
 };
@@ -3166,6 +3275,7 @@ public:
                                textures[2].second);
                 break;
         }
+        tar->MarkDirtyRect(rctar);
     }
 
     static bool CheckQuad(const tTVPPointD *pt) {

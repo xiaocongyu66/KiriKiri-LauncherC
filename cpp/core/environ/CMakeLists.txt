@@ -75,6 +75,7 @@ set(ENVIRON_HEADERS_DIR
     ${ENVIRON_PATH}/win32
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android>
     ${ENVIRON_PATH}/sdl
+    ${CMAKE_CURRENT_LIST_DIR}/../render/sdlgpu
 )
 
 add_library(${PROJECT_NAME} STATIC ${ENVIRON_SOURCE_FILES})
