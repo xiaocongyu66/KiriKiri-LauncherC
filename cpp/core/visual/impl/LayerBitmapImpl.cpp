@@ -575,7 +575,8 @@ void tTVPBitmap::SetPaletteCount(tjs_uint count) {
 // tTVPNativeBaseBitmap
 //---------------------------------------------------------------------------
 tTVPNativeBaseBitmap::tTVPNativeBaseBitmap(
-    /*tjs_uint w, tjs_uint h, tjs_uint bpp*/) {
+    /*tjs_uint w, tjs_uint h, tjs_uint bpp*/)
+    : Bitmap(nullptr) {
     TVPInializeFontRasterizers();
     // TVPFontRasterizer->AddRef(); TODO
 
@@ -589,7 +590,8 @@ tTVPNativeBaseBitmap::tTVPNativeBaseBitmap(
     // Bitmap = new tTVPBitmap(w, h, bpp);
 }
 //---------------------------------------------------------------------------
-tTVPNativeBaseBitmap::tTVPNativeBaseBitmap(const tTVPNativeBaseBitmap &r) {
+tTVPNativeBaseBitmap::tTVPNativeBaseBitmap(const tTVPNativeBaseBitmap &r)
+    : Bitmap(nullptr) {
     TVPInializeFontRasterizers();
     // TVPFontRasterizer->AddRef(); TODO
 
