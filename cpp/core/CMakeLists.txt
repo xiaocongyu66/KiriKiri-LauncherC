@@ -14,6 +14,7 @@ add_subdirectory(extension)
 add_subdirectory(plugin)
 add_subdirectory(movie)
 add_subdirectory(sound)
+add_subdirectory(render/sdlgpu)
 add_subdirectory(visual)
 add_subdirectory(utils)
 
@@ -25,6 +26,7 @@ target_link_libraries(${PROJECT_NAME} INTERFACE
         core_plugin_module
         core_movie_module
         core_sound_module
+        core_render_sdlgpu_module
         core_visual_module
         core_utils_module
         mimalloc
