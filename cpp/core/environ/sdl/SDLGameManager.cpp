@@ -265,6 +265,22 @@ void LogSDLScreenPresenter(const char *message) {
     TVPNativeLogInfo("sdl-screen", message ? message : "");
 }
 
+bool IsSDLScreenPresenterWindowSupported() {
+#if defined(__ANDROID__) && !defined(KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW)
+    return false;
+#else
+    return true;
+#endif
+}
+
+const char *SDLScreenPresenterUnsupportedReason() {
+#if defined(__ANDROID__) && !defined(KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW)
+    return "android-cocos-hybrid";
+#else
+    return "";
+#endif
+}
+
 void DestroySDLScreenTextureLocked() {
     if(gSDLScreenPresenterState.texture) {
         SDL_DestroyTexture(gSDLScreenPresenterState.texture);
@@ -292,29 +308,31 @@ void DestroySDLScreenPresenterLocked() {
 
 bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
                                     const char *stage) {
-#if defined(__ANDROID__) && !defined(KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW)
-    gSDLScreenPresenterState.hybridWindowDeferred = true;
-    const uint64_t deferred = ++gSDLScreenPresenterState.deferredPumps;
-    if(ShouldLogScreenPresenter(deferred)) {
-        const Uint32 initialized = SDL_WasInit(0);
-        char message[512];
-        std::snprintf(
-            message, sizeof(message),
-            "window creation deferred #%llu stage=%s reason=android-cocos-hybrid "
-            "surface=%dx%d frame=%dx%d scene=%dx%d events=%d video=%d audio=%d "
-            "define KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW to force test",
-            static_cast<unsigned long long>(deferred), stage ? stage : "",
-            surfaceWidth, surfaceHeight, gSDLScreenPresenterState.frameWidth,
-            gSDLScreenPresenterState.frameHeight,
-            gSDLScreenPresenterState.sceneWidth,
-            gSDLScreenPresenterState.sceneHeight,
-            (initialized & SDL_INIT_EVENTS) ? 1 : 0,
-            (initialized & SDL_INIT_VIDEO) ? 1 : 0,
-            (initialized & SDL_INIT_AUDIO) ? 1 : 0);
-        LogSDLScreenPresenter(message);
+    if(!IsSDLScreenPresenterWindowSupported()) {
+        gSDLScreenPresenterState.hybridWindowDeferred = true;
+        const uint64_t deferred = ++gSDLScreenPresenterState.deferredPumps;
+        if(ShouldLogScreenPresenter(deferred)) {
+            const Uint32 initialized = SDL_WasInit(0);
+            char message[512];
+            std::snprintf(
+                message, sizeof(message),
+                "window creation deferred #%llu stage=%s reason=%s "
+                "surface=%dx%d frame=%dx%d scene=%dx%d events=%d video=%d "
+                "audio=%d define KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW to force test",
+                static_cast<unsigned long long>(deferred), stage ? stage : "",
+                SDLScreenPresenterUnsupportedReason(), surfaceWidth,
+                surfaceHeight, gSDLScreenPresenterState.frameWidth,
+                gSDLScreenPresenterState.frameHeight,
+                gSDLScreenPresenterState.sceneWidth,
+                gSDLScreenPresenterState.sceneHeight,
+                (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                (initialized & SDL_INIT_AUDIO) ? 1 : 0);
+            LogSDLScreenPresenter(message);
+        }
+        return false;
     }
-    return false;
-#else
+
     TVPSDLInitializeRuntime();
 
     if(!gSDLScreenPresenterState.videoInitTried) {
@@ -481,7 +499,6 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
     }
 
     return gSDLScreenPresenterState.texture != nullptr;
-#endif
 }
 
 const char *TextureFormatName(TVPTextureFormat::e format) {
@@ -1549,6 +1566,9 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                                     int frameWidth, int frameHeight,
                                     int sceneWidth, int sceneHeight) {
     TVPSDLInitializeRuntime();
+    const bool requested = enabled;
+    const bool supported = IsSDLScreenPresenterWindowSupported();
+    enabled = enabled && supported;
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
         gSDLScreenPresenterState.takeoverEnabled = enabled;
@@ -1564,15 +1584,20 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
     const Uint32 initialized = SDL_WasInit(0);
     char message[384];
     std::snprintf(message, sizeof(message),
-                  "takeover enabled=%d reason=%s frame=%dx%d scene=%dx%d "
-                  "events=%d video=%d audio=%d ticks=%u",
-                  enabled ? 1 : 0, reason ? reason : "", frameWidth,
-                  frameHeight, sceneWidth, sceneHeight,
+                  "takeover enabled=%d requested=%d reason=%s unsupported=%s "
+                  "frame=%dx%d scene=%dx%d events=%d video=%d audio=%d ticks=%u",
+                  enabled ? 1 : 0, requested ? 1 : 0, reason ? reason : "",
+                  supported ? "" : SDLScreenPresenterUnsupportedReason(),
+                  frameWidth, frameHeight, sceneWidth, sceneHeight,
                   (initialized & SDL_INIT_EVENTS) ? 1 : 0,
                   (initialized & SDL_INIT_VIDEO) ? 1 : 0,
                   (initialized & SDL_INIT_AUDIO) ? 1 : 0,
                   static_cast<unsigned>(SDL_GetTicks()));
     LogSDLScreenPresenter(message);
+}
+
+bool TVPSDLIsScreenTakeoverSupported() {
+    return IsSDLScreenPresenterWindowSupported();
 }
 
 bool TVPSDLIsScreenTakeoverEnabled() {
@@ -1588,7 +1613,8 @@ bool TVPSDLHasScreenPresenterPresented() {
 bool TVPSDLPumpScreenPresenter(const char *stage) {
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-        if(!gSDLScreenPresenterState.takeoverEnabled)
+        if(!gSDLScreenPresenterState.takeoverEnabled ||
+           !IsSDLScreenPresenterWindowSupported())
             return false;
         gSDLScreenPresenterState.pumpAttempts++;
     }

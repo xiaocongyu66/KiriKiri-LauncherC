@@ -2367,7 +2367,11 @@ void TVPMainScene::doStartup(float dt, std::string path) {
             static_cast<int>(screenSize.height),
             static_cast<int>(getContentSize().width),
             static_cast<int>(getContentSize().height));
-        const bool pumped = TVPSDLPumpScreenPresenter("doStartup");
+        const bool takeoverSupported = TVPSDLIsScreenTakeoverSupported();
+        const bool takeoverEnabled = TVPSDLIsScreenTakeoverEnabled();
+        const bool pumped = takeoverEnabled
+            ? TVPSDLPumpScreenPresenter("doStartup")
+            : false;
         const bool presenterReady = TVPSDLHasScreenPresenterPresented();
         if(presenterReady) {
             if(UINode)
@@ -2379,10 +2383,12 @@ void TVPMainScene::doStartup(float dt, std::string path) {
             _sdlScreenTakeoverLogged = true;
         }
         KR2RenderProbeWriteF(
-            "sdl-screen-takeover request pumped=%d cocosHidden=%d "
+            "sdl-screen-takeover request supported=%d enabled=%d "
+            "pumped=%d cocosHidden=%d "
             "frame=%.0fx%.0f scene=%.0fx%.0f",
-            pumped ? 1 : 0, presenterReady ? 1 : 0, screenSize.width,
-            screenSize.height, getContentSize().width,
+            takeoverSupported ? 1 : 0, takeoverEnabled ? 1 : 0,
+            pumped ? 1 : 0, presenterReady ? 1 : 0,
+            screenSize.width, screenSize.height, getContentSize().width,
             getContentSize().height);
     }
 #endif

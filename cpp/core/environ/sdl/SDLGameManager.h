@@ -67,6 +67,7 @@ void TVPSDLRecordLoadingConsoleHide(const char *reason);
 void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                                     int frameWidth, int frameHeight,
                                     int sceneWidth, int sceneHeight);
+bool TVPSDLIsScreenTakeoverSupported();
 bool TVPSDLIsScreenTakeoverEnabled();
 bool TVPSDLHasScreenPresenterPresented();
 bool TVPSDLPumpScreenPresenter(const char *stage);

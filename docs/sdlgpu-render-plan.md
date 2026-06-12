@@ -6,6 +6,7 @@
 - `sdlgpu` is compiled as an independent core module under `cpp/core/render/sdlgpu`.
 - The first backend layer provides SDL_GPU device creation, texture creation, texture upload, release, and basic memory/upload statistics.
 - No game path is switched to SDL_GPU yet.
+- Android hybrid builds keep Cocos as the active presenter until an SDL or Flutter texture presenter is actually available; SDL screen takeover requests stay disabled in this mode.
 
 ## Migration order
 
