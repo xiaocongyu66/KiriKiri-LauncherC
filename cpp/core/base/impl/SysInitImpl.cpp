@@ -291,7 +291,7 @@ void TVPAfterSystemInit() {
     std::string _val =
         IndividualConfigManager::GetInstance()->GetValue<std::string>(
             "renderer", "software");
-    if(_val != "software") {
+    if(_val == "opengl" || _val == "angle" || _val == "angle-vk") {
         TVPGraphicSplitOperationType = gsotNone;
     } else {
         TVPDrawThreadNum =

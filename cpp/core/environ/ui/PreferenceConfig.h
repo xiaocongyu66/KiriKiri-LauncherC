@@ -315,7 +315,6 @@ namespace {
                 { { "preference_opengl", "opengl" },
                   { "preference_angle", "angle" },
                   { "preference_angle_vk", "angle-vk" },
-                  { "preference_vulkan", "vulkan" },
                   { "preference_software", "software" } }),
             new tTVPPreferenceInfoRendererSubPref("preference_renderer_opt"),
             new tTVPPreferenceInfoSelectFile("preference_default_font",

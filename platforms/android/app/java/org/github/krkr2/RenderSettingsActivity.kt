@@ -88,7 +88,8 @@ class RenderSettingsActivity : AppCompatActivity() {
                     val snap = KrkrPrefsStore.load(context)
                     KrkrPrefsSchema.ALL_BY_KEY.values.forEach { item ->
                         val current = snap.items[item.key] ?: item.defaultAsString()
-                        values[item.key] = current
+                        values[item.key] =
+                            if (item.key == "renderer") LauncherPrefs.normalizeRendererPreference(current) else current
                     }
                 }
 

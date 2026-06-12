@@ -218,6 +218,17 @@ object LauncherPrefs {
 
 
     private val GAME_ENGINE_KEYS = listOf("renderer", "fps_limit", "showfps", "ogl_accurate_render")
+    private val SUPPORTED_RENDERERS = setOf("software", "opengl", "angle", "angle-vk")
+
+    fun normalizeRendererPreference(value: String?): String {
+        val raw = value?.trim().orEmpty()
+        return when {
+            raw.isBlank() -> "software"
+            raw in SUPPORTED_RENDERERS -> raw
+            raw == "vk" || raw == "vulkan" -> "software"
+            else -> "software"
+        }
+    }
 
     fun getGameEnginePref(context: Context, gameDir: String, key: String): String? =
         GamePrefsDb.getGamePref(context, gameDir, "engine_$key")
@@ -232,7 +243,12 @@ object LauncherPrefs {
 
     fun applyGameEngineOverrides(context: Context, gameDir: String) {
         val updates = GAME_ENGINE_KEYS.mapNotNull { key ->
-            getGameEnginePref(context, gameDir, key)?.takeIf { it.isNotBlank() }?.let { key to it }
+            val value = getGameEnginePref(context, gameDir, key)?.takeIf { it.isNotBlank() }
+            when {
+                value == null -> null
+                key == "renderer" -> key to normalizeRendererPreference(value)
+                else -> key to value
+            }
         }.toMap()
         if (updates.isNotEmpty()) {
             KrkrPrefsStore.update(context, updates)

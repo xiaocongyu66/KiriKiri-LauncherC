@@ -4925,8 +4925,16 @@ iTVPRenderManager *TVPGetRenderManager() {
                 "renderer", "software");
         if(str == TJS_W("angle") || str == TJS_W("angle-vk"))
             str = TJS_W("opengl");
-        else if(str == TJS_W("vk"))
-            str = TJS_W("vulkan");
+        else if(str == TJS_W("vk") || str == TJS_W("vulkan")) {
+            TVPAddLog(TJS_W("[renderer] Native Vulkan is not enabled in this "
+                            "build; falling back to software renderer."));
+            str = TJS_W("software");
+        }
+        else if(str != TJS_W("software") && str != TJS_W("opengl")) {
+            TVPAddLog(TJS_W("[renderer] Unsupported renderer preference '") +
+                      str + TJS_W("'; falling back to software renderer."));
+            str = TJS_W("software");
+        }
         _RenderManager = TVPGetRenderManager(str);
     }
     return _RenderManager;

@@ -17,18 +17,16 @@ class KR2Application : Application() {
         }.onFailure {
             Log.w("KR2Application", "early log session failed", it)
         }
-        // First-run engine prefs bootstrap. The native engine defaults
-        // renderer=software, and we keep that as the Android default because
-        // the OpenGL path still has compatibility render errors on some KRKR
-        // titles. The setting remains user-selectable for future ANGLE/VK work.
+        // First-run and migration bootstrap for engine prefs. The native engine
+        // defaults renderer=software, and unsupported renderer values must be
+        // normalized before the GL thread enters script startup.
         runCatching {
             val prefs = getSharedPreferences("krkr2_launcher_bootstrap", MODE_PRIVATE)
-            if (!prefs.getBoolean("engine_defaults_v2_applied", false)) {
+            if (!prefs.getBoolean("engine_defaults_v3_applied", false)) {
                 val snap = KrkrPrefsStore.load(this)
-                // Seed missing values and migrate the previous OpenGL bootstrap
-                // default back to software once.
                 val seed = mutableMapOf<String, String>()
-                if (snap.items["renderer"] != "software") seed["renderer"] = "software"
+                val normalizedRenderer = LauncherPrefs.normalizeRendererPreference(snap.items["renderer"])
+                if (snap.items["renderer"] != normalizedRenderer) seed["renderer"] = normalizedRenderer
                 if ("ogl_accurate_render" !in snap.items) seed["ogl_accurate_render"] = "0"
                 if (LauncherPrefs.ENGINE_KEY_FFMPEG_IMAGE_DECODER !in snap.items) {
                     seed[LauncherPrefs.ENGINE_KEY_FFMPEG_IMAGE_DECODER] = "0"
@@ -40,6 +38,7 @@ class KR2Application : Application() {
                 prefs.edit()
                     .putBoolean("engine_defaults_v1_applied", true)
                     .putBoolean("engine_defaults_v2_applied", true)
+                    .putBoolean("engine_defaults_v3_applied", true)
                     .apply()
             }
         }

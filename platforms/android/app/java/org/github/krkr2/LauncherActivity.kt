@@ -497,7 +497,10 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
     var selectedLaunch by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getCustomLaunchFile(context, game.gameDir).orEmpty()) }
     var rendererMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
     var fpsMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
-    var renderer by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "renderer") ?: "") }
+    var renderer by remember(game.gameDir) {
+        val saved = LauncherPrefs.getGameEnginePref(context, game.gameDir, "renderer").orEmpty()
+        mutableStateOf(if (saved.isBlank()) "" else LauncherPrefs.normalizeRendererPreference(saved))
+    }
     var fpsLimit by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "fps_limit") ?: "") }
     var showFps by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "showfps") == "1") }
     var accurateRender by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "ogl_accurate_render") == "1") }
@@ -558,7 +561,6 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
                         engineCaption(text, "preference_opengl") to "opengl",
                         engineCaption(text, "preference_angle") to "angle",
                         engineCaption(text, "preference_angle_vk") to "angle-vk",
-                        engineCaption(text, "preference_vulkan") to "vulkan",
                         engineCaption(text, "preference_software") to "software",
                     ),
                     onSelect = { raw -> renderer = raw; LauncherPrefs.setGameEnginePref(context, game.gameDir, "renderer", raw) },
