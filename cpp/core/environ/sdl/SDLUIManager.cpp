@@ -44,7 +44,7 @@ struct TVPSDLUIGameMenuQueuedAction {
     float sceneX = 0.0f;
     float sceneY = 0.0f;
     int pointerId = -1;
-    Uint32 ticks = 0;
+    Uint64 ticks = 0;
     uint64_t sequence = 0;
 };
 
@@ -55,7 +55,7 @@ struct TVPSDLUIGameMenuTouchState {
     std::string action;
     float sceneX = 0.0f;
     float sceneY = 0.0f;
-    Uint32 ticks = 0;
+    Uint64 ticks = 0;
 };
 
 struct TVPSDLUIMessageBoxState {
@@ -104,7 +104,7 @@ struct TVPSDLUIState {
     std::deque<TVPSDLUIGameMenuQueuedAction> gameMenuActionQueue;
     TVPSDLUIGameMenuTouchState gameMenuTouch;
     std::string lastQueuedAction;
-    Uint32 lastQueuedTicks = 0;
+    Uint64 lastQueuedTicks = 0;
 
     TVPSDLUIMessageBoxState messageBox;
     TVPSDLUIProgressState progress;
@@ -275,7 +275,7 @@ std::string HitTestGameMenuLocked(float sceneX, float sceneY,
 bool QueueGameMenuActionLocked(const std::string &actionName,
                                const std::string &source, float sceneX,
                                float sceneY, int pointerId,
-                               const Uint32 nowTicks, uint64_t &sequence,
+                               const Uint64 nowTicks, uint64_t &sequence,
                                bool &deduped) {
     sequence = 0;
     deduped = false;
@@ -521,7 +521,7 @@ void TVPSDLUIRecordAndroidTouch(const char *eventName, float frameX,
     bool mirrorOnly = false;
     size_t backlog = 0;
 
-    const Uint32 nowTicks = SDL_GetTicks();
+    const Uint64 nowTicks = SDL_GetTicks();
     {
         std::lock_guard<std::mutex> lock(gSDLUIMutex);
         converted = ConvertFrameToSceneLocked(frameX, frameY, sceneX, sceneY);
@@ -743,7 +743,7 @@ void TVPSDLUIRecordGameMenuState(const char *eventName, bool shrinked,
 void TVPSDLUIQueueGameMenuAction(const char *actionName, const char *source,
                                  float sceneX, float sceneY, int pointerId) {
     TVPSDLInitializeRuntime();
-    const Uint32 nowTicks = SDL_GetTicks();
+    const Uint64 nowTicks = SDL_GetTicks();
     uint64_t sequence = 0;
     bool deduped = false;
     bool queued = false;

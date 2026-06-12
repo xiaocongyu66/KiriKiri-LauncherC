@@ -146,7 +146,7 @@ struct TVPSDLQueuedInputEvent {
     float y = 0.0f;
     int code = 0;
     bool state = false;
-    Uint32 ticks = 0;
+    Uint64 ticks = 0;
     uint64_t sequence = 0;
 };
 
@@ -771,7 +771,7 @@ bool EnsureSDLInputQueue() {
         }
 
         const Uint32 eventType = SDL_RegisterEvents(1);
-        if(eventType == static_cast<Uint32>(-1)) {
+        if(eventType == 0) {
             char message[256];
             std::snprintf(message, sizeof(message),
                           "register custom event failed: %s",
@@ -942,7 +942,7 @@ void TVPSDLProcessAndroidInputQueue() {
 
     uint64_t drainedInBatch = 0;
     uint64_t droppedInBatch = 0;
-    Uint32 maxAgeInBatch = 0;
+    uint64_t maxAgeInBatch = 0;
     uint64_t lastSequence = 0;
     std::string lastEventName;
 
@@ -956,7 +956,7 @@ void TVPSDLProcessAndroidInputQueue() {
             continue;
         }
 
-        const Uint32 age = SDL_GetTicks() - queued->ticks;
+        const uint64_t age = SDL_GetTicks() - queued->ticks;
         if(age > maxAgeInBatch)
             maxAgeInBatch = age;
         lastEventName = queued->eventName;
@@ -989,13 +989,13 @@ void TVPSDLProcessAndroidInputQueue() {
         std::snprintf(
             message, sizeof(message),
             "batch=%llu items=%llu drained=%llu dropped=%llu backlog=%llu "
-            "maxAgeMs=%u maxBacklog=%llu maxSeenAgeMs=%llu lastSeq=%llu last=%s",
+            "maxAgeMs=%llu maxBacklog=%llu maxSeenAgeMs=%llu lastSeq=%llu last=%s",
             static_cast<unsigned long long>(batch),
             static_cast<unsigned long long>(drainedInBatch),
             static_cast<unsigned long long>(drained),
             static_cast<unsigned long long>(dropped),
             static_cast<unsigned long long>(backlog),
-            static_cast<unsigned>(maxAgeInBatch),
+            static_cast<unsigned long long>(maxAgeInBatch),
             static_cast<unsigned long long>(
                 gSDLInputMaxBacklog.load(std::memory_order_relaxed)),
             static_cast<unsigned long long>(

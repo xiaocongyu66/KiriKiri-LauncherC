@@ -67,7 +67,7 @@ namespace {
             }
 
             const Uint32 eventType = SDL_RegisterEvents(1);
-            if(eventType == static_cast<Uint32>(-1)) {
+            if(eventType == 0) {
                 char message[256];
                 std::snprintf(message, sizeof(message),
                               "register custom event failed: %s",
