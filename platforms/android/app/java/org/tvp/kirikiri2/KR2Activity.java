@@ -25,6 +25,7 @@ import androidx.core.app.ActivityCompat;
 
 import org.cocos2dx.lib.Cocos2dxActivity;
 import org.cocos2dx.lib.Cocos2dxGLSurfaceView;
+import org.libsdl.app.SDL;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -91,6 +92,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
 
     @SuppressLint("StaticFieldLeak")
     static public KR2Activity sInstance;
+    private static volatile boolean sSDLJavaReady = false;
     private static volatile boolean sNativeLifecycleReady = false;
 
     static public KR2Activity GetInstance() {
@@ -122,6 +124,22 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         }
     }
 
+    protected void ensureSDLJavaReady() {
+        synchronized (KR2Activity.class) {
+            try {
+                if (!sSDLJavaReady) {
+                    SDL.setupJNI();
+                    SDL.initialize();
+                    sSDLJavaReady = true;
+                }
+                SDL.setContext(this);
+            } catch (Throwable t) {
+                sSDLJavaReady = false;
+                Log.w("KR2Activity", "ensureSDLJavaReady failed", t);
+            }
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         sNativeLifecycleReady = false;
@@ -130,6 +148,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         writeLifecycleLog("onCreate#after-super");
         sInstance = this;
         initDump(this.getFilesDir().getAbsolutePath() + "/dump");
+        ensureSDLJavaReady();
         sNativeLifecycleReady = true;
         writeLifecycleLog("onCreate#initDump path=" + this.getFilesDir().getAbsolutePath() + "/dump");
     }

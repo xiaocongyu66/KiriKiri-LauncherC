@@ -22,7 +22,6 @@ import io.flutter.embedding.android.FlutterTextureView
 import io.flutter.embedding.android.FlutterView
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
-import org.libsdl.app.SDL
 import org.libsdl.app.SDLActivity
 import org.tvp.kirikiri2.KR2Activity
 
@@ -112,11 +111,9 @@ class MainActivity : KR2Activity() {
             "MainActivity.onCreate gameDir=${intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()} launchFile=${intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()} taskRoot=$isTaskRoot ffmpegImageDecoder=$useFfmpegImageDecoder ffmpegDecodeMode=$ffmpegDecodeMode nativeLogFile=$nativeLogFile"
         )
 
-        logLifecycle("onCreate#sdl-audio-init-start")
-        SDL.setupJNI()
-        SDL.initialize()
-        SDL.setContext(this)
-        logLifecycle("onCreate#sdl-audio-init-done")
+        logLifecycle("onCreate#sdl-java-ready-start")
+        ensureSDLJavaReady()
+        logLifecycle("onCreate#sdl-java-ready-done")
         if (!intent?.getStringExtra(EXTRA_GAME_DIR).isNullOrBlank()) {
             installFlutterGameOverlay()
         }

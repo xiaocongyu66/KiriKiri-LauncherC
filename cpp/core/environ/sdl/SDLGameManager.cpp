@@ -893,7 +893,6 @@ TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo() {
 }
 
 void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
-    TVPSDLInitializeRuntime();
     const uint64_t sequence =
         gSDLLifecycleEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
     const Uint32 initialized = SDL_WasInit(0);
