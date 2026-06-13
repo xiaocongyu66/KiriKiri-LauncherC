@@ -1044,7 +1044,7 @@ public:
         setContentOffset(offset);
         updateInset();
 #if defined(__ANDROID__)
-        {
+        if(TVPSDLIsRenderDiagnosticsEnabled()) {
             // [DIAG 2026-05-28] Suspect: cocos2d::extension::ScrollView is
             // dropping the requested zoomScale (we set 1.448, end up with
             // 1.000) which leaves PrimaryLayerArea at native 1920x1080 inside
@@ -1151,7 +1151,7 @@ public:
         Texture2D *tex2d = DrawSprite->getTexture();
         Texture2D *newtex = tex->GetAdapterTexture(tex2d);
 #if defined(__ANDROID__)
-        {
+        if(TVPSDLIsRenderDiagnosticsEnabled()) {
             // [DIAG 2026-05-26] After Show#FIRST_OK_TEX we know
             // Show()->UpdateDrawBuffer is reached at least once; but the
             // screen is still black. This trace verifies the cocos2d
@@ -1212,10 +1212,12 @@ public:
                 _drawTextureScaleY = 1 / _drawTextureScaleY;
             }
 #if defined(__ANDROID__)
-            KR2RenderProbeWriteF(
-                "WindowLayer::UpdateDrawBuffer applied "
-                "sw=%.1f sh=%.1f scaleX=%.3f scaleY=%.3f",
-                sw, sh, _drawTextureScaleX, _drawTextureScaleY);
+            if(TVPSDLIsRenderDiagnosticsEnabled()) {
+                KR2RenderProbeWriteF(
+                    "WindowLayer::UpdateDrawBuffer applied "
+                    "sw=%.1f sh=%.1f scaleX=%.3f scaleY=%.3f",
+                    sw, sh, _drawTextureScaleX, _drawTextureScaleY);
+            }
 #endif
             DrawSprite->setTextureRect(cocos2d::Rect(0, 0, sw, sh));
             DrawSprite->setBlendFunc(BlendFunc::DISABLE);

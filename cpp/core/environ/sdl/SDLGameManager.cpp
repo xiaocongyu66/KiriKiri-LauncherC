@@ -1139,6 +1139,9 @@ void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
                              bool textureChanged, const void *sourceTexture,
                              const void *currentTexture,
                              const void *newTexture) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
     TVPSDLInitializeRuntime();
     const uint64_t frame =
         gSDLRenderFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1738,6 +1741,10 @@ bool TVPSDLIsScreenTakeoverEnabled() {
 bool TVPSDLHasScreenPresenterPresented() {
     std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
     return gSDLScreenPresenterState.presentedFrames > 0;
+}
+
+bool TVPSDLIsRenderDiagnosticsEnabled() {
+    return IsSDLRenderDiagnosticsActive();
 }
 
 bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,

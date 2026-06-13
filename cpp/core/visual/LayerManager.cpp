@@ -153,7 +153,7 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
     }
 
 #if defined(__ANDROID__)
-    {
+    if(TVPSDLIsRenderDiagnosticsEnabled()) {
         // [DIAG 2026-05-26 v2] The previous v1 probe used iTVPTexture2D::
         // GetPoint() to sample pixels, but for GPU-backed (OGL) textures
         // GetPoint() does glReadPixels on the current FBO — which is

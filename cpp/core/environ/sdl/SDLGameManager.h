@@ -70,6 +70,7 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
 bool TVPSDLIsScreenTakeoverSupported();
 bool TVPSDLIsScreenTakeoverEnabled();
 bool TVPSDLHasScreenPresenterPresented();
+bool TVPSDLIsRenderDiagnosticsEnabled();
 bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                              int layerWidth, int layerHeight);
 bool TVPSDLPumpScreenPresenter(const char *stage);

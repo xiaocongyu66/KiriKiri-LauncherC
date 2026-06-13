@@ -11,6 +11,8 @@
 #include "tjsCommHead.h"
 
 #include <algorithm>
+#include <cstdlib>
+#include <cstring>
 #include <stdexcept>
 #include <memory>
 #include "StorageIntf.h"
@@ -931,6 +933,14 @@ struct tTVPClearAutoPathCacheCallback : public tTVPCompactEventCallbackIntf {
 static bool TVPClearAutoPathCacheCallbackInit = false;
 
 //---------------------------------------------------------------------------
+static bool TVPShouldLegacyRebuildDuplicateAutoPath() {
+    const char *value = std::getenv("KRKR2_LEGACY_DUP_AUTOPATH_REBUILD");
+    return value && std::strcmp(value, "0") != 0 &&
+        std::strcmp(value, "false") != 0 &&
+        std::strcmp(value, "FALSE") != 0;
+}
+
+//---------------------------------------------------------------------------
 static tjs_uint TVPAddAutoPathToTableSingle(const ttstr &path);
 //---------------------------------------------------------------------------
 void TVPAddAutoPath(const ttstr &name) {
@@ -948,12 +958,10 @@ void TVPAddAutoPath(const ttstr &name) {
     bool already_in_list = (i != TVPAutoPathList.end());
 
     if(already_in_list) {
-        // The path is already registered, but the underlying archive
-        // contents may have changed since (e.g. a patch xp3 mounted
-        // between the two addAutoPath calls). Match the original KAG3
-        // behavior and force a rebuild on next storage lookup so the
-        // table reflects the current archive cache state.
-        TVPClearAutoPathCache();
+        if(TVPShouldLegacyRebuildDuplicateAutoPath())
+            TVPClearAutoPathCache();
+        else
+            TVPAutoPathCache.Clear();
         return;
     }
 
