@@ -49,6 +49,7 @@ tjs_char TVPArchiveDelimiter = '>';
 // statics
 //---------------------------------------------------------------------------
 static tTJSStaticCriticalSection TVPCreateStreamCS;
+static void TVPClearAutoPathLookupCache();
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
@@ -182,7 +183,7 @@ public:
                                ttstr *ret_domain = nullptr,
                                ttstr *ret_path = nullptr);
 
-    void SetCurrentDirectory(const ttstr &name);
+    bool SetCurrentDirectory(const ttstr &name);
 
     static ttstr ExtractMediaName(const ttstr &name);
 
@@ -452,7 +453,7 @@ ttstr tTVPStorageMediaManager::NormalizeStorageName(const ttstr &name,
 }
 
 //---------------------------------------------------------------------------
-void tTVPStorageMediaManager::SetCurrentDirectory(const ttstr &name) {
+bool tTVPStorageMediaManager::SetCurrentDirectory(const ttstr &name) {
     tjs_char ch = name.GetLastChar();
     if(ch != TJS_W('/') && ch != TJS_W('\\') && ch != TVPArchiveDelimiter)
         TVPThrowExceptionMessage(TVPMissingPathDelimiterAtLast);
@@ -461,9 +462,12 @@ void tTVPStorageMediaManager::SetCurrentDirectory(const ttstr &name) {
     NormalizeStorageName(name, &media, &domain, &path);
 
     tMediaRecord *rec = GetMediaRecord(media);
+    bool changed = rec->CurrentDomain != domain || rec->CurrentPath != path ||
+        TVPCurrentMedia != media;
     rec->CurrentDomain = domain;
     rec->CurrentPath = path;
     TVPCurrentMedia = media;
+    return changed;
 }
 
 //---------------------------------------------------------------------------
@@ -547,8 +551,8 @@ ttstr TVPNormalizeStorageName(const ttstr &_name)
 // TVPSetCurrentDirectory
 //---------------------------------------------------------------------------
 void TVPSetCurrentDirectory(const ttstr &_name) {
-    TVPStorageMediaManager.SetCurrentDirectory(_name);
-    TVPClearStorageCaches();
+    if(TVPStorageMediaManager.SetCurrentDirectory(_name))
+        TVPClearAutoPathLookupCache();
 }
 //---------------------------------------------------------------------------
 
@@ -919,6 +923,11 @@ static void TVPClearAutoPathCache() {
 }
 
 //---------------------------------------------------------------------------
+static void TVPClearAutoPathLookupCache() {
+    TVPAutoPathCache.Clear();
+}
+
+//---------------------------------------------------------------------------
 struct tTVPClearAutoPathCacheCallback : public tTVPCompactEventCallbackIntf {
     void OnCompact(tjs_int level) override {
         if(level >= TVP_COMPACT_LEVEL_DEACTIVATE) {
@@ -938,6 +947,17 @@ static bool TVPShouldLegacyRebuildDuplicateAutoPath() {
     return value && std::strcmp(value, "0") != 0 &&
         std::strcmp(value, "false") != 0 &&
         std::strcmp(value, "FALSE") != 0;
+}
+
+//---------------------------------------------------------------------------
+static bool TVPShouldLogResourceSuccess() {
+    static const bool enabled = []() {
+        const char *value = std::getenv("KRKR2_ENABLE_RESOURCE_SUCCESS_LOG");
+        return value && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "false") != 0 &&
+            std::strcmp(value, "FALSE") != 0;
+    }();
+    return enabled;
 }
 
 //---------------------------------------------------------------------------
@@ -1361,6 +1381,7 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
             TVPRemoveFromStorageCache(_name);
         arc->Release();
 #if defined(__ANDROID__)
+        if(TVPShouldLogResourceSuccess()) {
         // archive open success -- log .ks/.png/.tlg etc so we can finally
         // see whether scenarios and images flow at all. Same whitelist as
         // the on-disk path below.
@@ -1408,6 +1429,7 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
                 KR2_RES_LOG("%s", msg.AsStdString().c_str());
             }
         }
+        }
 #endif
         return stream;
     }
@@ -1436,6 +1458,7 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
     if(access >= 1)
         TVPRemoveFromStorageCache(_name);
 #if defined(__ANDROID__)
+    if(TVPShouldLogResourceSuccess()) {
     // First 64 opens always logged. After that we only keep logging for
     // a small whitelist of resource extensions we genuinely care about
     // (scenarios, scripts, images, sound, model assets) so the log does
@@ -1498,6 +1521,7 @@ static tTJSBinaryStream *_TVPCreateStream(const ttstr &_name,
                 TJS_W(" '") + _name + TJS_W("' -> '") + name + TJS_W("'");
             KR2_RES_LOG("%s", msg.AsStdString().c_str());
         }
+    }
     }
 #endif
     return stream;
