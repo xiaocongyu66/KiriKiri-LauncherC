@@ -20,6 +20,7 @@ import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.dart.DartExecutor
 import io.flutter.embedding.android.FlutterTextureView
 import io.flutter.embedding.android.FlutterView
+import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
 import io.flutter.view.TextureRegistry
@@ -297,7 +298,7 @@ class MainActivity : KR2Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
-    private fun createGameSurfaceTexture(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun createGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
         val engine = overlayEngine
         if (engine == null) {
             result.error("engine_unavailable", "Flutter overlay engine is not attached", null)
@@ -323,7 +324,7 @@ class MainActivity : KR2Activity() {
         result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
     }
 
-    private fun resizeGameSurfaceTexture(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun resizeGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
         val textureId = call.argument<Number>("textureId")?.toLong()
         if (textureId == null) {
             result.error("invalid_args", "textureId is required", null)
@@ -343,7 +344,7 @@ class MainActivity : KR2Activity() {
         result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
     }
 
-    private fun disposeGameSurfaceTexture(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+    private fun disposeGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
         val textureId = call.argument<Number>("textureId")?.toLong()
         if (textureId == null) {
             result.error("invalid_args", "textureId is required", null)
