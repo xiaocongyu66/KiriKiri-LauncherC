@@ -99,6 +99,8 @@ struct TVPSDLSurfaceMirrorState {
 std::mutex gSDLSurfaceMirrorMutex;
 TVPSDLSurfaceMirrorState gSDLSurfaceMirrorState;
 std::atomic_bool gSDLSurfaceMirrorConsumerActive{false};
+std::once_flag gSDLShadowUploadFlagOnce;
+bool gSDLShadowUploadEnabled = false;
 
 struct TVPSDLScreenPresenterState {
     bool takeoverEnabled = false;
@@ -346,6 +348,21 @@ const char *SDLScreenPresenterUnsupportedReason() {
 
 bool IsSDLSurfaceMirrorConsumerActive() {
     return gSDLSurfaceMirrorConsumerActive.load(std::memory_order_relaxed);
+}
+
+bool IsSDLGpuShadowUploadEnabled() {
+    std::call_once(gSDLShadowUploadFlagOnce, []() {
+        const char *value = SDL_getenv("KRKR2_ENABLE_SDL_GPU_SHADOW_UPLOAD");
+        gSDLShadowUploadEnabled =
+            value && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "false") != 0 &&
+            std::strcmp(value, "FALSE") != 0;
+    });
+    return gSDLShadowUploadEnabled;
+}
+
+bool IsSDLRenderDiagnosticsActive() {
+    return IsSDLSurfaceMirrorConsumerActive() || IsSDLGpuShadowUploadEnabled();
 }
 
 void DestroySDLSurfaceMirrorLocked() {
@@ -1150,6 +1167,9 @@ void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
 
 void TVPSDLRecordPresenterFrame(iTVPTexture2D *texture, const char *stage,
                                 int layerWidth, int layerHeight) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
     TVPSDLInitializeRuntime();
     const uint64_t frame =
         gSDLPresenterFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1271,6 +1291,9 @@ void TVPSDLRecordPresenterFrame(iTVPTexture2D *texture, const char *stage,
 void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
                                        int sourceWidth, int sourceHeight,
                                        int destWidth, int destHeight) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
     TVPSDLInitializeRuntime();
     const uint64_t batch =
         gSDLBitmapCompletionBatchSequence.fetch_add(
@@ -1319,6 +1342,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
                                         const tTVPRect &clipRect, int type,
                                         int opacity, int sourceWidth,
                                         int sourceHeight) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
     TVPSDLInitializeRuntime();
     const uint64_t globalRegion =
         gSDLBitmapCompletionRegionSequence.fetch_add(
@@ -1501,6 +1527,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
 
 void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
                                      int sourceWidth, int sourceHeight) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
     TVPSDLInitializeRuntime();
 
     uint64_t batch = 0;
@@ -1715,7 +1744,11 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                              int layerWidth, int layerHeight) {
     if(!texture)
         return false;
-    if(!TVPSDLIsScreenTakeoverEnabled() || !TVPSDLIsScreenTakeoverSupported())
+
+    const bool takeoverActive =
+        TVPSDLIsScreenTakeoverEnabled() && TVPSDLIsScreenTakeoverSupported();
+    const bool shadowUpload = IsSDLGpuShadowUploadEnabled();
+    if(!takeoverActive && !shadowUpload)
         return false;
 
     TVPSDLInitializeRuntime();
@@ -1745,6 +1778,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             }
             return false;
         }
+        if(!hasDirty && !knownTexture)
+            return false;
     }
 
     if(!hasDirty)
@@ -1764,7 +1799,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         gpuAttempts = ++gSDLGpuPresenterState.attempts;
         if(EnsureSDLGpuPresenterLocked(stage)) {
-            const tTVPRect *sourceRect = hasDirty ? &updateRect : nullptr;
+            const tTVPRect *sourceRect =
+                knownTexture && hasDirty ? &updateRect : nullptr;
             auto result = gSDLGpuPresenterState.textureCache.Upsert(
                 *texture, sourceRect, "tvp-window-presenter");
             if(result.uploaded) {
@@ -1794,6 +1830,25 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                           updateRect.left, updateRect.top,
                           updateRect.get_width(), updateRect.get_height(),
                           gpuError.c_str());
+            LogSDLGpuPresenter(message);
+        }
+        return false;
+    }
+
+    if(!takeoverActive) {
+        if(ShouldLogScreenPresenter(gpuUploads)) {
+            char message[512];
+            std::snprintf(message, sizeof(message),
+                          "shadow-upload #%llu stage=%s tex=%p size=%ux%u "
+                          "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
+                          "takeover=0",
+                          static_cast<unsigned long long>(gpuUploads),
+                          stage ? stage : "", static_cast<void *>(texture),
+                          texture->GetWidth(), texture->GetHeight(),
+                          updateRect.left, updateRect.top,
+                          updateRect.get_width(), updateRect.get_height(),
+                          static_cast<unsigned long long>(gpuUploadBytes),
+                          gpuConverted ? 1 : 0);
             LogSDLGpuPresenter(message);
         }
         return false;

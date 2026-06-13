@@ -101,8 +101,9 @@ TextureCacheResult TextureCache::Upsert(iTVPTexture2D &source,
         result.created = true;
     }
 
+    const tTVPRect *uploadRect = result.created ? nullptr : sourceRect;
     UploadResult upload = UploadTexture2D(*backend_, record->handle, source,
-                                          sourceRect);
+                                          uploadRect);
     if(!upload.uploaded) {
         result.error = upload.error;
         if(result.created) {
