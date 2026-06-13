@@ -7,6 +7,7 @@ typedef cocos2d::Texture2D::PixelFormat CCPixelFormat;
 #include "tvpgl.h"
 #include <assert.h>
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 #include "ThreadIntf.h"
@@ -5013,6 +5014,16 @@ iTVPRenderManager *TVPCreateNativeVulkanRenderManager() {
     return new tTVPVulkanRenderManager();
 }
 
+static bool TVPIsTruthyEnvValue(const char *value) {
+    return value && std::strcmp(value, "0") != 0 &&
+        std::strcmp(value, "false") != 0 &&
+        std::strcmp(value, "FALSE") != 0;
+}
+
+static bool TVPUseLegacyRenderManagerPreference() {
+    return TVPIsTruthyEnvValue(std::getenv("KRKR2_FORCE_LEGACY_RENDER_MANAGER"));
+}
+
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
     auto it = _RenderManagerFactory->find(name);
     if(it == _RenderManagerFactory->end()) {
@@ -5033,14 +5044,20 @@ iTVPRenderManager *TVPGetRenderManager() {
         ttstr str =
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
-        if(str == TJS_W("angle") || str == TJS_W("angle-vk"))
-            str = TJS_W("opengl");
-        else if(str == TJS_W("vk") || str == TJS_W("vulkan")) {
-            TVPAddLog(TJS_W("[renderer] Native Vulkan is not enabled in this "
-                            "build; falling back to software renderer."));
+        if(!TVPUseLegacyRenderManagerPreference() &&
+           (str == TJS_W("opengl") || str == TJS_W("angle") ||
+            str == TJS_W("angle-vk") || str == TJS_W("vk") ||
+            str == TJS_W("vulkan"))) {
+            TVPAddLog(TJS_W("[renderer] Using software TVP compositor with "
+                            "SDL presenter output preference '") +
+                      str + TJS_W("'."));
             str = TJS_W("software");
-        }
-        else if(str != TJS_W("software") && str != TJS_W("opengl")) {
+        } else if(str == TJS_W("angle") || str == TJS_W("angle-vk")) {
+            str = TJS_W("opengl");
+        } else if(str == TJS_W("vk")) {
+            str = TJS_W("vulkan");
+        } else if(str != TJS_W("software") && str != TJS_W("opengl") &&
+                  str != TJS_W("vulkan")) {
             TVPAddLog(TJS_W("[renderer] Unsupported renderer preference '") +
                       str + TJS_W("'; falling back to software renderer."));
             str = TJS_W("software");

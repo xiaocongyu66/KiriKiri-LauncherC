@@ -43,6 +43,9 @@
 
 #undef uint32_t
 
+#include <cstdlib>
+#include <cstring>
+
 #include "Platform.h"
 #include "ConfigManager/IndividualConfigManager.h"
 
@@ -53,6 +56,16 @@ ttstr TVPNativeProjectDir;
 ttstr TVPNativeDataPath;
 bool TVPProjectDirSelected = false;
 //---------------------------------------------------------------------------
+
+static bool TVPIsTruthyEnvValue(const char *value) {
+    return value && std::strcmp(value, "0") != 0 &&
+        std::strcmp(value, "false") != 0 &&
+        std::strcmp(value, "FALSE") != 0;
+}
+
+static bool TVPUseLegacyRenderManagerPreference() {
+    return TVPIsTruthyEnvValue(std::getenv("KRKR2_FORCE_LEGACY_RENDER_MANAGER"));
+}
 
 //---------------------------------------------------------------------------
 // System security options
@@ -291,7 +304,9 @@ void TVPAfterSystemInit() {
     std::string _val =
         IndividualConfigManager::GetInstance()->GetValue<std::string>(
             "renderer", "software");
-    if(_val == "opengl" || _val == "angle" || _val == "angle-vk") {
+    if(TVPUseLegacyRenderManagerPreference() &&
+       (_val == "opengl" || _val == "angle" || _val == "angle-vk" ||
+        _val == "vulkan" || _val == "vk")) {
         TVPGraphicSplitOperationType = gsotNone;
     } else {
         TVPDrawThreadNum =

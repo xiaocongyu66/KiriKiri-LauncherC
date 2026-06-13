@@ -561,6 +561,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
                         engineCaption(text, "preference_opengl") to "opengl",
                         engineCaption(text, "preference_angle") to "angle",
                         engineCaption(text, "preference_angle_vk") to "angle-vk",
+                        engineCaption(text, "preference_vulkan") to "vulkan",
                         engineCaption(text, "preference_software") to "software",
                     ),
                     onSelect = { raw -> renderer = raw; LauncherPrefs.setGameEnginePref(context, game.gameDir, "renderer", raw) },

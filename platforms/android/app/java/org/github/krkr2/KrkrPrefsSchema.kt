@@ -88,6 +88,7 @@ object KrkrPrefsSchema {
                     "preference_opengl" to "opengl",
                     "preference_angle" to "angle",
                     "preference_angle_vk" to "angle-vk",
+                    "preference_vulkan" to "vulkan",
                     "preference_software" to "software",
                 ),
             ),
