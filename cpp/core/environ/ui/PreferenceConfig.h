@@ -163,8 +163,7 @@ namespace {
         static tPreferenceScreen *GetSubPreferenceInfo() {
             std::string renderer =
                 PreferenceGetValueString("renderer", "software");
-            if(renderer == "opengl" || renderer == "angle" ||
-               renderer == "angle-vk")
+            if(renderer == "opengl")
                 return &OpenglOptPreference;
             else if(renderer == "software")
                 return &SoftRendererOptPreference;
@@ -313,8 +312,7 @@ namespace {
             new tTVPPreferenceInfoSelectList(
                 "preference_select_renderer", "renderer", "software",
                 { { "preference_opengl", "opengl" },
-                  { "preference_angle", "angle" },
-                  { "preference_angle_vk", "angle-vk" },
+                  { "preference_vulkan", "vulkan" },
                   { "preference_software", "software" } }),
             new tTVPPreferenceInfoRendererSubPref("preference_renderer_opt"),
             new tTVPPreferenceInfoSelectFile("preference_default_font",

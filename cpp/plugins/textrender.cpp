@@ -12,7 +12,7 @@
 #include "RectItf.h"
 #include "tvpfontstruc.h"
 #include "WindowIntf.h"
-// AetherKiri uses ANGLE+EGL Pbuffer; on our cocos2d-x path the render
+// AetherKiri uses an EGL Pbuffer; on our cocos2d-x path the render
 // target is owned by the GL view, so we skip framebuffer-derived
 // HiDPI auto-scale (krkr_egl_context.h is intentionally not included).
 

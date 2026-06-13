@@ -218,7 +218,7 @@ object LauncherPrefs {
 
 
     private val GAME_ENGINE_KEYS = listOf("renderer", "fps_limit", "showfps", "ogl_accurate_render")
-    private val SUPPORTED_RENDERERS = setOf("software", "opengl", "angle", "angle-vk", "vulkan")
+    private val SUPPORTED_RENDERERS = setOf("software", "opengl", "vulkan")
 
     fun normalizeRendererPreference(value: String?): String {
         val raw = value?.trim().orEmpty()

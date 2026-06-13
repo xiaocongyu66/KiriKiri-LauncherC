@@ -5,8 +5,6 @@
     <Item id="preference_output_log" text="打印日志"/>
     <Item id="preference_select_renderer" text="图形渲染器"/>
     <Item id="preference_opengl" text="OpenGL（试验性）"/>
-    <Item id="preference_angle" text="ANGLE（系统驱动）"/>
-    <Item id="preference_angle_vk" text="ANGLE-VK（试验性）"/>
     <Item id="preference_vulkan" text="原生 Vulkan（试验性）"/>
     <Item id="preference_software" text="软件渲染器"/>
     <Item id="preference_renderer_opt" text="渲染器高级选项"/>

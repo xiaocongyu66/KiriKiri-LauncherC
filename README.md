@@ -8,7 +8,7 @@ KiriKiri LauncherC 是面向 KiriKiri2 / KAG / TJS2 游戏的跨平台兼容运�
 
 本项目 fork 自 [2468785842/krkr2](https://github.com/2468785842/krkr2)，并在其模块化架构基础上继续工程化和兼容性维护：核心运行时位于 `cpp/core`，平台入口集中在 `platforms`，内置插件和兼容补丁集中在 `cpp/plugins`，依赖和交叉编译由 CMake、vcpkg overlay ports/triplets 以及 Android Gradle 工程统一驱动。Android 端接入 Cocos2d-x/SDL 平台层、Breakpad、Dobby hook、oneTBB、mimalloc、移动端资源路径和 per-game 偏好配置；桌面端保留 Windows、Linux、macOS 入口，方便验证核心行为和跨平台构建。
 
-项目当前重点是补齐真实游戏会依赖的行为，而不是只跑通最小示例：XP3/ZIP/TAR/7z 等资源与归档读取、TJS2/KAG 脚本执行、软件渲染与 OpenGL/GLES/ANGLE/ANGLE-VK 路径、Native Vulkan 探测、FFmpeg 音视频、PSD/PSB/EMote/motionplayer、layerEx 系列插件、Kirikiroid 兼容补丁、运行时 TJS patch、移动端输入、字体、存储路径和崩溃日志。不同游戏的兼容性仍会受到脚本写法、插件组合、封包格式、渲染路径和平台差异影响，欢迎用可复现日志和测试游戏反馈问题。
+项目当前重点是补齐真实游戏会依赖的行为，而不是只跑通最小示例：XP3/ZIP/TAR/7z 等资源与归档读取、TJS2/KAG 脚本执行、软件渲染、OpenGL/GLES 与 Native Vulkan 路径、FFmpeg 音视频、PSD/PSB/EMote/motionplayer、layerEx 系列插件、Kirikiroid 兼容补丁、运行时 TJS patch、移动端输入、字体、存储路径和崩溃日志。不同游戏的兼容性仍会受到脚本写法、插件组合、封包格式、渲染路径和平台差异影响，欢迎用可复现日志和测试游戏反馈问题。
 
 ## 架构概览
 
@@ -21,7 +21,7 @@ KiriKiri LauncherC 是面向 KiriKiri2 / KAG / TJS2 游戏的跨平台兼容运�
 ## 当前开发重点
 
 - 提升 Android 端启动、存储、输入、渲染和崩溃诊断的稳定性。
-- 完善软件渲染、OpenGL/GLES、ANGLE、ANGLE-VK 的选择与回退；Native Vulkan 已接入独立后端并初始化原生 Vulkan instance/device/graphics queue 和多 worker command pool，当前合成仍复用软件路径，后续继续迁移纹理上传与混合 pipeline。
+- 完善软件渲染、OpenGL/GLES、Native Vulkan 的选择与回退；Native Vulkan 已接入独立后端并初始化原生 Vulkan instance/device/graphics queue 和多 worker command pool，当前合成仍复用软件路径，后续继续迁移纹理上传与混合 pipeline。
 - 补全真实游戏常用插件，特别是 motionplayer、PSB/PSD、layerEx 和 Kirikiroid 兼容行为。
 - 可选接入 Live2D Cubism：插件桥接源码已入库，但需要通过本机 SDK 路径提供 Cubism Core 头文件和对应 ABI 静态库后才会参与 Android 构建。
 - 保持插件静态注册、whole-archive/force-load 链接策略和运行时 patch 可维护。

@@ -188,8 +188,7 @@ if(KRKR2_ENABLE_LIVE2D)
             "${KRKR2_LIVE2D_FRAMEWORK_DIR}"
             "${KRKR2_LIVE2D_CORE_DIR}/include")
         target_compile_definitions(krkr2_cubism_framework PUBLIC
-            CSM_TARGET_ANDROID_ES2
-            CSM_TARGET_ANGLE_ES2)
+            CSM_TARGET_ANDROID_ES2)
         target_link_libraries(krkr2_cubism_framework PUBLIC
             "${KRKR2_LIVE2D_CORE_LIB}"
             EGL
@@ -203,8 +202,7 @@ if(KRKR2_ENABLE_LIVE2D)
             "${KRKR2_LIVE2D_FRAMEWORK_DIR}"
             "${KRKR2_LIVE2D_CORE_DIR}/include")
         target_compile_definitions(${PROJECT_NAME} PUBLIC
-            CSM_TARGET_ANDROID_ES2
-            CSM_TARGET_ANGLE_ES2)
+            CSM_TARGET_ANDROID_ES2)
         target_link_libraries(${PROJECT_NAME} PUBLIC
             krkr2_cubism_framework
             LibArchive::LibArchive

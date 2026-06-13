@@ -8,7 +8,7 @@ KiriKiri LauncherC is a cross-platform compatibility runtime and launcher for Ki
 
 This project is forked from [2468785842/krkr2](https://github.com/2468785842/krkr2) and continues engineering and compatibility work on top of its modular architecture. The runtime core lives under `cpp/core`, platform entry points live under `platforms`, built-in plugins and compatibility patches live under `cpp/plugins`, and dependency/cross-compilation setup is driven by CMake, vcpkg overlay ports/triplets, and the Android Gradle project. On Android, the project integrates Cocos2d-x/SDL platform code, Breakpad, Dobby hooks, oneTBB, mimalloc, mobile resource path handling, and per-game preferences. Desktop entry points are kept for Windows, Linux, and macOS to help validate core behavior and cross-platform builds.
 
-Current work focuses on behavior required by real games rather than only minimal samples: XP3/ZIP/TAR/7z resource and archive loading, TJS2/KAG script execution, software rendering and OpenGL/GLES/ANGLE/ANGLE-VK paths, native Vulkan probing, FFmpeg audio/video, PSD/PSB/EMote/motionplayer, layerEx plugins, Kirikiroid compatibility patches, runtime TJS patches, mobile input, fonts, storage paths, and crash logs. Compatibility can still vary by script behavior, plugin set, archive format, renderer path, and target platform. Reproducible logs and test cases are welcome.
+Current work focuses on behavior required by real games rather than only minimal samples: XP3/ZIP/TAR/7z resource and archive loading, TJS2/KAG script execution, software rendering, OpenGL/GLES and native Vulkan paths, FFmpeg audio/video, PSD/PSB/EMote/motionplayer, layerEx plugins, Kirikiroid compatibility patches, runtime TJS patches, mobile input, fonts, storage paths, and crash logs. Compatibility can still vary by script behavior, plugin set, archive format, renderer path, and target platform. Reproducible logs and test cases are welcome.
 
 ## Architecture
 
@@ -21,7 +21,7 @@ Current work focuses on behavior required by real games rather than only minimal
 ## Current Focus
 
 - Improve Android startup, storage, input, rendering, and crash diagnostics.
-- Improve renderer selection and fallback across software rendering, OpenGL/GLES, ANGLE, and ANGLE-VK. Native Vulkan now has a dedicated backend that initializes a native Vulkan instance/device/graphics queue and multi-worker command pools; compositing currently reuses the software path while texture upload and blend pipelines are migrated.
+- Improve renderer selection and fallback across software rendering, OpenGL/GLES, and native Vulkan. Native Vulkan now has a dedicated backend that initializes a native Vulkan instance/device/graphics queue and multi-worker command pools; compositing currently reuses the software path while texture upload and blend pipelines are migrated.
 - Fill in real-game plugin compatibility, especially motionplayer, PSB/PSD, layerEx, and Kirikiroid behavior.
 - Keep the optional Live2D Cubism bridge buildable only when a local Cubism Core SDK is provided.
 - Keep static plugin registration, whole-archive/force-load linking, and runtime patches maintainable.

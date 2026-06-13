@@ -205,7 +205,6 @@ jobs:
           cp platforms/android/app/java/org/github/krkr2/GamePrefsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/GameScanner.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/ForceLandscapeHelper.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
-          cp platforms/android/app/java/org/github/krkr2/AngleDriverController.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           mkdir -p flutter_launcher/android/app/libs
           cp platforms/android/libcocos2dx/java/libs/*.jar flutter_launcher/android/app/libs/
           mkdir -p flutter_launcher/android/app/src/main/aidl/com/enhance/gameservice

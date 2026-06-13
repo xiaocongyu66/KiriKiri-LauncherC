@@ -114,6 +114,8 @@ struct TVPSDLSurfaceMirrorState {
 
 std::mutex gSDLSurfaceMirrorMutex;
 TVPSDLSurfaceMirrorState gSDLSurfaceMirrorState;
+std::atomic_int gSDLPresentedSurfaceWidth{0};
+std::atomic_int gSDLPresentedSurfaceHeight{0};
 std::atomic_bool gSDLSurfaceMirrorConsumerActive{false};
 std::once_flag gSDLShadowUploadFlagOnce;
 bool gSDLShadowUploadEnabled = false;
@@ -168,6 +170,7 @@ struct TVPSDLLoadingConsoleState {
     bool active = false;
     uint64_t session = 0;
     uint64_t totalLines = 0;
+    Uint64 retainUntilTicks = 0;
     std::deque<TVPSDLLoadingConsoleLine> lines;
 };
 
@@ -334,9 +337,9 @@ std::string PreferredSDLRendererDriver() {
     std::string renderer =
         IndividualConfigManager::GetInstance()->GetValue<std::string>(
             "renderer", "software");
-    if(renderer == "angle-vk" || renderer == "vulkan" || renderer == "vk")
+    if(renderer == "vulkan" || renderer == "vk")
         return "vulkan,opengles2,opengl,gpu";
-    if(renderer == "angle" || renderer == "opengl")
+    if(renderer == "opengl")
         return "opengles2,opengl,vulkan,gpu";
     return "vulkan,opengles2,opengl,gpu";
 }
@@ -350,6 +353,13 @@ void LogSDLGpuPresenter(const char *message) {
 }
 
 #if defined(__ANDROID__)
+void RememberPresentedSurfaceSize(int width, int height) {
+    if(width > 0 && height > 0) {
+        gSDLPresentedSurfaceWidth.store(width, std::memory_order_relaxed);
+        gSDLPresentedSurfaceHeight.store(height, std::memory_order_relaxed);
+    }
+}
+
 void CopySurfaceToAndroidBuffer(SDL_Surface *surface, int surfaceWidth,
                                 int surfaceHeight, int pitch,
                                 const SDL_Rect &rect,
@@ -387,6 +397,169 @@ void CopySurfaceToAndroidBuffer(SDL_Surface *surface, int surfaceWidth,
                         src + static_cast<size_t>(srcX) * 4, 4);
         }
     }
+}
+
+bool CopyTextureToAndroidBuffer(iTVPTexture2D *texture, int surfaceWidth,
+                                int surfaceHeight, const SDL_Rect &rect,
+                                ANativeWindow_Buffer &buffer) {
+    if(!texture || surfaceWidth <= 0 || surfaceHeight <= 0 ||
+       rect.w <= 0 || rect.h <= 0 || !buffer.bits)
+        return false;
+
+    auto *dstBase = static_cast<Uint8 *>(buffer.bits);
+    const int dstPitch = buffer.stride * 4;
+
+    if(buffer.width == surfaceWidth && buffer.height == surfaceHeight) {
+        for(int row = 0; row < rect.h; ++row) {
+            const auto *src = static_cast<const Uint8 *>(
+                texture->GetScanLineForRead(rect.y + row));
+            if(!src)
+                return false;
+            src += static_cast<size_t>(rect.x) * 4;
+            auto *dst = dstBase +
+                static_cast<size_t>(rect.y + row) * dstPitch +
+                static_cast<size_t>(rect.x) * 4;
+            std::memcpy(dst, src, static_cast<size_t>(rect.w) * 4);
+        }
+        return true;
+    }
+
+    const int dstWidth = buffer.width > 0 ? buffer.width : surfaceWidth;
+    const int dstHeight = buffer.height > 0 ? buffer.height : surfaceHeight;
+    for(int y = 0; y < dstHeight; ++y) {
+        const int srcY =
+            static_cast<int>((static_cast<int64_t>(y) * surfaceHeight) /
+                             dstHeight);
+        const auto *src = static_cast<const Uint8 *>(
+            texture->GetScanLineForRead(srcY));
+        if(!src)
+            return false;
+        auto *dst = dstBase + static_cast<size_t>(y) * dstPitch;
+        for(int x = 0; x < dstWidth; ++x) {
+            const int srcX =
+                static_cast<int>((static_cast<int64_t>(x) * surfaceWidth) /
+                                 dstWidth);
+            std::memcpy(dst + static_cast<size_t>(x) * 4,
+                        src + static_cast<size_t>(srcX) * 4, 4);
+        }
+    }
+    return true;
+}
+
+bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
+                                     TVPTextureFormat::e format,
+                                     int surfaceWidth, int surfaceHeight,
+                                     const SDL_Rect &rect,
+                                     const char *stage) {
+    if(!texture || surfaceWidth <= 0 || surfaceHeight <= 0 ||
+       format != TVPTextureFormat::RGBA)
+        return false;
+
+    ANativeWindow *window = TVPAndroidAcquireFlutterGameSurfaceWindow();
+    if(!window) {
+        const uint64_t unavailable =
+            ++gSDLAndroidFlutterSurfaceUnavailable;
+        if(ShouldLogScreenPresenter(unavailable)) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "flutter-texture unavailable #%llu stage=%s "
+                          "surface=%dx%d",
+                          static_cast<unsigned long long>(unavailable),
+                          stage ? stage : "", surfaceWidth, surfaceHeight);
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    int flutterWidth = 0;
+    int flutterHeight = 0;
+    TVPAndroidGetFlutterGameSurfaceSize(&flutterWidth, &flutterHeight);
+
+    const int windowWidth = ANativeWindow_getWidth(window);
+    const int windowHeight = ANativeWindow_getHeight(window);
+    if(windowWidth != surfaceWidth || windowHeight != surfaceHeight) {
+        const int geometryResult =
+            ANativeWindow_setBuffersGeometry(window, surfaceWidth,
+                                             surfaceHeight,
+                                             WINDOW_FORMAT_RGBA_8888);
+        if(geometryResult != 0) {
+            const uint64_t failed = ++gSDLAndroidFlutterSurfaceFailures;
+            if(ShouldLogScreenPresenter(failed)) {
+                char message[384];
+                std::snprintf(message, sizeof(message),
+                              "flutter-texture geometry failed #%llu "
+                              "stage=%s from=%dx%d flutter=%dx%d to=%dx%d "
+                              "result=%d",
+                              static_cast<unsigned long long>(failed),
+                              stage ? stage : "", windowWidth, windowHeight,
+                              flutterWidth, flutterHeight, surfaceWidth,
+                              surfaceHeight, geometryResult);
+                LogSDLScreenPresenter(message);
+            }
+            TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+            return false;
+        }
+    }
+
+    ARect dirty;
+    dirty.left = rect.x;
+    dirty.top = rect.y;
+    dirty.right = rect.x + rect.w;
+    dirty.bottom = rect.y + rect.h;
+
+    ANativeWindow_Buffer buffer{};
+    const int lockResult = ANativeWindow_lock(window, &buffer, &dirty);
+    if(lockResult != 0 || !buffer.bits) {
+        const uint64_t failed = ++gSDLAndroidFlutterSurfaceFailures;
+        if(ShouldLogScreenPresenter(failed)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "flutter-texture lock failed #%llu stage=%s "
+                          "surface=%dx%d rect=%d,%d,%dx%d result=%d",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          rect.x, rect.y, rect.w, rect.h, lockResult);
+            LogSDLScreenPresenter(message);
+        }
+        TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+        return false;
+    }
+
+    const bool copied = CopyTextureToAndroidBuffer(
+        texture, surfaceWidth, surfaceHeight, rect, buffer);
+    const int unlockResult = ANativeWindow_unlockAndPost(window);
+    TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+    if(!copied || unlockResult != 0) {
+        const uint64_t failed = ++gSDLAndroidFlutterSurfaceFailures;
+        if(ShouldLogScreenPresenter(failed)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "flutter-texture post failed #%llu stage=%s "
+                          "surface=%dx%d copied=%d result=%d",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          copied ? 1 : 0, unlockResult);
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    RememberPresentedSurfaceSize(surfaceWidth, surfaceHeight);
+    const uint64_t presented = ++gSDLAndroidFlutterSurfacePresented;
+    if(ShouldLogScreenPresenter(presented)) {
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "present-flutter-direct #%llu stage=%s surface=%dx%d "
+                      "flutter=%dx%d buffer=%dx%d stride=%d format=%d "
+                      "rect=%d,%d,%dx%d",
+                      static_cast<unsigned long long>(presented),
+                      stage ? stage : "", surfaceWidth, surfaceHeight,
+                      flutterWidth, flutterHeight, buffer.width,
+                      buffer.height, buffer.stride, buffer.format, rect.x,
+                      rect.y, rect.w, rect.h);
+        LogSDLScreenPresenter(message);
+    }
+    return true;
 }
 
 bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
@@ -487,6 +660,7 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
     }
 
     const uint64_t presented = ++gSDLAndroidFlutterSurfacePresented;
+    RememberPresentedSurfaceSize(surfaceWidth, surfaceHeight);
     if(ShouldLogScreenPresenter(presented)) {
         char message[512];
         std::snprintf(message, sizeof(message),
@@ -1831,6 +2005,7 @@ void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
         gSDLLoadingConsoleState.active = true;
         gSDLLoadingConsoleState.session++;
         gSDLLoadingConsoleState.totalLines = 0;
+        gSDLLoadingConsoleState.retainUntilTicks = 0;
         gSDLLoadingConsoleState.lines.clear();
         session = gSDLLoadingConsoleState.session;
     }
@@ -1893,6 +2068,8 @@ void TVPSDLRecordLoadingConsoleHide(const char *reason) {
         totalLines = gSDLLoadingConsoleState.totalLines;
         retained = gSDLLoadingConsoleState.lines.size();
         gSDLLoadingConsoleState.active = false;
+        gSDLLoadingConsoleState.retainUntilTicks =
+            static_cast<Uint64>(SDL_GetTicks()) + 2500;
     }
 
     const Uint32 initialized = SDL_WasInit(0);
@@ -1913,7 +2090,9 @@ void TVPSDLRecordLoadingConsoleHide(const char *reason) {
 TVPSDLLoadingConsoleSnapshot TVPSDLGetLoadingConsoleSnapshot() {
     TVPSDLLoadingConsoleSnapshot snapshot;
     std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
-    snapshot.active = gSDLLoadingConsoleState.active;
+    snapshot.active = gSDLLoadingConsoleState.active ||
+        static_cast<Uint64>(SDL_GetTicks()) <=
+            gSDLLoadingConsoleState.retainUntilTicks;
     snapshot.session = gSDLLoadingConsoleState.session;
     snapshot.totalLines = gSDLLoadingConsoleState.totalLines;
     snapshot.lines.reserve(gSDLLoadingConsoleState.lines.size());
@@ -2055,6 +2234,17 @@ bool TVPSDLHasScreenPresenterPresented() {
 }
 
 extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height) {
+    const int presentedWidth =
+        gSDLPresentedSurfaceWidth.load(std::memory_order_relaxed);
+    const int presentedHeight =
+        gSDLPresentedSurfaceHeight.load(std::memory_order_relaxed);
+    if(presentedWidth > 0 && presentedHeight > 0) {
+        if(width)
+            *width = presentedWidth;
+        if(height)
+            *height = presentedHeight;
+        return;
+    }
     std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
     if(width)
         *width = gSDLSurfaceMirrorState.width;
@@ -2166,6 +2356,58 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     if(copyFormat == TVPTextureFormat::None)
         copyFormat = texture->GetFormat();
 
+#if defined(__ANDROID__)
+    SDL_Rect directRect;
+    directRect.x = updateRect.left;
+    directRect.y = updateRect.top;
+    directRect.w = updateRect.get_width();
+    directRect.h = updateRect.get_height();
+    const int directWidth = static_cast<int>(texture->GetWidth());
+    const int directHeight = static_cast<int>(texture->GetHeight());
+    if(directRect.x < 0) {
+        directRect.w += directRect.x;
+        directRect.x = 0;
+    }
+    if(directRect.y < 0) {
+        directRect.h += directRect.y;
+        directRect.y = 0;
+    }
+    if(directRect.x + directRect.w > directWidth)
+        directRect.w = directWidth - directRect.x;
+    if(directRect.y + directRect.h > directHeight)
+        directRect.h = directHeight - directRect.y;
+    if(directRect.w > 0 && directRect.h > 0 &&
+       TryPresentAndroidFlutterTexture(texture, copyFormat, directWidth,
+                                       directHeight, directRect, stage)) {
+        uint64_t presented = 0;
+        {
+            std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+            presented = ++gSDLScreenPresenterState.presentedFrames;
+        }
+        tTVPRect consumed;
+        texture->ConsumeDirtyRect(consumed);
+        const uint64_t presentSequence =
+            gpuUploads > 0 ? gpuUploads : presented;
+        if(ShouldLogScreenPresenter(presentSequence)) {
+            char message[512];
+            std::snprintf(
+                message, sizeof(message),
+                "present-texture-direct #%llu stage=%s tex=%p size=%ux%u "
+                "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
+                "takeover=1",
+                static_cast<unsigned long long>(presentSequence),
+                stage ? stage : "", static_cast<void *>(texture),
+                texture->GetWidth(), texture->GetHeight(), updateRect.left,
+                updateRect.top, updateRect.get_width(),
+                updateRect.get_height(),
+                static_cast<unsigned long long>(gpuUploadBytes),
+                gpuConverted ? 1 : 0);
+            LogSDLGpuPresenter(message);
+        }
+        return true;
+    }
+#endif
+
     uint64_t surfaceCopiedTotal = 0;
     uint64_t surfaceCopiedBytes = 0;
     uint64_t surfaceSkippedTotal = 0;
@@ -2237,6 +2479,9 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         pitch = surface->pitch;
 
     if(!surface || surfaceWidth <= 0 || surfaceHeight <= 0) {
+        if(gSDLPresentedSurfaceWidth.load(std::memory_order_relaxed) > 0 &&
+           gSDLPresentedSurfaceHeight.load(std::memory_order_relaxed) > 0)
+            return false;
         uint64_t noSurface = 0;
         {
             std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);

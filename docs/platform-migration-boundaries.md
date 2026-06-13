@@ -63,7 +63,6 @@ Prefer narrow functions returning UTF-8 JSON or explicit POD structs across FFI.
 | `LauncherTheme.kt` | Compose theme | Flutter theme |
 | `KrkrPrefsSchema.kt` | Engine prefs schema | C/JSON schema generated for Flutter |
 | `KrkrPrefsStore.kt` | Engine prefs XML bridge | C ABI prefs API |
-| `AngleDriverController.kt` | Android driver settings | Platform host code |
 | `ForceLandscapeHelper.kt` | Android orientation control | Platform host code |
 | `MainActivity.kt` | Native game Activity lifecycle | Platform host/native surface lifecycle |
 | `KR2Application.kt` | Android app bootstrap | Platform host bootstrap |

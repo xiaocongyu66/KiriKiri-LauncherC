@@ -49,11 +49,14 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     _metricsTimer = Timer.periodic(
       const Duration(milliseconds: 250),
       (_) {
-        unawaited(_refreshGameSurfaceMetrics());
-        unawaited(_refreshLoadingConsole());
-        unawaited(_refreshRenderOverlayStats());
+        _refreshOverlayState();
       },
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _refreshOverlayState();
+      }
+    });
   }
 
   @override
@@ -75,7 +78,15 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
         _menuMode = true;
         _menuFuture = widget.bridge.getMainMenu();
       });
+    } else if (call.method == 'refreshOverlayState') {
+      _refreshOverlayState();
     }
+  }
+
+  void _refreshOverlayState() {
+    unawaited(_refreshGameSurfaceMetrics());
+    unawaited(_refreshLoadingConsole());
+    unawaited(_refreshRenderOverlayStats());
   }
 
   Future<void> _setExpanded(bool value, {bool menuMode = false}) async {
@@ -330,8 +341,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
           _overlayBounds = Size(constraints.maxWidth, constraints.maxHeight);
           final frameWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : (_gameSurfaceWidth > 0 ? _gameSurfaceWidth : 1);
           final frameHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : (_gameSurfaceHeight > 0 ? _gameSurfaceHeight : 1);
-          final requestedSurfaceWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : 1;
-          final requestedSurfaceHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : 1;
+          final requestedSurfaceWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : 1920;
+          final requestedSurfaceHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : 1080;
           _scheduleGameSurface(requestedSurfaceWidth, requestedSurfaceHeight);
           _gameDisplaySize = _containSize(
             Size(frameWidth / _devicePixelRatio, frameHeight / _devicePixelRatio),
@@ -340,7 +351,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
           _overlayRight = _overlayRight.clamp(8.0, _maxOverlayRight).toDouble();
           _overlayBottom = _overlayBottom.clamp(8.0, _maxOverlayBottom).toDouble();
           final consoleWidth = math.min(
-            math.max(260.0, constraints.maxWidth * 0.44),
+            math.max(300.0, constraints.maxWidth * 0.46),
             math.max(0.0, constraints.maxWidth - 24),
           );
 
@@ -537,7 +548,7 @@ class _StartupConsoleOverlay extends StatelessWidget {
         final lines = snapshot.lines.sublist(start);
         return DecoratedBox(
           decoration: BoxDecoration(
-            color: const Color(0x52000000),
+            color: const Color(0x78000000),
             borderRadius: BorderRadius.circular(8),
           ),
           child: Padding(
@@ -553,7 +564,7 @@ class _StartupConsoleOverlay extends StatelessWidget {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: line.important ? const Color(0xffffd75a) : Colors.white.withOpacity(0.76),
-                      fontSize: 11.5,
+                      fontSize: 12.5,
                       height: 1.18,
                       shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
                     ),

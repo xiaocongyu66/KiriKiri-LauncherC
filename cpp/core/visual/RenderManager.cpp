@@ -5045,15 +5045,12 @@ iTVPRenderManager *TVPGetRenderManager() {
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
         if(!TVPUseLegacyRenderManagerPreference() &&
-           (str == TJS_W("opengl") || str == TJS_W("angle") ||
-            str == TJS_W("angle-vk") || str == TJS_W("vk") ||
+           (str == TJS_W("opengl") || str == TJS_W("vk") ||
             str == TJS_W("vulkan"))) {
             TVPAddLog(TJS_W("[renderer] Using software TVP compositor with "
                             "SDL presenter output preference '") +
                       str + TJS_W("'."));
             str = TJS_W("software");
-        } else if(str == TJS_W("angle") || str == TJS_W("angle-vk")) {
-            str = TJS_W("opengl");
         } else if(str == TJS_W("vk")) {
             str = TJS_W("vulkan");
         } else if(str != TJS_W("software") && str != TJS_W("opengl") &&
