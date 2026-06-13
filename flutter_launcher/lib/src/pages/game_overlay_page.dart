@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:math' as math;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -27,10 +29,14 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   int? _gameTextureId;
   int _gameSurfaceWidth = 0;
   int _gameSurfaceHeight = 0;
+  int _nativeFrameWidth = 0;
+  int _nativeFrameHeight = 0;
   double _devicePixelRatio = 1.0;
   double _overlayRight = 18;
   double _overlayBottom = 18;
   Size _overlayBounds = Size.zero;
+  Size _gameDisplaySize = Size.zero;
+  Timer? _metricsTimer;
   final Map<int, Offset> _activePointers = <int, Offset>{};
   late Future<List<GameMenuItem>> _menuFuture = widget.bridge.getMainMenu();
 
@@ -38,10 +44,16 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   void initState() {
     super.initState();
     _channel.setMethodCallHandler(_handleHostCall);
+    _metricsTimer = Timer.periodic(
+      const Duration(milliseconds: 250),
+      (_) => unawaited(_refreshGameSurfaceMetrics()),
+    );
   }
 
   @override
   void dispose() {
+    _metricsTimer?.cancel();
+    _metricsTimer = null;
     _channel.setMethodCallHandler(null);
     final textureId = _gameTextureId;
     if (textureId != null) {
@@ -70,7 +82,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     });
   }
 
-  Future<void> _move(DragUpdateDetails details) async {
+  void _move(DragUpdateDetails details) {
     if (_expanded) {
       return;
     }
@@ -98,6 +110,31 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       return await _channel.invokeMapMethod<Object?, Object?>(method, arguments);
     } on MissingPluginException {
       return null;
+    }
+  }
+
+  Future<void> _refreshGameSurfaceMetrics() async {
+    final result = await _invokeHostMap('getGameSurfaceMetrics', const <String, Object?>{});
+    if (!mounted || result == null) {
+      return;
+    }
+
+    final width = (result['width'] as num?)?.toInt() ?? 0;
+    final height = (result['height'] as num?)?.toInt() ?? 0;
+    if (width <= 0 || height <= 0) {
+      return;
+    }
+
+    if (width != _nativeFrameWidth || height != _nativeFrameHeight) {
+      setState(() {
+        _nativeFrameWidth = width;
+        _nativeFrameHeight = height;
+      });
+    }
+
+    final textureId = _gameTextureId;
+    if (textureId != null && (_gameSurfaceWidth != width || _gameSurfaceHeight != height)) {
+      unawaited(_ensureGameSurface(width, height));
     }
   }
 
@@ -164,6 +201,15 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   Offset _toPhysical(Offset localPosition) {
+    if (_nativeFrameWidth > 0 &&
+        _nativeFrameHeight > 0 &&
+        _gameDisplaySize.width > 0 &&
+        _gameDisplaySize.height > 0) {
+      return Offset(
+        (localPosition.dx * _nativeFrameWidth / _gameDisplaySize.width).clamp(0.0, _nativeFrameWidth.toDouble()).toDouble(),
+        (localPosition.dy * _nativeFrameHeight / _gameDisplaySize.height).clamp(0.0, _nativeFrameHeight.toDouble()).toDouble(),
+      );
+    }
     return Offset(localPosition.dx * _devicePixelRatio, localPosition.dy * _devicePixelRatio);
   }
 
@@ -259,46 +305,71 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           _overlayBounds = Size(constraints.maxWidth, constraints.maxHeight);
-          final physicalWidth = (constraints.maxWidth * _devicePixelRatio).round().clamp(1, 16384).toInt();
-          final physicalHeight = (constraints.maxHeight * _devicePixelRatio).round().clamp(1, 16384).toInt();
-          _scheduleGameSurface(physicalWidth, physicalHeight);
+          final frameWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : (_gameSurfaceWidth > 0 ? _gameSurfaceWidth : 1);
+          final frameHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : (_gameSurfaceHeight > 0 ? _gameSurfaceHeight : 1);
+          final requestedSurfaceWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : 1;
+          final requestedSurfaceHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : 1;
+          _scheduleGameSurface(requestedSurfaceWidth, requestedSurfaceHeight);
+          _gameDisplaySize = _containSize(
+            Size(frameWidth / _devicePixelRatio, frameHeight / _devicePixelRatio),
+            Size(constraints.maxWidth, constraints.maxHeight),
+          );
           _overlayRight = _overlayRight.clamp(8.0, _maxOverlayRight).toDouble();
           _overlayBottom = _overlayBottom.clamp(8.0, _maxOverlayBottom).toDouble();
 
           return Stack(
             children: [
               Positioned.fill(
-                child: _GameSurfaceLayer(
-                  textureId: _gameTextureId,
-                  onPointerDown: _handlePointerDown,
-                  onPointerMove: _handlePointerMove,
-                  onPointerUp: _handlePointerUp,
-                  onPointerCancel: _handlePointerCancel,
+                child: ColoredBox(
+                  color: Colors.black,
+                  child: Center(
+                    child: SizedBox(
+                      width: _gameDisplaySize.width,
+                      height: _gameDisplaySize.height,
+                      child: _GameSurfaceLayer(
+                        textureId: _gameTextureId,
+                        onPointerDown: _handlePointerDown,
+                        onPointerMove: _handlePointerMove,
+                        onPointerUp: _handlePointerUp,
+                        onPointerCancel: _handlePointerCancel,
+                      ),
+                    ),
+                  ),
                 ),
               ),
               Positioned(
                 right: _overlayRight,
                 bottom: _overlayBottom,
-                child: _menuMode
-                    ? _FloatingMenuPanel(
-                        future: _menuFuture,
-                        onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
-                        onClose: () => _setExpanded(false),
-                        onActivate: _activateMenu,
-                      )
-                    : _FloatingActionTray(
-                        expanded: _expanded,
-                        mouseMode: _mouseMode,
-                        onDrag: _move,
-                        onToggle: () => _setExpanded(!_expanded),
-                        onAction: _runAction,
-                      ),
+                child: RepaintBoundary(
+                  child: _menuMode
+                      ? _FloatingMenuPanel(
+                          future: _menuFuture,
+                          onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
+                          onClose: () => _setExpanded(false),
+                          onActivate: _activateMenu,
+                        )
+                      : _FloatingActionTray(
+                          expanded: _expanded,
+                          mouseMode: _mouseMode,
+                          onDrag: _move,
+                          onToggle: () => _setExpanded(!_expanded),
+                          onAction: _runAction,
+                        ),
+                ),
               ),
             ],
           );
         },
       ),
     );
+  }
+
+  Size _containSize(Size content, Size bounds) {
+    if (content.width <= 0 || content.height <= 0 || bounds.width <= 0 || bounds.height <= 0) {
+      return Size.zero;
+    }
+    final scale = math.min(bounds.width / content.width, bounds.height / content.height);
+    return Size(content.width * scale, content.height * scale);
   }
 }
 
@@ -350,9 +421,18 @@ class _FloatingActionTray extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.translucent,
-      onPanUpdate: expanded ? null : onDrag,
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerMove: expanded
+          ? null
+          : (event) => onDrag(
+                DragUpdateDetails(
+                  sourceTimeStamp: event.timeStamp,
+                  delta: event.delta,
+                  globalPosition: event.position,
+                  localPosition: event.localPosition,
+                ),
+              ),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 140),
         curve: Curves.easeOutCubic,

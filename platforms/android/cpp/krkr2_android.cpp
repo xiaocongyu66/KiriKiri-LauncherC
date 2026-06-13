@@ -95,6 +95,7 @@ namespace kr2android {
 } // namespace kr2android
 
 void Android_PushEvents(const std::function<void()> &func);
+extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height);
 
 using namespace kr2android;
 
@@ -626,6 +627,29 @@ Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
     gFlutterGameSurfaceWidth = 0;
     gFlutterGameSurfaceHeight = 0;
     TVPNativeLogInfo("flutter-surface", "detach game surface");
+}
+
+JNIEXPORT jintArray JNICALL
+Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
+                                                               jobject) {
+    int presentedWidth = 0;
+    int presentedHeight = 0;
+    TVPSDLGetPresentedSurfaceSize(&presentedWidth, &presentedHeight);
+
+    int flutterWidth = 0;
+    int flutterHeight = 0;
+    {
+        std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+        flutterWidth = gFlutterGameSurfaceWidth;
+        flutterHeight = gFlutterGameSurfaceHeight;
+    }
+
+    jint values[4] = {presentedWidth, presentedHeight, flutterWidth,
+                      flutterHeight};
+    jintArray result = env->NewIntArray(4);
+    if(result)
+        env->SetIntArrayRegion(result, 0, 4, values);
+    return result;
 }
 
 JNIEXPORT void JNICALL

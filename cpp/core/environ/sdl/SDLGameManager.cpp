@@ -1943,6 +1943,14 @@ bool TVPSDLHasScreenPresenterPresented() {
     return gSDLScreenPresenterState.presentedFrames > 0;
 }
 
+extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height) {
+    std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+    if(width)
+        *width = gSDLSurfaceMirrorState.width;
+    if(height)
+        *height = gSDLSurfaceMirrorState.height;
+}
+
 bool TVPSDLIsRenderDiagnosticsEnabled() {
     return IsSDLRenderDiagnosticsActive();
 }

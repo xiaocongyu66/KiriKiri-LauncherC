@@ -60,6 +60,7 @@ class MainActivity : KR2Activity() {
     private external fun nativeSetGameSurface(surface: Surface?, width: Int, height: Int)
     private external fun nativeResizeGameSurface(width: Int, height: Int)
     private external fun nativeDetachGameSurface()
+    private external fun nativeGetGameSurfaceMetrics(): IntArray
     private external fun nativeFlutterTouchesBegin(id: Int, x: Float, y: Float)
     private external fun nativeFlutterTouchesEnd(id: Int, x: Float, y: Float)
     private external fun nativeFlutterTouchesMove(ids: IntArray, xs: FloatArray, ys: FloatArray)
@@ -218,6 +219,17 @@ class MainActivity : KR2Activity() {
                 "createGameSurfaceTexture" -> createGameSurfaceTexture(call, result)
                 "resizeGameSurfaceTexture" -> resizeGameSurfaceTexture(call, result)
                 "disposeGameSurfaceTexture" -> disposeGameSurfaceTexture(call, result)
+                "getGameSurfaceMetrics" -> {
+                    val metrics = nativeGetGameSurfaceMetrics()
+                    result.success(
+                        mapOf(
+                            "width" to metrics.getOrElse(0) { 0 },
+                            "height" to metrics.getOrElse(1) { 0 },
+                            "surfaceWidth" to metrics.getOrElse(2) { 0 },
+                            "surfaceHeight" to metrics.getOrElse(3) { 0 },
+                        )
+                    )
+                }
                 "gameTouchBegin" -> {
                     nativeFlutterTouchesBegin(
                         call.argument<Int>("id") ?: 0,
