@@ -1,7 +1,9 @@
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <string>
+#include <vector>
 
 class iTVPTexture2D;
 class iTVPLayerManager;
@@ -26,6 +28,31 @@ struct TVPSDLGameLaunchCallbacks {
         startupFrom;
     std::function<void()> showFileSelector;
     std::function<void(const std::string &message)> log;
+};
+
+struct TVPSDLLoadingConsoleLineSnapshot {
+    std::string message;
+    bool important = false;
+};
+
+struct TVPSDLLoadingConsoleSnapshot {
+    bool active = false;
+    uint64_t session = 0;
+    uint64_t totalLines = 0;
+    std::vector<TVPSDLLoadingConsoleLineSnapshot> lines;
+};
+
+struct TVPSDLRenderOverlaySnapshot {
+    bool showFps = false;
+    bool available = false;
+    double fps = 0.0;
+    unsigned int drawCount = 0;
+    uint64_t videoMemoryBytes = 0;
+    int selfMemoryMb = 0;
+    int freeMemoryMb = 0;
+    uint64_t presentedFrames = 0;
+    uint64_t sequence = 0;
+    std::string rendererName;
 };
 
 enum class TVPSDLGameLaunchResult {
@@ -64,6 +91,9 @@ void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
                                     int sceneHeight, float scale);
 void TVPSDLRecordLoadingConsoleLine(const char *message, bool important);
 void TVPSDLRecordLoadingConsoleHide(const char *reason);
+TVPSDLLoadingConsoleSnapshot TVPSDLGetLoadingConsoleSnapshot();
+void TVPSDLRecordRenderOverlayFrame(float deltaSeconds);
+TVPSDLRenderOverlaySnapshot TVPSDLGetRenderOverlaySnapshot();
 void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                                     int frameWidth, int frameHeight,
                                     int sceneWidth, int sceneHeight);

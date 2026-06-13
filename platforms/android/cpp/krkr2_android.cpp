@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <condition_variable>
 #include <mutex>
+#include <vector>
 #include <spdlog/spdlog.h>
 #include <client/linux/handler/exception_handler.h>
 #include <client/linux/handler/minidump_descriptor.h>
@@ -136,6 +137,22 @@ static std::string JStringToStdString(JNIEnv *env, jstring value) {
         return {};
     std::string result(chars);
     env->ReleaseStringUTFChars(value, chars);
+    return result;
+}
+
+static jobjectArray MakeJavaStringArray(
+    JNIEnv *env, const std::vector<std::string> &values) {
+    jclass stringClass = env->FindClass("java/lang/String");
+    jobjectArray result =
+        env->NewObjectArray(static_cast<jsize>(values.size()), stringClass,
+                            nullptr);
+    if(!result)
+        return nullptr;
+    for(size_t i = 0; i < values.size(); ++i) {
+        jstring value = env->NewStringUTF(values[i].c_str());
+        env->SetObjectArrayElement(result, static_cast<jsize>(i), value);
+        env->DeleteLocalRef(value);
+    }
     return result;
 }
 
@@ -650,6 +667,52 @@ Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
     if(result)
         env->SetIntArrayRegion(result, 0, 4, values);
     return result;
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_github_krkr2_MainActivity_nativeGetLoadingConsoleSnapshot(
+    JNIEnv *env, jobject) {
+    const TVPSDLLoadingConsoleSnapshot snapshot =
+        TVPSDLGetLoadingConsoleSnapshot();
+    std::vector<std::string> values;
+    values.reserve(snapshot.lines.size() + 1);
+
+    char meta[96];
+    std::snprintf(meta, sizeof(meta), "%d\t%llu\t%llu",
+                  snapshot.active ? 1 : 0,
+                  static_cast<unsigned long long>(snapshot.session),
+                  static_cast<unsigned long long>(snapshot.totalLines));
+    values.emplace_back(meta);
+
+    for(const TVPSDLLoadingConsoleLineSnapshot &line : snapshot.lines) {
+        std::string value = line.important ? "1\t" : "0\t";
+        value += line.message;
+        values.emplace_back(value);
+    }
+    return MakeJavaStringArray(env, values);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_github_krkr2_MainActivity_nativeGetRenderOverlayStats(JNIEnv *env,
+                                                               jobject) {
+    const TVPSDLRenderOverlaySnapshot snapshot =
+        TVPSDLGetRenderOverlaySnapshot();
+    std::vector<std::string> values;
+    values.reserve(10);
+    values.emplace_back(snapshot.showFps ? "1" : "0");
+    values.emplace_back(snapshot.available ? "1" : "0");
+
+    char number[96];
+    std::snprintf(number, sizeof(number), "%.3f", snapshot.fps);
+    values.emplace_back(number);
+    values.emplace_back(std::to_string(snapshot.drawCount));
+    values.emplace_back(std::to_string(snapshot.videoMemoryBytes));
+    values.emplace_back(std::to_string(snapshot.selfMemoryMb));
+    values.emplace_back(std::to_string(snapshot.freeMemoryMb));
+    values.emplace_back(std::to_string(snapshot.presentedFrames));
+    values.emplace_back(std::to_string(snapshot.sequence));
+    values.emplace_back(snapshot.rendererName);
+    return MakeJavaStringArray(env, values);
 }
 
 JNIEXPORT void JNICALL

@@ -61,6 +61,8 @@ class MainActivity : KR2Activity() {
     private external fun nativeResizeGameSurface(width: Int, height: Int)
     private external fun nativeDetachGameSurface()
     private external fun nativeGetGameSurfaceMetrics(): IntArray
+    private external fun nativeGetLoadingConsoleSnapshot(): Array<String>
+    private external fun nativeGetRenderOverlayStats(): Array<String>
     private external fun nativeFlutterTouchesBegin(id: Int, x: Float, y: Float)
     private external fun nativeFlutterTouchesEnd(id: Int, x: Float, y: Float)
     private external fun nativeFlutterTouchesMove(ids: IntArray, xs: FloatArray, ys: FloatArray)
@@ -230,6 +232,8 @@ class MainActivity : KR2Activity() {
                         )
                     )
                 }
+                "getLoadingConsoleSnapshot" -> result.success(loadingConsoleSnapshotForFlutter())
+                "getRenderOverlayStats" -> result.success(renderOverlayStatsForFlutter())
                 "gameTouchBegin" -> {
                     nativeFlutterTouchesBegin(
                         call.argument<Int>("id") ?: 0,
@@ -294,6 +298,39 @@ class MainActivity : KR2Activity() {
     private fun showFlutterOverlayMenu() {
         installFlutterGameOverlay()
         overlayChannel?.invokeMethod("showMenu", null)
+    }
+
+    private fun loadingConsoleSnapshotForFlutter(): Map<String, Any> {
+        val raw = nativeGetLoadingConsoleSnapshot()
+        val meta = raw.getOrNull(0)?.split('\t', limit = 3).orEmpty()
+        val lines = raw.drop(1).map { entry ->
+            val splitAt = entry.indexOf('\t')
+            val important = splitAt >= 0 && entry.substring(0, splitAt) == "1"
+            val message = if (splitAt >= 0) entry.substring(splitAt + 1) else entry
+            mapOf("important" to important, "message" to message)
+        }
+        return mapOf(
+            "active" to (meta.getOrNull(0) == "1"),
+            "session" to (meta.getOrNull(1)?.toLongOrNull() ?: 0L),
+            "totalLines" to (meta.getOrNull(2)?.toLongOrNull() ?: 0L),
+            "lines" to lines
+        )
+    }
+
+    private fun renderOverlayStatsForFlutter(): Map<String, Any> {
+        val raw = nativeGetRenderOverlayStats()
+        return mapOf(
+            "showFps" to (raw.getOrNull(0) == "1"),
+            "available" to (raw.getOrNull(1) == "1"),
+            "fps" to (raw.getOrNull(2)?.toDoubleOrNull() ?: 0.0),
+            "drawCount" to (raw.getOrNull(3)?.toLongOrNull() ?: 0L),
+            "videoMemoryBytes" to (raw.getOrNull(4)?.toLongOrNull() ?: 0L),
+            "selfMemoryMb" to (raw.getOrNull(5)?.toIntOrNull() ?: 0),
+            "freeMemoryMb" to (raw.getOrNull(6)?.toIntOrNull() ?: 0),
+            "presentedFrames" to (raw.getOrNull(7)?.toLongOrNull() ?: 0L),
+            "sequence" to (raw.getOrNull(8)?.toLongOrNull() ?: 0L),
+            "rendererName" to raw.getOrNull(9).orEmpty()
+        )
     }
 
     private fun placeOverlayAtDefault() {

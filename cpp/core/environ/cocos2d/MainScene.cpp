@@ -2399,7 +2399,12 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     }
 #endif
 
-    if(pGlobalCfgMgr->GetValue<bool>("showfps", false)) {
+    bool showNativeFps = pGlobalCfgMgr->GetValue<bool>("showfps", false);
+#if defined(__ANDROID__)
+    if(TVPSDLIsScreenTakeoverEnabled())
+        showNativeFps = false;
+#endif
+    if(showNativeFps) {
         _fpsLabel =
             cocos2d::Label::createWithTTF("", "NotoSansCJK-Regular.ttc", 16);
         _fpsLabel->setAnchorPoint(Vec2(0, 1));
@@ -2425,6 +2430,10 @@ void TVPMainScene::update(float delta) {
     //_ResotreGLStatues();
     if(_postUpdate)
         _postUpdate();
+#if defined(__ANDROID__)
+    if(!_fpsLabel && TVPSDLIsScreenTakeoverEnabled())
+        TVPSDLRecordRenderOverlayFrame(delta);
+#endif
     if(_fpsLabel) {
         unsigned int drawCount;
         uint64_t vmemsize;

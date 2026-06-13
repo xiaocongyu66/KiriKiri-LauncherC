@@ -36,6 +36,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   double _overlayBottom = 18;
   Size _overlayBounds = Size.zero;
   Size _gameDisplaySize = Size.zero;
+  _LoadingConsoleSnapshot _loadingConsole = const _LoadingConsoleSnapshot();
+  _RenderOverlayStats _renderStats = const _RenderOverlayStats();
   Timer? _metricsTimer;
   final Map<int, Offset> _activePointers = <int, Offset>{};
   late Future<List<GameMenuItem>> _menuFuture = widget.bridge.getMainMenu();
@@ -46,7 +48,11 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     _channel.setMethodCallHandler(_handleHostCall);
     _metricsTimer = Timer.periodic(
       const Duration(milliseconds: 250),
-      (_) => unawaited(_refreshGameSurfaceMetrics()),
+      (_) {
+        unawaited(_refreshGameSurfaceMetrics());
+        unawaited(_refreshLoadingConsole());
+        unawaited(_refreshRenderOverlayStats());
+      },
     );
   }
 
@@ -135,6 +141,32 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     final textureId = _gameTextureId;
     if (textureId != null && (_gameSurfaceWidth != width || _gameSurfaceHeight != height)) {
       unawaited(_ensureGameSurface(width, height));
+    }
+  }
+
+  Future<void> _refreshLoadingConsole() async {
+    final result = await _invokeHostMap('getLoadingConsoleSnapshot', const <String, Object?>{});
+    if (!mounted || result == null) {
+      return;
+    }
+    final next = _LoadingConsoleSnapshot.fromMap(result);
+    if (next.active != _loadingConsole.active ||
+        next.session != _loadingConsole.session ||
+        next.totalLines != _loadingConsole.totalLines) {
+      setState(() => _loadingConsole = next);
+    }
+  }
+
+  Future<void> _refreshRenderOverlayStats() async {
+    final result = await _invokeHostMap('getRenderOverlayStats', const <String, Object?>{});
+    if (!mounted || result == null) {
+      return;
+    }
+    final next = _RenderOverlayStats.fromMap(result);
+    if (next.showFps != _renderStats.showFps ||
+        next.available != _renderStats.available ||
+        next.sequence != _renderStats.sequence) {
+      setState(() => _renderStats = next);
     }
   }
 
@@ -307,6 +339,10 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
           );
           _overlayRight = _overlayRight.clamp(8.0, _maxOverlayRight).toDouble();
           _overlayBottom = _overlayBottom.clamp(8.0, _maxOverlayBottom).toDouble();
+          final consoleWidth = math.min(
+            math.max(260.0, constraints.maxWidth * 0.44),
+            math.max(0.0, constraints.maxWidth - 24),
+          );
 
           return Stack(
             children: [
@@ -328,6 +364,28 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
                   ),
                 ),
               ),
+              if (_loadingConsole.active && consoleWidth > 0)
+                Positioned(
+                  left: 12,
+                  top: 12,
+                  bottom: 12,
+                  width: consoleWidth,
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: _StartupConsoleOverlay(snapshot: _loadingConsole),
+                    ),
+                  ),
+                ),
+              if (!_loadingConsole.active && _renderStats.showFps && _renderStats.available)
+                Positioned(
+                  left: 10,
+                  top: 10,
+                  child: IgnorePointer(
+                    child: RepaintBoundary(
+                      child: _FpsCounterOverlay(stats: _renderStats),
+                    ),
+                  ),
+                ),
               Positioned(
                 right: _overlayRight,
                 bottom: _overlayBottom,
@@ -361,6 +419,176 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     }
     final scale = math.min(bounds.width / content.width, bounds.height / content.height);
     return Size(content.width * scale, content.height * scale);
+  }
+}
+
+class _LoadingConsoleLine {
+  const _LoadingConsoleLine({required this.message, required this.important});
+
+  final String message;
+  final bool important;
+}
+
+class _LoadingConsoleSnapshot {
+  const _LoadingConsoleSnapshot({
+    this.active = false,
+    this.session = 0,
+    this.totalLines = 0,
+    this.lines = const <_LoadingConsoleLine>[],
+  });
+
+  final bool active;
+  final int session;
+  final int totalLines;
+  final List<_LoadingConsoleLine> lines;
+
+  factory _LoadingConsoleSnapshot.fromMap(Map<Object?, Object?> map) {
+    final rawLines = map['lines'];
+    final lines = <_LoadingConsoleLine>[];
+    if (rawLines is Iterable) {
+      for (final rawLine in rawLines) {
+        if (rawLine is Map) {
+          final message = rawLine['message']?.toString() ?? '';
+          if (message.isEmpty) {
+            continue;
+          }
+          lines.add(_LoadingConsoleLine(message: message, important: rawLine['important'] == true));
+        }
+      }
+    }
+    return _LoadingConsoleSnapshot(
+      active: map['active'] == true,
+      session: _readInt(map['session']),
+      totalLines: _readInt(map['totalLines']),
+      lines: lines,
+    );
+  }
+}
+
+class _RenderOverlayStats {
+  const _RenderOverlayStats({
+    this.showFps = false,
+    this.available = false,
+    this.fps = 0,
+    this.drawCount = 0,
+    this.videoMemoryBytes = 0,
+    this.selfMemoryMb = 0,
+    this.freeMemoryMb = 0,
+    this.presentedFrames = 0,
+    this.sequence = 0,
+  });
+
+  final bool showFps;
+  final bool available;
+  final double fps;
+  final int drawCount;
+  final int videoMemoryBytes;
+  final int selfMemoryMb;
+  final int freeMemoryMb;
+  final int presentedFrames;
+  final int sequence;
+
+  factory _RenderOverlayStats.fromMap(Map<Object?, Object?> map) {
+    return _RenderOverlayStats(
+      showFps: map['showFps'] == true,
+      available: map['available'] == true,
+      fps: _readDouble(map['fps']),
+      drawCount: _readInt(map['drawCount']),
+      videoMemoryBytes: _readInt(map['videoMemoryBytes']),
+      selfMemoryMb: _readInt(map['selfMemoryMb']),
+      freeMemoryMb: _readInt(map['freeMemoryMb']),
+      presentedFrames: _readInt(map['presentedFrames']),
+      sequence: _readInt(map['sequence']),
+    );
+  }
+}
+
+int _readInt(Object? value) {
+  if (value is int) {
+    return value;
+  }
+  if (value is num) {
+    return value.toInt();
+  }
+  return int.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+double _readDouble(Object? value) {
+  if (value is double) {
+    return value;
+  }
+  if (value is num) {
+    return value.toDouble();
+  }
+  return double.tryParse(value?.toString() ?? '') ?? 0;
+}
+
+class _StartupConsoleOverlay extends StatelessWidget {
+  const _StartupConsoleOverlay({required this.snapshot});
+
+  final _LoadingConsoleSnapshot snapshot;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final maxVisibleLines = math.max(1, ((constraints.maxHeight - 16) / 16).floor()).toInt();
+        final start = math.max(0, snapshot.lines.length - maxVisibleLines);
+        final lines = snapshot.lines.sublist(start);
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: const Color(0x52000000),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.end,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final line in lines)
+                  Text(
+                    line.message.length > 200 ? line.message.substring(0, 200) : line.message,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: line.important ? const Color(0xffffd75a) : Colors.white.withOpacity(0.76),
+                      fontSize: 11.5,
+                      height: 1.18,
+                      shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _FpsCounterOverlay extends StatelessWidget {
+  const _FpsCounterOverlay({required this.stats});
+
+  final _RenderOverlayStats stats;
+
+  @override
+  Widget build(BuildContext context) {
+    final videoMemoryMb = stats.videoMemoryBytes / (1024 * 1024);
+    final text = '${stats.fps.toStringAsFixed(1)} (${stats.drawCount} draws)\n'
+        '${stats.selfMemoryMb} MB(${videoMemoryMb.toStringAsFixed(2)} MB) ${stats.freeMemoryMb} MB';
+    return Text(
+      text,
+      style: const TextStyle(
+        color: Colors.white,
+        fontSize: 12,
+        height: 1.16,
+        shadows: [
+          Shadow(color: Colors.black, blurRadius: 2),
+          Shadow(color: Colors.black, blurRadius: 4),
+        ],
+      ),
+    );
   }
 }
 

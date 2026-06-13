@@ -4,6 +4,7 @@
 #include "Platform.h"
 #include "tjsCommHead.h"
 #include "ComplexRect.h"
+#include "ConfigManager/GlobalConfigManager.h"
 #include "ConfigManager/IndividualConfigManager.h"
 #include "LayerBitmapIntf.h"
 #include "RenderManager.h"
@@ -172,6 +173,24 @@ struct TVPSDLLoadingConsoleState {
 
 std::mutex gSDLLoadingConsoleMutex;
 TVPSDLLoadingConsoleState gSDLLoadingConsoleState;
+
+struct TVPSDLRenderOverlayState {
+    bool showFps = false;
+    bool available = false;
+    double fps = 0.0;
+    unsigned int drawCount = 0;
+    uint64_t videoMemoryBytes = 0;
+    int selfMemoryMb = 0;
+    int freeMemoryMb = 0;
+    uint64_t presentedFrames = 0;
+    uint64_t sequence = 0;
+    std::string rendererName;
+    float previousDeltaTime = 0.016f;
+    float accumulatedDeltaTime = 0.0f;
+};
+
+std::mutex gSDLRenderOverlayMutex;
+TVPSDLRenderOverlayState gSDLRenderOverlayState;
 
 struct TVPSDLQueuedInputEvent {
     std::string eventName;
@@ -1889,6 +1908,98 @@ void TVPSDLRecordLoadingConsoleHide(const char *reason) {
         (initialized & SDL_INIT_AUDIO) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-loading", message);
+}
+
+TVPSDLLoadingConsoleSnapshot TVPSDLGetLoadingConsoleSnapshot() {
+    TVPSDLLoadingConsoleSnapshot snapshot;
+    std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+    snapshot.active = gSDLLoadingConsoleState.active;
+    snapshot.session = gSDLLoadingConsoleState.session;
+    snapshot.totalLines = gSDLLoadingConsoleState.totalLines;
+    snapshot.lines.reserve(gSDLLoadingConsoleState.lines.size());
+    for(const TVPSDLLoadingConsoleLine &line : gSDLLoadingConsoleState.lines) {
+        snapshot.lines.push_back(
+            TVPSDLLoadingConsoleLineSnapshot{ line.message, line.important });
+    }
+    return snapshot;
+}
+
+void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
+    const bool showFps =
+        GlobalConfigManager::GetInstance()->GetValue<bool>("showfps", false);
+    if(!showFps) {
+        std::lock_guard<std::mutex> lock(gSDLRenderOverlayMutex);
+        gSDLRenderOverlayState.showFps = false;
+        gSDLRenderOverlayState.available = false;
+        return;
+    }
+
+    if(deltaSeconds <= 0.0f)
+        deltaSeconds = 0.016f;
+    if(deltaSeconds > 1.0f)
+        deltaSeconds = 1.0f;
+
+    unsigned int drawCount = 0;
+    uint64_t videoMemoryBytes = 0;
+    bool available = false;
+    std::string rendererName;
+    if(iTVPRenderManager *manager = TVPGetRenderManager()) {
+        available = manager->GetRenderStat(drawCount, videoMemoryBytes);
+        if(const char *name = manager->GetName())
+            rendererName = name;
+    }
+
+    uint64_t presentedFrames = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        presentedFrames = gSDLScreenPresenterState.presentedFrames;
+    }
+
+    std::lock_guard<std::mutex> lock(gSDLRenderOverlayMutex);
+    gSDLRenderOverlayState.showFps = true;
+    gSDLRenderOverlayState.available = available;
+    gSDLRenderOverlayState.accumulatedDeltaTime += deltaSeconds;
+    const float filteredDeltaTime =
+        deltaSeconds * 0.10f +
+        (1.0f - 0.10f) * gSDLRenderOverlayState.previousDeltaTime;
+    gSDLRenderOverlayState.previousDeltaTime = filteredDeltaTime;
+
+    if(gSDLRenderOverlayState.accumulatedDeltaTime > 0.1f ||
+       gSDLRenderOverlayState.sequence == 0) {
+        gSDLRenderOverlayState.fps =
+            filteredDeltaTime > 0.0f ? 1.0 / filteredDeltaTime : 0.0;
+        gSDLRenderOverlayState.drawCount = drawCount;
+        gSDLRenderOverlayState.videoMemoryBytes = videoMemoryBytes;
+        gSDLRenderOverlayState.selfMemoryMb = TVPGetSelfUsedMemory();
+        gSDLRenderOverlayState.freeMemoryMb = TVPGetSystemFreeMemory();
+        gSDLRenderOverlayState.presentedFrames = presentedFrames;
+        gSDLRenderOverlayState.rendererName = rendererName;
+        gSDLRenderOverlayState.sequence++;
+        gSDLRenderOverlayState.accumulatedDeltaTime = 0.0f;
+    }
+}
+
+TVPSDLRenderOverlaySnapshot TVPSDLGetRenderOverlaySnapshot() {
+    TVPSDLRenderOverlaySnapshot snapshot;
+    {
+        std::lock_guard<std::mutex> lock(gSDLRenderOverlayMutex);
+        snapshot.showFps = gSDLRenderOverlayState.showFps;
+        snapshot.available = gSDLRenderOverlayState.available;
+        snapshot.fps = gSDLRenderOverlayState.fps;
+        snapshot.drawCount = gSDLRenderOverlayState.drawCount;
+        snapshot.videoMemoryBytes = gSDLRenderOverlayState.videoMemoryBytes;
+        snapshot.selfMemoryMb = gSDLRenderOverlayState.selfMemoryMb;
+        snapshot.freeMemoryMb = gSDLRenderOverlayState.freeMemoryMb;
+        snapshot.presentedFrames = gSDLRenderOverlayState.presentedFrames;
+        snapshot.sequence = gSDLRenderOverlayState.sequence;
+        snapshot.rendererName = gSDLRenderOverlayState.rendererName;
+    }
+
+    snapshot.showFps =
+        GlobalConfigManager::GetInstance()->GetValue<bool>("showfps", false);
+    if(!snapshot.showFps)
+        snapshot.available = false;
+    return snapshot;
 }
 
 void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
