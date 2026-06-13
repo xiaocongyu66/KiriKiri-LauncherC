@@ -106,6 +106,11 @@ std::mutex gFlutterGameSurfaceLock;
 ANativeWindow *gFlutterGameSurfaceWindow = nullptr;
 int gFlutterGameSurfaceWidth = 0;
 int gFlutterGameSurfaceHeight = 0;
+
+bool ShouldRouteLegacyTouchToCocos() {
+    return !TVPSDLIsScreenTakeoverEnabled() ||
+           !TVPSDLHasScreenPresenterPresented();
+}
 } // namespace
 
 extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow() {
@@ -253,6 +258,8 @@ void Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxText(JNIEnv *env,
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(
     JNIEnv *env, jclass thiz, jint id, jfloat x, jfloat y) {
     TVPSDLRecordAndroidInput("touch-begin", 1, x, y, id, true);
+    if(!ShouldRouteLegacyTouchToCocos())
+        return;
     intptr_t idlong = id;
     Android_PushEvents([idlong, x, y]() {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesBegin(
@@ -263,6 +270,8 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesEnd(
     JNIEnv *env, jclass thiz, jint id, jfloat x, jfloat y) {
     TVPSDLRecordAndroidInput("touch-end", 1, x, y, id, false);
+    if(!ShouldRouteLegacyTouchToCocos())
+        return;
     intptr_t idlong = id;
     Android_PushEvents([idlong, x, y]() {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesEnd(
@@ -287,6 +296,8 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(
         env->GetFloatArrayRegion(ys, 0, size, &y);
         idlong = id;
         TVPSDLRecordAndroidInput("touch-move", 1, x, y, id, true);
+        if(!ShouldRouteLegacyTouchToCocos())
+            return;
         Android_PushEvents([idlong, x, y]() {
             cocos2d::Director::getInstance()
                 ->getOpenGLView()
@@ -312,6 +323,8 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(
         idlong[i] = id[i];
 
     TVPSDLRecordAndroidInput("touch-move", size, x[0], y[0], id[0], true);
+    if(!ShouldRouteLegacyTouchToCocos())
+        return;
     Android_PushEvents([idlong, x, y]() {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesMove(
             idlong.
@@ -341,6 +354,8 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
         env->GetFloatArrayRegion(ys, 0, size, &y);
         idlong = id;
         TVPSDLRecordAndroidInput("touch-cancel", 1, x, y, id, false);
+        if(!ShouldRouteLegacyTouchToCocos())
+            return;
         Android_PushEvents([idlong, x, y]() {
             cocos2d::Director::getInstance()
                 ->getOpenGLView()
@@ -366,6 +381,8 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
         idlong[i] = id[i];
 
     TVPSDLRecordAndroidInput("touch-cancel", size, x[0], y[0], id[0], false);
+    if(!ShouldRouteLegacyTouchToCocos())
+        return;
     Android_PushEvents([idlong, x, y]() {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesCancel(
             idlong.

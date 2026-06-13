@@ -55,6 +55,7 @@ std::atomic_uint64_t gSDLInputDropped{0};
 std::atomic_uint64_t gSDLInputBatches{0};
 std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
+constexpr uint64_t kSDLStaleDirectTouchAgeMs = 500;
 std::atomic_uint64_t gSDLRenderFrameSequence{0};
 std::atomic_uint64_t gSDLRenderTextureChanges{0};
 std::atomic_uint64_t gSDLPresenterFrameSequence{0};
@@ -1710,6 +1711,16 @@ void TVPSDLProcessAndroidInputQueue() {
             maxAgeInBatch = age;
         lastEventName = queued->eventName;
         lastSequence = queued->sequence;
+        const bool dropDirectTouch =
+            queued->dispatchToTVP &&
+            (!TVPSDLHasScreenPresenterPresented() ||
+             age > kSDLStaleDirectTouchAgeMs);
+        if(dropDirectTouch) {
+            ResetSDLDirectTouch();
+            delete queued;
+            droppedInBatch++;
+            continue;
+        }
         DispatchSDLDirectTouchEvent(*queued);
         delete queued;
         drainedInBatch++;
