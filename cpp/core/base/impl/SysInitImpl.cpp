@@ -371,15 +371,15 @@ void TVPAfterSystemInit() {
     }
 
     // draw thread num
-    tjs_int drawThreadNum = 0;
     if(TVPGetCommandLine(TJS_W("-drawthread"), &opt)) {
+        tjs_int drawThreadNum = TVPDrawThreadNum;
         ttstr str(opt);
         if(str == TJS_W("auto"))
             drawThreadNum = 0;
         else
             drawThreadNum = (tjs_int)opt;
+        TVPDrawThreadNum = drawThreadNum;
     }
-    TVPDrawThreadNum = drawThreadNum;
 }
 
 //---------------------------------------------------------------------------

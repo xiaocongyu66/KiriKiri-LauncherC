@@ -521,6 +521,7 @@ class _RenderOverlayStats {
     this.freeMemoryMb = 0,
     this.presentedFrames = 0,
     this.sequence = 0,
+    this.rendererName = '',
   });
 
   final bool showFps;
@@ -532,6 +533,7 @@ class _RenderOverlayStats {
   final int freeMemoryMb;
   final int presentedFrames;
   final int sequence;
+  final String rendererName;
 
   factory _RenderOverlayStats.fromMap(Map<Object?, Object?> map) {
     return _RenderOverlayStats(
@@ -544,6 +546,7 @@ class _RenderOverlayStats {
       freeMemoryMb: _readInt(map['freeMemoryMb']),
       presentedFrames: _readInt(map['presentedFrames']),
       sequence: _readInt(map['sequence']),
+      rendererName: map['rendererName']?.toString() ?? '',
     );
   }
 }
@@ -620,7 +623,11 @@ class _FpsCounterOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final videoMemoryMb = stats.videoMemoryBytes / (1024 * 1024);
-    final text = '${stats.fps.toStringAsFixed(1)} (${stats.drawCount} draws)\n'
+    final renderer =
+        stats.rendererName.isEmpty ? 'renderer' : stats.rendererName;
+    final text =
+        '${stats.fps.toStringAsFixed(1)} fps '
+        '(${stats.drawCount} TVP ops, ${stats.presentedFrames} presents, $renderer)\n'
         '${stats.selfMemoryMb} MB(${videoMemoryMb.toStringAsFixed(2)} MB) ${stats.freeMemoryMb} MB';
     return Text(
       text,
