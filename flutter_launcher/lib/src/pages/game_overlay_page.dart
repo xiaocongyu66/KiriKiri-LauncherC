@@ -200,21 +200,12 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     }
   }
 
-  Offset _toPhysical(Offset localPosition) {
-    if (_nativeFrameWidth > 0 &&
-        _nativeFrameHeight > 0 &&
-        _gameDisplaySize.width > 0 &&
-        _gameDisplaySize.height > 0) {
-      return Offset(
-        (localPosition.dx * _nativeFrameWidth / _gameDisplaySize.width).clamp(0.0, _nativeFrameWidth.toDouble()).toDouble(),
-        (localPosition.dy * _nativeFrameHeight / _gameDisplaySize.height).clamp(0.0, _nativeFrameHeight.toDouble()).toDouble(),
-      );
-    }
-    return Offset(localPosition.dx * _devicePixelRatio, localPosition.dy * _devicePixelRatio);
+  Offset _toPhysical(Offset viewPosition) {
+    return Offset(viewPosition.dx * _devicePixelRatio, viewPosition.dy * _devicePixelRatio);
   }
 
   Future<void> _sendPointer(String method, PointerEvent event) async {
-    final position = _toPhysical(event.localPosition);
+    final position = _toPhysical(event.position);
     await _invokeHost(method, {
       'id': event.pointer,
       'x': position.dx,
@@ -232,7 +223,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
-    _activePointers[event.pointer] = event.localPosition;
+    _activePointers[event.pointer] = event.position;
     unawaited(_sendPointer('gameTouchBegin', event));
   }
 
@@ -240,7 +231,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     if (!_activePointers.containsKey(event.pointer)) {
       return;
     }
-    _activePointers[event.pointer] = event.localPosition;
+    _activePointers[event.pointer] = event.position;
     unawaited(_sendPointerMove());
   }
 
@@ -250,7 +241,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   void _handlePointerCancel(PointerCancelEvent event) {
-    final position = event.localPosition;
+    final position = event.position;
     _activePointers[event.pointer] = position;
     final entries = _activePointers.entries.toList(growable: false);
     _activePointers.remove(event.pointer);
