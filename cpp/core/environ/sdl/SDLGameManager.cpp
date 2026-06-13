@@ -55,6 +55,7 @@ std::atomic_uint64_t gSDLInputDropped{0};
 std::atomic_uint64_t gSDLInputBatches{0};
 std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
+std::atomic_bool gSDLInputPaused{false};
 constexpr uint64_t kSDLStaleDirectTouchAgeMs = 500;
 std::atomic_uint64_t gSDLRenderFrameSequence{0};
 std::atomic_uint64_t gSDLRenderTextureChanges{0};
@@ -288,6 +289,17 @@ bool IsSDLUITouchInput(const char *eventName) {
         std::strcmp(eventName, "touch-move") == 0 ||
         std::strcmp(eventName, "touch-cancel") == 0 ||
         std::strcmp(eventName, "touch-cancel-empty") == 0;
+}
+
+bool IsAndroidLifecyclePauseEvent(const char *eventName) {
+    return eventName && (std::strstr(eventName, "onPause") ||
+                         std::strstr(eventName, "onStop") ||
+                         std::strstr(eventName, "onDestroy"));
+}
+
+bool IsAndroidLifecycleResumeEvent(const char *eventName) {
+    return eventName && (std::strstr(eventName, "onCreate") ||
+                         std::strstr(eventName, "onResume"));
 }
 
 bool ShouldLogInputEvent(uint64_t sequence, const char *eventName) {
@@ -1337,6 +1349,23 @@ bool EnsureSDLInputQueue() {
 void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
                             float y, int code, bool state,
                             bool dispatchToTVP) {
+    if(gSDLInputPaused.load(std::memory_order_acquire) &&
+       IsSDLUITouchInput(eventName)) {
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        if(ShouldLogInputQueueEvent(dropped, eventName)) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "paused-drop dropped=%llu event=%s count=%d "
+                          "x=%.2f y=%.2f code=%d",
+                          static_cast<unsigned long long>(dropped),
+                          eventName ? eventName : "", itemCount, x, y,
+                          code);
+            LogSDLInputQueue(message);
+        }
+        return;
+    }
+
     if(!EnsureSDLInputQueue()) {
         const uint64_t dropped =
             gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1480,6 +1509,42 @@ void ResetSDLDirectTouch() {
     gSDLDirectTouchState.pointerId = -1;
 }
 
+void DropQueuedAndroidInputEvents(const char *reason) {
+    ResetSDLDirectTouch();
+    if(!gSDLInputQueueReady.load(std::memory_order_acquire))
+        return;
+
+    uint64_t droppedInBatch = 0;
+    SDL_Event event;
+    while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
+                         gSDLInputQueueEventType) == 1) {
+        auto *queued =
+            static_cast<TVPSDLQueuedInputEvent *>(event.user.data1);
+        delete queued;
+        droppedInBatch++;
+    }
+
+    if(droppedInBatch == 0)
+        return;
+
+    const uint64_t dropped =
+        gSDLInputDropped.fetch_add(droppedInBatch,
+                                   std::memory_order_relaxed) +
+        droppedInBatch;
+    const uint64_t backlog = CalculateBacklog(
+        gSDLInputQueued.load(std::memory_order_relaxed),
+        gSDLInputDrained.load(std::memory_order_relaxed), dropped);
+    char message[320];
+    std::snprintf(message, sizeof(message),
+                  "lifecycle-drop reason=%s items=%llu dropped=%llu "
+                  "backlog=%llu",
+                  reason ? reason : "",
+                  static_cast<unsigned long long>(droppedInBatch),
+                  static_cast<unsigned long long>(dropped),
+                  static_cast<unsigned long long>(backlog));
+    LogSDLInputQueue(message);
+}
+
 void DispatchSDLDirectTouchEvent(const TVPSDLQueuedInputEvent &queued) {
     if(!queued.dispatchToTVP)
         return;
@@ -1604,6 +1669,16 @@ TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo() {
 }
 
 void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
+    if(IsAndroidLifecycleResumeEvent(eventName)) {
+        const bool wasPaused =
+            gSDLInputPaused.exchange(false, std::memory_order_acq_rel);
+        if(wasPaused)
+            LogSDLInputQueue("lifecycle-resume input enabled");
+    } else if(IsAndroidLifecyclePauseEvent(eventName)) {
+        gSDLInputPaused.store(true, std::memory_order_release);
+        DropQueuedAndroidInputEvents(eventName);
+    }
+
     const uint64_t sequence =
         gSDLLifecycleEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
     const Uint32 initialized = SDL_WasInit(0);
@@ -1624,7 +1699,8 @@ void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
 void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
                               float y, int code, bool state) {
     TVPSDLInitializeRuntime();
-    if(IsSDLUITouchInput(eventName)) {
+    if(!gSDLInputPaused.load(std::memory_order_acquire) &&
+       IsSDLUITouchInput(eventName)) {
         TVPSDLUIRecordAndroidTouch(eventName, x, y,
                                    itemCount > 0 ? code : -1, state);
     }
