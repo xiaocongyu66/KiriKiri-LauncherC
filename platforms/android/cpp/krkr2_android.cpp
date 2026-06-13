@@ -20,6 +20,7 @@
 *******************************************************************************/
 #include <cstring>
 #include <cstdio>
+#include <algorithm>
 #include <condition_variable>
 #include <mutex>
 #include <vector>
@@ -721,8 +722,8 @@ Java_org_github_krkr2_MainActivity_nativeFlutterTouchesBegin(JNIEnv *env,
                                                              jint id,
                                                              jfloat x,
                                                              jfloat y) {
-    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(env, nullptr, id, x,
-                                                          y);
+    (void)env;
+    TVPSDLQueueFlutterTouchBegin(id, x, y);
 }
 
 JNIEXPORT void JNICALL
@@ -730,7 +731,8 @@ Java_org_github_krkr2_MainActivity_nativeFlutterTouchesEnd(JNIEnv *env,
                                                            jobject, jint id,
                                                            jfloat x,
                                                            jfloat y) {
-    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesEnd(env, nullptr, id, x, y);
+    (void)env;
+    TVPSDLQueueFlutterTouchEnd(id, x, y);
 }
 
 JNIEXPORT void JNICALL
@@ -739,8 +741,24 @@ Java_org_github_krkr2_MainActivity_nativeFlutterTouchesMove(JNIEnv *env,
                                                             jintArray ids,
                                                             jfloatArray xs,
                                                             jfloatArray ys) {
-    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(env, nullptr, ids, xs,
-                                                         ys);
+    if(!ids || !xs || !ys) {
+        TVPSDLQueueFlutterTouchMove(0, nullptr, nullptr, nullptr);
+        return;
+    }
+    const jsize count =
+        std::min(env->GetArrayLength(ids),
+                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
+    std::vector<jint> idValues(static_cast<size_t>(count));
+    std::vector<jfloat> xValues(static_cast<size_t>(count));
+    std::vector<jfloat> yValues(static_cast<size_t>(count));
+    if(count > 0) {
+        env->GetIntArrayRegion(ids, 0, count, idValues.data());
+        env->GetFloatArrayRegion(xs, 0, count, xValues.data());
+        env->GetFloatArrayRegion(ys, 0, count, yValues.data());
+    }
+    TVPSDLQueueFlutterTouchMove(
+        static_cast<int>(count), idValues.data(), xValues.data(),
+        yValues.data());
 }
 
 JNIEXPORT void JNICALL
@@ -749,7 +767,23 @@ Java_org_github_krkr2_MainActivity_nativeFlutterTouchesCancel(JNIEnv *env,
                                                               jintArray ids,
                                                               jfloatArray xs,
                                                               jfloatArray ys) {
-    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(env, nullptr, ids,
-                                                           xs, ys);
+    if(!ids || !xs || !ys) {
+        TVPSDLQueueFlutterTouchCancel(0, nullptr, nullptr, nullptr);
+        return;
+    }
+    const jsize count =
+        std::min(env->GetArrayLength(ids),
+                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
+    std::vector<jint> idValues(static_cast<size_t>(count));
+    std::vector<jfloat> xValues(static_cast<size_t>(count));
+    std::vector<jfloat> yValues(static_cast<size_t>(count));
+    if(count > 0) {
+        env->GetIntArrayRegion(ids, 0, count, idValues.data());
+        env->GetFloatArrayRegion(xs, 0, count, xValues.data());
+        env->GetFloatArrayRegion(ys, 0, count, yValues.data());
+    }
+    TVPSDLQueueFlutterTouchCancel(
+        static_cast<int>(count), idValues.data(), xValues.data(),
+        yValues.data());
 }
 }

@@ -282,7 +282,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   Future<void> _sendPointer(String method, PointerEvent event) async {
-    final position = _toPhysical(event.position);
+    final position = _toPhysical(event.localPosition);
     await _invokeHost(method, {
       'id': event.pointer,
       'x': position.dx,
@@ -300,7 +300,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   void _handlePointerDown(PointerDownEvent event) {
-    _activePointers[event.pointer] = event.position;
+    _activePointers[event.pointer] = event.localPosition;
     unawaited(_sendPointer('gameTouchBegin', event));
   }
 
@@ -308,7 +308,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     if (!_activePointers.containsKey(event.pointer)) {
       return;
     }
-    _activePointers[event.pointer] = event.position;
+    _activePointers[event.pointer] = event.localPosition;
     unawaited(_sendPointerMove());
   }
 
@@ -318,7 +318,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   void _handlePointerCancel(PointerCancelEvent event) {
-    final position = event.position;
+    final position = event.localPosition;
     _activePointers[event.pointer] = position;
     final entries = _activePointers.entries.toList(growable: false);
     _activePointers.remove(event.pointer);

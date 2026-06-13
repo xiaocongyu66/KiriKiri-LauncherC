@@ -12,6 +12,7 @@
 #include "SDLGpuTextureCache.h"
 #include "SDLUIManager.h"
 #include "WindowIntf.h"
+#include "TVPWindow.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -22,6 +23,7 @@
 #endif
 
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -203,9 +205,24 @@ struct TVPSDLQueuedInputEvent {
     float y = 0.0f;
     int code = 0;
     bool state = false;
+    bool dispatchToTVP = false;
     Uint64 ticks = 0;
     uint64_t sequence = 0;
 };
+
+struct TVPSDLDirectTouchState {
+    bool active = false;
+    bool moved = false;
+    bool mouseDownSent = false;
+    int pointerId = -1;
+    float startX = 0.0f;
+    float startY = 0.0f;
+    float lastX = 0.0f;
+    float lastY = 0.0f;
+    Uint64 downTicks = 0;
+};
+
+TVPSDLDirectTouchState gSDLDirectTouchState;
 
 std::string FormatVersion(int version) {
     std::ostringstream os;
@@ -1317,7 +1334,8 @@ bool EnsureSDLInputQueue() {
 }
 
 void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
-                            float y, int code, bool state) {
+                            float y, int code, bool state,
+                            bool dispatchToTVP) {
     if(!EnsureSDLInputQueue()) {
         const uint64_t dropped =
             gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1334,7 +1352,7 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
         gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
     auto *queued = new TVPSDLQueuedInputEvent{
         eventName ? eventName : "", itemCount, x, y, code, state,
-        SDL_GetTicks(), queuedCount,
+        dispatchToTVP, SDL_GetTicks(), queuedCount,
     };
 
     SDL_Event event;
@@ -1374,6 +1392,148 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
                       eventName ? eventName : "", itemCount, x, y, code,
                       state ? 1 : 0);
         LogSDLInputQueue(message);
+    }
+}
+
+tjs_int RoundInputCoord(float value) {
+    return static_cast<tjs_int>(std::lround(value));
+}
+
+void UpdateWindowCursor(tTJSNI_Window *window, tjs_int x, tjs_int y) {
+    if(!window)
+        return;
+    if(auto *form = window->GetForm()) {
+        form->SetCursorPos(x, y);
+    }
+}
+
+void PostSDLDirectMouseMove(tTJSNI_Window *window, float x, float y,
+                            tjs_uint32 shift, bool discardable) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(new tTVPOnMouseMoveInputEvent(window, ix, iy, shift),
+                      discardable ? TVP_EPT_DISCARDABLE : TVP_EPT_POST);
+}
+
+void PostSDLDirectMouseDown(tTJSNI_Window *window, float x, float y) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(new tTVPOnMouseDownInputEvent(
+        window, ix, iy, mbLeft, TVP_SS_LEFT));
+}
+
+void PostSDLDirectMouseUp(tTJSNI_Window *window, float x, float y) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(
+        new tTVPOnMouseUpInputEvent(window, ix, iy, mbLeft, 0));
+}
+
+void PostSDLDirectClick(tTJSNI_Window *window, float x, float y) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(new tTVPOnClickInputEvent(window, ix, iy));
+}
+
+void ResetSDLDirectTouch() {
+    gSDLDirectTouchState = {};
+    gSDLDirectTouchState.pointerId = -1;
+}
+
+void DispatchSDLDirectTouchEvent(const TVPSDLQueuedInputEvent &queued) {
+    if(!queued.dispatchToTVP)
+        return;
+
+    auto *window = TVPMainWindow;
+    if(!window)
+        return;
+
+    constexpr float moveThreshold = 24.0f;
+    constexpr float moveThresholdSq = moveThreshold * moveThreshold;
+    constexpr Uint64 holdToDragMs = 150;
+    const Uint64 nowTicks = SDL_GetTicks();
+
+    if(queued.eventName == "touch-begin") {
+        gSDLDirectTouchState.active = true;
+        gSDLDirectTouchState.moved = false;
+        gSDLDirectTouchState.mouseDownSent = false;
+        gSDLDirectTouchState.pointerId = queued.code;
+        gSDLDirectTouchState.startX = queued.x;
+        gSDLDirectTouchState.startY = queued.y;
+        gSDLDirectTouchState.lastX = queued.x;
+        gSDLDirectTouchState.lastY = queued.y;
+        gSDLDirectTouchState.downTicks = nowTicks;
+        return;
+    }
+
+    if(queued.eventName == "touch-cancel" ||
+       queued.eventName == "touch-cancel-empty") {
+        if(gSDLDirectTouchState.active &&
+           (queued.code < 0 || gSDLDirectTouchState.pointerId == queued.code)) {
+            if(gSDLDirectTouchState.mouseDownSent) {
+                PostSDLDirectMouseUp(window, gSDLDirectTouchState.lastX,
+                                     gSDLDirectTouchState.lastY);
+            }
+            ResetSDLDirectTouch();
+        }
+        return;
+    }
+
+    if(!gSDLDirectTouchState.active ||
+       gSDLDirectTouchState.pointerId != queued.code)
+        return;
+
+    if(queued.eventName == "touch-move") {
+        gSDLDirectTouchState.lastX = queued.x;
+        gSDLDirectTouchState.lastY = queued.y;
+
+        const float dx = queued.x - gSDLDirectTouchState.startX;
+        const float dy = queued.y - gSDLDirectTouchState.startY;
+        const bool shouldStartDrag =
+            gSDLDirectTouchState.mouseDownSent ||
+            (dx * dx + dy * dy > moveThresholdSq) ||
+            (nowTicks - gSDLDirectTouchState.downTicks > holdToDragMs);
+
+        if(!shouldStartDrag)
+            return;
+
+        if(!gSDLDirectTouchState.mouseDownSent) {
+            PostSDLDirectMouseMove(window, gSDLDirectTouchState.startX,
+                                   gSDLDirectTouchState.startY, 0, false);
+            PostSDLDirectMouseDown(window, gSDLDirectTouchState.startX,
+                                   gSDLDirectTouchState.startY);
+            gSDLDirectTouchState.mouseDownSent = true;
+        }
+
+        gSDLDirectTouchState.moved = true;
+        PostSDLDirectMouseMove(window, queued.x, queued.y, TVP_SS_LEFT, true);
+        return;
+    }
+
+    if(queued.eventName == "touch-end") {
+        if(gSDLDirectTouchState.mouseDownSent) {
+            PostSDLDirectMouseUp(window, queued.x, queued.y);
+        } else {
+            PostSDLDirectMouseMove(window, queued.x, queued.y, 0, false);
+            PostSDLDirectMouseDown(window, gSDLDirectTouchState.startX,
+                                   gSDLDirectTouchState.startY);
+            PostSDLDirectClick(window, queued.x, queued.y);
+            PostSDLDirectMouseUp(window, queued.x, queued.y);
+        }
+        ResetSDLDirectTouch();
+        return;
     }
 }
 
@@ -1440,7 +1600,7 @@ void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
         TVPSDLUIRecordAndroidTouch(eventName, x, y,
                                    itemCount > 0 ? code : -1, state);
     }
-    QueueAndroidInputEvent(eventName, itemCount, x, y, code, state);
+    QueueAndroidInputEvent(eventName, itemCount, x, y, code, state, false);
     const uint64_t sequence =
         gSDLInputEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
     if(!ShouldLogInputEvent(sequence, eventName))
@@ -1456,6 +1616,48 @@ void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
         (initialized & SDL_INIT_EVENTS) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-input", message);
+}
+
+void TVPSDLQueueFlutterTouchBegin(int id, float x, float y) {
+    TVPSDLInitializeRuntime();
+    TVPSDLUIRecordAndroidTouch("touch-begin", x, y, id, true);
+    QueueAndroidInputEvent("touch-begin", 1, x, y, id, true, true);
+}
+
+void TVPSDLQueueFlutterTouchEnd(int id, float x, float y) {
+    TVPSDLInitializeRuntime();
+    TVPSDLUIRecordAndroidTouch("touch-end", x, y, id, false);
+    QueueAndroidInputEvent("touch-end", 1, x, y, id, false, true);
+}
+
+void TVPSDLQueueFlutterTouchMove(int count, const int *ids, const float *xs,
+                                 const float *ys) {
+    TVPSDLInitializeRuntime();
+    if(count <= 0 || !ids || !xs || !ys) {
+        TVPSDLUIRecordAndroidTouch("touch-move-empty", 0.0f, 0.0f, -1,
+                                   false);
+        QueueAndroidInputEvent("touch-move-empty", 0, 0.0f, 0.0f, -1,
+                               false, false);
+        return;
+    }
+    TVPSDLUIRecordAndroidTouch("touch-move", xs[0], ys[0], ids[0], true);
+    QueueAndroidInputEvent("touch-move", count, xs[0], ys[0], ids[0], true,
+                           true);
+}
+
+void TVPSDLQueueFlutterTouchCancel(int count, const int *ids, const float *xs,
+                                   const float *ys) {
+    TVPSDLInitializeRuntime();
+    if(count <= 0 || !ids || !xs || !ys) {
+        TVPSDLUIRecordAndroidTouch("touch-cancel-empty", 0.0f, 0.0f, -1,
+                                   false);
+        QueueAndroidInputEvent("touch-cancel-empty", 0, 0.0f, 0.0f, -1,
+                               false, true);
+        return;
+    }
+    TVPSDLUIRecordAndroidTouch("touch-cancel", xs[0], ys[0], ids[0], false);
+    QueueAndroidInputEvent("touch-cancel", count, xs[0], ys[0], ids[0],
+                           false, true);
 }
 
 void TVPSDLProcessAndroidInputQueue() {
@@ -1483,6 +1685,7 @@ void TVPSDLProcessAndroidInputQueue() {
             maxAgeInBatch = age;
         lastEventName = queued->eventName;
         lastSequence = queued->sequence;
+        DispatchSDLDirectTouchEvent(*queued);
         delete queued;
         drainedInBatch++;
     }

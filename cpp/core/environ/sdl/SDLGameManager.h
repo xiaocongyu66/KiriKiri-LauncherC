@@ -69,6 +69,12 @@ void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail);
 void TVPSDLRecordAndroidInput(const char *eventName, int itemCount,
                               float x = 0.0f, float y = 0.0f, int code = 0,
                               bool state = false);
+void TVPSDLQueueFlutterTouchBegin(int id, float x, float y);
+void TVPSDLQueueFlutterTouchEnd(int id, float x, float y);
+void TVPSDLQueueFlutterTouchMove(int count, const int *ids, const float *xs,
+                                 const float *ys);
+void TVPSDLQueueFlutterTouchCancel(int count, const int *ids, const float *xs,
+                                   const float *ys);
 void TVPSDLProcessAndroidInputQueue();
 void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
                              int internalWidth, int internalHeight,
