@@ -2,6 +2,8 @@
 #include <memory>
 #include <jni.h>
 #include <dlfcn.h>
+#include <android/native_window.h>
+#include <android/native_window_jni.h>
 #include <cocos/platform/android/jni/JniHelper.h>
 
 #include "environ/cocos2d/AppDelegate.h"
@@ -17,6 +19,7 @@
                  Functions called by JNI
 *******************************************************************************/
 #include <cstring>
+#include <cstdio>
 #include <condition_variable>
 #include <mutex>
 #include <spdlog/spdlog.h>
@@ -94,6 +97,35 @@ namespace kr2android {
 void Android_PushEvents(const std::function<void()> &func);
 
 using namespace kr2android;
+
+namespace {
+std::mutex gFlutterGameSurfaceLock;
+ANativeWindow *gFlutterGameSurfaceWindow = nullptr;
+int gFlutterGameSurfaceWidth = 0;
+int gFlutterGameSurfaceHeight = 0;
+} // namespace
+
+extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow() {
+    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+    if(gFlutterGameSurfaceWindow)
+        ANativeWindow_acquire(gFlutterGameSurfaceWindow);
+    return gFlutterGameSurfaceWindow;
+}
+
+extern "C" void TVPAndroidReleaseFlutterGameSurfaceWindow(
+    ANativeWindow *window) {
+    if(window)
+        ANativeWindow_release(window);
+}
+
+extern "C" void TVPAndroidGetFlutterGameSurfaceSize(int *width,
+                                                     int *height) {
+    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+    if(width)
+        *width = gFlutterGameSurfaceWidth;
+    if(height)
+        *height = gFlutterGameSurfaceHeight;
+}
 
 static std::string JStringToStdString(JNIEnv *env, jstring value) {
     if(!value)
@@ -524,5 +556,113 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeOnLowMemory(JNIEnv *env, jclass cls) {
 
             OnLowMemory();
     });
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
+                                                        jobject,
+                                                        jobject surface,
+                                                        jint width,
+                                                        jint height) {
+    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+    if(gFlutterGameSurfaceWindow) {
+        ANativeWindow_release(gFlutterGameSurfaceWindow);
+        gFlutterGameSurfaceWindow = nullptr;
+    }
+    gFlutterGameSurfaceWidth = 0;
+    gFlutterGameSurfaceHeight = 0;
+
+    if(surface) {
+        gFlutterGameSurfaceWindow = ANativeWindow_fromSurface(env, surface);
+        if(gFlutterGameSurfaceWindow) {
+            gFlutterGameSurfaceWidth = width > 0 ? width : 0;
+            gFlutterGameSurfaceHeight = height > 0 ? height : 0;
+            ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
+                                             gFlutterGameSurfaceWidth,
+                                             gFlutterGameSurfaceHeight,
+                                             WINDOW_FORMAT_RGBA_8888);
+            char message[192];
+            std::snprintf(message, sizeof(message),
+                          "set game surface window=%p size=%dx%d",
+                          static_cast<void *>(gFlutterGameSurfaceWindow),
+                          gFlutterGameSurfaceWidth,
+                          gFlutterGameSurfaceHeight);
+            TVPNativeLogInfo("flutter-surface", message);
+        } else {
+            TVPNativeLogInfo("flutter-surface",
+                             "set game surface failed: null ANativeWindow");
+        }
+    } else {
+        TVPNativeLogInfo("flutter-surface", "set game surface: null surface");
+    }
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
+                                                           jint width,
+                                                           jint height) {
+    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+    gFlutterGameSurfaceWidth = width > 0 ? width : 0;
+    gFlutterGameSurfaceHeight = height > 0 ? height : 0;
+    if(gFlutterGameSurfaceWindow) {
+        ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
+                                         gFlutterGameSurfaceWidth,
+                                         gFlutterGameSurfaceHeight,
+                                         WINDOW_FORMAT_RGBA_8888);
+    }
+    char message[160];
+    std::snprintf(message, sizeof(message), "resize game surface size=%dx%d",
+                  gFlutterGameSurfaceWidth, gFlutterGameSurfaceHeight);
+    TVPNativeLogInfo("flutter-surface", message);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
+    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+    if(gFlutterGameSurfaceWindow) {
+        ANativeWindow_release(gFlutterGameSurfaceWindow);
+        gFlutterGameSurfaceWindow = nullptr;
+    }
+    gFlutterGameSurfaceWidth = 0;
+    gFlutterGameSurfaceHeight = 0;
+    TVPNativeLogInfo("flutter-surface", "detach game surface");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeFlutterTouchesBegin(JNIEnv *env,
+                                                             jobject,
+                                                             jint id,
+                                                             jfloat x,
+                                                             jfloat y) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(env, nullptr, id, x,
+                                                          y);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeFlutterTouchesEnd(JNIEnv *env,
+                                                           jobject, jint id,
+                                                           jfloat x,
+                                                           jfloat y) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesEnd(env, nullptr, id, x, y);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeFlutterTouchesMove(JNIEnv *env,
+                                                            jobject,
+                                                            jintArray ids,
+                                                            jfloatArray xs,
+                                                            jfloatArray ys) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(env, nullptr, ids, xs,
+                                                         ys);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeFlutterTouchesCancel(JNIEnv *env,
+                                                              jobject,
+                                                              jintArray ids,
+                                                              jfloatArray xs,
+                                                              jfloatArray ys) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(env, nullptr, ids,
+                                                           xs, ys);
 }
 }

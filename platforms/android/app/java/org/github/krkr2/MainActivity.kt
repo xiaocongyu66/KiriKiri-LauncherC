@@ -9,7 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.Settings
-import android.view.Gravity
+import android.view.Surface
 import android.view.WindowManager
 import android.widget.FrameLayout
 import java.lang.ref.WeakReference
@@ -22,6 +22,7 @@ import io.flutter.embedding.android.FlutterTextureView
 import io.flutter.embedding.android.FlutterView
 import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugins.GeneratedPluginRegistrant
+import io.flutter.view.TextureRegistry
 import org.libsdl.app.SDLActivity
 import org.tvp.kirikiri2.KR2Activity
 
@@ -51,6 +52,17 @@ class MainActivity : KR2Activity() {
     private var overlayView: FlutterView? = null
     private var overlayParams: FrameLayout.LayoutParams? = null
     private var overlayChannel: MethodChannel? = null
+    private val gameSurfaceTextures = mutableMapOf<Long, TextureRegistry.SurfaceTextureEntry>()
+    private val gameSurfaces = mutableMapOf<Long, Surface>()
+    private var activeGameSurfaceTextureId: Long? = null
+
+    private external fun nativeSetGameSurface(surface: Surface?, width: Int, height: Int)
+    private external fun nativeResizeGameSurface(width: Int, height: Int)
+    private external fun nativeDetachGameSurface()
+    private external fun nativeFlutterTouchesBegin(id: Int, x: Float, y: Float)
+    private external fun nativeFlutterTouchesEnd(id: Int, x: Float, y: Float)
+    private external fun nativeFlutterTouchesMove(ids: IntArray, xs: FloatArray, ys: FloatArray)
+    private external fun nativeFlutterTouchesCancel(ids: IntArray, xs: FloatArray, ys: FloatArray)
 
     private fun launchExtra(name: String): String = intent?.getStringExtra(name).orEmpty()
 
@@ -165,6 +177,7 @@ class MainActivity : KR2Activity() {
         if (currentActivity.get() === this) {
             currentActivity.clear()
         }
+        disposeGameSurfaceTextures()
         overlayView?.detachFromFlutterEngine()
         overlayEngine?.destroy()
         overlayView = null
@@ -199,9 +212,49 @@ class MainActivity : KR2Activity() {
                     result.success(null)
                 }
                 "setExpanded" -> {
-                    val expanded = call.argument<Boolean>("expanded") ?: false
-                    val menuMode = call.argument<Boolean>("menuMode") ?: false
-                    resizeOverlay(expanded, menuMode)
+                    result.success(null)
+                }
+                "createGameSurfaceTexture" -> createGameSurfaceTexture(call, result)
+                "resizeGameSurfaceTexture" -> resizeGameSurfaceTexture(call, result)
+                "disposeGameSurfaceTexture" -> disposeGameSurfaceTexture(call, result)
+                "gameTouchBegin" -> {
+                    nativeFlutterTouchesBegin(
+                        call.argument<Int>("id") ?: 0,
+                        (call.argument<Double>("x") ?: 0.0).toFloat(),
+                        (call.argument<Double>("y") ?: 0.0).toFloat(),
+                    )
+                    result.success(null)
+                }
+                "gameTouchEnd" -> {
+                    nativeFlutterTouchesEnd(
+                        call.argument<Int>("id") ?: 0,
+                        (call.argument<Double>("x") ?: 0.0).toFloat(),
+                        (call.argument<Double>("y") ?: 0.0).toFloat(),
+                    )
+                    result.success(null)
+                }
+                "gameTouchMove" -> {
+                    val ids = call.argument<List<Number>>("ids").orEmpty()
+                    val xs = call.argument<List<Number>>("xs").orEmpty()
+                    val ys = call.argument<List<Number>>("ys").orEmpty()
+                    val count = minOf(ids.size, xs.size, ys.size)
+                    nativeFlutterTouchesMove(
+                        IntArray(count) { ids[it].toInt() },
+                        FloatArray(count) { xs[it].toFloat() },
+                        FloatArray(count) { ys[it].toFloat() },
+                    )
+                    result.success(null)
+                }
+                "gameTouchCancel" -> {
+                    val ids = call.argument<List<Number>>("ids").orEmpty()
+                    val xs = call.argument<List<Number>>("xs").orEmpty()
+                    val ys = call.argument<List<Number>>("ys").orEmpty()
+                    val count = minOf(ids.size, xs.size, ys.size)
+                    nativeFlutterTouchesCancel(
+                        IntArray(count) { ids[it].toInt() },
+                        FloatArray(count) { xs[it].toFloat() },
+                        FloatArray(count) { ys[it].toFloat() },
+                    )
                     result.success(null)
                 }
                 else -> result.notImplemented()
@@ -215,54 +268,105 @@ class MainActivity : KR2Activity() {
         val view = FlutterView(this, textureView)
         view.setBackgroundColor(Color.TRANSPARENT)
         view.attachToFlutterEngine(engine)
-        val size = dp(56)
-        val params = FrameLayout.LayoutParams(size, size, Gravity.TOP or Gravity.LEFT)
-        params.leftMargin = 0
-        params.topMargin = 0
+        val params = FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT,
+        )
         overlayEngine = engine
         overlayView = view
         overlayParams = params
         mFrameLayout.addView(view, params)
-        mFrameLayout.post { placeOverlayAtDefault() }
     }
 
     private fun showFlutterOverlayMenu() {
         installFlutterGameOverlay()
-        resizeOverlay(true, true)
         overlayChannel?.invokeMethod("showMenu", null)
     }
 
     private fun placeOverlayAtDefault() {
-        val params = overlayParams ?: return
-        params.leftMargin = (mFrameLayout.width - params.width).coerceAtLeast(0)
-        params.topMargin = (mFrameLayout.height - params.height).coerceAtLeast(0)
-        overlayView?.layoutParams = params
+        overlayView?.layoutParams = overlayParams
     }
 
     private fun resizeOverlay(expanded: Boolean, menuMode: Boolean) {
-        val params = overlayParams ?: return
-        val anchorRight = params.leftMargin + params.width
-        val anchorBottom = params.topMargin + params.height
-        if (expanded) {
-            params.width = if (menuMode) dp(340) else dp(286)
-            params.height = if (menuMode) dp(316) else dp(64)
-        } else {
-            params.width = dp(56)
-            params.height = dp(56)
-        }
-        params.leftMargin = (anchorRight - params.width).coerceIn(0, (mFrameLayout.width - params.width).coerceAtLeast(0))
-        params.topMargin = (anchorBottom - params.height).coerceIn(0, (mFrameLayout.height - params.height).coerceAtLeast(0))
-        overlayView?.layoutParams = params
+        overlayView?.layoutParams = overlayParams
     }
 
     private fun moveOverlay(dx: Float, dy: Float) {
-        val params = overlayParams ?: return
-        params.leftMargin = (params.leftMargin + dx.toInt()).coerceIn(0, (mFrameLayout.width - params.width).coerceAtLeast(0))
-        params.topMargin = (params.topMargin + dy.toInt()).coerceIn(0, (mFrameLayout.height - params.height).coerceAtLeast(0))
-        overlayView?.layoutParams = params
+        overlayView?.layoutParams = overlayParams
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
+
+    private fun createGameSurfaceTexture(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+        val engine = overlayEngine
+        if (engine == null) {
+            result.error("engine_unavailable", "Flutter overlay engine is not attached", null)
+            return
+        }
+        val width = (call.argument<Int>("width") ?: 1).coerceAtLeast(1)
+        val height = (call.argument<Int>("height") ?: 1).coerceAtLeast(1)
+        val entry = try {
+            engine.renderer.createSurfaceTexture()
+        } catch (error: RuntimeException) {
+            result.error("texture_unavailable", "Unable to create SurfaceTexture: ${error.message}", null)
+            return
+        }
+        val textureId = entry.id()
+        val surfaceTexture = entry.surfaceTexture()
+        surfaceTexture.setDefaultBufferSize(width, height)
+        val surface = Surface(surfaceTexture)
+        gameSurfaceTextures[textureId] = entry
+        gameSurfaces[textureId] = surface
+        activeGameSurfaceTextureId = textureId
+        nativeSetGameSurface(surface, width, height)
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.createGameSurfaceTexture id=$textureId size=${width}x$height")
+        result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
+    }
+
+    private fun resizeGameSurfaceTexture(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+        val textureId = call.argument<Number>("textureId")?.toLong()
+        if (textureId == null) {
+            result.error("invalid_args", "textureId is required", null)
+            return
+        }
+        val entry = gameSurfaceTextures[textureId]
+        if (entry == null) {
+            result.error("not_found", "SurfaceTexture $textureId not found", null)
+            return
+        }
+        val width = (call.argument<Int>("width") ?: 1).coerceAtLeast(1)
+        val height = (call.argument<Int>("height") ?: 1).coerceAtLeast(1)
+        entry.surfaceTexture().setDefaultBufferSize(width, height)
+        activeGameSurfaceTextureId = textureId
+        nativeResizeGameSurface(width, height)
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.resizeGameSurfaceTexture id=$textureId size=${width}x$height")
+        result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
+    }
+
+    private fun disposeGameSurfaceTexture(call: MethodChannel.MethodCall, result: MethodChannel.Result) {
+        val textureId = call.argument<Number>("textureId")?.toLong()
+        if (textureId == null) {
+            result.error("invalid_args", "textureId is required", null)
+            return
+        }
+        if (activeGameSurfaceTextureId == textureId) {
+            nativeDetachGameSurface()
+            activeGameSurfaceTextureId = null
+        }
+        gameSurfaces.remove(textureId)?.release()
+        gameSurfaceTextures.remove(textureId)?.release()
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.disposeGameSurfaceTexture id=$textureId")
+        result.success(null)
+    }
+
+    private fun disposeGameSurfaceTextures() {
+        nativeDetachGameSurface()
+        activeGameSurfaceTextureId = null
+        gameSurfaces.values.forEach { it.release() }
+        gameSurfaceTextures.values.forEach { it.release() }
+        gameSurfaces.clear()
+        gameSurfaceTextures.clear()
+    }
 
     private fun recordSessionTime() {
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR) ?: return

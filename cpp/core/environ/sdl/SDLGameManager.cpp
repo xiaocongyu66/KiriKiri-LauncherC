@@ -15,6 +15,10 @@
 #include <SDL3/SDL_main.h>
 #include <spdlog/spdlog.h>
 
+#if defined(__ANDROID__)
+#include <android/native_window.h>
+#endif
+
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
@@ -23,6 +27,13 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+
+#if defined(__ANDROID__)
+extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow();
+extern "C" void TVPAndroidReleaseFlutterGameSurfaceWindow(
+    ANativeWindow *window);
+extern "C" void TVPAndroidGetFlutterGameSurfaceSize(int *width, int *height);
+#endif
 
 namespace {
 
@@ -46,6 +57,9 @@ std::atomic_uint64_t gSDLPresenterFrameSequence{0};
 std::atomic_uint64_t gSDLPresenterTextureChanges{0};
 std::atomic_uint64_t gSDLPresenterCpuProbeAttempts{0};
 std::atomic_uint64_t gSDLPresenterCpuAccessible{0};
+std::atomic_uint64_t gSDLAndroidFlutterSurfacePresented{0};
+std::atomic_uint64_t gSDLAndroidFlutterSurfaceFailures{0};
+std::atomic_uint64_t gSDLAndroidFlutterSurfaceUnavailable{0};
 std::atomic_uint64_t gSDLBitmapCompletionBatchSequence{0};
 std::atomic_uint64_t gSDLBitmapCompletionRegionSequence{0};
 
@@ -315,6 +329,161 @@ void LogSDLScreenPresenter(const char *message) {
 void LogSDLGpuPresenter(const char *message) {
     TVPNativeLogInfo("sdl-gpu-presenter", message ? message : "");
 }
+
+#if defined(__ANDROID__)
+void CopySurfaceToAndroidBuffer(SDL_Surface *surface, int surfaceWidth,
+                                int surfaceHeight, int pitch,
+                                const SDL_Rect &rect,
+                                ANativeWindow_Buffer &buffer) {
+    auto *dstBase = static_cast<Uint8 *>(buffer.bits);
+    const auto *srcBase = static_cast<const Uint8 *>(surface->pixels);
+    const int dstPitch = buffer.stride * 4;
+
+    if(buffer.width == surfaceWidth && buffer.height == surfaceHeight) {
+        for(int row = 0; row < rect.h; ++row) {
+            const auto *src = srcBase +
+                static_cast<size_t>(rect.y + row) * pitch +
+                static_cast<size_t>(rect.x) * 4;
+            auto *dst = dstBase +
+                static_cast<size_t>(rect.y + row) * dstPitch +
+                static_cast<size_t>(rect.x) * 4;
+            std::memcpy(dst, src, static_cast<size_t>(rect.w) * 4);
+        }
+        return;
+    }
+
+    const int dstWidth = buffer.width > 0 ? buffer.width : surfaceWidth;
+    const int dstHeight = buffer.height > 0 ? buffer.height : surfaceHeight;
+    for(int y = 0; y < dstHeight; ++y) {
+        const int srcY =
+            static_cast<int>((static_cast<int64_t>(y) * surfaceHeight) /
+                             dstHeight);
+        const auto *src = srcBase + static_cast<size_t>(srcY) * pitch;
+        auto *dst = dstBase + static_cast<size_t>(y) * dstPitch;
+        for(int x = 0; x < dstWidth; ++x) {
+            const int srcX =
+                static_cast<int>((static_cast<int64_t>(x) * surfaceWidth) /
+                                 dstWidth);
+            std::memcpy(dst + static_cast<size_t>(x) * 4,
+                        src + static_cast<size_t>(srcX) * 4, 4);
+        }
+    }
+}
+
+bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
+                                     int surfaceHeight, int pitch,
+                                     const SDL_Rect &rect,
+                                     const char *stage) {
+    if(!surface || !surface->pixels || surfaceWidth <= 0 ||
+       surfaceHeight <= 0 || pitch <= 0)
+        return false;
+
+    ANativeWindow *window = TVPAndroidAcquireFlutterGameSurfaceWindow();
+    if(!window) {
+        const uint64_t unavailable =
+            ++gSDLAndroidFlutterSurfaceUnavailable;
+        if(ShouldLogScreenPresenter(unavailable)) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "flutter-surface unavailable #%llu stage=%s "
+                          "surface=%dx%d",
+                          static_cast<unsigned long long>(unavailable),
+                          stage ? stage : "", surfaceWidth, surfaceHeight);
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    int flutterWidth = 0;
+    int flutterHeight = 0;
+    TVPAndroidGetFlutterGameSurfaceSize(&flutterWidth, &flutterHeight);
+
+    const int windowWidth = ANativeWindow_getWidth(window);
+    const int windowHeight = ANativeWindow_getHeight(window);
+    if(windowWidth != surfaceWidth || windowHeight != surfaceHeight) {
+        const int geometryResult =
+            ANativeWindow_setBuffersGeometry(window, surfaceWidth,
+                                             surfaceHeight,
+                                             WINDOW_FORMAT_RGBA_8888);
+        if(geometryResult != 0) {
+            const uint64_t failed = ++gSDLAndroidFlutterSurfaceFailures;
+            if(ShouldLogScreenPresenter(failed)) {
+                char message[384];
+                std::snprintf(message, sizeof(message),
+                              "flutter-surface geometry failed #%llu "
+                              "stage=%s from=%dx%d flutter=%dx%d to=%dx%d "
+                              "result=%d",
+                              static_cast<unsigned long long>(failed),
+                              stage ? stage : "", windowWidth, windowHeight,
+                              flutterWidth, flutterHeight, surfaceWidth,
+                              surfaceHeight, geometryResult);
+                LogSDLScreenPresenter(message);
+            }
+            TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+            return false;
+        }
+    }
+
+    ARect dirty;
+    dirty.left = rect.x;
+    dirty.top = rect.y;
+    dirty.right = rect.x + rect.w;
+    dirty.bottom = rect.y + rect.h;
+
+    ANativeWindow_Buffer buffer{};
+    const int lockResult = ANativeWindow_lock(window, &buffer, &dirty);
+    if(lockResult != 0 || !buffer.bits) {
+        const uint64_t failed = ++gSDLAndroidFlutterSurfaceFailures;
+        if(ShouldLogScreenPresenter(failed)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "flutter-surface lock failed #%llu stage=%s "
+                          "surface=%dx%d rect=%d,%d,%dx%d result=%d",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          rect.x, rect.y, rect.w, rect.h, lockResult);
+            LogSDLScreenPresenter(message);
+        }
+        TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+        return false;
+    }
+
+    CopySurfaceToAndroidBuffer(surface, surfaceWidth, surfaceHeight, pitch,
+                               rect, buffer);
+    const int unlockResult = ANativeWindow_unlockAndPost(window);
+    TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+    if(unlockResult != 0) {
+        const uint64_t failed = ++gSDLAndroidFlutterSurfaceFailures;
+        if(ShouldLogScreenPresenter(failed)) {
+            char message[320];
+            std::snprintf(message, sizeof(message),
+                          "flutter-surface post failed #%llu stage=%s "
+                          "surface=%dx%d result=%d",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          unlockResult);
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    const uint64_t presented = ++gSDLAndroidFlutterSurfacePresented;
+    if(ShouldLogScreenPresenter(presented)) {
+        char message[512];
+        std::snprintf(message, sizeof(message),
+                      "present-flutter-surface #%llu stage=%s surface=%dx%d "
+                      "flutter=%dx%d buffer=%dx%d stride=%d format=%d "
+                      "rect=%d,%d,%dx%d",
+                      static_cast<unsigned long long>(presented),
+                      stage ? stage : "", surfaceWidth, surfaceHeight,
+                      flutterWidth, flutterHeight, buffer.width,
+                      buffer.height, buffer.stride, buffer.format, rect.x,
+                      rect.y, rect.w, rect.h);
+        LogSDLScreenPresenter(message);
+    }
+    return true;
+}
+#endif
 
 bool EnsureSDLGpuPresenterLocked(const char *stage) {
     if(gSDLGpuPresenterState.ready)
@@ -1972,26 +2141,6 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         return false;
     }
 
-    std::lock_guard<std::mutex> presenterLock(gSDLScreenPresenterMutex);
-    if(!gSDLScreenPresenterState.takeoverEnabled)
-        return false;
-    if(!EnsureSDLScreenPresenterLocked(surfaceWidth, surfaceHeight, stage)) {
-        const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
-        if(ShouldLogScreenPresenter(failed)) {
-            char message[384];
-            std::snprintf(message, sizeof(message),
-                          "pump failed #%llu stage=%s surface=%dx%d "
-                          "update=%d,%d,%dx%d copiedRegions=%llu",
-                          static_cast<unsigned long long>(failed),
-                          stage ? stage : "", surfaceWidth, surfaceHeight,
-                          updateRect.left, updateRect.top,
-                          updateRect.get_width(), updateRect.get_height(),
-                          static_cast<unsigned long long>(copiedRegions));
-            LogSDLScreenPresenter(message);
-        }
-        return false;
-    }
-
     SDL_Rect rect;
     rect.x = updateRect.left;
     rect.y = updateRect.top;
@@ -2010,6 +2159,72 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
     if(rect.y + rect.h > surfaceHeight)
         rect.h = surfaceHeight - rect.y;
     if(rect.w <= 0 || rect.h <= 0) {
+        return false;
+    }
+
+#if defined(__ANDROID__)
+    if(TryPresentAndroidFlutterSurface(surface, surfaceWidth, surfaceHeight,
+                                       pitch, rect, stage)) {
+        gSDLSurfaceMirrorState.hasUpdate = false;
+        uint64_t presented = 0;
+        {
+            std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+            presented = ++gSDLScreenPresenterState.presentedFrames;
+        }
+        if(ShouldLogScreenPresenter(presented)) {
+            char message[384];
+            std::snprintf(
+                message, sizeof(message),
+                "present-flutter-texture #%llu stage=%s surface=%dx%d "
+                "pitch=%d rect=%d,%d,%dx%d copiedRegions=%llu "
+                "copiedBytes=%llu",
+                static_cast<unsigned long long>(presented),
+                stage ? stage : "", surfaceWidth, surfaceHeight, pitch,
+                rect.x, rect.y, rect.w, rect.h,
+                static_cast<unsigned long long>(copiedRegions),
+                static_cast<unsigned long long>(copiedBytes));
+            LogSDLScreenPresenter(message);
+        }
+        return true;
+    }
+
+    uint64_t failed = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        failed = ++gSDLScreenPresenterState.failedPumps;
+    }
+    if(ShouldLogScreenPresenter(failed)) {
+        char message[384];
+        std::snprintf(message, sizeof(message),
+                      "pump flutter-surface failed #%llu stage=%s "
+                      "surface=%dx%d update=%d,%d,%dx%d copiedRegions=%llu",
+                      static_cast<unsigned long long>(failed),
+                      stage ? stage : "", surfaceWidth, surfaceHeight,
+                      updateRect.left, updateRect.top,
+                      updateRect.get_width(), updateRect.get_height(),
+                      static_cast<unsigned long long>(copiedRegions));
+        LogSDLScreenPresenter(message);
+    }
+    return false;
+#endif
+
+    std::lock_guard<std::mutex> presenterLock(gSDLScreenPresenterMutex);
+    if(!gSDLScreenPresenterState.takeoverEnabled)
+        return false;
+    if(!EnsureSDLScreenPresenterLocked(surfaceWidth, surfaceHeight, stage)) {
+        const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
+        if(ShouldLogScreenPresenter(failed)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "pump failed #%llu stage=%s surface=%dx%d "
+                          "update=%d,%d,%dx%d copiedRegions=%llu",
+                          static_cast<unsigned long long>(failed),
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          updateRect.left, updateRect.top,
+                          updateRect.get_width(), updateRect.get_height(),
+                          static_cast<unsigned long long>(copiedRegions));
+            LogSDLScreenPresenter(message);
+        }
         return false;
     }
 

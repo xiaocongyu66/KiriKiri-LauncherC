@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -20,6 +22,16 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   bool _expanded = false;
   bool _menuMode = false;
   bool _mouseMode = true;
+  bool _gameSurfaceInFlight = false;
+  bool _gameSurfaceUnavailable = false;
+  int? _gameTextureId;
+  int _gameSurfaceWidth = 0;
+  int _gameSurfaceHeight = 0;
+  double _devicePixelRatio = 1.0;
+  double _overlayRight = 18;
+  double _overlayBottom = 18;
+  Size _overlayBounds = Size.zero;
+  final Map<int, Offset> _activePointers = <int, Offset>{};
   late Future<List<GameMenuItem>> _menuFuture = widget.bridge.getMainMenu();
 
   @override
@@ -31,6 +43,10 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   @override
   void dispose() {
     _channel.setMethodCallHandler(null);
+    final textureId = _gameTextureId;
+    if (textureId != null) {
+      unawaited(_invokeHost('disposeGameSurfaceTexture', {'textureId': textureId}));
+    }
     super.dispose();
   }
 
@@ -52,15 +68,21 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
         _menuFuture = widget.bridge.getMainMenu();
       }
     });
-    await _invokeHost('setExpanded', {'expanded': value, 'menuMode': menuMode});
   }
 
   Future<void> _move(DragUpdateDetails details) async {
     if (_expanded) {
       return;
     }
-    await _invokeHost('move', {'dx': details.delta.dx, 'dy': details.delta.dy});
+    setState(() {
+      _overlayRight = (_overlayRight - details.delta.dx).clamp(8.0, _maxOverlayRight).toDouble();
+      _overlayBottom = (_overlayBottom - details.delta.dy).clamp(8.0, _maxOverlayBottom).toDouble();
+    });
   }
+
+  double get _maxOverlayRight => (_overlayBounds.width - 56).clamp(8.0, double.infinity).toDouble();
+
+  double get _maxOverlayBottom => (_overlayBounds.height - 56).clamp(8.0, double.infinity).toDouble();
 
   Future<void> _invokeHost(String method, Map<String, Object?> arguments) async {
     try {
@@ -69,6 +91,128 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       // iOS/desktop hosts can show the same Flutter overlay route without a
       // resize channel until their native overlay container is wired in.
     }
+  }
+
+  Future<Map<Object?, Object?>?> _invokeHostMap(String method, Map<String, Object?> arguments) async {
+    try {
+      return await _channel.invokeMapMethod<Object?, Object?>(method, arguments);
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
+  void _scheduleGameSurface(int width, int height) {
+    if (_gameSurfaceUnavailable || _gameSurfaceInFlight || width <= 0 || height <= 0) {
+      return;
+    }
+    if (_gameTextureId != null && _gameSurfaceWidth == width && _gameSurfaceHeight == height) {
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        unawaited(_ensureGameSurface(width, height));
+      }
+    });
+  }
+
+  Future<void> _ensureGameSurface(int width, int height) async {
+    if (_gameSurfaceUnavailable || _gameSurfaceInFlight || width <= 0 || height <= 0) {
+      return;
+    }
+    if (_gameTextureId != null && _gameSurfaceWidth == width && _gameSurfaceHeight == height) {
+      return;
+    }
+    _gameSurfaceInFlight = true;
+    try {
+      if (_gameTextureId == null) {
+        final result = await _invokeHostMap('createGameSurfaceTexture', {'width': width, 'height': height});
+        final textureId = result?['textureId'];
+        if (textureId is! int) {
+          _gameSurfaceUnavailable = true;
+          return;
+        }
+        if (!mounted) {
+          unawaited(_invokeHost('disposeGameSurfaceTexture', {'textureId': textureId}));
+          return;
+        }
+        setState(() {
+          _gameTextureId = textureId;
+          _gameSurfaceWidth = width;
+          _gameSurfaceHeight = height;
+        });
+        return;
+      }
+
+      final textureId = _gameTextureId!;
+      final result = await _invokeHostMap('resizeGameSurfaceTexture', {
+        'textureId': textureId,
+        'width': width,
+        'height': height,
+      });
+      if (result == null) {
+        return;
+      }
+      if (mounted) {
+        setState(() {
+          _gameSurfaceWidth = width;
+          _gameSurfaceHeight = height;
+        });
+      }
+    } finally {
+      _gameSurfaceInFlight = false;
+    }
+  }
+
+  Offset _toPhysical(Offset localPosition) {
+    return Offset(localPosition.dx * _devicePixelRatio, localPosition.dy * _devicePixelRatio);
+  }
+
+  Future<void> _sendPointer(String method, PointerEvent event) async {
+    final position = _toPhysical(event.localPosition);
+    await _invokeHost(method, {
+      'id': event.pointer,
+      'x': position.dx,
+      'y': position.dy,
+    });
+  }
+
+  Future<void> _sendPointerMove() async {
+    final entries = _activePointers.entries.toList(growable: false);
+    await _invokeHost('gameTouchMove', {
+      'ids': entries.map((entry) => entry.key).toList(growable: false),
+      'xs': entries.map((entry) => _toPhysical(entry.value).dx).toList(growable: false),
+      'ys': entries.map((entry) => _toPhysical(entry.value).dy).toList(growable: false),
+    });
+  }
+
+  void _handlePointerDown(PointerDownEvent event) {
+    _activePointers[event.pointer] = event.localPosition;
+    unawaited(_sendPointer('gameTouchBegin', event));
+  }
+
+  void _handlePointerMove(PointerMoveEvent event) {
+    if (!_activePointers.containsKey(event.pointer)) {
+      return;
+    }
+    _activePointers[event.pointer] = event.localPosition;
+    unawaited(_sendPointerMove());
+  }
+
+  void _handlePointerUp(PointerUpEvent event) {
+    _activePointers.remove(event.pointer);
+    unawaited(_sendPointer('gameTouchEnd', event));
+  }
+
+  void _handlePointerCancel(PointerCancelEvent event) {
+    final position = event.localPosition;
+    _activePointers[event.pointer] = position;
+    final entries = _activePointers.entries.toList(growable: false);
+    _activePointers.remove(event.pointer);
+    unawaited(_invokeHost('gameTouchCancel', {
+      'ids': entries.map((entry) => entry.key).toList(growable: false),
+      'xs': entries.map((entry) => _toPhysical(entry.value).dx).toList(growable: false),
+      'ys': entries.map((entry) => _toPhysical(entry.value).dy).toList(growable: false),
+    }));
   }
 
   Future<void> _runAction(String action) async {
@@ -109,29 +253,82 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
 
   @override
   Widget build(BuildContext context) {
+    _devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     return Material(
       type: MaterialType.transparency,
-      child: Stack(
-        children: [
-          Align(
-            alignment: Alignment.bottomRight,
-            child: _menuMode
-                ? _FloatingMenuPanel(
-                    future: _menuFuture,
-                    onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
-                    onClose: () => _setExpanded(false),
-                    onActivate: _activateMenu,
-                  )
-                : _FloatingActionTray(
-                    expanded: _expanded,
-                    mouseMode: _mouseMode,
-                    onDrag: _move,
-                    onToggle: () => _setExpanded(!_expanded),
-                    onAction: _runAction,
-                  ),
-          ),
-        ],
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          _overlayBounds = Size(constraints.maxWidth, constraints.maxHeight);
+          final physicalWidth = (constraints.maxWidth * _devicePixelRatio).round().clamp(1, 16384).toInt();
+          final physicalHeight = (constraints.maxHeight * _devicePixelRatio).round().clamp(1, 16384).toInt();
+          _scheduleGameSurface(physicalWidth, physicalHeight);
+          _overlayRight = _overlayRight.clamp(8.0, _maxOverlayRight).toDouble();
+          _overlayBottom = _overlayBottom.clamp(8.0, _maxOverlayBottom).toDouble();
+
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: _GameSurfaceLayer(
+                  textureId: _gameTextureId,
+                  onPointerDown: _handlePointerDown,
+                  onPointerMove: _handlePointerMove,
+                  onPointerUp: _handlePointerUp,
+                  onPointerCancel: _handlePointerCancel,
+                ),
+              ),
+              Positioned(
+                right: _overlayRight,
+                bottom: _overlayBottom,
+                child: _menuMode
+                    ? _FloatingMenuPanel(
+                        future: _menuFuture,
+                        onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
+                        onClose: () => _setExpanded(false),
+                        onActivate: _activateMenu,
+                      )
+                    : _FloatingActionTray(
+                        expanded: _expanded,
+                        mouseMode: _mouseMode,
+                        onDrag: _move,
+                        onToggle: () => _setExpanded(!_expanded),
+                        onAction: _runAction,
+                      ),
+              ),
+            ],
+          );
+        },
       ),
+    );
+  }
+}
+
+class _GameSurfaceLayer extends StatelessWidget {
+  const _GameSurfaceLayer({
+    required this.textureId,
+    required this.onPointerDown,
+    required this.onPointerMove,
+    required this.onPointerUp,
+    required this.onPointerCancel,
+  });
+
+  final int? textureId;
+  final PointerDownEventListener onPointerDown;
+  final PointerMoveEventListener onPointerMove;
+  final PointerUpEventListener onPointerUp;
+  final PointerCancelEventListener onPointerCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final textureId = this.textureId;
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: onPointerDown,
+      onPointerMove: onPointerMove,
+      onPointerUp: onPointerUp,
+      onPointerCancel: onPointerCancel,
+      child: textureId == null
+          ? const SizedBox.expand()
+          : Texture(textureId: textureId, filterQuality: FilterQuality.none),
     );
   }
 }
