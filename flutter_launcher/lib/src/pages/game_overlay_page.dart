@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/gestures.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -36,6 +37,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   double _overlayBottom = 18;
   Size _overlayBounds = Size.zero;
   Size _gameDisplaySize = Size.zero;
+  final ValueNotifier<Offset> _overlayOffset = ValueNotifier<Offset>(const Offset(18, 18));
   _LoadingConsoleSnapshot _loadingConsole = const _LoadingConsoleSnapshot();
   _RenderOverlayStats _renderStats = const _RenderOverlayStats();
   Timer? _metricsTimer;
@@ -68,6 +70,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     if (textureId != null) {
       unawaited(_invokeHost('disposeGameSurfaceTexture', {'textureId': textureId}));
     }
+    _overlayOffset.dispose();
     super.dispose();
   }
 
@@ -103,9 +106,40 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     if (_expanded) {
       return;
     }
-    setState(() {
-      _overlayRight = (_overlayRight - details.delta.dx).clamp(8.0, _maxOverlayRight).toDouble();
-      _overlayBottom = (_overlayBottom - details.delta.dy).clamp(8.0, _maxOverlayBottom).toDouble();
+    final nextRight = (_overlayRight - details.delta.dx).clamp(8.0, _maxOverlayRight).toDouble();
+    final nextBottom = (_overlayBottom - details.delta.dy).clamp(8.0, _maxOverlayBottom).toDouble();
+    if (nextRight == _overlayRight && nextBottom == _overlayBottom) {
+      return;
+    }
+    _overlayRight = nextRight;
+    _overlayBottom = nextBottom;
+    _publishOverlayOffset();
+  }
+
+  void _clampOverlayPosition({bool deferNotify = false}) {
+    final nextRight = _overlayRight.clamp(8.0, _maxOverlayRight).toDouble();
+    final nextBottom = _overlayBottom.clamp(8.0, _maxOverlayBottom).toDouble();
+    if (nextRight == _overlayRight && nextBottom == _overlayBottom) {
+      return;
+    }
+    _overlayRight = nextRight;
+    _overlayBottom = nextBottom;
+    _publishOverlayOffset(defer: deferNotify);
+  }
+
+  void _publishOverlayOffset({bool defer = false}) {
+    final next = Offset(_overlayRight, _overlayBottom);
+    if (_overlayOffset.value == next) {
+      return;
+    }
+    if (!defer) {
+      _overlayOffset.value = next;
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && _overlayOffset.value != next) {
+        _overlayOffset.value = next;
+      }
     });
   }
 
@@ -348,8 +382,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
             Size(frameWidth / _devicePixelRatio, frameHeight / _devicePixelRatio),
             Size(constraints.maxWidth, constraints.maxHeight),
           );
-          _overlayRight = _overlayRight.clamp(8.0, _maxOverlayRight).toDouble();
-          _overlayBottom = _overlayBottom.clamp(8.0, _maxOverlayBottom).toDouble();
+          _clampOverlayPosition(deferNotify: true);
           final consoleWidth = math.min(
             math.max(300.0, constraints.maxWidth * 0.46),
             math.max(0.0, constraints.maxWidth - 24),
@@ -397,24 +430,25 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
                     ),
                   ),
                 ),
-              Positioned(
-                right: _overlayRight,
-                bottom: _overlayBottom,
-                child: RepaintBoundary(
-                  child: _menuMode
-                      ? _FloatingMenuPanel(
-                          future: _menuFuture,
-                          onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
-                          onClose: () => _setExpanded(false),
-                          onActivate: _activateMenu,
-                        )
-                      : _FloatingActionTray(
-                          expanded: _expanded,
-                          mouseMode: _mouseMode,
-                          onDrag: _move,
-                          onToggle: () => _setExpanded(!_expanded),
-                          onAction: _runAction,
-                        ),
+              Positioned.fill(
+                child: _FloatingOverlayPositioner(
+                  offsetListenable: _overlayOffset,
+                  child: RepaintBoundary(
+                    child: _menuMode
+                        ? _FloatingMenuPanel(
+                            future: _menuFuture,
+                            onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
+                            onClose: () => _setExpanded(false),
+                            onActivate: _activateMenu,
+                          )
+                        : _FloatingActionTray(
+                            expanded: _expanded,
+                            mouseMode: _mouseMode,
+                            onDrag: _move,
+                            onToggle: () => _setExpanded(!_expanded),
+                            onAction: _runAction,
+                          ),
+                  ),
                 ),
               ),
             ],
@@ -630,6 +664,33 @@ class _GameSurfaceLayer extends StatelessWidget {
       child: textureId == null
           ? const SizedBox.expand()
           : Texture(textureId: textureId, filterQuality: FilterQuality.none),
+    );
+  }
+}
+
+class _FloatingOverlayPositioner extends StatelessWidget {
+  const _FloatingOverlayPositioner({
+    required this.offsetListenable,
+    required this.child,
+  });
+
+  final ValueListenable<Offset> offsetListenable;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomRight,
+      child: ValueListenableBuilder<Offset>(
+        valueListenable: offsetListenable,
+        child: child,
+        builder: (context, offset, child) {
+          return Transform.translate(
+            offset: Offset(-offset.dx, -offset.dy),
+            child: child,
+          );
+        },
+      ),
     );
   }
 }

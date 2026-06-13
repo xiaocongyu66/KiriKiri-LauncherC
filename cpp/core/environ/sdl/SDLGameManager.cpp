@@ -2282,6 +2282,10 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     if(updateRect.is_empty())
         return takeoverActive && TVPSDLHasScreenPresenterPresented();
 
+    TVPTextureFormat::e copyFormat = texture->GetPixelDataFormat();
+    if(copyFormat == TVPTextureFormat::None)
+        copyFormat = texture->GetFormat();
+
     bool gpuUploaded = false;
     bool gpuConverted = false;
     uint64_t gpuUploadBytes = 0;
@@ -2289,6 +2293,60 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     uint64_t gpuFailures = 0;
     uint64_t gpuAttempts = 0;
     std::string gpuError;
+
+#if defined(__ANDROID__)
+    if(takeoverActive) {
+        SDL_Rect directRect;
+        directRect.x = updateRect.left;
+        directRect.y = updateRect.top;
+        directRect.w = updateRect.get_width();
+        directRect.h = updateRect.get_height();
+        const int directWidth = static_cast<int>(texture->GetWidth());
+        const int directHeight = static_cast<int>(texture->GetHeight());
+        if(directRect.x < 0) {
+            directRect.w += directRect.x;
+            directRect.x = 0;
+        }
+        if(directRect.y < 0) {
+            directRect.h += directRect.y;
+            directRect.y = 0;
+        }
+        if(directRect.x + directRect.w > directWidth)
+            directRect.w = directWidth - directRect.x;
+        if(directRect.y + directRect.h > directHeight)
+            directRect.h = directHeight - directRect.y;
+        if(directRect.w > 0 && directRect.h > 0 &&
+           TryPresentAndroidFlutterTexture(texture, copyFormat, directWidth,
+                                           directHeight, directRect, stage)) {
+            uint64_t presented = 0;
+            {
+                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+                presented = ++gSDLScreenPresenterState.presentedFrames;
+            }
+            tTVPRect consumed;
+            texture->ConsumeDirtyRect(consumed);
+            const uint64_t presentSequence =
+                gpuUploads > 0 ? gpuUploads : presented;
+            if(ShouldLogScreenPresenter(presentSequence)) {
+                char message[512];
+                std::snprintf(
+                    message, sizeof(message),
+                    "present-texture-direct #%llu stage=%s tex=%p size=%ux%u "
+                    "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
+                    "takeover=1",
+                    static_cast<unsigned long long>(presentSequence),
+                    stage ? stage : "", static_cast<void *>(texture),
+                    texture->GetWidth(), texture->GetHeight(), updateRect.left,
+                    updateRect.top, updateRect.get_width(),
+                    updateRect.get_height(),
+                    static_cast<unsigned long long>(gpuUploadBytes),
+                    gpuConverted ? 1 : 0);
+                LogSDLGpuPresenter(message);
+            }
+            return true;
+        }
+    }
+#endif
 
     if(shadowUpload) {
         bool knownTexture = false;
@@ -2351,62 +2409,6 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         }
         return false;
     }
-
-    TVPTextureFormat::e copyFormat = texture->GetPixelDataFormat();
-    if(copyFormat == TVPTextureFormat::None)
-        copyFormat = texture->GetFormat();
-
-#if defined(__ANDROID__)
-    SDL_Rect directRect;
-    directRect.x = updateRect.left;
-    directRect.y = updateRect.top;
-    directRect.w = updateRect.get_width();
-    directRect.h = updateRect.get_height();
-    const int directWidth = static_cast<int>(texture->GetWidth());
-    const int directHeight = static_cast<int>(texture->GetHeight());
-    if(directRect.x < 0) {
-        directRect.w += directRect.x;
-        directRect.x = 0;
-    }
-    if(directRect.y < 0) {
-        directRect.h += directRect.y;
-        directRect.y = 0;
-    }
-    if(directRect.x + directRect.w > directWidth)
-        directRect.w = directWidth - directRect.x;
-    if(directRect.y + directRect.h > directHeight)
-        directRect.h = directHeight - directRect.y;
-    if(directRect.w > 0 && directRect.h > 0 &&
-       TryPresentAndroidFlutterTexture(texture, copyFormat, directWidth,
-                                       directHeight, directRect, stage)) {
-        uint64_t presented = 0;
-        {
-            std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-            presented = ++gSDLScreenPresenterState.presentedFrames;
-        }
-        tTVPRect consumed;
-        texture->ConsumeDirtyRect(consumed);
-        const uint64_t presentSequence =
-            gpuUploads > 0 ? gpuUploads : presented;
-        if(ShouldLogScreenPresenter(presentSequence)) {
-            char message[512];
-            std::snprintf(
-                message, sizeof(message),
-                "present-texture-direct #%llu stage=%s tex=%p size=%ux%u "
-                "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                "takeover=1",
-                static_cast<unsigned long long>(presentSequence),
-                stage ? stage : "", static_cast<void *>(texture),
-                texture->GetWidth(), texture->GetHeight(), updateRect.left,
-                updateRect.top, updateRect.get_width(),
-                updateRect.get_height(),
-                static_cast<unsigned long long>(gpuUploadBytes),
-                gpuConverted ? 1 : 0);
-            LogSDLGpuPresenter(message);
-        }
-        return true;
-    }
-#endif
 
     uint64_t surfaceCopiedTotal = 0;
     uint64_t surfaceCopiedBytes = 0;
