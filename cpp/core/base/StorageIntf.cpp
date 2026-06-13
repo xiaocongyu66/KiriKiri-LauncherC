@@ -50,6 +50,7 @@ tjs_char TVPArchiveDelimiter = '>';
 //---------------------------------------------------------------------------
 static tTJSStaticCriticalSection TVPCreateStreamCS;
 static void TVPClearAutoPathLookupCache();
+static bool TVPShouldLegacyStorageClearRebuildAutoPath();
 //---------------------------------------------------------------------------
 
 //---------------------------------------------------------------------------
@@ -934,7 +935,10 @@ struct tTVPClearAutoPathCacheCallback : public tTVPCompactEventCallbackIntf {
             // clear the auto search path cache on application
             // deactivate
             tTJSCriticalSectionHolder cs_holder(TVPCreateStreamCS);
-            TVPClearAutoPathCache();
+            if(TVPShouldLegacyStorageClearRebuildAutoPath())
+                TVPClearAutoPathCache();
+            else
+                TVPClearAutoPathLookupCache();
         }
     }
 } static TVPClearAutoPathCacheCallback;
@@ -944,6 +948,15 @@ static bool TVPClearAutoPathCacheCallbackInit = false;
 //---------------------------------------------------------------------------
 static bool TVPShouldLegacyRebuildDuplicateAutoPath() {
     const char *value = std::getenv("KRKR2_LEGACY_DUP_AUTOPATH_REBUILD");
+    return value && std::strcmp(value, "0") != 0 &&
+        std::strcmp(value, "false") != 0 &&
+        std::strcmp(value, "FALSE") != 0;
+}
+
+//---------------------------------------------------------------------------
+static bool TVPShouldLegacyStorageClearRebuildAutoPath() {
+    const char *value =
+        std::getenv("KRKR2_LEGACY_STORAGE_CLEAR_REBUILDS_AUTOPATH");
     return value && std::strcmp(value, "0") != 0 &&
         std::strcmp(value, "false") != 0 &&
         std::strcmp(value, "FALSE") != 0;
@@ -1567,7 +1580,10 @@ tTJSBinaryStream *TVPCreateStream(const ttstr &_name, tjs_uint32 flags) {
 void TVPClearStorageCaches() {
     // clear all storage related caches
     TVPClearXP3SegmentCache();
-    TVPClearAutoPathCache();
+    if(TVPShouldLegacyStorageClearRebuildAutoPath())
+        TVPClearAutoPathCache();
+    else
+        TVPClearAutoPathLookupCache();
 }
 //---------------------------------------------------------------------------
 
