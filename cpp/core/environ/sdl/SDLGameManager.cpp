@@ -1399,6 +1399,33 @@ tjs_int RoundInputCoord(float value) {
     return static_cast<tjs_int>(std::lround(value));
 }
 
+float ClampInputCoord(float value, int limit) {
+    if(limit <= 0)
+        return value;
+    if(value < 0.0f)
+        return 0.0f;
+    const float maxValue = static_cast<float>(limit - 1);
+    if(value > maxValue)
+        return maxValue;
+    return value;
+}
+
+void ClampFlutterTouchToPresentedSurface(float &x, float &y) {
+    int width = gSDLPresentedSurfaceWidth.load(std::memory_order_relaxed);
+    int height = gSDLPresentedSurfaceHeight.load(std::memory_order_relaxed);
+    if(width <= 0 || height <= 0) {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        width = gSDLSurfaceMirrorState.width;
+        height = gSDLSurfaceMirrorState.height;
+    }
+#if defined(__ANDROID__)
+    if(width <= 0 || height <= 0)
+        TVPAndroidGetFlutterGameSurfaceSize(&width, &height);
+#endif
+    x = ClampInputCoord(x, width);
+    y = ClampInputCoord(y, height);
+}
+
 void UpdateWindowCursor(tTJSNI_Window *window, tjs_int x, tjs_int y) {
     if(!window)
         return;
@@ -1620,13 +1647,13 @@ void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
 
 void TVPSDLQueueFlutterTouchBegin(int id, float x, float y) {
     TVPSDLInitializeRuntime();
-    TVPSDLUIRecordAndroidTouch("touch-begin", x, y, id, true);
+    ClampFlutterTouchToPresentedSurface(x, y);
     QueueAndroidInputEvent("touch-begin", 1, x, y, id, true, true);
 }
 
 void TVPSDLQueueFlutterTouchEnd(int id, float x, float y) {
     TVPSDLInitializeRuntime();
-    TVPSDLUIRecordAndroidTouch("touch-end", x, y, id, false);
+    ClampFlutterTouchToPresentedSurface(x, y);
     QueueAndroidInputEvent("touch-end", 1, x, y, id, false, true);
 }
 
@@ -1634,30 +1661,28 @@ void TVPSDLQueueFlutterTouchMove(int count, const int *ids, const float *xs,
                                  const float *ys) {
     TVPSDLInitializeRuntime();
     if(count <= 0 || !ids || !xs || !ys) {
-        TVPSDLUIRecordAndroidTouch("touch-move-empty", 0.0f, 0.0f, -1,
-                                   false);
         QueueAndroidInputEvent("touch-move-empty", 0, 0.0f, 0.0f, -1,
                                false, false);
         return;
     }
-    TVPSDLUIRecordAndroidTouch("touch-move", xs[0], ys[0], ids[0], true);
-    QueueAndroidInputEvent("touch-move", count, xs[0], ys[0], ids[0], true,
-                           true);
+    float x = xs[0];
+    float y = ys[0];
+    ClampFlutterTouchToPresentedSurface(x, y);
+    QueueAndroidInputEvent("touch-move", count, x, y, ids[0], true, true);
 }
 
 void TVPSDLQueueFlutterTouchCancel(int count, const int *ids, const float *xs,
                                    const float *ys) {
     TVPSDLInitializeRuntime();
     if(count <= 0 || !ids || !xs || !ys) {
-        TVPSDLUIRecordAndroidTouch("touch-cancel-empty", 0.0f, 0.0f, -1,
-                                   false);
         QueueAndroidInputEvent("touch-cancel-empty", 0, 0.0f, 0.0f, -1,
                                false, true);
         return;
     }
-    TVPSDLUIRecordAndroidTouch("touch-cancel", xs[0], ys[0], ids[0], false);
-    QueueAndroidInputEvent("touch-cancel", count, xs[0], ys[0], ids[0],
-                           false, true);
+    float x = xs[0];
+    float y = ys[0];
+    ClampFlutterTouchToPresentedSurface(x, y);
+    QueueAndroidInputEvent("touch-cancel", count, x, y, ids[0], false, true);
 }
 
 void TVPSDLProcessAndroidInputQueue() {

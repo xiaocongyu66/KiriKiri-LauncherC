@@ -170,8 +170,12 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       return;
     }
 
-    final width = (result['width'] as num?)?.toInt() ?? 0;
-    final height = (result['height'] as num?)?.toInt() ?? 0;
+    final presentedWidth = (result['width'] as num?)?.toInt() ?? 0;
+    final presentedHeight = (result['height'] as num?)?.toInt() ?? 0;
+    final surfaceWidth = (result['surfaceWidth'] as num?)?.toInt() ?? 0;
+    final surfaceHeight = (result['surfaceHeight'] as num?)?.toInt() ?? 0;
+    final width = presentedWidth > 0 ? presentedWidth : surfaceWidth;
+    final height = presentedHeight > 0 ? presentedHeight : surfaceHeight;
     if (width <= 0 || height <= 0) {
       return;
     }
@@ -277,12 +281,32 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     }
   }
 
-  Offset _toPhysical(Offset viewPosition) {
-    return Offset(viewPosition.dx * _devicePixelRatio, viewPosition.dy * _devicePixelRatio);
+  Offset _toSurfacePosition(Offset localPosition) {
+    final displayWidth = _gameDisplaySize.width;
+    final displayHeight = _gameDisplaySize.height;
+    final surfaceWidth = _nativeFrameWidth > 0
+        ? _nativeFrameWidth.toDouble()
+        : (_gameSurfaceWidth > 0
+            ? _gameSurfaceWidth.toDouble()
+            : displayWidth * _devicePixelRatio);
+    final surfaceHeight = _nativeFrameHeight > 0
+        ? _nativeFrameHeight.toDouble()
+        : (_gameSurfaceHeight > 0
+            ? _gameSurfaceHeight.toDouble()
+            : displayHeight * _devicePixelRatio);
+    if (displayWidth <= 0 || displayHeight <= 0 || surfaceWidth <= 0 || surfaceHeight <= 0) {
+      return Offset(localPosition.dx * _devicePixelRatio, localPosition.dy * _devicePixelRatio);
+    }
+    final maxX = math.max(0.0, surfaceWidth - 1.0);
+    final maxY = math.max(0.0, surfaceHeight - 1.0);
+    return Offset(
+      (localPosition.dx * surfaceWidth / displayWidth).clamp(0.0, maxX),
+      (localPosition.dy * surfaceHeight / displayHeight).clamp(0.0, maxY),
+    );
   }
 
   Future<void> _sendPointer(String method, PointerEvent event) async {
-    final position = _toPhysical(event.localPosition);
+    final position = _toSurfacePosition(event.localPosition);
     await _invokeHost(method, {
       'id': event.pointer,
       'x': position.dx,
@@ -294,8 +318,12 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     final entries = _activePointers.entries.toList(growable: false);
     await _invokeHost('gameTouchMove', {
       'ids': entries.map((entry) => entry.key).toList(growable: false),
-      'xs': entries.map((entry) => _toPhysical(entry.value).dx).toList(growable: false),
-      'ys': entries.map((entry) => _toPhysical(entry.value).dy).toList(growable: false),
+      'xs': entries
+          .map((entry) => _toSurfacePosition(entry.value).dx)
+          .toList(growable: false),
+      'ys': entries
+          .map((entry) => _toSurfacePosition(entry.value).dy)
+          .toList(growable: false),
     });
   }
 
@@ -324,8 +352,12 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     _activePointers.remove(event.pointer);
     unawaited(_invokeHost('gameTouchCancel', {
       'ids': entries.map((entry) => entry.key).toList(growable: false),
-      'xs': entries.map((entry) => _toPhysical(entry.value).dx).toList(growable: false),
-      'ys': entries.map((entry) => _toPhysical(entry.value).dy).toList(growable: false),
+      'xs': entries
+          .map((entry) => _toSurfacePosition(entry.value).dx)
+          .toList(growable: false),
+      'ys': entries
+          .map((entry) => _toSurfacePosition(entry.value).dy)
+          .toList(growable: false),
     }));
   }
 
@@ -430,25 +462,23 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
                     ),
                   ),
                 ),
-              Positioned.fill(
-                child: _FloatingOverlayPositioner(
-                  offsetListenable: _overlayOffset,
-                  child: RepaintBoundary(
-                    child: _menuMode
-                        ? _FloatingMenuPanel(
-                            future: _menuFuture,
-                            onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
-                            onClose: () => _setExpanded(false),
-                            onActivate: _activateMenu,
-                          )
-                        : _FloatingActionTray(
-                            expanded: _expanded,
-                            mouseMode: _mouseMode,
-                            onDrag: _move,
-                            onToggle: () => _setExpanded(!_expanded),
-                            onAction: _runAction,
-                          ),
-                  ),
+              _FloatingOverlayPositioner(
+                offsetListenable: _overlayOffset,
+                child: RepaintBoundary(
+                  child: _menuMode
+                      ? _FloatingMenuPanel(
+                          future: _menuFuture,
+                          onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
+                          onClose: () => _setExpanded(false),
+                          onActivate: _activateMenu,
+                        )
+                      : _FloatingActionTray(
+                          expanded: _expanded,
+                          mouseMode: _mouseMode,
+                          onDrag: _move,
+                          onToggle: () => _setExpanded(!_expanded),
+                          onAction: _runAction,
+                        ),
                 ),
               ),
             ],
@@ -686,18 +716,16 @@ class _FloatingOverlayPositioner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.bottomRight,
-      child: ValueListenableBuilder<Offset>(
-        valueListenable: offsetListenable,
-        child: child,
-        builder: (context, offset, child) {
-          return Transform.translate(
-            offset: Offset(-offset.dx, -offset.dy),
-            child: child,
-          );
-        },
-      ),
+    return ValueListenableBuilder<Offset>(
+      valueListenable: offsetListenable,
+      child: child,
+      builder: (context, offset, child) {
+        return Positioned(
+          right: offset.dx,
+          bottom: offset.dy,
+          child: child!,
+        );
+      },
     );
   }
 }
@@ -835,71 +863,78 @@ class _FloatingMenuPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(6),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(18),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: const Color(0xe60b0b0d),
-            border: Border.all(color: Colors.white.withOpacity(0.10)),
-            boxShadow: const [
-              BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 8)),
-            ],
-          ),
-          child: Column(
-            children: [
-              SizedBox(
-                height: 46,
-                child: Row(
-                  children: [
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: onBack,
-                      icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
-                      tooltip: '返回',
-                    ),
-                    const ResourceIcon('menu_icon.png', size: 24),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        '游戏菜单',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
+    final screen = MediaQuery.sizeOf(context);
+    final width = math.min(360.0, math.max(260.0, screen.width - 24.0));
+    final height = math.min(420.0, math.max(240.0, screen.height - 24.0));
+    return SizedBox(
+      width: width,
+      height: height,
+      child: Padding(
+        padding: const EdgeInsets.all(6),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(18),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: const Color(0xe60b0b0d),
+              border: Border.all(color: Colors.white.withOpacity(0.10)),
+              boxShadow: const [
+                BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 8)),
+              ],
+            ),
+            child: Column(
+              children: [
+                SizedBox(
+                  height: 46,
+                  child: Row(
+                    children: [
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: onBack,
+                        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
+                        tooltip: '返回',
                       ),
-                    ),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: onClose,
-                      icon: const Icon(Icons.close_rounded, color: Colors.white70),
-                      tooltip: '收起',
-                    ),
-                  ],
-                ),
-              ),
-              Divider(height: 1, color: Colors.white.withOpacity(0.12)),
-              Expanded(
-                child: FutureBuilder<List<GameMenuItem>>(
-                  future: future,
-                  builder: (context, snapshot) {
-                    final items = snapshot.data ?? const <GameMenuItem>[];
-                    if (snapshot.connectionState == ConnectionState.waiting) {
-                      return const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)));
-                    }
-                    if (items.isEmpty) {
-                      return const Center(child: Text('当前游戏没有菜单', style: TextStyle(color: Colors.white70)));
-                    }
-                    return Scrollbar(
-                      child: ListView.separated(
-                        padding: const EdgeInsets.symmetric(vertical: 4),
-                        itemCount: items.length,
-                        separatorBuilder: (_, __) => Divider(height: 1, indent: 48, color: Colors.white.withOpacity(0.08)),
-                        itemBuilder: (context, index) => _FloatingMenuTile(item: items[index], onTap: onActivate),
+                      const ResourceIcon('menu_icon.png', size: 24),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          '游戏菜单',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
+                        ),
                       ),
-                    );
-                  },
+                      IconButton(
+                        visualDensity: VisualDensity.compact,
+                        onPressed: onClose,
+                        icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                        tooltip: '收起',
+                      ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+                Divider(height: 1, color: Colors.white.withOpacity(0.12)),
+                Expanded(
+                  child: FutureBuilder<List<GameMenuItem>>(
+                    future: future,
+                    builder: (context, snapshot) {
+                      final items = snapshot.data ?? const <GameMenuItem>[];
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)));
+                      }
+                      if (items.isEmpty) {
+                        return const Center(child: Text('当前游戏没有菜单', style: TextStyle(color: Colors.white70)));
+                      }
+                      return Scrollbar(
+                        child: ListView.separated(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          itemCount: items.length,
+                          separatorBuilder: (_, __) => Divider(height: 1, indent: 48, color: Colors.white.withOpacity(0.08)),
+                          itemBuilder: (context, index) => _FloatingMenuTile(item: items[index], onTap: onActivate),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),
