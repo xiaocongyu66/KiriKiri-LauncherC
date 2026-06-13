@@ -1144,8 +1144,9 @@ public:
         // 			mgr->OperateRect(method, DrawTexture, nullptr,
         // rctar, src_tex); 			tex = DrawTexture;
         // 		}
-        if(TVPSDLTryPresentTexture(tex, "WindowLayer::UpdateDrawBuffer",
-                                   LayerWidth, LayerHeight))
+        if(TVPSDLPresentHostWindowTexture(
+               TJSNativeInstance, tex, "WindowLayer::UpdateDrawBuffer",
+               LayerWidth, LayerHeight))
             return;
 
         Texture2D *tex2d = DrawSprite->getTexture();

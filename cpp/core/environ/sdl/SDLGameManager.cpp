@@ -11,6 +11,7 @@
 #include "SDLGpuBackend.h"
 #include "SDLGpuTextureCache.h"
 #include "SDLUIManager.h"
+#include "WindowIntf.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -2448,6 +2449,36 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                       static_cast<unsigned long long>(surfaceCopiedBytes));
         LogSDLGpuPresenter(message);
     }
+    return true;
+}
+
+bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
+                                    iTVPTexture2D *texture, const char *stage,
+                                    int layerWidth, int layerHeight) {
+    if(!TVPSDLTryPresentTexture(texture, stage, layerWidth, layerHeight))
+        return false;
+
+    if(!window || !texture)
+        return true;
+
+    iTVPDrawDevice *drawDevice = window->GetDrawDevice();
+    if(!drawDevice)
+        return true;
+
+    int surfaceWidth = 0;
+    int surfaceHeight = 0;
+    TVPSDLGetPresentedSurfaceSize(&surfaceWidth, &surfaceHeight);
+    if(surfaceWidth <= 0)
+        surfaceWidth = static_cast<int>(texture->GetWidth());
+    if(surfaceHeight <= 0)
+        surfaceHeight = static_cast<int>(texture->GetHeight());
+    if(surfaceWidth <= 0 || surfaceHeight <= 0)
+        return true;
+
+    const tTVPRect dest(0, 0, surfaceWidth, surfaceHeight);
+    drawDevice->SetDestRectangle(dest);
+    drawDevice->SetClipRectangle(dest);
+    drawDevice->SetWindowSize(surfaceWidth, surfaceHeight);
     return true;
 }
 

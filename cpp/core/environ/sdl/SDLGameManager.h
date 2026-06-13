@@ -8,6 +8,7 @@
 class iTVPTexture2D;
 class iTVPLayerManager;
 class tTVPBaseTexture;
+class tTJSNI_BaseWindow;
 struct tTVPRect;
 
 struct TVPSDLRuntimeInfo {
@@ -103,6 +104,9 @@ bool TVPSDLHasScreenPresenterPresented();
 bool TVPSDLIsRenderDiagnosticsEnabled();
 bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                              int layerWidth, int layerHeight);
+bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
+                                    iTVPTexture2D *texture, const char *stage,
+                                    int layerWidth, int layerHeight);
 bool TVPSDLPumpScreenPresenter(const char *stage);
 
 TVPSDLGameLaunchResult
