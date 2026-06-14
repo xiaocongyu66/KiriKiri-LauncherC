@@ -56,7 +56,7 @@ std::atomic_uint64_t gSDLInputBatches{0};
 std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
 std::atomic_bool gSDLInputPaused{false};
-constexpr uint64_t kSDLStaleDirectTouchAgeMs = 500;
+constexpr uint64_t kSDLStaleDirectTouchAgeMs = 250;
 std::atomic_uint64_t gSDLRenderFrameSequence{0};
 std::atomic_uint64_t gSDLRenderTextureChanges{0};
 std::atomic_uint64_t gSDLPresenterFrameSequence{0};
