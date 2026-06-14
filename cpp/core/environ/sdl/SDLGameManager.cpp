@@ -59,6 +59,7 @@ std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
 std::atomic_bool gSDLInputPaused{false};
 constexpr uint64_t kSDLStaleDirectTouchAgeMs = 250;
+constexpr uint64_t kSDLDirectTouchMoveBacklogLimit = 24;
 constexpr int kAndroidKeyBack = 0x04;
 constexpr int kAndroidKeyMenu = 0x52;
 constexpr int kAndroidKeyDpadUp = 0x13;
@@ -301,6 +302,15 @@ bool IsSDLUITouchInput(const char *eventName) {
         std::strcmp(eventName, "touch-move") == 0 ||
         std::strcmp(eventName, "touch-cancel") == 0 ||
         std::strcmp(eventName, "touch-cancel-empty") == 0;
+}
+
+bool IsSDLDirectTouchInput(const char *eventName, bool dispatchToTVP) {
+    return dispatchToTVP && IsSDLUITouchInput(eventName);
+}
+
+bool IsSDLDirectTouchMoveInput(const char *eventName, bool dispatchToTVP) {
+    return dispatchToTVP && eventName &&
+        std::strcmp(eventName, "touch-move") == 0;
 }
 
 bool IsAndroidLifecyclePauseEvent(const char *eventName) {
@@ -1378,6 +1388,27 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
         return;
     }
 
+    if(IsSDLDirectTouchInput(eventName, dispatchToTVP) &&
+       !TVPSDLHasScreenPresenterPresented()) {
+        const uint64_t queuedCount =
+            gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        if(ShouldLogInputQueueEvent(queuedCount, eventName)) {
+            char message[320];
+            std::snprintf(
+                message, sizeof(message),
+                "prepresent-drop queued=%llu dropped=%llu event=%s count=%d "
+                "x=%.2f y=%.2f code=%d state=%d",
+                static_cast<unsigned long long>(queuedCount),
+                static_cast<unsigned long long>(dropped),
+                eventName ? eventName : "", itemCount, x, y, code,
+                state ? 1 : 0);
+            LogSDLInputQueue(message);
+        }
+        return;
+    }
+
     if(!EnsureSDLInputQueue()) {
         const uint64_t dropped =
             gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1388,6 +1419,40 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
                               gSDLInputQueued.load(std::memory_order_relaxed));
         }
         return;
+    }
+
+    if(IsSDLDirectTouchMoveInput(eventName, dispatchToTVP)) {
+        const uint64_t queuedBefore =
+            gSDLInputQueued.load(std::memory_order_relaxed);
+        const uint64_t drained =
+            gSDLInputDrained.load(std::memory_order_relaxed);
+        const uint64_t droppedBefore =
+            gSDLInputDropped.load(std::memory_order_relaxed);
+        const uint64_t backlog =
+            CalculateBacklog(queuedBefore, drained, droppedBefore);
+        if(backlog >= kSDLDirectTouchMoveBacklogLimit) {
+            const uint64_t queuedCount =
+                gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
+            const uint64_t dropped =
+                gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+            UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
+            if(ShouldLogInputQueueSequence(queuedCount)) {
+                char message[320];
+                std::snprintf(
+                    message, sizeof(message),
+                    "move-backpressure-drop queued=%llu backlog=%llu "
+                    "limit=%llu drained=%llu dropped=%llu x=%.2f y=%.2f "
+                    "code=%d",
+                    static_cast<unsigned long long>(queuedCount),
+                    static_cast<unsigned long long>(backlog),
+                    static_cast<unsigned long long>(
+                        kSDLDirectTouchMoveBacklogLimit),
+                    static_cast<unsigned long long>(drained),
+                    static_cast<unsigned long long>(dropped), x, y, code);
+                LogSDLInputQueue(message);
+            }
+            return;
+        }
     }
 
     const uint64_t queuedCount =
