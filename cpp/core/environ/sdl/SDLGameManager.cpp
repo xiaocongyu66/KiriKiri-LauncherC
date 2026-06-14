@@ -59,6 +59,16 @@ std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
 std::atomic_bool gSDLInputPaused{false};
 constexpr uint64_t kSDLStaleDirectTouchAgeMs = 250;
+constexpr int kAndroidKeyBack = 0x04;
+constexpr int kAndroidKeyMenu = 0x52;
+constexpr int kAndroidKeyDpadUp = 0x13;
+constexpr int kAndroidKeyDpadDown = 0x14;
+constexpr int kAndroidKeyDpadLeft = 0x15;
+constexpr int kAndroidKeyDpadRight = 0x16;
+constexpr int kAndroidKeyEnter = 0x42;
+constexpr int kAndroidKeyPlay = 0x7e;
+constexpr int kAndroidKeyDpadCenter = 0x17;
+constexpr int kAndroidKeyDel = 0x43;
 std::atomic_uint64_t gSDLRenderFrameSequence{0};
 std::atomic_uint64_t gSDLRenderTextureChanges{0};
 std::atomic_uint64_t gSDLPresenterFrameSequence{0};
@@ -1610,6 +1620,82 @@ bool PostSDLDirectKeyPress(tTJSNI_Window *window, tjs_char key) {
     return true;
 }
 
+bool PostSDLDirectMouseWheel(tTJSNI_Window *window, float x, float y,
+                             float scroll) {
+    if(!window || scroll == 0.0f)
+        return false;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    const tjs_int delta = scroll > 0.0f ? -120 : 120;
+    TVPPostInputEvent(
+        new tTVPOnMouseWheelInputEvent(window, 0, delta, ix, iy));
+    return true;
+}
+
+bool MapAndroidKeyCodeToTVPKey(int keyCode, tjs_uint &key) {
+    switch(keyCode) {
+        case kAndroidKeyBack:
+            key = VK_ESCAPE;
+            return true;
+        case kAndroidKeyDpadUp:
+            key = VK_UP;
+            return true;
+        case kAndroidKeyDpadDown:
+            key = VK_DOWN;
+            return true;
+        case kAndroidKeyDpadLeft:
+            key = VK_LEFT;
+            return true;
+        case kAndroidKeyDpadRight:
+            key = VK_RIGHT;
+            return true;
+        case kAndroidKeyEnter:
+        case kAndroidKeyDpadCenter:
+            key = VK_RETURN;
+            return true;
+        case kAndroidKeyDel:
+            key = VK_BACK;
+            return true;
+        case kAndroidKeyMenu:
+        case kAndroidKeyPlay:
+        default:
+            key = 0;
+            return false;
+    }
+}
+
+void MapAndroidViewCoordToPresentedSurface(float &x, float &y) {
+    int surfaceWidth = gSDLPresentedSurfaceWidth.load(std::memory_order_relaxed);
+    int surfaceHeight =
+        gSDLPresentedSurfaceHeight.load(std::memory_order_relaxed);
+    int frameWidth = 0;
+    int frameHeight = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        frameWidth = gSDLScreenPresenterState.frameWidth;
+        frameHeight = gSDLScreenPresenterState.frameHeight;
+    }
+    if(surfaceWidth <= 0 || surfaceHeight <= 0) {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        surfaceWidth = gSDLSurfaceMirrorState.width;
+        surfaceHeight = gSDLSurfaceMirrorState.height;
+    }
+#if defined(__ANDROID__)
+    if(surfaceWidth <= 0 || surfaceHeight <= 0)
+        TVPAndroidGetFlutterGameSurfaceSize(&surfaceWidth, &surfaceHeight);
+#endif
+    if(frameWidth > 0 && frameHeight > 0 && surfaceWidth > 0 &&
+       surfaceHeight > 0) {
+        x = x * static_cast<float>(surfaceWidth) /
+            static_cast<float>(frameWidth);
+        y = y * static_cast<float>(surfaceHeight) /
+            static_cast<float>(frameHeight);
+    }
+    x = ClampInputCoord(x, surfaceWidth);
+    y = ClampInputCoord(y, surfaceHeight);
+}
+
 void ResetSDLDirectTouch() {
     gSDLDirectTouchState = {};
     gSDLDirectTouchState.pointerId = -1;
@@ -1896,6 +1982,35 @@ bool TVPSDLDispatchDeleteBackward() {
     const bool down = PostSDLDirectKeyDown(TVPMainWindow, VK_BACK);
     const bool up = PostSDLDirectKeyUp(TVPMainWindow, VK_BACK);
     return down && up;
+}
+
+bool TVPSDLDispatchAndroidKeyAction(int keyCode, bool isPress) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+
+    tjs_uint key = 0;
+    if(!MapAndroidKeyCodeToTVPKey(keyCode, key))
+        return false;
+    return isPress ? PostSDLDirectKeyDown(TVPMainWindow, key)
+                   : PostSDLDirectKeyUp(TVPMainWindow, key);
+}
+
+bool TVPSDLDispatchAndroidHoverMove(float x, float y) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    MapAndroidViewCoordToPresentedSurface(x, y);
+    PostSDLDirectMouseMove(TVPMainWindow, x, y, 0, true);
+    return true;
+}
+
+bool TVPSDLDispatchAndroidMouseScroll(float x, float y, float scroll) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    MapAndroidViewCoordToPresentedSurface(x, y);
+    return PostSDLDirectMouseWheel(TVPMainWindow, x, y, scroll);
 }
 
 void TVPSDLProcessAndroidInputQueue() {

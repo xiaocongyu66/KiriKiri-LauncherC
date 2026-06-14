@@ -409,6 +409,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
 
 JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
     JNIEnv *env, jclass cls, jint keyCode, jboolean isPress) {
+    const bool pressed = isPress == JNI_TRUE;
+    if(TVPSDLDispatchAndroidKeyAction(keyCode, pressed)) {
+        TVPSDLRecordAndroidInput("key-direct", 0, 0.0f, 0.0f, keyCode,
+                                 pressed);
+        return JNI_TRUE;
+    }
+
     cocos2d::EventKeyboard::KeyCode pKeyCode;
     switch(keyCode) {
         case KEYCODE_BACK:
@@ -443,14 +450,13 @@ JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
             break;
         default:
             TVPSDLRecordAndroidInput("key-unhandled", 0, 0.0f, 0.0f, keyCode,
-                                     isPress == JNI_TRUE);
+                                     pressed);
             return JNI_FALSE;
     }
 
-    TVPSDLRecordAndroidInput("key", 0, 0.0f, 0.0f, keyCode,
-                             isPress == JNI_TRUE);
-    Android_PushEvents([pKeyCode, isPress]() {
-        cocos2d::EventKeyboard event(pKeyCode, isPress);
+    TVPSDLRecordAndroidInput("key", 0, 0.0f, 0.0f, keyCode, pressed);
+    Android_PushEvents([pKeyCode, pressed]() {
+        cocos2d::EventKeyboard event(pKeyCode, pressed);
         cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(
             &event);
     });
@@ -548,13 +554,15 @@ static float _mouseX, _mouseY;
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeHoverMoved(
     JNIEnv *env, jclass cls, jfloat x, jfloat y) {
+    _mouseX = x;
+    _mouseY = y;
     TVPSDLRecordAndroidInput("hover-move", 1, x, y, 0, true);
+    if(TVPSDLDispatchAndroidHoverMove(x, y))
+        return;
     Android_PushEvents([x, y]() {
         cocos2d::GLView *glview =
             cocos2d::Director::getInstance()->getOpenGLView();
         float _scaleX = glview->getScaleX(), _scaleY = glview->getScaleY();
-        _mouseX = x;
-        _mouseY = y;
         const cocos2d::Rect _viewPortRect = glview->getViewPortRect();
 
         float cursorX = (_mouseX - _viewPortRect.origin.x) / _scaleX;
@@ -573,7 +581,9 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeHoverMoved(
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
     JNIEnv *env, jclass cls, jfloat v) {
-    TVPSDLRecordAndroidInput("mouse-scroll", 0, 0.0f, v, 0, true);
+    TVPSDLRecordAndroidInput("mouse-scroll", 0, _mouseX, v, 0, true);
+    if(TVPSDLDispatchAndroidMouseScroll(_mouseX, _mouseY, v))
+        return;
     Android_PushEvents([v]() {
         cocos2d::GLView *glview =
             cocos2d::Director::getInstance()->getOpenGLView();
