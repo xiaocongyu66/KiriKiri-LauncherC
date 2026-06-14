@@ -4,6 +4,7 @@
 #include "cocos2d/MainScene.h"
 #include "ui/UIListView.h"
 #include "ConfigManager/GlobalConfigManager.h"
+#include "ConfigManager/PreferenceDefaults.h"
 #include "platform/CCFileUtils.h"
 #include "Platform.h"
 #include "csd/CsdUIFactory.h"
@@ -57,6 +58,7 @@ void TVPGlobalPreferenceForm::Initialize() {
             }
         }
 
+        TVPInitializePreferenceDefaults();
         initAllConfig();
         WalkConfig(&RootPreference);
         WalkConfig(&SoftRendererOptPreference);

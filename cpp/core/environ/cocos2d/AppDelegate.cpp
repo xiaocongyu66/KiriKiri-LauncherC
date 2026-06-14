@@ -4,10 +4,13 @@
 #include "MainScene.h"
 #include "Application.h"
 #include "Platform.h"
+#if !defined(__ANDROID__)
 #include "ui/GlobalPreferenceForm.h"
 #include "ui/MainFileSelectorForm.h"
+#endif
 #include "ui/extension/UIExtension.h"
 #include "ConfigManager/LocaleConfigManager.h"
+#include "ConfigManager/PreferenceDefaults.h"
 #include "NativeLog.h"
 #include "sdl/SDLGameManager.h"
 #include "sdl/SDLUIManager.h"
@@ -146,7 +149,11 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
             TVPMainScene::GetInstance()->unschedule("launch");
             TVPSDLGameLaunchCallbacks launchCallbacks;
             launchCallbacks.initializePreferences = []() {
+#if defined(__ANDROID__)
+                TVPInitializePreferenceDefaults();
+#else
                 TVPGlobalPreferenceForm::Initialize();
+#endif
             };
             launchCallbacks.startupFrom = [](const std::string &gamePath,
                                              const std::string &gameDir) {
@@ -156,10 +163,12 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
                                gamePath.c_str(), (int)ok);
                 return ok;
             };
+#if !defined(__ANDROID__)
             launchCallbacks.showFileSelector = []() {
                 TVPMainScene::GetInstance()->pushUIForm(
                     TVPMainFileSelectorForm::create());
             };
+#endif
             launchCallbacks.log = [](const std::string &message) {
                 KR2_LAUNCH_LOG("%s", message.c_str());
             };

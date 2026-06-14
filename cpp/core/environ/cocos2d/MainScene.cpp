@@ -22,8 +22,12 @@
 #include "ConfigManager/IndividualConfigManager.h"
 #include "Platform.h"
 #include "ui/ConsoleWindow.h"
+#if !defined(__ANDROID__)
 #include "ui/FileSelectorForm.h"
+#endif
+#if !defined(__ANDROID__)
 #include "ui/DebugViewLayerForm.h"
+#endif
 #include "Application.h"
 #include "ScriptMgnIntf.h"
 #include "TVPWindow.h"
@@ -36,6 +40,8 @@
 #include "ui/UIButton.h"
 #include "ui/csd/CsdUIFactory.h"
 #include "sdl/SDLGameManager.h"
+
+#include <filesystem>
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -81,6 +87,16 @@ static tjs_uint32 _startupBeginTick = 0;
 static bool _startupFirstWindowLayerLogged = false;
 static bool _startupFirstDrawBufferLogged = false;
 static bool _sdlScreenTakeoverLogged = false;
+
+
+static std::string TVPPathParent(const std::string &path) {
+    auto parsedPath = std::filesystem::u8path(path);
+#ifdef _WIN32
+    return parsedPath.parent_path().u8string();
+#else
+    return parsedPath.parent_path().string();
+#endif
+}
 
 #include "CCKeyCodeConv.h"
 
@@ -2238,9 +2254,8 @@ bool TVPMainScene::startupFrom(const std::string &path,
     IndividualConfigManager *pGlobalCfgMgr =
         IndividualConfigManager::GetInstance();
     pGlobalCfgMgr->UsePreferenceAt(
-        gameDirForPreference.empty()
-            ? TVPBaseFileSelectorForm::pathSplit(path).first
-            : gameDirForPreference);
+        gameDirForPreference.empty() ? TVPPathParent(path)
+                                     : gameDirForPreference);
     if(UINode->getChildrenCount()) {
         popUIForm(nullptr);
     }
@@ -2593,7 +2608,9 @@ void TVPMainScene::onKeyPressed(EventKeyboard::KeyCode keyCode, Event *event) {
             break;
 #ifdef _DEBUG
         case EventKeyboard::KeyCode::KEY_PAUSE:
+#if !defined(__ANDROID__)
             GameNode->addChild(DebugViewLayerForm::create());
+#endif
             return;
         case EventKeyboard::KeyCode::KEY_F12:
             if(TVPGetCurrentShiftKeyState() & ssShift) {

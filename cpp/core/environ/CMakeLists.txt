@@ -31,26 +31,27 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/ConfigManager/GlobalConfigManager.cpp
     ${ENVIRON_PATH}/ConfigManager/IndividualConfigManager.cpp
     ${ENVIRON_PATH}/ConfigManager/LocaleConfigManager.cpp
+    ${ENVIRON_PATH}/ConfigManager/PreferenceDefaults.cpp
     ${ENVIRON_PATH}/sdl/SDLGameManager.cpp
     ${ENVIRON_PATH}/sdl/SDLUIManager.cpp
     ${ENVIRON_PATH}/sdl/tvpsdl.cpp
 
     ${ENVIRON_PATH}/ui/BaseForm.cpp
     ${ENVIRON_PATH}/ui/ConsoleWindow.cpp
-    ${ENVIRON_PATH}/ui/DebugViewLayerForm.cpp
-    ${ENVIRON_PATH}/ui/FileSelectorForm.cpp
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/DebugViewLayerForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/FileSelectorForm.cpp>
     ${ENVIRON_PATH}/ui/FlutterGameMenuBridge.cpp
     $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/GameMainMenu.cpp>
-    ${ENVIRON_PATH}/ui/GlobalPreferenceForm.cpp
-    ${ENVIRON_PATH}/ui/IndividualPreferenceForm.cpp
-    ${ENVIRON_PATH}/ui/MainFileSelectorForm.cpp
-    ${ENVIRON_PATH}/ui/InGameMenuForm.cpp
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/GlobalPreferenceForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/IndividualPreferenceForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/MainFileSelectorForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/InGameMenuForm.cpp>
     ${ENVIRON_PATH}/ui/MessageBox.cpp
-    ${ENVIRON_PATH}/ui/PreferenceForm.cpp
-    ${ENVIRON_PATH}/ui/SelectListForm.cpp
-    ${ENVIRON_PATH}/ui/SimpleMediaFilePlayer.cpp
-    ${ENVIRON_PATH}/ui/TipsHelpForm.cpp
-    ${ENVIRON_PATH}/ui/XP3RepackForm.cpp
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/PreferenceForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/SelectListForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/SimpleMediaFilePlayer.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/TipsHelpForm.cpp>
+    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/XP3RepackForm.cpp>
     ${ENVIRON_PATH}/ui/extension/ActionExtension.cpp
     ${ENVIRON_PATH}/ui/extension/UIExtension.cpp
 

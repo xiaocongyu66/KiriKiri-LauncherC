@@ -28,6 +28,7 @@ bool IsOverlayAction(const char *value, const char *expected) {
 namespace {
 
 thread_local std::string LastMenuJson;
+tTJSNI_MenuItem *PopupRootMenu = nullptr;
 
 void AppendJsonString(std::string &out, const std::string &value) {
     out.push_back('"');
@@ -54,6 +55,10 @@ void AppendJsonString(std::string &out, const std::string &value) {
 }
 
 tTJSNI_MenuItem *GetActiveRootMenu() {
+    if(tTJSNI_BaseMenuItem::IsLiveInstance(PopupRootMenu))
+        return PopupRootMenu;
+    PopupRootMenu = nullptr;
+
     iTJSDispatch2 *menuObject =
         TVPGetMenuDispatch((tjs_intptr_t)TVPGetActiveWindow());
     if(!menuObject)
@@ -144,6 +149,7 @@ void RunOnEngineThread(const std::function<void()> &task) {
 
 bool TVPShowFlutterGameMainMenu() {
 #if defined(__ANDROID__)
+    PopupRootMenu = nullptr;
     return TVPAndroidShowFlutterGameMainMenu();
 #else
     return false;
@@ -182,8 +188,16 @@ extern "C" int KR2LauncherActivateMenuItem(const char *itemPathUtf8) {
         return -2;
 
     item->OnClick();
+    PopupRootMenu = nullptr;
     return 0;
 }
+
+#if defined(__ANDROID__)
+void TVPShowPopMenu(tTJSNI_MenuItem *menu) {
+    PopupRootMenu = tTJSNI_BaseMenuItem::IsLiveInstance(menu) ? menu : nullptr;
+    TVPAndroidShowFlutterGameMainMenu();
+}
+#endif
 
 extern "C" int KR2LauncherLaunchGame(const char *gamePathUtf8) {
     if(!gamePathUtf8 || !*gamePathUtf8)
