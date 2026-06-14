@@ -9,7 +9,9 @@
 #include "LayerBitmapIntf.h"
 #include "LayerBitmapImpl.h"
 #include "ui/BaseForm.h"
+#if !defined(__ANDROID__)
 #include "ui/GameMainMenu.h"
+#endif
 #include "ui/UIHelper.h"
 #include "TickCount.h"
 #include "Random.h"
@@ -2383,8 +2385,10 @@ void TVPMainScene::doStartup(float dt, std::string path) {
         if(presenterReady) {
             if(UINode)
                 UINode->setVisible(false);
+#if !defined(__ANDROID__)
             if(_gameMenu)
                 _gameMenu->setVisible(false);
+#endif
             if(GameNode)
                 GameNode->setVisible(false);
             _sdlScreenTakeoverLogged = true;
@@ -2485,8 +2489,10 @@ void TVPMainScene::update(float delta) {
                 UINode->setVisible(false);
             if(GameNode && GameNode->isVisible())
                 GameNode->setVisible(false);
+#if !defined(__ANDROID__)
             if(_gameMenu && _gameMenu->isVisible())
                 _gameMenu->setVisible(false);
+#endif
             if(!_sdlScreenTakeoverLogged) {
                 _sdlScreenTakeoverLogged = true;
                 KR2RenderProbeWriteF(
@@ -2565,20 +2571,24 @@ void TVPMainScene::onKeyPressed(EventKeyboard::KeyCode keyCode, Event *event) {
     }
     switch(keyCode) {
         case EventKeyboard::KeyCode::KEY_MENU:
+#if !defined(__ANDROID__)
             if(UINode->getChildren().empty()) {
                 if(_gameMenu)
                     _gameMenu->toggle();
             }
+#endif
             return;
             break;
         case EventKeyboard::KeyCode::KEY_BACK:
             if(!UINode->getChildren().empty()) {
                 return;
             }
+#if !defined(__ANDROID__)
             if(_gameMenu && !_gameMenu->isShrinked()) {
                 _gameMenu->shrink();
                 return;
             }
+#endif
             keyCode = EventKeyboard::KeyCode::KEY_ESCAPE;
             break;
 #ifdef _DEBUG
@@ -2687,15 +2697,19 @@ void TVPMainScene::showWindowManagerOverlay(bool bVisible) {
                 return;
             _windowMgrOverlay = TVPWindowManagerOverlay::create();
             GameNode->addChild(_windowMgrOverlay, GAME_WINMGR_ORDER);
+#if !defined(__ANDROID__)
             if(_gameMenu)
                 _gameMenu->setVisible(false);
+#endif
         }
     } else {
         if(_windowMgrOverlay) {
             _windowMgrOverlay->removeFromParent();
             _windowMgrOverlay = nullptr;
+#if !defined(__ANDROID__)
             if(_gameMenu)
                 _gameMenu->setVisible(true);
+#endif
         }
     }
 }
