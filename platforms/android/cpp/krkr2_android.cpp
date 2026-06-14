@@ -112,6 +112,35 @@ bool ShouldRouteLegacyTouchToCocos() {
     return !TVPSDLIsScreenTakeoverEnabled() ||
            !TVPSDLHasScreenPresenterPresented();
 }
+
+bool ShowFlutterGameMainMenu(JNIEnv *env) {
+    if(!env)
+        return false;
+
+    jclass cls = env->FindClass("org/github/krkr2/MainActivity");
+    if(!cls) {
+        env->ExceptionClear();
+        return false;
+    }
+
+    jmethodID method =
+        env->GetStaticMethodID(cls, "showFlutterGameMainMenu", "()Z");
+    if(!method) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        return false;
+    }
+
+    const bool shown = env->CallStaticBooleanMethod(cls, method) == JNI_TRUE;
+    if(env->ExceptionCheck()) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        return false;
+    }
+
+    env->DeleteLocalRef(cls);
+    return shown;
+}
 } // namespace
 
 extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow() {
@@ -414,6 +443,13 @@ JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
         TVPSDLRecordAndroidInput("key-direct", 0, 0.0f, 0.0f, keyCode,
                                  pressed);
         return JNI_TRUE;
+    }
+    if(TVPSDLIsScreenTakeoverEnabled() && keyCode == KEYCODE_MENU) {
+        if(!pressed || ShowFlutterGameMainMenu(env)) {
+            TVPSDLRecordAndroidInput("key-menu-flutter", 0, 0.0f, 0.0f,
+                                     keyCode, pressed);
+            return JNI_TRUE;
+        }
     }
 
     cocos2d::EventKeyboard::KeyCode pKeyCode;
