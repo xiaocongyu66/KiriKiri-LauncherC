@@ -13,6 +13,7 @@
 #include "SDLUIManager.h"
 #include "WindowIntf.h"
 #include "TVPWindow.h"
+#include "vkdefine.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
@@ -31,6 +32,7 @@
 #include <mutex>
 #include <sstream>
 #include <stdexcept>
+#include <vector>
 
 #if defined(__ANDROID__)
 extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow();
@@ -1504,6 +1506,110 @@ void PostSDLDirectClick(tTJSNI_Window *window, float x, float y) {
     TVPPostInputEvent(new tTVPOnClickInputEvent(window, ix, iy));
 }
 
+bool CanDispatchDirectTVPInput() {
+    return TVPSDLIsScreenTakeoverEnabled() &&
+        TVPSDLHasScreenPresenterPresented() && TVPMainWindow;
+}
+
+bool DecodeNextUtf8Codepoint(const unsigned char *&cursor,
+                             const unsigned char *end, uint32_t &codepoint) {
+    if(cursor >= end)
+        return false;
+
+    const unsigned char first = *cursor++;
+    if(first < 0x80) {
+        codepoint = first;
+        return true;
+    }
+
+    int extra = 0;
+    uint32_t value = 0;
+    if((first & 0xe0) == 0xc0) {
+        extra = 1;
+        value = first & 0x1f;
+    } else if((first & 0xf0) == 0xe0) {
+        extra = 2;
+        value = first & 0x0f;
+    } else if((first & 0xf8) == 0xf0) {
+        extra = 3;
+        value = first & 0x07;
+    } else {
+        codepoint = 0xfffd;
+        return true;
+    }
+
+    if(end - cursor < extra) {
+        cursor = end;
+        codepoint = 0xfffd;
+        return true;
+    }
+
+    for(int index = 0; index < extra; ++index) {
+        const unsigned char next = *cursor;
+        if((next & 0xc0) != 0x80) {
+            codepoint = 0xfffd;
+            return true;
+        }
+        cursor++;
+        value = (value << 6) | (next & 0x3f);
+    }
+
+    if((extra == 1 && value < 0x80) || (extra == 2 && value < 0x800) ||
+       (extra == 3 && value < 0x10000) || value > 0x10ffff ||
+       (value >= 0xd800 && value <= 0xdfff)) {
+        codepoint = 0xfffd;
+        return true;
+    }
+
+    codepoint = value;
+    return true;
+}
+
+std::vector<tjs_char> DecodeUtf8ToTJSChars(const char *text) {
+    std::vector<tjs_char> chars;
+    if(!text || !*text)
+        return chars;
+
+    const auto *cursor = reinterpret_cast<const unsigned char *>(text);
+    const auto *end = cursor + std::strlen(text);
+    while(cursor < end) {
+        uint32_t codepoint = 0;
+        if(!DecodeNextUtf8Codepoint(cursor, end, codepoint))
+            break;
+        if(codepoint == 0)
+            continue;
+        if(codepoint <= 0xffff) {
+            chars.push_back(static_cast<tjs_char>(codepoint));
+            continue;
+        }
+        codepoint -= 0x10000;
+        chars.push_back(static_cast<tjs_char>(0xd800 + (codepoint >> 10)));
+        chars.push_back(static_cast<tjs_char>(0xdc00 + (codepoint & 0x3ff)));
+    }
+    return chars;
+}
+
+bool PostSDLDirectKeyDown(tTJSNI_Window *window, tjs_uint key) {
+    if(!window)
+        return false;
+    TVPPostInputEvent(new tTVPOnKeyDownInputEvent(window, key, 0));
+    return true;
+}
+
+bool PostSDLDirectKeyUp(tTJSNI_Window *window, tjs_uint key) {
+    if(!window)
+        return false;
+    TVPPostInputEvent(new tTVPOnKeyUpInputEvent(window, key, 0));
+    return true;
+}
+
+bool PostSDLDirectKeyPress(tTJSNI_Window *window, tjs_char key) {
+    if(!window || key == 0)
+        return false;
+    TVPPostInputEvent(new tTVPOnKeyPressInputEvent(window, key));
+    return true;
+}
+
 void ResetSDLDirectTouch() {
     gSDLDirectTouchState = {};
     gSDLDirectTouchState.pointerId = -1;
@@ -1760,6 +1866,36 @@ void TVPSDLQueueFlutterTouchCancel(int count, const int *ids, const float *xs,
     float y = ys[0];
     ClampFlutterTouchToPresentedSurface(x, y);
     QueueAndroidInputEvent("touch-cancel", count, x, y, ids[0], false, true);
+}
+
+bool TVPSDLDispatchCharInput(int keyCode) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    return PostSDLDirectKeyPress(TVPMainWindow, static_cast<tjs_char>(keyCode));
+}
+
+bool TVPSDLDispatchTextInput(const char *text) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+
+    const std::vector<tjs_char> chars = DecodeUtf8ToTJSChars(text);
+    if(chars.empty())
+        return false;
+
+    for(const tjs_char key : chars)
+        PostSDLDirectKeyPress(TVPMainWindow, key);
+    return true;
+}
+
+bool TVPSDLDispatchDeleteBackward() {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    const bool down = PostSDLDirectKeyDown(TVPMainWindow, VK_BACK);
+    const bool up = PostSDLDirectKeyUp(TVPMainWindow, VK_BACK);
+    return down && up;
 }
 
 void TVPSDLProcessAndroidInputQueue() {

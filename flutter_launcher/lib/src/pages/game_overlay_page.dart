@@ -716,16 +716,20 @@ class _FloatingOverlayPositioner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<Offset>(
-      valueListenable: offsetListenable,
-      child: child,
-      builder: (context, offset, child) {
-        return Positioned(
-          right: offset.dx,
-          bottom: offset.dy,
-          child: child!,
-        );
-      },
+    return Positioned.fill(
+      child: ValueListenableBuilder<Offset>(
+        valueListenable: offsetListenable,
+        child: child,
+        builder: (context, offset, child) {
+          return Align(
+            alignment: Alignment.bottomRight,
+            child: Transform.translate(
+              offset: Offset(-offset.dx, -offset.dy),
+              child: child!,
+            ),
+          );
+        },
+      ),
     );
   }
 }

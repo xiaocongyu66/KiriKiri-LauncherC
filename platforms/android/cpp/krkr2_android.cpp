@@ -14,6 +14,7 @@
 #include "environ/android/AndroidUtils.h"
 #include "environ/sdl/SDLGameManager.h"
 #include "common/FFmpegDecodeConfig.h"
+#include "vkdefine.h"
 
 /*******************************************************************************
                  Functions called by JNI
@@ -467,6 +468,10 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(
         std::string str = pszText;
         TVPSDLRecordAndroidInput("text-insert", 0, 0.0f, 0.0f,
                                  static_cast<int>(str.length()), true);
+        if(TVPSDLDispatchTextInput(str.c_str())) {
+            env->ReleaseStringUTFChars(text, pszText);
+            return;
+        }
         Android_PushEvents([str]() {
             cocos2d::IMEDispatcher::sharedDispatcher()->dispatchInsertText(
                 str.
@@ -486,7 +491,9 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeDeleteBackward(
     JNIEnv *env, jclass cls) {
-    TVPSDLRecordAndroidInput("text-delete", 0, 0.0f, 0.0f, 0, false);
+    TVPSDLRecordAndroidInput("text-delete", 0, 0.0f, 0.0f, VK_BACK, false);
+    if(TVPSDLDispatchDeleteBackward())
+        return;
     Android_PushEvents([capture0 = cocos2d::IMEDispatcher::sharedDispatcher()] {
         capture0->
 
@@ -496,19 +503,18 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeDeleteBackward(
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCharInput(
     JNIEnv *env, jclass cls, jint keyCode) {
+    TVPSDLRecordAndroidInput("char-input", 0, 0.0f, 0.0f, keyCode, true);
+    if(TVPSDLDispatchCharInput(keyCode))
+        return;
     TVPMainScene *pScene = TVPMainScene::GetInstance();
     if(!pScene)
         return;
-    TVPSDLRecordAndroidInput("char-input", 0, 0.0f, 0.0f, keyCode, true);
     pScene->getScheduler()->performFunctionInCocosThread(
         [keyCode] { TVPMainScene::onCharInput(keyCode); });
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
     JNIEnv *env, jclass cls, jstring text, jint newCursorPosition) {
-    TVPMainScene *pScene = TVPMainScene::GetInstance();
-    if(!pScene)
-        return;
     if(!text) {
         TVPSDLRecordAndroidInput("text-commit-null", 0);
         return;
@@ -519,11 +525,16 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
         return;
     }
     std::string str(utftext);
+    env->ReleaseStringUTFChars(text, utftext);
     TVPSDLRecordAndroidInput("text-commit", 0, 0.0f, 0.0f,
                              static_cast<int>(str.length()), true);
+    if(TVPSDLDispatchTextInput(str.c_str()))
+        return;
+    TVPMainScene *pScene = TVPMainScene::GetInstance();
+    if(!pScene)
+        return;
     pScene->getScheduler()->performFunctionInCocosThread(
         [str] { TVPMainScene::onTextInput(str); });
-    env->ReleaseStringUTFChars(text, utftext);
 }
 
 JNIEXPORT jboolean JNICALL

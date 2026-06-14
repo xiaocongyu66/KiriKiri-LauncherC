@@ -75,6 +75,9 @@ void TVPSDLQueueFlutterTouchMove(int count, const int *ids, const float *xs,
                                  const float *ys);
 void TVPSDLQueueFlutterTouchCancel(int count, const int *ids, const float *xs,
                                    const float *ys);
+bool TVPSDLDispatchCharInput(int keyCode);
+bool TVPSDLDispatchTextInput(const char *text);
+bool TVPSDLDispatchDeleteBackward();
 void TVPSDLProcessAndroidInputQueue();
 void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
                              int internalWidth, int internalHeight,
