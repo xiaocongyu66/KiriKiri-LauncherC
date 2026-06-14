@@ -4,7 +4,6 @@
 #include <dlfcn.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
-#include <cocos/platform/android/jni/JniHelper.h>
 
 #include "environ/cocos2d/AppDelegate.h"
 #include "environ/cocos2d/MainScene.h"
@@ -38,6 +37,10 @@ bool TVPIsKrkrHookInstalled();
 
 // std::string Android_GetDumpStoragePath();
 
+namespace {
+JavaVM *gAndroidJavaVM = nullptr;
+}
+
 static bool DumpCallback(const google_breakpad::MinidumpDescriptor &descriptor,
                          void *context, bool succeeded) {
     return succeeded;
@@ -67,6 +70,7 @@ static bool DumpFilter(void *data) {
 
     JavaVM *vm{};
     env->GetJavaVM(&vm);
+    gAndroidJavaVM = vm;
     void *handle = dlopen("libSDL3.so", RTLD_LAZY);
     if(handle) {
         typedef jint (*JNI_OnLoad)(JavaVM *, void *);
@@ -98,8 +102,6 @@ namespace kr2android {
 } // namespace kr2android
 
 void Android_PushEvents(const std::function<void()> &func);
-extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height);
-
 using namespace kr2android;
 
 namespace {
@@ -142,6 +144,28 @@ bool ShowFlutterGameMainMenu(JNIEnv *env) {
     return shown;
 }
 } // namespace
+
+extern "C" bool TVPAndroidShowFlutterGameMainMenu() {
+    JavaVM *vm = gAndroidJavaVM;
+    if(!vm)
+        return false;
+
+    JNIEnv *env = nullptr;
+    bool shouldDetach = false;
+    jint status = vm->GetEnv(reinterpret_cast<void **>(&env), JNI_VERSION_1_6);
+    if(status == JNI_EDETACHED) {
+        if(vm->AttachCurrentThread(&env, nullptr) != JNI_OK)
+            return false;
+        shouldDetach = true;
+    } else if(status != JNI_OK) {
+        return false;
+    }
+
+    const bool shown = ShowFlutterGameMainMenu(env);
+    if(shouldDetach)
+        vm->DetachCurrentThread();
+    return shown;
+}
 
 extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow() {
     std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);

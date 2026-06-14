@@ -113,6 +113,7 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
 bool TVPSDLIsScreenTakeoverSupported();
 bool TVPSDLIsScreenTakeoverEnabled();
 bool TVPSDLHasScreenPresenterPresented();
+extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height);
 bool TVPSDLIsRenderDiagnosticsEnabled();
 bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                              int layerWidth, int layerHeight);

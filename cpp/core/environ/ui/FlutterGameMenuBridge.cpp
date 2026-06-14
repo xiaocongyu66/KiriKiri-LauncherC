@@ -6,13 +6,7 @@
 #include "impl/MenuItemImpl.h"
 #include "Application.h"
 #include "Platform.h"
-#include "base/CCDirector.h"
-#include "base/CCScheduler.h"
-#include "platform/CCGLView.h"
-#if defined(__ANDROID__)
-#include <jni.h>
-#include <cocos/platform/android/jni/JniHelper.h>
-#endif
+#include "sdl/SDLGameManager.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -23,6 +17,9 @@
 
 iTJSDispatch2 *TVPGetMenuDispatch(tTVInteger hWnd);
 tTJSNI_Window *TVPGetActiveWindow();
+#if defined(__ANDROID__)
+extern "C" bool TVPAndroidShowFlutterGameMainMenu();
+#endif
 
 bool IsOverlayAction(const char *value, const char *expected) {
     return value && expected && std::strcmp(value, expected) == 0;
@@ -139,13 +136,7 @@ tTJSNI_MenuItem *FindMenuItem(tTJSNI_MenuItem *root,
     return current;
 }
 
-void RunOnCocosThread(const std::function<void()> &task) {
-    auto *director = cocos2d::Director::getInstance();
-    auto *scheduler = director ? director->getScheduler() : nullptr;
-    if(scheduler) {
-        scheduler->performFunctionInCocosThread(task);
-        return;
-    }
+void RunOnEngineThread(const std::function<void()> &task) {
     Application->PostUserMessage(task);
 }
 
@@ -153,18 +144,10 @@ void RunOnCocosThread(const std::function<void()> &task) {
 
 bool TVPShowFlutterGameMainMenu() {
 #if defined(__ANDROID__)
-    cocos2d::JniMethodInfo methodInfo;
-    if(!cocos2d::JniHelper::getStaticMethodInfo(
-           methodInfo, "org/github/krkr2/MainActivity",
-           "showFlutterGameMainMenu", "()Z")) {
-        return false;
-    }
-    jboolean shown = methodInfo.env->CallStaticBooleanMethod(
-        methodInfo.classID, methodInfo.methodID);
-    methodInfo.env->DeleteLocalRef(methodInfo.classID);
-    return shown == JNI_TRUE;
-#endif
+    return TVPAndroidShowFlutterGameMainMenu();
+#else
     return false;
+#endif
 }
 
 extern "C" const char *KR2LauncherGetMainMenuJson() {
@@ -222,7 +205,7 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
         return -2;
 
     if(IsOverlayAction(actionNameUtf8, "window-manager")) {
-        RunOnCocosThread([]() {
+        RunOnEngineThread([]() {
             if(auto *scene = TVPMainScene::GetInstance())
                 scene->showWindowManagerOverlay(true);
         });
@@ -231,7 +214,7 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
 
     if(IsOverlayAction(actionNameUtf8, "mouse-mode")) {
         const bool nextMode = !scene->isVirtualMouseMode();
-        RunOnCocosThread([]() {
+        RunOnEngineThread([]() {
             if(auto *scene = TVPMainScene::GetInstance())
                 scene->toggleVirtualMouseCursor();
         });
@@ -239,14 +222,16 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
     }
 
     if(IsOverlayAction(actionNameUtf8, "keyboard")) {
-        RunOnCocosThread([]() {
-            auto *director = cocos2d::Director::getInstance();
-            auto *view = director ? director->getOpenGLView() : nullptr;
-            if(!view)
-                return;
-            cocos2d::Size screenSize = view->getFrameSize();
+        RunOnEngineThread([]() {
 #if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
-            TVPShowIME(0, 0, screenSize.width, screenSize.height);
+            int width = 0;
+            int height = 0;
+            TVPSDLGetPresentedSurfaceSize(&width, &height);
+            if(width <= 0)
+                width = 1920;
+            if(height <= 0)
+                height = 1080;
+            TVPShowIME(0, 0, width, height);
 #else
             if(auto *scene = TVPMainScene::GetInstance())
                 scene->attachWithIME();
