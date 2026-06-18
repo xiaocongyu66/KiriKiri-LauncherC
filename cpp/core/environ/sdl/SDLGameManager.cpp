@@ -23,12 +23,10 @@
 #include <android/native_window.h>
 #endif
 
-#include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
-#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -72,7 +70,6 @@ constexpr int kAndroidKeyEnter = 0x42;
 constexpr int kAndroidKeyPlay = 0x7e;
 constexpr int kAndroidKeyDpadCenter = 0x17;
 constexpr int kAndroidKeyDel = 0x43;
-constexpr int kAndroidHybridPresenterDefaultFps = 30;
 std::atomic_uint64_t gSDLRenderFrameSequence{0};
 std::atomic_uint64_t gSDLRenderTextureChanges{0};
 std::atomic_uint64_t gSDLPresenterFrameSequence{0};
@@ -82,8 +79,6 @@ std::atomic_uint64_t gSDLPresenterCpuAccessible{0};
 std::atomic_uint64_t gSDLAndroidFlutterSurfacePresented{0};
 std::atomic_uint64_t gSDLAndroidFlutterSurfaceFailures{0};
 std::atomic_uint64_t gSDLAndroidFlutterSurfaceUnavailable{0};
-std::atomic_uint64_t gSDLAndroidFlutterSurfaceThrottled{0};
-std::atomic_uint64_t gSDLAndroidFlutterSurfaceLastPostTicks{0};
 std::atomic_uint64_t gSDLBitmapCompletionBatchSequence{0};
 std::atomic_uint64_t gSDLBitmapCompletionRegionSequence{0};
 
@@ -108,7 +103,6 @@ struct TVPSDLBitmapCompletionState {
     uint64_t copyReady = 0;
     uint64_t surfaceCopied = 0;
     uint64_t surfaceSkipped = 0;
-    uint64_t surfaceCadenceSkipped = 0;
     uint64_t glBacked = 0;
     uint64_t outOfBounds = 0;
     const void *manager = nullptr;
@@ -131,7 +125,6 @@ struct TVPSDLSurfaceMirrorState {
     uint64_t copiedRegions = 0;
     uint64_t copiedBytes = 0;
     uint64_t skippedUnsupported = 0;
-    uint64_t skippedCadence = 0;
     uint64_t failedCopies = 0;
     bool hasUpdate = false;
     tTVPRect updateRect;
@@ -391,73 +384,6 @@ bool IsSDLScreenPresenterDisabled() {
         IsTruthyEnv("KRKR2_FORCE_COCOS_RENDER");
 }
 
-int SDLAndroidFlutterPresentFpsLimit() {
-    const char *forced = SDL_getenv("KRKR2_SDL_PRESENT_FPS");
-    if(forced && *forced) {
-        char *end = nullptr;
-        const long value = std::strtol(forced, &end, 10);
-        if(end != forced)
-            return static_cast<int>(value);
-    }
-
-    int fps = 60;
-    try {
-        fps = GlobalConfigManager::GetInstance()->GetValue<int>("fps_limit",
-                                                                 60);
-    } catch(...) {
-        fps = 60;
-    }
-    if(fps <= 0)
-        return kAndroidHybridPresenterDefaultFps;
-    return std::min(fps, kAndroidHybridPresenterDefaultFps);
-}
-
-bool ShouldThrottleAndroidFlutterPresent(const char *stage) {
-#if defined(__ANDROID__)
-    int fps = SDLAndroidFlutterPresentFpsLimit();
-    if(fps <= 0)
-        return false;
-    if(fps > 240)
-        fps = 240;
-
-    const uint64_t intervalMs = static_cast<uint64_t>((1000 + fps - 1) / fps);
-    if(intervalMs == 0)
-        return false;
-
-    const uint64_t now = static_cast<uint64_t>(SDL_GetTicks());
-    const uint64_t last = gSDLAndroidFlutterSurfaceLastPostTicks.load(
-        std::memory_order_relaxed);
-    if(last == 0 || now < last || now - last >= intervalMs)
-        return false;
-
-    const uint64_t throttled = ++gSDLAndroidFlutterSurfaceThrottled;
-    if(ShouldLogScreenPresenter(throttled)) {
-        char message[320];
-        std::snprintf(message, sizeof(message),
-                      "present-throttled #%llu stage=%s fps=%d interval=%llu "
-                      "elapsed=%llu last=%llu now=%llu",
-                      static_cast<unsigned long long>(throttled),
-                      stage ? stage : "", fps,
-                      static_cast<unsigned long long>(intervalMs),
-                      static_cast<unsigned long long>(now - last),
-                      static_cast<unsigned long long>(last),
-                      static_cast<unsigned long long>(now));
-        LogSDLScreenPresenter(message);
-    }
-    return true;
-#else
-    (void)stage;
-    return false;
-#endif
-}
-
-void RecordAndroidFlutterPresentPostTick() {
-#if defined(__ANDROID__)
-    gSDLAndroidFlutterSurfaceLastPostTicks.store(
-        static_cast<uint64_t>(SDL_GetTicks()), std::memory_order_relaxed);
-#endif
-}
-
 std::string PreferredSDLRendererDriver() {
     const char *forced = SDL_getenv("KRKR2_SDL_RENDER_DRIVER");
     if(forced && *forced)
@@ -674,7 +600,6 @@ bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
     }
 
     RememberPresentedSurfaceSize(surfaceWidth, surfaceHeight);
-    RecordAndroidFlutterPresentPostTick();
     const uint64_t presented = ++gSDLAndroidFlutterSurfacePresented;
     if(ShouldLogScreenPresenter(presented)) {
         char message[512];
@@ -790,7 +715,6 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
     }
 
     const uint64_t presented = ++gSDLAndroidFlutterSurfacePresented;
-    RecordAndroidFlutterPresentPostTick();
     RememberPresentedSurfaceSize(surfaceWidth, surfaceHeight);
     if(ShouldLogScreenPresenter(presented)) {
         char message[512];
@@ -2414,7 +2338,6 @@ void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
         gSDLBitmapCompletionState.copyReady = 0;
         gSDLBitmapCompletionState.surfaceCopied = 0;
         gSDLBitmapCompletionState.surfaceSkipped = 0;
-        gSDLBitmapCompletionState.surfaceCadenceSkipped = 0;
         gSDLBitmapCompletionState.glBacked = 0;
         gSDLBitmapCompletionState.outOfBounds = 0;
         gSDLBitmapCompletionState.manager = manager;
@@ -2504,7 +2427,6 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
     uint64_t batchCopyReady = 0;
     uint64_t batchSurfaceCopied = 0;
     uint64_t batchSurfaceSkipped = 0;
-    uint64_t batchSurfaceCadenceSkipped = 0;
     uint64_t batchGlBacked = 0;
     uint64_t batchOutOfBounds = 0;
     bool shouldLog = false;
@@ -2521,7 +2443,6 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
             gSDLBitmapCompletionState.copyReady = 0;
             gSDLBitmapCompletionState.surfaceCopied = 0;
             gSDLBitmapCompletionState.surfaceSkipped = 0;
-            gSDLBitmapCompletionState.surfaceCadenceSkipped = 0;
             gSDLBitmapCompletionState.glBacked = 0;
             gSDLBitmapCompletionState.outOfBounds = 0;
             gSDLBitmapCompletionState.manager = manager;
@@ -2557,8 +2478,6 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         batchCopyReady = gSDLBitmapCompletionState.copyReady;
         batchSurfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
         batchSurfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
-        batchSurfaceCadenceSkipped =
-            gSDLBitmapCompletionState.surfaceCadenceSkipped;
         batchGlBacked = gSDLBitmapCompletionState.glBacked;
         batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
         unionRect = gSDLBitmapCompletionState.unionRect;
@@ -2569,20 +2488,15 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
     uint64_t surfaceCopiedBytesTotal = 0;
     uint64_t surfaceSkippedTotal = 0;
     const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
-    const bool surfaceCadenceSkipped = surfaceMirrorWanted && copyReady &&
-        ShouldThrottleAndroidFlutterPresent("bitmap-region");
-    const bool surfaceCopied =
-        surfaceMirrorWanted && copyReady && !surfaceCadenceSkipped &&
+    const bool surfaceCopied = surfaceMirrorWanted && copyReady &&
         CopyRegionToSDLSurfaceMirror(texture, clipRect, x, y, sourceWidth,
                                      sourceHeight, format, globalRegion,
                                      batchRegion, surfaceCopiedTotal,
                                      surfaceCopiedBytesTotal,
                                      surfaceSkippedTotal);
     const bool surfaceSkipped =
-        surfaceMirrorWanted && copyReady && !surfaceCadenceSkipped &&
-        !surfaceCopied;
+        surfaceMirrorWanted && copyReady && !surfaceCopied;
 
-    bool recordSurfaceCadenceSkip = false;
     {
         std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
         if(gSDLBitmapCompletionState.manager == manager) {
@@ -2590,15 +2504,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
                 gSDLBitmapCompletionState.surfaceCopied++;
             if(surfaceSkipped)
                 gSDLBitmapCompletionState.surfaceSkipped++;
-            if(surfaceCadenceSkipped) {
-                gSDLBitmapCompletionState.surfaceCadenceSkipped++;
-                recordSurfaceCadenceSkip = true;
-            }
 
             batchSurfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
             batchSurfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
-            batchSurfaceCadenceSkipped =
-                gSDLBitmapCompletionState.surfaceCadenceSkipped;
             batchCopyReady = gSDLBitmapCompletionState.copyReady;
             batchGlBacked = gSDLBitmapCompletionState.glBacked;
             batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
@@ -2607,11 +2515,6 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         }
         shouldLog = ShouldLogBitmapCompletionRegion(globalRegion, batchRegion) ||
             !inBounds || surfaceSkipped;
-    }
-
-    if(recordSurfaceCadenceSkip) {
-        std::lock_guard<std::mutex> surfaceLock(gSDLSurfaceMirrorMutex);
-        gSDLSurfaceMirrorState.skippedCadence++;
     }
 
     if(!shouldLog)
@@ -2624,8 +2527,8 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         "clip=%d,%d,%dx%d src=%dx%d bmp=%p bmpSize=%dx%d tex=%p "
         "texSize=%dx%d internal=%dx%d format=%s(%d) pitch=%d gl=%u "
         "type=%d opacity=%d inBounds=%d copyReady=%d surfaceCopied=%d "
-        "surfaceCadenceSkip=%d copyReadyBatch=%llu surfaceBatch=%llu "
-        "surfaceSkipBatch=%llu surfaceCadenceSkipBatch=%llu "
+        "copyReadyBatch=%llu surfaceBatch=%llu "
+        "surfaceSkipBatch=%llu "
         "surfaceTotal=%llu surfaceBytes=%llu glBatch=%llu outBatch=%llu "
         "union=%d,%d,%dx%d metadataOk=%d",
         static_cast<unsigned long long>(globalRegion),
@@ -2640,11 +2543,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
         inBounds ? 1 : 0,
         copyReady ? 1 : 0,
         surfaceCopied ? 1 : 0,
-        surfaceCadenceSkipped ? 1 : 0,
         static_cast<unsigned long long>(batchCopyReady),
         static_cast<unsigned long long>(batchSurfaceCopied),
         static_cast<unsigned long long>(batchSurfaceSkipped),
-        static_cast<unsigned long long>(batchSurfaceCadenceSkipped),
         static_cast<unsigned long long>(surfaceCopiedTotal),
         static_cast<unsigned long long>(surfaceCopiedBytesTotal),
         static_cast<unsigned long long>(batchGlBacked),
@@ -2667,7 +2568,6 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
     uint64_t copyReady = 0;
     uint64_t surfaceCopied = 0;
     uint64_t surfaceSkipped = 0;
-    uint64_t surfaceCadenceSkipped = 0;
     uint64_t glBacked = 0;
     uint64_t outOfBounds = 0;
     int startSourceWidth = 0;
@@ -2684,8 +2584,6 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         copyReady = gSDLBitmapCompletionState.copyReady;
         surfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
         surfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
-        surfaceCadenceSkipped =
-            gSDLBitmapCompletionState.surfaceCadenceSkipped;
         glBacked = gSDLBitmapCompletionState.glBacked;
         outOfBounds = gSDLBitmapCompletionState.outOfBounds;
         startSourceWidth = gSDLBitmapCompletionState.sourceWidth;
@@ -2710,7 +2608,7 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
     std::snprintf(
         message, sizeof(message),
         "end batch=%llu manager=%p regions=%llu copyReady=%llu "
-        "surfaceCopied=%llu surfaceSkipped=%llu surfaceCadenceSkipped=%llu "
+        "surfaceCopied=%llu surfaceSkipped=%llu "
         "glBacked=%llu "
         "outOfBounds=%llu src=%dx%d endSrc=%dx%d dest=%dx%d "
         "union=%d,%d,%dx%d events=%d video=%d audio=%d ticks=%u",
@@ -2719,7 +2617,6 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         static_cast<unsigned long long>(copyReady),
         static_cast<unsigned long long>(surfaceCopied),
         static_cast<unsigned long long>(surfaceSkipped),
-        static_cast<unsigned long long>(surfaceCadenceSkipped),
         static_cast<unsigned long long>(glBacked),
         static_cast<unsigned long long>(outOfBounds),
         startSourceWidth, startSourceHeight, sourceWidth, sourceHeight,
@@ -3054,12 +2951,6 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             directRect.w = directWidth - directRect.x;
         if(directRect.y + directRect.h > directHeight)
             directRect.h = directHeight - directRect.y;
-        if(copyFormat == TVPTextureFormat::RGBA &&
-           directRect.w > 0 && directRect.h > 0 &&
-           ShouldThrottleAndroidFlutterPresent(stage) &&
-           TVPSDLHasScreenPresenterPresented()) {
-            return true;
-        }
         if(directRect.w > 0 && directRect.h > 0 &&
            TryPresentAndroidFlutterTexture(texture, copyFormat, directWidth,
                                            directHeight, directRect, stage)) {
@@ -3304,10 +3195,6 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
     }
 
 #if defined(__ANDROID__)
-    if(ShouldThrottleAndroidFlutterPresent(stage) &&
-       TVPSDLHasScreenPresenterPresented()) {
-        return true;
-    }
     if(TryPresentAndroidFlutterSurface(surface, surfaceWidth, surfaceHeight,
                                        pitch, rect, stage)) {
         gSDLSurfaceMirrorState.hasUpdate = false;

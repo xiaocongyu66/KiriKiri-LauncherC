@@ -80,6 +80,6 @@ Fast-forward mode must not be limited by a UI framework render loop. The SDL3
 host should present dirty game frames directly through the native presenter and
 only notify Flutter/Cocos for UI overlay state. Flutter should not receive every
 game-frame copy when no launcher or menu UI needs it. The current Android
-hybrid path follows that rule by keeping KRKR execution uncapped while sampling
-native surface presentation at roughly 30fps unless `KRKR2_SDL_PRESENT_FPS`
-overrides it.
+hybrid `ANativeWindow` dirty-copy path is kept correctness-first and must not
+drop partial dirty regions; fast-forward performance should move to an SDL3
+GPU/SurfaceTexture native presenter instead of throttling those copies.

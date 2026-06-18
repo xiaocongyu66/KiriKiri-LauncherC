@@ -166,14 +166,12 @@ incremental and does not accidentally replace launcher behavior.
 - `KRKR2_ENABLE_COCOS_HOST` now guards the legacy Cocos host source and target
   links. It defaults to `ON`; `OFF` is only a dependency audit mode until the
   SDL3 host and Flutter/C ABI launcher path reach parity.
-- Android Flutter direct-surface presentation now uses a display cadence
-  separate from KRKR script execution. `KRKR2_SDL_PRESENT_FPS` can force the
-  cadence; otherwise the hybrid presenter uses `min(fps_limit, 30)` and treats
-  an unlimited/invalid `fps_limit` as 30fps. During fast-forward, intermediate
-  dirty frames are dropped before the Android `ANativeWindow` post and, where
-  possible, before the SDL surface mirror copy. This matches the SDL reference
-  direction: keep the engine running fast while presenting the latest completed
-  frame at a stable UI-visible rate.
+- Android Flutter direct-surface dirty-rectangle cadence throttling was
+  removed. Dropping intermediate dirty regions before `ANativeWindow` posting
+  can expose stale or partial buffers during fast-forward sprite updates. The
+  current hybrid path must preserve every valid dirty copy for correctness; the
+  performance replacement target is an SDL3 GPU/SurfaceTexture native presenter
+  that keeps game frames out of Flutter's CPU copy path.
 - Logs from `20260606202512770.log` show the first-run black interval is
   startup-bound rather than an SDL input failure: Android resumes quickly, SDL
   2.32.10 initializes, input queues drain with `dropped=0`, but the first KRKR
