@@ -4,6 +4,7 @@ This project should move launcher and runtime-control logic out of Android/Kotli
 
 - **Flutter**: user-facing launcher UI, library browsing, settings pages, diagnostics pages, menu presentation.
 - **C ABI / native core**: engine actions, game scanning, game metadata, launch requests, runtime menu data, runtime settings persistence that must be shared across platforms.
+- **Runtime host**: native lifecycle, frame ticking, input handoff, loading console state, and game-frame presentation behind `cpp/core/environ/runtime/RuntimeHost.h`.
 - **Platform host code**: permissions, platform pickers, Activity/ViewController/window hosting, native surface lifecycle, OS integrations that cannot be cross-platform.
 
 ## Keep In Platform Code

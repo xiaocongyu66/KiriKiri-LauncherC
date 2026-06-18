@@ -39,6 +39,8 @@
 #include "SystemControl.h"
 #include "ui/UIButton.h"
 #include "ui/csd/CsdUIFactory.h"
+#include "CocosRuntimeHost.h"
+#include "runtime/RuntimeHost.h"
 #include "sdl/SDLGameManager.h"
 
 #include <filesystem>
@@ -2444,7 +2446,10 @@ void TVPOnError();
 tjs_uint TVPGetGraphicCacheTotalBytes();
 
 void TVPMainScene::update(float delta) {
-    ::Application->Run();
+    if(iTVPRuntimeHost *host = TVPGetRuntimeHost())
+        host->RunFrame(delta);
+    else
+        ::Application->Run();
     //	if (_currentWindowLayer) _currentWindowLayer->UpdateOverlay();
     iTVPTexture2D::RecycleProcess();
     //_ResotreGLStatues();
@@ -2705,6 +2710,12 @@ void TVPMainScene::onKeyReleased(EventKeyboard::KeyCode keyCode, Event *event) {
 TVPMainScene::TVPMainScene() {
     _gameMenu = nullptr;
     _windowMgrOverlay = nullptr;
+}
+
+TVPMainScene::~TVPMainScene() {
+    TVPUnregisterCocosRuntimeHost(this);
+    if(_instance == this)
+        _instance = nullptr;
 }
 
 void TVPMainScene::showWindowManagerOverlay(bool bVisible) {

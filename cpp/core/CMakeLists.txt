@@ -3,6 +3,8 @@ project(krkr2core)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/common)
 
+option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ON)
+
 add_library(${PROJECT_NAME} INTERFACE)
 
 find_package(mimalloc CONFIG REQUIRED)
@@ -40,6 +42,8 @@ target_compile_definitions(${PROJECT_NAME} INTERFACE
     -DTJS_TEXT_OUT_CRLF
     -D__STDC_CONSTANT_MACROS
     -DUSE_UNICODE_FSTRING
+    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:KRKR2_ENABLE_COCOS_HOST=1>
+    $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:KRKR2_ENABLE_COCOS_HOST=0>
 )
 
 if(ANDROID)
@@ -55,14 +59,13 @@ if(ANDROID)
     )
 endif()
 
-# cocos2dx
-find_package(cocos2dx CONFIG REQUIRED)
-include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
-fix_cocos2dx_android_cpufeatures_include()
+if(KRKR2_ENABLE_COCOS_HOST)
+    find_package(cocos2dx CONFIG REQUIRED)
+    include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
+    fix_cocos2dx_android_cpufeatures_include()
 
-## Link libraries
-target_link_libraries(${PROJECT_NAME} INTERFACE
-    # cocos2d
-    cocos2dx::cocos2d
-    $<$<BOOL:${ANDROID}>:$<LINK_LIBRARY:WHOLE_ARCHIVE,cocos2dx::cpp_android_spec>>
-)
+    target_link_libraries(${PROJECT_NAME} INTERFACE
+        cocos2dx::cocos2d
+        $<$<BOOL:${ANDROID}>:$<LINK_LIBRARY:WHOLE_ARCHIVE,cocos2dx::cpp_android_spec>>
+    )
+endif()

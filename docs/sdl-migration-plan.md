@@ -156,6 +156,24 @@ incremental and does not accidentally replace launcher behavior.
   handoff from crashing or black-screening while the full SDLActivity/runtime
   replacement is still incomplete. A forced window-creation test can be enabled
   only by defining `KRKR2_ENABLE_HYBRID_SDL_SCREEN_WINDOW`.
+- A runtime-host boundary now exists in `cpp/core/environ/runtime`. Cocos
+  registers itself as the current host through `CocosRuntimeHost.cpp`, and game
+  launch orchestration calls the active host instead of directly calling
+  `TVPMainScene::startupFrom()`. `TVPMainScene::update()` also delegates the
+  per-frame engine tick through `iTVPRuntimeHost::RunFrame()`, with the Cocos
+  host preserving the old `Application->Run()` behavior. This is the first step
+  toward making SDL3 the owner of lifecycle and presentation.
+- `KRKR2_ENABLE_COCOS_HOST` now guards the legacy Cocos host source and target
+  links. It defaults to `ON`; `OFF` is only a dependency audit mode until the
+  SDL3 host and Flutter/C ABI launcher path reach parity.
+- Android Flutter direct-surface presentation now uses a display cadence
+  separate from KRKR script execution. `KRKR2_SDL_PRESENT_FPS` can force the
+  cadence; otherwise the hybrid presenter uses `min(fps_limit, 30)` and treats
+  an unlimited/invalid `fps_limit` as 30fps. During fast-forward, intermediate
+  dirty frames are dropped before the Android `ANativeWindow` post and, where
+  possible, before the SDL surface mirror copy. This matches the SDL reference
+  direction: keep the engine running fast while presenting the latest completed
+  frame at a stable UI-visible rate.
 - Logs from `20260606202512770.log` show the first-run black interval is
   startup-bound rather than an SDL input failure: Android resumes quickly, SDL
   2.32.10 initializes, input queues drain with `dropped=0`, but the first KRKR

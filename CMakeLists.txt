@@ -45,6 +45,7 @@ project(${APP_NAME})
 
 option(ENABLE_TESTS "enable tests execute build(exclude android)" ON)
 option(BUILD_TOOLS "build tools execute build(exclude android ios)" ON)
+option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ON)
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)
@@ -102,7 +103,9 @@ elseif(MACOS)
     )
 endif()
 
-target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2CORE_PATH}/environ/cocos2d)
+if(KRKR2_ENABLE_COCOS_HOST)
+    target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2CORE_PATH}/environ/cocos2d)
+endif()
 
 find_package(TBB CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PUBLIC TBB::tbb)
@@ -167,7 +170,7 @@ else()
 endif()
 
 ## resources
-if(NOT ANDROID)
+if(NOT ANDROID AND KRKR2_ENABLE_COCOS_HOST)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/CocosBuildHelpers.cmake")
 
     set(GAME_RES_FOLDER "${CMAKE_CURRENT_SOURCE_DIR}/ui/cocos-studio")

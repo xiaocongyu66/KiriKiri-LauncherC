@@ -1,6 +1,7 @@
 #include <spdlog/spdlog.h>
 #include "AppDelegate.h"
 
+#include "CocosRuntimeHost.h"
 #include "MainScene.h"
 #include "Application.h"
 #include "Platform.h"
@@ -12,6 +13,7 @@
 #include "ConfigManager/LocaleConfigManager.h"
 #include "ConfigManager/PreferenceDefaults.h"
 #include "NativeLog.h"
+#include "runtime/RuntimeHost.h"
 #include "sdl/SDLGameManager.h"
 #include "sdl/SDLUIManager.h"
 
@@ -140,6 +142,7 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
     LocaleConfigManager::GetInstance()->Initialize(TVPGetCurrentLanguage());
     // create a scene. it's an autorelease object
     TVPMainScene *scene = TVPMainScene::CreateInstance();
+    TVPRegisterCocosRuntimeHost(scene);
 
     // run
     director->runWithScene(scene);
@@ -157,10 +160,14 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
             };
             launchCallbacks.startupFrom = [](const std::string &gamePath,
                                              const std::string &gameDir) {
-                bool ok =
-                    TVPMainScene::GetInstance()->startupFrom(gamePath, gameDir);
-                KR2_LAUNCH_LOG("startupFrom('%s') returned %d",
-                               gamePath.c_str(), (int)ok);
+                TVPRuntimeHostLaunchRequest request;
+                request.gamePath = gamePath;
+                request.preferenceRoot = gameDir;
+                iTVPRuntimeHost *host = TVPGetRuntimeHost();
+                const bool ok = host && host->StartGame(request);
+                KR2_LAUNCH_LOG("runtimeHost=%s startupFrom('%s') returned %d",
+                               TVPGetRuntimeHostName(), gamePath.c_str(),
+                               (int)ok);
                 return ok;
             };
 #if !defined(__ANDROID__)

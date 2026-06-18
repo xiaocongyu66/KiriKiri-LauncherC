@@ -18,6 +18,8 @@ class TVPMainScene : public cocos2d::Scene, public cocos2d::IMEDelegate {
     friend class TVPAppDelegate;
 
 public:
+    ~TVPMainScene() override;
+
     static TVPMainScene *GetInstance();
     static TVPMainScene *CreateInstance();
 
