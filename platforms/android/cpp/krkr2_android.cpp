@@ -23,6 +23,7 @@
 #include <algorithm>
 #include <condition_variable>
 #include <mutex>
+#include <string>
 #include <vector>
 #include <spdlog/spdlog.h>
 #include <client/linux/handler/exception_handler.h>
@@ -164,6 +165,19 @@ extern "C" bool TVPAndroidShowFlutterGameMainMenu() {
     if(shouldDetach)
         vm->DetachCurrentThread();
     return shown;
+}
+
+std::string TVPShowFileSelector(const std::string &title,
+                                const std::string &filename,
+                                std::string initdir, bool issave) {
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "script file selector unavailable titleLen=%zu "
+                  "filenameLen=%zu initdirLen=%zu save=%d",
+                  title.size(), filename.size(), initdir.size(),
+                  issave ? 1 : 0);
+    TVPNativeLogInfo("android-file-selector", message);
+    return {};
 }
 
 extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow() {
