@@ -377,6 +377,8 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
         sequence == 64 || sequence == 128 || (sequence % 256) == 0;
 }
 
+void LogSDLScreenPresenter(const char *message);
+
 bool IsTruthyEnv(const char *name) {
     const char *value = SDL_getenv(name);
     return value && std::strcmp(value, "0") != 0 &&
