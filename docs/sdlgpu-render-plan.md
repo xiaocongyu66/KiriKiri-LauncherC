@@ -3,6 +3,10 @@
 ## Current baseline
 
 - Stable fallback renderers remain `software` and `opengl`.
+- Render selection is two-dimensional: `renderer` selects the TVP render
+  pipeline (`software` or `opengl`), while `graphics_backend` selects the
+  presenter/device backend (`opengl` or `vulkan`). Valid combinations include
+  `opengl+vulkan`, `opengl+opengl`, and `software+vulkan`.
 - `sdlgpu` is compiled as an independent core module under `cpp/core/render/sdlgpu`.
 - The first backend layer provides SDL_GPU device creation, texture creation, texture upload, release, and basic memory/upload statistics.
 - `SDLGpuTvpAdapter` now owns TVP texture format mapping, region upload validation, and RGB-to-RGBA staging for future `CreateTexture2D` / `UpdateTexture2D` routing.

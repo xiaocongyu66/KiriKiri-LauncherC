@@ -67,6 +67,27 @@ static bool TVPUseLegacyRenderManagerPreference() {
     return TVPIsTruthyEnvValue(std::getenv("KRKR2_FORCE_LEGACY_RENDER_MANAGER"));
 }
 
+static std::string TVPGetPreferredRenderPipeline() {
+    tTJSVariant rendererOpt;
+    if(TVPGetCommandLine(TJS_W("renderer"), &rendererOpt)) {
+        std::string renderer = ttstr(rendererOpt).AsStdString();
+        if(renderer == "software" || renderer == "opengl")
+            return renderer;
+        if(renderer == "vulkan" || renderer == "vk")
+            return TVPUseLegacyRenderManagerPreference() ? "vulkan" : "opengl";
+        return "software";
+    }
+
+    std::string renderer =
+        IndividualConfigManager::GetInstance()->GetValue<std::string>(
+            "renderer", "software");
+    if(renderer == "software" || renderer == "opengl")
+        return renderer;
+    if(renderer == "vulkan" || renderer == "vk")
+        return TVPUseLegacyRenderManagerPreference() ? "vulkan" : "opengl";
+    return "software";
+}
+
 //---------------------------------------------------------------------------
 // System security options
 //---------------------------------------------------------------------------
@@ -301,11 +322,8 @@ void TVPAfterSystemInit() {
         }
     }
     // check TVPGraphicSplitOperation option
-    std::string _val =
-        IndividualConfigManager::GetInstance()->GetValue<std::string>(
-            "renderer", "software");
-    if(TVPUseLegacyRenderManagerPreference() &&
-       (_val == "opengl" || _val == "vulkan" || _val == "vk")) {
+    std::string _val = TVPGetPreferredRenderPipeline();
+    if(_val != "software") {
         TVPGraphicSplitOperationType = gsotNone;
     } else {
         TVPDrawThreadNum =

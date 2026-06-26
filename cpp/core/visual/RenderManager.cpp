@@ -5024,6 +5024,18 @@ static bool TVPUseLegacyRenderManagerPreference() {
     return TVPIsTruthyEnvValue(std::getenv("KRKR2_FORCE_LEGACY_RENDER_MANAGER"));
 }
 
+static ttstr TVPReadPreferredRenderPipeline() {
+    tTJSVariant val;
+    ttstr renderer;
+    if(TVPGetCommandLine(TJS_W("renderer"), &val))
+        renderer = val;
+    if(renderer.IsEmpty()) {
+        renderer = IndividualConfigManager::GetInstance()
+                       ->GetValue<std::string>("renderer", "software");
+    }
+    return renderer;
+}
+
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
     auto it = _RenderManagerFactory->find(name);
     if(it == _RenderManagerFactory->end()) {
@@ -5041,20 +5053,19 @@ iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
 iTVPRenderManager *TVPGetRenderManager() {
     static iTVPRenderManager *_RenderManager;
     if(!_RenderManager) {
-        ttstr str =
-            IndividualConfigManager::GetInstance()->GetValue<std::string>(
-                "renderer", "software");
-        if(!TVPUseLegacyRenderManagerPreference() &&
-           (str == TJS_W("opengl") || str == TJS_W("vk") ||
-            str == TJS_W("vulkan"))) {
-            TVPAddLog(TJS_W("[renderer] Using software TVP compositor with "
-                            "SDL presenter output preference '") +
-                      str + TJS_W("'."));
-            str = TJS_W("software");
-        } else if(str == TJS_W("vk")) {
-            str = TJS_W("vulkan");
-        } else if(str != TJS_W("software") && str != TJS_W("opengl") &&
-                  str != TJS_W("vulkan")) {
+        ttstr str = TVPReadPreferredRenderPipeline();
+        if(str == TJS_W("vk") || str == TJS_W("vulkan")) {
+            if(TVPUseLegacyRenderManagerPreference()) {
+                str = TJS_W("vulkan");
+            } else {
+                TVPAddLog(TJS_W("[renderer] Legacy renderer preference '") +
+                          str +
+                          TJS_W("' maps to the OpenGL render pipeline; use "
+                                "graphics_backend=vulkan to select Vulkan "
+                                "presentation."));
+                str = TJS_W("opengl");
+            }
+        } else if(str != TJS_W("software") && str != TJS_W("opengl")) {
             TVPAddLog(TJS_W("[renderer] Unsupported renderer preference '") +
                       str + TJS_W("'; falling back to software renderer."));
             str = TJS_W("software");

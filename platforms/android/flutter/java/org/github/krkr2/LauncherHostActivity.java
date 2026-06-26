@@ -171,7 +171,7 @@ public class LauncherHostActivity extends FlutterActivity {
                    : LauncherPrefs.INSTANCE.normalizeRendererPreference(rawRenderer));
         values.put("graphics_backend",
                    rawGraphicsBackend == null || rawGraphicsBackend.trim().isEmpty()
-                   ? ("vulkan".equals(rawRenderer) || "vk".equals(rawRenderer) ? "vulkan" : "")
+                   ? (isLegacyVulkanRenderer(rawRenderer) ? "vulkan" : "")
                    : LauncherPrefs.INSTANCE.normalizeGraphicsBackendPreference(
                        rawGraphicsBackend));
         values.put("fps_limit",
@@ -193,11 +193,24 @@ public class LauncherHostActivity extends FlutterActivity {
                 LauncherPrefs.INSTANCE.setCustomLaunchFile(this, dir, stringValue(value));
                 break;
             case "renderer":
-                LauncherPrefs.INSTANCE.setGameEnginePref(this, dir, "renderer", stringValue(value));
+                String renderer = stringValue(value);
+                LauncherPrefs.INSTANCE.setGameEnginePref(
+                    this, dir, "renderer",
+                    renderer.isEmpty()
+                    ? ""
+                    : LauncherPrefs.INSTANCE.normalizeRendererPreference(renderer));
+                if(isLegacyVulkanRenderer(renderer)) {
+                    LauncherPrefs.INSTANCE.setGameEnginePref(
+                        this, dir, "graphics_backend", "vulkan");
+                }
                 break;
             case "graphics_backend":
-                LauncherPrefs.INSTANCE.setGameEnginePref(this, dir, "graphics_backend",
-                                                         stringValue(value));
+                String backend = stringValue(value);
+                LauncherPrefs.INSTANCE.setGameEnginePref(
+                    this, dir, "graphics_backend",
+                    backend.isEmpty()
+                    ? ""
+                    : LauncherPrefs.INSTANCE.normalizeGraphicsBackendPreference(backend));
                 break;
             case "fps_limit":
                 LauncherPrefs.INSTANCE.setGameEnginePref(this, dir, "fps_limit", stringValue(value));
@@ -248,9 +261,16 @@ public class LauncherHostActivity extends FlutterActivity {
 
     private Map<String, Object> getEngineSettings() {
         Map<String, Object> settings = new HashMap<>();
-        settings.put("renderer", KrkrPrefsStore.INSTANCE.getString(this, "renderer", "software"));
+        String renderer = KrkrPrefsStore.INSTANCE.getString(this, "renderer", "software");
+        String graphicsBackend =
+            KrkrPrefsStore.INSTANCE.getString(this, "graphics_backend", "opengl");
+        settings.put("renderer",
+                     LauncherPrefs.INSTANCE.normalizeRendererPreference(renderer));
         settings.put("graphics_backend",
-                     KrkrPrefsStore.INSTANCE.getString(this, "graphics_backend", "opengl"));
+                     isLegacyVulkanRenderer(renderer) &&
+                     (graphicsBackend == null || graphicsBackend.trim().isEmpty())
+                     ? "vulkan"
+                     : LauncherPrefs.INSTANCE.normalizeGraphicsBackendPreference(graphicsBackend));
         settings.put("fps_limit", KrkrPrefsStore.INSTANCE.getString(this, "fps_limit", "60"));
         settings.put("showfps", KrkrPrefsStore.INSTANCE.getBool(this, "showfps", false));
         settings.put("outputlog", KrkrPrefsStore.INSTANCE.getBool(this, "outputlog", false));
@@ -286,6 +306,19 @@ public class LauncherHostActivity extends FlutterActivity {
                 if("ffmpeg_image_decoder".equals(key)) {
                     LauncherPrefs.INSTANCE.setUseFfmpegImageDecoder(this, boolValue(value));
                 }
+                break;
+            case "renderer":
+                String renderer = stringValue(value);
+                KrkrPrefsStore.INSTANCE.setString(
+                    this, key, LauncherPrefs.INSTANCE.normalizeRendererPreference(renderer));
+                if(isLegacyVulkanRenderer(renderer)) {
+                    KrkrPrefsStore.INSTANCE.setString(this, "graphics_backend", "vulkan");
+                }
+                break;
+            case "graphics_backend":
+                KrkrPrefsStore.INSTANCE.setString(
+                    this, key,
+                    LauncherPrefs.INSTANCE.normalizeGraphicsBackendPreference(stringValue(value)));
                 break;
             case "menu_handler_opa":
             case "vcursor_scale":
@@ -356,6 +389,11 @@ public class LauncherHostActivity extends FlutterActivity {
 
     private String nullToEmpty(String value) {
         return value == null ? "" : value;
+    }
+
+    private boolean isLegacyVulkanRenderer(String value) {
+        String raw = value == null ? "" : value.trim();
+        return "vulkan".equals(raw) || "vk".equals(raw);
     }
 
     private boolean boolValue(Object value) {

@@ -550,6 +550,7 @@ class LauncherBridge {
     } on MissingPluginException {
       return const {
         'renderer': 'software',
+        'graphics_backend': 'opengl',
         'fps_limit': '60',
         'showfps': false,
         'ogl_accurate_render': false,

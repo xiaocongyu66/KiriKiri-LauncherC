@@ -5,6 +5,37 @@ import 'package:flutter/material.dart';
 import '../bridge/launcher_bridge.dart';
 import '../models/game_entry.dart';
 
+String _normalizeRenderPipeline(Object? value, String fallback) {
+  final raw = value is String ? value.trim() : '';
+  if (raw.isEmpty) {
+    return fallback;
+  }
+  if (raw == 'opengl' || raw == 'software') {
+    return raw;
+  }
+  if (raw == 'vulkan' || raw == 'vk') {
+    return 'opengl';
+  }
+  return fallback;
+}
+
+String _normalizeGraphicsBackend(Object? value, String fallback) {
+  final raw = value is String ? value.trim() : '';
+  if (raw.isEmpty) {
+    return fallback;
+  }
+  if (raw == 'opengl' || raw == 'vulkan') {
+    return raw;
+  }
+  if (raw == 'vk') {
+    return 'vulkan';
+  }
+  if (raw == 'gles' || raw == 'opengles') {
+    return 'opengl';
+  }
+  return fallback;
+}
+
 class LauncherHomePage extends StatefulWidget {
   const LauncherHomePage({required this.bridge, super.key});
 
@@ -587,6 +618,15 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
 
   String _overrideString(Map<String, Object?> values, String key) => values[key] as String? ?? '';
 
+  String _overrideGraphicsBackend(Map<String, Object?> values) {
+    final backend = _overrideString(values, 'graphics_backend');
+    if (backend.trim().isNotEmpty) {
+      return _normalizeGraphicsBackend(backend, '');
+    }
+    final renderer = _overrideString(values, 'renderer').trim();
+    return renderer == 'vulkan' || renderer == 'vk' ? 'vulkan' : '';
+  }
+
 
   @override
   Widget build(BuildContext context) {
@@ -642,11 +682,18 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
                 child: Column(
                   children: [
                     _SelectSetting(
-                      title: '渲染器',
-                      value: _overrideString(values, 'renderer'),
+                      title: '渲染管线',
+                      value: _normalizeRenderPipeline(_overrideString(values, 'renderer'), ''),
                       fallback: '自动',
-                      choices: const {'': '自动', 'opengl': 'OpenGL', 'vulkan': 'Vulkan', 'software': '软件'},
+                      choices: const {'': '自动', 'opengl': 'OpenGL', 'software': '软件'},
                       onChanged: (value) => _setOverride('renderer', value),
+                    ),
+                    _SelectSetting(
+                      title: '图形后端',
+                      value: _overrideGraphicsBackend(values),
+                      fallback: '自动',
+                      choices: const {'': '自动', 'opengl': 'OpenGL', 'vulkan': 'Vulkan'},
+                      onChanged: (value) => _setOverride('graphics_backend', value),
                     ),
                     _SelectSetting(
                       title: '帧率上限',
@@ -926,11 +973,18 @@ class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> 
           children: [
             if (snapshot.connectionState == ConnectionState.waiting) const LinearProgressIndicator(),
             _SelectSetting(
-              title: '渲染器',
-              value: _string('renderer', 'software'),
+              title: '渲染管线',
+              value: _normalizeRenderPipeline(_settings['renderer'], 'software'),
               fallback: '软件',
-              choices: const {'opengl': 'OpenGL', 'vulkan': 'Vulkan', 'software': '软件'},
+              choices: const {'opengl': 'OpenGL', 'software': '软件'},
               onChanged: (value) => _set('renderer', value),
+            ),
+            _SelectSetting(
+              title: '图形后端',
+              value: _normalizeGraphicsBackend(_settings['graphics_backend'], 'opengl'),
+              fallback: 'OpenGL',
+              choices: const {'opengl': 'OpenGL', 'vulkan': 'Vulkan'},
+              onChanged: (value) => _set('graphics_backend', value),
             ),
             _SelectSetting(
               title: '帧率上限',

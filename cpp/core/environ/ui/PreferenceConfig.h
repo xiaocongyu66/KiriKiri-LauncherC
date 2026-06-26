@@ -161,13 +161,13 @@ namespace {
             Caption = cap;
         } // Key is useless
         static tPreferenceScreen *GetSubPreferenceInfo() {
-            std::string renderer =
+            std::string pipeline =
                 PreferenceGetValueString("renderer", "software");
-            if(renderer == "opengl")
+            if(pipeline == "vulkan" || pipeline == "vk")
+                pipeline = "opengl";
+            if(pipeline == "opengl")
                 return &OpenglOptPreference;
-            else if(renderer == "vulkan" || renderer == "vk")
-                return &OpenglOptPreference;
-            else if(renderer == "software")
+            else if(pipeline == "software")
                 return &SoftRendererOptPreference;
             return nullptr;
         }

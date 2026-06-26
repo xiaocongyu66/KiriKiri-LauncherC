@@ -11,6 +11,7 @@
 #include "SDLGpuBackend.h"
 #include "SDLGpuTextureCache.h"
 #include "SDLUIManager.h"
+#include "SysInitIntf.h"
 #include "WindowIntf.h"
 #include "TVPWindow.h"
 #include "vkdefine.h"
@@ -384,10 +385,22 @@ bool IsSDLScreenPresenterDisabled() {
         IsTruthyEnv("KRKR2_FORCE_COCOS_RENDER");
 }
 
+std::string ReadCommandLineString(const tjs_char *name) {
+    tTJSVariant value;
+    if(TVPGetCommandLine(name, &value))
+        return ttstr(value).AsStdString();
+    return std::string();
+}
+
 std::string PreferredGraphicsBackend() {
-    std::string backend =
-        IndividualConfigManager::GetInstance()->GetValue<std::string>(
+    std::string backend = ReadCommandLineString(TJS_W("graphics_backend"));
+    if(backend.empty()) {
+        backend = ReadCommandLineString(TJS_W("angle_backend"));
+    }
+    if(backend.empty()) {
+        backend = IndividualConfigManager::GetInstance()->GetValue<std::string>(
             "graphics_backend", "");
+    }
     if(backend.empty()) {
         backend = IndividualConfigManager::GetInstance()->GetValue<std::string>(
             "angle_backend", "");
@@ -397,9 +410,12 @@ std::string PreferredGraphicsBackend() {
     if(backend == "opengl" || backend == "gles" || backend == "opengles")
         return "opengl";
 
-    const std::string legacyRenderer =
-        IndividualConfigManager::GetInstance()->GetValue<std::string>(
-            "renderer", "software");
+    std::string legacyRenderer = ReadCommandLineString(TJS_W("renderer"));
+    if(legacyRenderer.empty()) {
+        legacyRenderer =
+            IndividualConfigManager::GetInstance()->GetValue<std::string>(
+                "renderer", "software");
+    }
     if(legacyRenderer == "vulkan" || legacyRenderer == "vk")
         return "vulkan";
     return "opengl";
@@ -980,6 +996,7 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
     if(!gSDLScreenPresenterState.renderer &&
        !gSDLScreenPresenterState.rendererFailed &&
        !gSDLScreenPresenterState.windowSurface) {
+        const std::string graphicsBackend = PreferredGraphicsBackend();
         const std::string rendererDriver = PreferredSDLRendererDriver();
         gSDLScreenPresenterState.renderer =
             SDL_CreateRenderer(gSDLScreenPresenterState.window,
@@ -1005,9 +1022,10 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
             char message[384];
             std::snprintf(message, sizeof(message),
                           "renderer failed, using window surface stage=%s "
-                          "driver=%s rendererError=%s windowSurface=%p "
+                          "backend=%s driver=%s rendererError=%s windowSurface=%p "
                           "size=%dx%d pitch=%d",
-                          stage ? stage : "", rendererDriver.c_str(), rendererError,
+                          stage ? stage : "", graphicsBackend.c_str(),
+                          rendererDriver.c_str(), rendererError,
                           static_cast<void *>(
                               gSDLScreenPresenterState.windowSurface),
                           gSDLScreenPresenterState.windowSurface->w,
@@ -1024,10 +1042,11 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
             SDL_GetRendererName(gSDLScreenPresenterState.renderer);
         char message[320];
         std::snprintf(message, sizeof(message),
-                      "renderer created stage=%s renderer=%p driver=%s actual=%s "
-                      "logical=%dx%d",
+                      "renderer created stage=%s renderer=%p backend=%s "
+                      "driver=%s actual=%s logical=%dx%d",
                       stage ? stage : "",
                       static_cast<void *>(gSDLScreenPresenterState.renderer),
+                      graphicsBackend.c_str(),
                       rendererDriver.c_str(),
                       actualDriver ? actualDriver : "",
                       surfaceWidth, surfaceHeight);
@@ -2774,18 +2793,18 @@ void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
     unsigned int drawCount = 0;
     uint64_t videoMemoryBytes = 0;
     bool available = false;
-    std::string rendererName;
+    std::string pipelineName;
     if(iTVPRenderManager *manager = TVPGetRenderManager()) {
         available = manager->GetRenderStat(drawCount, videoMemoryBytes);
         if(const char *name = manager->GetName())
-            rendererName = name;
+            pipelineName = name;
     }
 
     uint64_t presentedFrames = 0;
+    std::string presenterName;
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
         presentedFrames = gSDLScreenPresenterState.presentedFrames;
-        std::string presenterName;
         if(gSDLScreenPresenterState.renderer) {
             if(const char *name =
                    SDL_GetRendererName(gSDLScreenPresenterState.renderer))
@@ -2793,20 +2812,16 @@ void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
         } else if(gSDLScreenPresenterState.windowSurface) {
             presenterName = "window-surface";
         }
-        if(!presenterName.empty()) {
-            if(!rendererName.empty())
-                rendererName += " / ";
-            rendererName += presenterName;
-        }
     }
     const std::string graphicsBackend = PreferredGraphicsBackend();
-    if(!graphicsBackend.empty()) {
-        if(rendererName.empty())
-            rendererName = "unknown";
-        rendererName += " [";
-        rendererName += graphicsBackend;
-        rendererName += "]";
-    }
+    std::ostringstream rendererInfo;
+    rendererInfo << "pipeline="
+                 << (pipelineName.empty() ? "unknown" : pipelineName);
+    if(!presenterName.empty())
+        rendererInfo << " presenter=" << presenterName;
+    if(!graphicsBackend.empty())
+        rendererInfo << " backend=" << graphicsBackend;
+    const std::string rendererName = rendererInfo.str();
 
     std::lock_guard<std::mutex> lock(gSDLRenderOverlayMutex);
     gSDLRenderOverlayState.showFps = true;
