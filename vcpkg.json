@@ -59,7 +59,6 @@
     "libvorbis",
     "libwebp",
     "lz4",
-    "minizip",
     {
       "name": "mimalloc",
       "default-features": false,

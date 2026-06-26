@@ -1,4 +1,4 @@
-#include <ioapi.h>
+#include <minizip/unzip/ioapi.h>
 #include <minizip/zip.h>
 #include <cocos/base/base64.h>
 #include <sstream>
@@ -29,25 +29,25 @@ struct zlib_inmem_func64 : public zlib_filefunc64_def {
         return str;
     }
 
-    static uint32_t ZCALLBACK fread_file_func(voidpf opaque, voidpf stream,
-                                              void *buf, uint32_t size) {
+    static uLong ZCALLBACK fread_file_func(voidpf opaque, voidpf stream,
+                                           void *buf, uLong size) {
         tTVPMemoryStream *str = (tTVPMemoryStream *)stream;
         return str->Read(buf, size);
     }
 
-    static uint32_t ZCALLBACK fwrite_file_func(voidpf opaque, voidpf stream,
-                                               const void *buf, uint32_t size) {
+    static uLong ZCALLBACK fwrite_file_func(voidpf opaque, voidpf stream,
+                                            const void *buf, uLong size) {
         tTVPMemoryStream *str = (tTVPMemoryStream *)stream;
         return str->Write(buf, size);
     }
 
-    static uint64_t ZCALLBACK ftell64_file_func(voidpf opaque, voidpf stream) {
+    static ZPOS64_T ZCALLBACK ftell64_file_func(voidpf opaque, voidpf stream) {
         tTVPMemoryStream *str = (tTVPMemoryStream *)stream;
         return str->GetPosition();
     }
 
     static long ZCALLBACK fseek64_file_func(voidpf opaque, voidpf stream,
-                                            uint64_t offset, int origin) {
+                                            ZPOS64_T offset, int origin) {
         int fseek_origin = TJS_BS_SEEK_SET;
         switch(origin) {
             case ZLIB_FILEFUNC_SEEK_CUR:

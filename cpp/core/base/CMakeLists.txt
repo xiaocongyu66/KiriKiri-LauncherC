@@ -45,7 +45,6 @@ find_package(LibArchive REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
-find_package(unofficial-minizip CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -57,6 +56,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     lz4::lz4
 
     SDL3::SDL3
-    unofficial::minizip::minizip
+    minizip
     unofficial::sqlite3::sqlite3
 )
