@@ -10,6 +10,7 @@
 #include "environ/ConfigManager/GlobalConfigManager.h"
 #include "environ/Application.h"
 #include "environ/NativeLog.h"
+#include "environ/android/KrkrJniHelper.h"
 #include "environ/android/AndroidUtils.h"
 #include "environ/sdl/SDLGameManager.h"
 #include "common/FFmpegDecodeConfig.h"
@@ -40,6 +41,26 @@ bool TVPIsKrkrHookInstalled();
 
 namespace {
 JavaVM *gAndroidJavaVM = nullptr;
+jobject gAndroidApplicationContext = nullptr;
+std::mutex gAndroidApplicationContextLock;
+}
+
+jobject krkr_GetApplicationContext() {
+    std::lock_guard<std::mutex> lock(gAndroidApplicationContextLock);
+    return gAndroidApplicationContext;
+}
+
+static void krkr_SetApplicationContext(JNIEnv *env, jobject context) {
+    if(!env)
+        return;
+
+    std::lock_guard<std::mutex> lock(gAndroidApplicationContextLock);
+    if(gAndroidApplicationContext) {
+        env->DeleteGlobalRef(gAndroidApplicationContext);
+        gAndroidApplicationContext = nullptr;
+    }
+    if(context)
+        gAndroidApplicationContext = env->NewGlobalRef(context);
 }
 
 static bool DumpCallback(const google_breakpad::MinidumpDescriptor &descriptor,
@@ -72,6 +93,7 @@ static bool DumpFilter(void *data) {
     JavaVM *vm{};
     env->GetJavaVM(&vm);
     gAndroidJavaVM = vm;
+    krkr::JniHelper::setJavaVM(vm);
     void *handle = dlopen("libSDL3.so", RTLD_LAZY);
     if(handle) {
         typedef jint (*JNI_OnLoad)(JavaVM *, void *);
@@ -763,6 +785,14 @@ Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
     gFlutterGameSurfaceWidth = 0;
     gFlutterGameSurfaceHeight = 0;
     TVPNativeLogInfo("flutter-surface", "detach game surface");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_flutter_1engine_1bridge_FlutterEngineBridgePlugin_nativeSetApplicationContext(
+    JNIEnv *env, jobject, jobject context) {
+    krkr_SetApplicationContext(env, context);
+    TVPNativeLogInfo("flutter-context", context ? "set application context"
+                                                : "clear application context");
 }
 
 JNIEXPORT jintArray JNICALL

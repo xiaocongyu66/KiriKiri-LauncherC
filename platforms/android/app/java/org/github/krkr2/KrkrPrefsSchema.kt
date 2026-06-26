@@ -86,8 +86,16 @@ object KrkrPrefsSchema {
                 default = "software",
                 options = listOf(
                     "preference_opengl" to "opengl",
-                    "preference_vulkan" to "vulkan",
                     "preference_software" to "software",
+                ),
+            ),
+            PrefItem.Select(
+                key = "graphics_backend",
+                captionRes = "preference_graphics_backend",
+                default = "opengl",
+                options = listOf(
+                    "preference_opengl" to "opengl",
+                    "preference_vulkan" to "vulkan",
                 ),
             ),
             PrefItem.TextField("default_font", "preference_default_font", ""),

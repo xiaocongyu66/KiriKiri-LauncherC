@@ -11,8 +11,8 @@
 #include <vector>
 
 #if defined(__ANDROID__)
-#include "platform/android/jni/JniHelper.h"
-USING_NS_CC;
+#include "KrkrJniHelper.h"
+using JniHelper = krkr::JniHelper;
 #endif
 
 #ifndef TJS_INTF_METHOD

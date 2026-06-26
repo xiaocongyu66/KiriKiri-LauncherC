@@ -163,8 +163,17 @@ public class LauncherHostActivity extends FlutterActivity {
         String dir = stringValue(gameDir);
         Map<String, Object> values = new HashMap<>();
         values.put("customLaunch", LauncherPrefs.INSTANCE.getCustomLaunchFile(this, dir));
-        values.put("renderer",
-                   nullToEmpty(LauncherPrefs.INSTANCE.getGameEnginePref(this, dir, "renderer")));
+        String rawRenderer = LauncherPrefs.INSTANCE.getGameEnginePref(this, dir, "renderer");
+        String rawGraphicsBackend =
+            LauncherPrefs.INSTANCE.getGameEnginePref(this, dir, "graphics_backend");
+        values.put("renderer", rawRenderer == null || rawRenderer.trim().isEmpty()
+                   ? ""
+                   : LauncherPrefs.INSTANCE.normalizeRendererPreference(rawRenderer));
+        values.put("graphics_backend",
+                   rawGraphicsBackend == null || rawGraphicsBackend.trim().isEmpty()
+                   ? ("vulkan".equals(rawRenderer) || "vk".equals(rawRenderer) ? "vulkan" : "")
+                   : LauncherPrefs.INSTANCE.normalizeGraphicsBackendPreference(
+                       rawGraphicsBackend));
         values.put("fps_limit",
                    nullToEmpty(LauncherPrefs.INSTANCE.getGameEnginePref(this, dir, "fps_limit")));
         values.put("showfps",
@@ -185,6 +194,10 @@ public class LauncherHostActivity extends FlutterActivity {
                 break;
             case "renderer":
                 LauncherPrefs.INSTANCE.setGameEnginePref(this, dir, "renderer", stringValue(value));
+                break;
+            case "graphics_backend":
+                LauncherPrefs.INSTANCE.setGameEnginePref(this, dir, "graphics_backend",
+                                                         stringValue(value));
                 break;
             case "fps_limit":
                 LauncherPrefs.INSTANCE.setGameEnginePref(this, dir, "fps_limit", stringValue(value));
@@ -236,6 +249,8 @@ public class LauncherHostActivity extends FlutterActivity {
     private Map<String, Object> getEngineSettings() {
         Map<String, Object> settings = new HashMap<>();
         settings.put("renderer", KrkrPrefsStore.INSTANCE.getString(this, "renderer", "software"));
+        settings.put("graphics_backend",
+                     KrkrPrefsStore.INSTANCE.getString(this, "graphics_backend", "opengl"));
         settings.put("fps_limit", KrkrPrefsStore.INSTANCE.getString(this, "fps_limit", "60"));
         settings.put("showfps", KrkrPrefsStore.INSTANCE.getBool(this, "showfps", false));
         settings.put("outputlog", KrkrPrefsStore.INSTANCE.getBool(this, "outputlog", false));

@@ -5,6 +5,8 @@
 #include <cstdio>
 #include <cstring>
 #include <ctime>
+#include <atomic>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -14,18 +16,24 @@
 #include "DebugIntf.h"
 #include <condition_variable>
 #include <mutex>
-#include "platform/android/jni/JniHelper.h"
+#include "KrkrJniHelper.h"
 #include <set>
 #include <sstream>
 #include "SysInitIntf.h"
-#include "platform/CCFileUtils.h"
 #include "ConfigManager/LocaleConfigManager.h"
 #include "Platform.h"
-#include "platform/CCCommon.h"
 #include <EGL/egl.h>
 #include <queue>
+
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 1
+#endif
+
+#if KRKR2_ENABLE_COCOS_HOST
 #include "base/CCDirector.h"
 #include "base/CCScheduler.h"
+#endif
+
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <fcntl.h>
@@ -37,12 +45,17 @@
 #include "RenderManager.h"
 #include <sys/stat.h>
 
-USING_NS_CC;
+using JniHelper = krkr::JniHelper;
 
 #define KR2ActJavaPath "org/tvp/kirikiri2/KR2Activity"
 // #define KR2EntryJavaPath "org/tvp/kirikiri2/Kirikiroid2"
 
 extern unsigned int __page_size = getpagesize();
+
+static bool TVPAndroidPathExists(const std::string &path) {
+    struct stat st {};
+    return stat(path.c_str(), &st) == 0;
+}
 
 void TVPPrintLog(const char *str) {
     __android_log_print(ANDROID_LOG_INFO, "kr2 debug info", "%s", str);
@@ -345,7 +358,7 @@ static std::string File_getAbsolutePath(jobject FileObj) {
         return "";
     jstring path =
         (jstring)methodInfo.env->CallObjectMethod(FileObj, methodInfo.methodID);
-    std::string ret = cocos2d::JniHelper::jstring2string(path);
+    std::string ret = JniHelper::jstring2string(path);
     return ret;
 }
 
@@ -429,7 +442,7 @@ std::vector<std::string> TVPGetDriverPath() {
                 jstring path =
                     (jstring)methodInfo.env->GetObjectArrayElement(PathObjs, i);
                 if(path)
-                    ret.emplace_back(cocos2d::JniHelper::jstring2string(path));
+                    ret.emplace_back(JniHelper::jstring2string(path));
             }
         }
     }
@@ -872,6 +885,7 @@ bool TVPCheckStartupArg() {
     TVPCheckAndSendDumps(Android_GetDumpStoragePath(), GetPackageName(),
                          TVPGetPackageVersionString());
 
+#if KRKR2_ENABLE_COCOS_HOST
     // register event dispatcher
     cocos2d::Director *director = cocos2d::Director::getInstance();
     class HackForScheduler : public cocos2d::Scheduler {
@@ -882,6 +896,7 @@ bool TVPCheckStartupArg() {
     };
     static_cast<HackForScheduler *>(director->getScheduler())
         ->regProcessEvents();
+#endif
 
     return false;
 }
@@ -1004,7 +1019,6 @@ static bool TVPWriteDataToFileJava(const std::string &filename,
     if(JniHelper::getStaticMethodInfo(methodInfo,
                                       "org/tvp/kirikiri2/KR2Activity",
                                       "WriteFile", "(Ljava/lang/String;[B)Z")) {
-        cocos2d::FileUtils *fileutil = cocos2d::FileUtils::getInstance();
         bool ret = false;
         int retry = 3;
         do {
@@ -1015,8 +1029,8 @@ static bool TVPWriteDataToFileJava(const std::string &filename,
                 methodInfo.classID, methodInfo.methodID, jstr, arr);
             methodInfo.env->DeleteLocalRef(arr);
             methodInfo.env->DeleteLocalRef(jstr);
-            methodInfo.env->DeleteLocalRef(methodInfo.classID);
-        } while(!fileutil->isFileExist(filename) && --retry);
+        } while(!TVPAndroidPathExists(filename) && --retry);
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
         return ret;
     }
     return false;
@@ -1025,8 +1039,7 @@ static bool TVPWriteDataToFileJava(const std::string &filename,
 bool TVPWriteDataToFile(const ttstr &filepath, const void *data,
                         unsigned int size) {
     std::string filename = filepath.AsStdString();
-    cocos2d::FileUtils *fileutil = cocos2d::FileUtils::getInstance();
-    while(fileutil->isFileExist(filename)) {
+    while(TVPAndroidPathExists(filename)) {
         // for number filename suffix issue
         time_t t = time(nullptr);
         std::vector<char> buffer;
@@ -1044,7 +1057,7 @@ bool TVPWriteDataToFile(const ttstr &filepath, const void *data,
             }
         }
         bool ret = TVPWriteDataToFileJava(filename, data, size);
-        if(fileutil->isFileExist(tempname.c_str())) {
+        if(TVPAndroidPathExists(tempname)) {
             TVPDeleteFile(tempname);
         }
         return ret;

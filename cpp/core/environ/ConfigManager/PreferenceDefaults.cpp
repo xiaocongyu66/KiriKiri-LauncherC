@@ -30,6 +30,7 @@ void TVPInitializePreferenceDefaults() {
     EnsureBool(config, "showfps", false);
     EnsureString(config, "fps_limit", "60");
     EnsureString(config, "renderer", "software");
+    EnsureString(config, "graphics_backend", "opengl");
     EnsureString(config, "default_font", "");
     EnsureBool(config, "force_default_font", false);
 #if defined(CC_TARGET_OS_IPHONE)

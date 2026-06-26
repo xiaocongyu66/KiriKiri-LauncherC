@@ -3,9 +3,10 @@
     <Item id="preference_title" text="全局设置"/>
     <Item id="preference_title_individual" text="独立设置"/>
     <Item id="preference_output_log" text="打印日志"/>
-    <Item id="preference_select_renderer" text="图形渲染器"/>
+    <Item id="preference_select_renderer" text="渲染管线"/>
+    <Item id="preference_graphics_backend" text="图形后端"/>
     <Item id="preference_opengl" text="OpenGL（试验性）"/>
-    <Item id="preference_vulkan" text="原生 Vulkan（试验性）"/>
+    <Item id="preference_vulkan" text="Vulkan（试验性）"/>
     <Item id="preference_software" text="软件渲染器"/>
     <Item id="preference_renderer_opt" text="渲染器高级选项"/>
     <Item id="preference_soft_renderer_opt" text="软件渲染器选项"/>

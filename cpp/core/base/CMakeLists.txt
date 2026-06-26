@@ -45,10 +45,8 @@ find_package(LibArchive REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
 find_package(zstd CONFIG REQUIRED)
 find_package(lz4 CONFIG REQUIRED)
-find_package(cocos2dx CONFIG REQUIRED)
+find_package(unofficial-minizip CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
-include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
-fix_cocos2dx_android_cpufeatures_include()
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     uchardet::libuchardet
@@ -59,6 +57,6 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     lz4::lz4
 
     SDL3::SDL3
-    cocos2dx::cocos2d
+    unofficial::minizip::minizip
     unofficial::sqlite3::sqlite3
 )

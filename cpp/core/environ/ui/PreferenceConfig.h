@@ -165,6 +165,8 @@ namespace {
                 PreferenceGetValueString("renderer", "software");
             if(renderer == "opengl")
                 return &OpenglOptPreference;
+            else if(renderer == "vulkan" || renderer == "vk")
+                return &OpenglOptPreference;
             else if(renderer == "software")
                 return &SoftRendererOptPreference;
             return nullptr;
@@ -312,8 +314,11 @@ namespace {
             new tTVPPreferenceInfoSelectList(
                 "preference_select_renderer", "renderer", "software",
                 { { "preference_opengl", "opengl" },
-                  { "preference_vulkan", "vulkan" },
                   { "preference_software", "software" } }),
+            new tTVPPreferenceInfoSelectList(
+                "preference_graphics_backend", "graphics_backend", "opengl",
+                { { "preference_opengl", "opengl" },
+                  { "preference_vulkan", "vulkan" } }),
             new tTVPPreferenceInfoRendererSubPref("preference_renderer_opt"),
             new tTVPPreferenceInfoSelectFile("preference_default_font",
                                              "default_font", ""),

@@ -24,9 +24,20 @@ class KR2Application : Application() {
             val prefs = getSharedPreferences("krkr2_launcher_bootstrap", MODE_PRIVATE)
             val snap = KrkrPrefsStore.load(this)
             val seed = mutableMapOf<String, String>()
-            val normalizedRenderer = LauncherPrefs.normalizeRendererPreference(snap.items["renderer"])
-            if (snap.items["renderer"] != normalizedRenderer) seed["renderer"] = normalizedRenderer
-            if (!prefs.getBoolean("engine_defaults_v3_applied", false)) {
+            val renderer = snap.items["renderer"]
+            val normalizedRenderer = LauncherPrefs.normalizeRendererPreference(renderer)
+            if ((renderer == "vulkan" || renderer == "vk") &&
+                "graphics_backend" !in snap.items) {
+                seed["graphics_backend"] = "vulkan"
+            }
+            if (renderer != normalizedRenderer) seed["renderer"] = normalizedRenderer
+            val normalizedGraphicsBackend =
+                LauncherPrefs.normalizeGraphicsBackendPreference(snap.items["graphics_backend"])
+            if (snap.items["graphics_backend"] != normalizedGraphicsBackend) {
+                seed["graphics_backend"] = seed["graphics_backend"] ?: normalizedGraphicsBackend
+            }
+            if (!prefs.getBoolean("engine_defaults_v4_applied", false)) {
+                if ("graphics_backend" !in snap.items) seed["graphics_backend"] = "opengl"
                 if ("ogl_accurate_render" !in snap.items) seed["ogl_accurate_render"] = "0"
                 if (LauncherPrefs.ENGINE_KEY_FFMPEG_IMAGE_DECODER !in snap.items) {
                     seed[LauncherPrefs.ENGINE_KEY_FFMPEG_IMAGE_DECODER] = "0"
@@ -38,6 +49,7 @@ class KR2Application : Application() {
                     .putBoolean("engine_defaults_v1_applied", true)
                     .putBoolean("engine_defaults_v2_applied", true)
                     .putBoolean("engine_defaults_v3_applied", true)
+                    .putBoolean("engine_defaults_v4_applied", true)
                     .apply()
             }
             if (seed.isNotEmpty()) KrkrPrefsStore.update(this, seed)

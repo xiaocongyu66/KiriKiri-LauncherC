@@ -89,7 +89,12 @@ class RenderSettingsActivity : AppCompatActivity() {
                     KrkrPrefsSchema.ALL_BY_KEY.values.forEach { item ->
                         val current = snap.items[item.key] ?: item.defaultAsString()
                         values[item.key] =
-                            if (item.key == "renderer") LauncherPrefs.normalizeRendererPreference(current) else current
+                            when (item.key) {
+                                "renderer" -> LauncherPrefs.normalizeRendererPreference(current)
+                                "graphics_backend" ->
+                                    LauncherPrefs.normalizeGraphicsBackendPreference(current)
+                                else -> current
+                            }
                     }
                 }
 

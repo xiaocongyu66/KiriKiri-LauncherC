@@ -496,10 +496,22 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
     var launchMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
     var selectedLaunch by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getCustomLaunchFile(context, game.gameDir).orEmpty()) }
     var rendererMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
+    var graphicsBackendMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
     var fpsMenuOpen by remember(game.gameDir) { mutableStateOf(false) }
     var renderer by remember(game.gameDir) {
         val saved = LauncherPrefs.getGameEnginePref(context, game.gameDir, "renderer").orEmpty()
         mutableStateOf(if (saved.isBlank()) "" else LauncherPrefs.normalizeRendererPreference(saved))
+    }
+    var graphicsBackend by remember(game.gameDir) {
+        val saved = LauncherPrefs.getGameEnginePref(context, game.gameDir, "graphics_backend").orEmpty()
+        val legacyRenderer = LauncherPrefs.getGameEnginePref(context, game.gameDir, "renderer").orEmpty()
+        mutableStateOf(
+            when {
+                saved.isNotBlank() -> LauncherPrefs.normalizeGraphicsBackendPreference(saved)
+                legacyRenderer == "vulkan" || legacyRenderer == "vk" -> "vulkan"
+                else -> ""
+            }
+        )
     }
     var fpsLimit by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "fps_limit") ?: "") }
     var showFps by remember(game.gameDir) { mutableStateOf(LauncherPrefs.getGameEnginePref(context, game.gameDir, "showfps") == "1") }
@@ -559,10 +571,25 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
                     options = listOf(
                         text.launchFileAuto to "",
                         engineCaption(text, "preference_opengl") to "opengl",
-                        engineCaption(text, "preference_vulkan") to "vulkan",
                         engineCaption(text, "preference_software") to "software",
                     ),
                     onSelect = { raw -> renderer = raw; LauncherPrefs.setGameEnginePref(context, game.gameDir, "renderer", raw) },
+                )
+                GameSelectSetting(
+                    title = engineCaption(text, "preference_graphics_backend"),
+                    value = graphicsBackend,
+                    fallback = text.launchFileAuto,
+                    expanded = graphicsBackendMenuOpen,
+                    onExpandedChange = { graphicsBackendMenuOpen = it },
+                    options = listOf(
+                        text.launchFileAuto to "",
+                        engineCaption(text, "preference_opengl") to "opengl",
+                        engineCaption(text, "preference_vulkan") to "vulkan",
+                    ),
+                    onSelect = { raw ->
+                        graphicsBackend = raw
+                        LauncherPrefs.setGameEnginePref(context, game.gameDir, "graphics_backend", raw)
+                    },
                 )
                 GameSelectSetting(
                     title = engineCaption(text, "preference_fps_limit"),
@@ -583,6 +610,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
                 }
                 TextButton(onClick = {
                     renderer = ""
+                    graphicsBackend = ""
                     fpsLimit = ""
                     showFps = false
                     accurateRender = false

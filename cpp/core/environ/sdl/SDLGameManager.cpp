@@ -384,19 +384,36 @@ bool IsSDLScreenPresenterDisabled() {
         IsTruthyEnv("KRKR2_FORCE_COCOS_RENDER");
 }
 
+std::string PreferredGraphicsBackend() {
+    std::string backend =
+        IndividualConfigManager::GetInstance()->GetValue<std::string>(
+            "graphics_backend", "");
+    if(backend.empty()) {
+        backend = IndividualConfigManager::GetInstance()->GetValue<std::string>(
+            "angle_backend", "");
+    }
+    if(backend == "vulkan" || backend == "vk")
+        return "vulkan";
+    if(backend == "opengl" || backend == "gles" || backend == "opengles")
+        return "opengl";
+
+    const std::string legacyRenderer =
+        IndividualConfigManager::GetInstance()->GetValue<std::string>(
+            "renderer", "software");
+    if(legacyRenderer == "vulkan" || legacyRenderer == "vk")
+        return "vulkan";
+    return "opengl";
+}
+
 std::string PreferredSDLRendererDriver() {
     const char *forced = SDL_getenv("KRKR2_SDL_RENDER_DRIVER");
     if(forced && *forced)
         return forced;
 
-    std::string renderer =
-        IndividualConfigManager::GetInstance()->GetValue<std::string>(
-            "renderer", "software");
-    if(renderer == "vulkan" || renderer == "vk")
+    const std::string backend = PreferredGraphicsBackend();
+    if(backend == "vulkan")
         return "vulkan,opengles2,opengl,gpu";
-    if(renderer == "opengl")
-        return "opengles2,opengl,vulkan,gpu";
-    return "vulkan,opengles2,opengl,gpu";
+    return "opengles2,opengl,vulkan,gpu";
 }
 
 void LogSDLScreenPresenter(const char *message) {
@@ -2768,6 +2785,27 @@ void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
         presentedFrames = gSDLScreenPresenterState.presentedFrames;
+        std::string presenterName;
+        if(gSDLScreenPresenterState.renderer) {
+            if(const char *name =
+                   SDL_GetRendererName(gSDLScreenPresenterState.renderer))
+                presenterName = name;
+        } else if(gSDLScreenPresenterState.windowSurface) {
+            presenterName = "window-surface";
+        }
+        if(!presenterName.empty()) {
+            if(!rendererName.empty())
+                rendererName += " / ";
+            rendererName += presenterName;
+        }
+    }
+    const std::string graphicsBackend = PreferredGraphicsBackend();
+    if(!graphicsBackend.empty()) {
+        if(rendererName.empty())
+            rendererName = "unknown";
+        rendererName += " [";
+        rendererName += graphicsBackend;
+        rendererName += "]";
     }
 
     std::lock_guard<std::mutex> lock(gSDLRenderOverlayMutex);

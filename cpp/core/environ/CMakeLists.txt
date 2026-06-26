@@ -17,6 +17,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/runtime/RuntimeHost.cpp
 
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android/AndroidUtils.cpp>
+    $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android/KrkrJniHelper.cpp>
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/linux/Platform.cpp>
     
     $<$<BOOL:${LINUX}>:${ENVIRON_PATH}/linux/Platform.cpp>

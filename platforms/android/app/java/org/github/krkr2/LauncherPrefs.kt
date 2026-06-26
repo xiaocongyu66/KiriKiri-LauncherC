@@ -217,16 +217,33 @@ object LauncherPrefs {
     }
 
 
-    private val GAME_ENGINE_KEYS = listOf("renderer", "fps_limit", "showfps", "ogl_accurate_render")
-    private val SUPPORTED_RENDERERS = setOf("software", "opengl", "vulkan")
+    private val GAME_ENGINE_KEYS = listOf(
+        "renderer",
+        "graphics_backend",
+        "fps_limit",
+        "showfps",
+        "ogl_accurate_render",
+    )
+    private val SUPPORTED_RENDERERS = setOf("software", "opengl")
+    private val SUPPORTED_GRAPHICS_BACKENDS = setOf("opengl", "vulkan")
 
     fun normalizeRendererPreference(value: String?): String {
         val raw = value?.trim().orEmpty()
         return when {
             raw.isBlank() -> "software"
             raw in SUPPORTED_RENDERERS -> raw
-            raw == "vk" -> "vulkan"
+            raw == "vulkan" || raw == "vk" -> "opengl"
             else -> "software"
+        }
+    }
+
+    fun normalizeGraphicsBackendPreference(value: String?): String {
+        val raw = value?.trim().orEmpty()
+        return when {
+            raw in SUPPORTED_GRAPHICS_BACKENDS -> raw
+            raw == "vk" -> "vulkan"
+            raw == "gles" || raw == "opengles" -> "opengl"
+            else -> "opengl"
         }
     }
 
@@ -242,14 +259,23 @@ object LauncherPrefs {
     }
 
     fun applyGameEngineOverrides(context: Context, gameDir: String) {
-        val updates = GAME_ENGINE_KEYS.mapNotNull { key ->
+        val updates = mutableMapOf<String, String>()
+        GAME_ENGINE_KEYS.forEach { key ->
             val value = getGameEnginePref(context, gameDir, key)?.takeIf { it.isNotBlank() }
-            when {
-                value == null -> null
-                key == "renderer" -> key to normalizeRendererPreference(value)
-                else -> key to value
+            if (value != null) {
+                when (key) {
+                    "renderer" -> {
+                        updates[key] = normalizeRendererPreference(value)
+                        if (value == "vulkan" || value == "vk") {
+                            updates["graphics_backend"] = "vulkan"
+                        }
+                    }
+                    "graphics_backend" ->
+                        updates[key] = normalizeGraphicsBackendPreference(value)
+                    else -> updates[key] = value
+                }
             }
-        }.toMap()
+        }
         if (updates.isNotEmpty()) {
             KrkrPrefsStore.update(context, updates)
             writeLauncherLog(context, "Applied per-game engine overrides for $gameDir: ${updates.keys.joinToString()}")
