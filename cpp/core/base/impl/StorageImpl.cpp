@@ -12,9 +12,9 @@
 
 // must before with Platform.h because marco will replece `st_atime` symbol!
 #include <fcntl.h>
+#include <cstring>
 #include <filesystem>
 #include <sys/stat.h>
-#include <cocos/cocos2d.h>
 
 #include "MsgIntf.h"
 
@@ -39,6 +39,11 @@
 #include <cctype>
 #include <set>
 #include <string>
+#include <vector>
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 
 #ifdef WIN32
 #include <io.h>
@@ -50,7 +55,7 @@ inline unsigned int lseek64(int fileHandle, __int64 offset, int origin) {
 // extern void vfree(void *p);
 // }
 #endif
-#ifdef CC_TARGET_OS_IPHONE
+#if defined(__APPLE__) && TARGET_OS_IPHONE
 #define lseek64 lseek
 #endif
 
@@ -273,7 +278,7 @@ static int _utf8_strcasecmp(const char *a, const char *b) {
     return *a - *b;
 }
 
-#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+#if defined(__APPLE__) && TARGET_OS_IPHONE
 const std::vector<std::string> &TVPGetApplicationHomeDirectory();
 const std::vector<ttstr> &_getPrefixPath() {
     static std::vector<ttstr> ret;
@@ -342,7 +347,7 @@ void tTVPFileMedia::GetLocallyAccessibleName(ttstr &name) {
         ptr += 2; // skip "./"
         newname.Clear();
     }
-#if CC_TARGET_PLATFORM == CC_PLATFORM_IOS
+#if defined(__APPLE__) && TARGET_OS_IPHONE
     {
         std::string prefix = "/";
         prefix += tTJSNarrowStringHolder(ptr).Buf;
