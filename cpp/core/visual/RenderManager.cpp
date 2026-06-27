@@ -5036,7 +5036,15 @@ static ttstr TVPReadPreferredRenderPipeline() {
     return renderer;
 }
 
+static bool TVPHasRenderManagerFactory(const ttstr &name) {
+    return _RenderManagerFactory &&
+        _RenderManagerFactory->find(name) != _RenderManagerFactory->end();
+}
+
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
+    if(!_RenderManagerFactory) {
+        TVPThrowExceptionMessage(TJS_W("unsupported renderer %1"), name);
+    }
     auto it = _RenderManagerFactory->find(name);
     if(it == _RenderManagerFactory->end()) {
         TVPThrowExceptionMessage(TJS_W("unsupported renderer %1"), name);
@@ -5068,6 +5076,13 @@ iTVPRenderManager *TVPGetRenderManager() {
         } else if(str != TJS_W("software") && str != TJS_W("opengl")) {
             TVPAddLog(TJS_W("[renderer] Unsupported renderer preference '") +
                       str + TJS_W("'; falling back to software renderer."));
+            str = TJS_W("software");
+        }
+        if(!TVPHasRenderManagerFactory(str)) {
+            TVPAddLog(TJS_W("[renderer] Requested render pipeline '") + str +
+                      TJS_W("' is unavailable in this build; falling back to "
+                            "software renderer. graphics_backend still selects "
+                            "the SDL presenter backend."));
             str = TJS_W("software");
         }
         _RenderManager = TVPGetRenderManager(str);
