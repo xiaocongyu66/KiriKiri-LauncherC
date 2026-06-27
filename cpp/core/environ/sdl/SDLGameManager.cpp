@@ -2980,11 +2980,14 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     const tTVPRect fullRect(0, 0, static_cast<tjs_int>(texture->GetWidth()),
                             static_cast<tjs_int>(texture->GetHeight()));
     const bool presenterAlreadyPresented = TVPSDLHasScreenPresenterPresented();
+    const bool glBackedTexture = texture->GetNativeGLTextureId() != 0;
     bool hasDirty = texture->PeekDirtyRect(updateRect);
     if(hasDirty)
         updateRect.clip(fullRect);
     bool forceFullFramePresent = false;
-    if(!hasDirty && takeoverActive && !presenterAlreadyPresented) {
+    const bool needsTakeoverFullFrame =
+        takeoverActive && (!presenterAlreadyPresented || glBackedTexture);
+    if(!hasDirty && needsTakeoverFullFrame) {
         updateRect = fullRect;
         hasDirty = !updateRect.is_empty();
         forceFullFramePresent = hasDirty;
@@ -2998,6 +3001,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     TVPTextureFormat::e copyFormat = texture->GetPixelDataFormat();
     if(copyFormat == TVPTextureFormat::None)
         copyFormat = texture->GetFormat();
+
+    if(forceFullFramePresent && glBackedTexture)
+        texture->InvalidatePixelCache();
 
     bool gpuUploaded = false;
     bool gpuConverted = false;

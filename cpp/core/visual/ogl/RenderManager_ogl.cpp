@@ -1120,6 +1120,14 @@ public:
 
     unsigned int GetNativeGLTextureId() const override { return texture; }
 
+    void InvalidatePixelCache() override {
+        if(PixelData) {
+            delete[] PixelData;
+            PixelData = nullptr;
+        }
+        PixelDataCounter = 0;
+    }
+
     const void *GetScanLineForRead(tjs_uint l) override;
     TVPTextureFormat::e GetPixelDataFormat() const override {
         return TVPTextureFormat::RGBA;
@@ -1730,7 +1738,7 @@ public:
 };
 
 class tTVPOGLTexture2D_mutatble : public tTVPOGLTexture2D {
-    bool IsTextureDirty;
+    bool IsTextureDirty = false;
 
 public:
     tTVPOGLTexture2D_mutatble(const void *pixel, int pitch, unsigned int w,
@@ -1789,6 +1797,14 @@ public:
             }
             IsTextureDirty = true;
         }
+    }
+
+    void InvalidatePixelCache() override {
+        if(PixelData && IsTextureDirty)
+            SyncPixel();
+        else
+            tTVPOGLTexture2D::InvalidatePixelCache();
+        IsTextureDirty = false;
     }
 
     void SyncPixel() override {
