@@ -2962,14 +2962,21 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     tTVPRect updateRect;
     const tTVPRect fullRect(0, 0, static_cast<tjs_int>(texture->GetWidth()),
                             static_cast<tjs_int>(texture->GetHeight()));
+    const bool presenterAlreadyPresented = TVPSDLHasScreenPresenterPresented();
     bool hasDirty = texture->PeekDirtyRect(updateRect);
     if(hasDirty)
         updateRect.clip(fullRect);
+    bool forceFullFramePresent = false;
+    if(!hasDirty && takeoverActive && !presenterAlreadyPresented) {
+        updateRect = fullRect;
+        hasDirty = !updateRect.is_empty();
+        forceFullFramePresent = hasDirty;
+    }
 
     if(!hasDirty)
-        return takeoverActive && TVPSDLHasScreenPresenterPresented();
+        return takeoverActive && presenterAlreadyPresented;
     if(updateRect.is_empty())
-        return takeoverActive && TVPSDLHasScreenPresenterPresented();
+        return takeoverActive && presenterAlreadyPresented;
 
     TVPTextureFormat::e copyFormat = texture->GetPixelDataFormat();
     if(copyFormat == TVPTextureFormat::None)
@@ -3022,14 +3029,14 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                     message, sizeof(message),
                     "present-texture-direct #%llu stage=%s tex=%p size=%ux%u "
                     "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                    "takeover=1",
+                    "takeover=1 fullFrame=%d",
                     static_cast<unsigned long long>(presentSequence),
                     stage ? stage : "", static_cast<void *>(texture),
                     texture->GetWidth(), texture->GetHeight(), updateRect.left,
                     updateRect.top, updateRect.get_width(),
                     updateRect.get_height(),
                     static_cast<unsigned long long>(gpuUploadBytes),
-                    gpuConverted ? 1 : 0);
+                    gpuConverted ? 1 : 0, forceFullFramePresent ? 1 : 0);
                 LogSDLGpuPresenter(message);
             }
             return true;
@@ -3086,14 +3093,15 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             std::snprintf(message, sizeof(message),
                           "shadow-upload #%llu stage=%s tex=%p size=%ux%u "
                           "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                          "takeover=0",
+                          "takeover=0 fullFrame=%d",
                           static_cast<unsigned long long>(gpuUploads),
                           stage ? stage : "", static_cast<void *>(texture),
                           texture->GetWidth(), texture->GetHeight(),
                           updateRect.left, updateRect.top,
                           updateRect.get_width(), updateRect.get_height(),
                           static_cast<unsigned long long>(gpuUploadBytes),
-                          gpuConverted ? 1 : 0);
+                          gpuConverted ? 1 : 0,
+                          forceFullFramePresent ? 1 : 0);
             LogSDLGpuPresenter(message);
         }
         return false;
@@ -3125,7 +3133,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         std::snprintf(message, sizeof(message),
                       "present-texture #%llu stage=%s tex=%p size=%ux%u "
                       "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                      "surfaceRegions=%llu surfaceBytes=%llu takeover=1",
+                      "surfaceRegions=%llu surfaceBytes=%llu takeover=1 "
+                      "fullFrame=%d",
                       static_cast<unsigned long long>(presentSequence),
                       stage ? stage : "", static_cast<void *>(texture),
                       texture->GetWidth(), texture->GetHeight(),
@@ -3134,7 +3143,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                       static_cast<unsigned long long>(gpuUploadBytes),
                       gpuConverted ? 1 : 0,
                       static_cast<unsigned long long>(surfaceCopiedTotal),
-                      static_cast<unsigned long long>(surfaceCopiedBytes));
+                      static_cast<unsigned long long>(surfaceCopiedBytes),
+                      forceFullFramePresent ? 1 : 0);
         LogSDLGpuPresenter(message);
     }
     return true;

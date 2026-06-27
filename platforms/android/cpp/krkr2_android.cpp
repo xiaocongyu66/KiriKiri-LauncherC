@@ -134,7 +134,8 @@ int gFlutterGameSurfaceWidth = 0;
 int gFlutterGameSurfaceHeight = 0;
 
 bool ShouldRouteLegacyInputToCocos() {
-    return !TVPSDLIsScreenTakeoverEnabled();
+    return !TVPSDLIsScreenTakeoverEnabled() ||
+        !TVPSDLHasScreenPresenterPresented();
 }
 
 bool ShowFlutterGameMainMenu(JNIEnv *env) {
@@ -503,7 +504,7 @@ JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
                                  pressed);
         return JNI_TRUE;
     }
-    if(TVPSDLIsScreenTakeoverEnabled() && keyCode == KEYCODE_MENU) {
+    if(TVPSDLHasScreenPresenterPresented() && keyCode == KEYCODE_MENU) {
         if(!pressed || ShowFlutterGameMainMenu(env)) {
             TVPSDLRecordAndroidInput("key-menu-flutter", 0, 0.0f, 0.0f,
                                      keyCode, pressed);
