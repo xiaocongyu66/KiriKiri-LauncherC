@@ -5014,6 +5014,8 @@ iTVPRenderManager *TVPCreateNativeVulkanRenderManager() {
     return new tTVPVulkanRenderManager();
 }
 
+iTVPRenderManager *TVPCreateOpenGLRenderManager();
+
 static bool TVPIsTruthyEnvValue(const char *value) {
     return value && std::strcmp(value, "0") != 0 &&
         std::strcmp(value, "false") != 0 &&
@@ -5034,11 +5036,6 @@ static ttstr TVPReadPreferredRenderPipeline() {
                        ->GetValue<std::string>("renderer", "software");
     }
     return renderer;
-}
-
-static bool TVPHasRenderManagerFactory(const ttstr &name) {
-    return _RenderManagerFactory &&
-        _RenderManagerFactory->find(name) != _RenderManagerFactory->end();
 }
 
 iTVPRenderManager *TVPGetRenderManager(const ttstr &name) {
@@ -5078,13 +5075,6 @@ iTVPRenderManager *TVPGetRenderManager() {
                       str + TJS_W("'; falling back to software renderer."));
             str = TJS_W("software");
         }
-        if(!TVPHasRenderManagerFactory(str)) {
-            TVPAddLog(TJS_W("[renderer] Requested render pipeline '") + str +
-                      TJS_W("' is unavailable in this build; falling back to "
-                            "software renderer. graphics_backend still selects "
-                            "the SDL presenter backend."));
-            str = TJS_W("software");
-        }
         _RenderManager = TVPGetRenderManager(str);
     }
     return _RenderManager;
@@ -5104,5 +5094,6 @@ static class __tTVPSoftwareRenderManagerAutoReigster {
 public:
     __tTVPSoftwareRenderManagerAutoReigster() {
         TVPRegisterRenderManager("software", TVPGetSoftwareRenderManager);
+        TVPRegisterRenderManager("opengl", TVPCreateOpenGLRenderManager);
     }
 } __tTVPSoftwareRenderManagerAutoReigster_instance;
