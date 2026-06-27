@@ -24,7 +24,7 @@ String _normalizeGraphicsBackend(Object? value, String fallback) {
   if (raw.isEmpty) {
     return fallback;
   }
-  if (raw == 'opengl' || raw == 'vulkan') {
+  if (raw == 'opengl' || raw == 'vulkan' || raw == 'gpuapi') {
     return raw;
   }
   if (raw == 'vk') {
@@ -32,6 +32,9 @@ String _normalizeGraphicsBackend(Object? value, String fallback) {
   }
   if (raw == 'gles' || raw == 'opengles') {
     return 'opengl';
+  }
+  if (raw == 'sdlgpu' || raw == 'sdl_gpu' || raw == 'gpu') {
+    return 'gpuapi';
   }
   return fallback;
 }
@@ -692,7 +695,12 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
                       title: '图形后端',
                       value: _overrideGraphicsBackend(values),
                       fallback: '自动',
-                      choices: const {'': '自动', 'opengl': 'OpenGL', 'vulkan': 'Vulkan'},
+                      choices: const {
+                        '': '自动',
+                        'opengl': 'OpenGL',
+                        'vulkan': 'Vulkan',
+                        'gpuapi': 'SDL GPU API',
+                      },
                       onChanged: (value) => _setOverride('graphics_backend', value),
                     ),
                     _SelectSetting(
@@ -983,7 +991,11 @@ class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> 
               title: '图形后端',
               value: _normalizeGraphicsBackend(_settings['graphics_backend'], 'opengl'),
               fallback: 'OpenGL',
-              choices: const {'opengl': 'OpenGL', 'vulkan': 'Vulkan'},
+              choices: const {
+                'opengl': 'OpenGL',
+                'vulkan': 'Vulkan',
+                'gpuapi': 'SDL GPU API',
+              },
               onChanged: (value) => _set('graphics_backend', value),
             ),
             _SelectSetting(

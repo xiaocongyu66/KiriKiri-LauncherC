@@ -7,6 +7,7 @@
     <Item id="preference_graphics_backend" text="Graphics Backend"/>
     <Item id="preference_opengl" text="OpenGL(Experimental)"/>
     <Item id="preference_vulkan" text="Vulkan(Experimental)"/>
+    <Item id="preference_gpuapi" text="SDL GPU API(Experimental)"/>
     <Item id="preference_software" text="Software"/>
     <Item id="preference_renderer_opt" text="Advanced Renderer Option"/>
     <Item id="preference_soft_renderer_opt" text="Soft Renderer Option"/>

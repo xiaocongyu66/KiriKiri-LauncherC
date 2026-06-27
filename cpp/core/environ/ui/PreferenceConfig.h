@@ -318,7 +318,8 @@ namespace {
             new tTVPPreferenceInfoSelectList(
                 "preference_graphics_backend", "graphics_backend", "opengl",
                 { { "preference_opengl", "opengl" },
-                  { "preference_vulkan", "vulkan" } }),
+                  { "preference_vulkan", "vulkan" },
+                  { "preference_gpuapi", "gpuapi" } }),
             new tTVPPreferenceInfoRendererSubPref("preference_renderer_opt"),
             new tTVPPreferenceInfoSelectFile("preference_default_font",
                                              "default_font", ""),

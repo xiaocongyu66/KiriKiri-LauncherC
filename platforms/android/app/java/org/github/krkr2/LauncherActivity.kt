@@ -585,6 +585,7 @@ private fun GameDetailPane(game: GameEntry, onLaunch: () -> Unit, onClose: () ->
                         text.launchFileAuto to "",
                         engineCaption(text, "preference_opengl") to "opengl",
                         engineCaption(text, "preference_vulkan") to "vulkan",
+                        engineCaption(text, "preference_gpuapi") to "gpuapi",
                     ),
                     onSelect = { raw ->
                         graphicsBackend = raw

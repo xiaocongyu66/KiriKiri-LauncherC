@@ -96,6 +96,7 @@ object KrkrPrefsSchema {
                 options = listOf(
                     "preference_opengl" to "opengl",
                     "preference_vulkan" to "vulkan",
+                    "preference_gpuapi" to "gpuapi",
                 ),
             ),
             PrefItem.TextField("default_font", "preference_default_font", ""),

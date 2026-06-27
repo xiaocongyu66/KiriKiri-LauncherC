@@ -5,14 +5,19 @@
 - Stable fallback renderers remain `software` and `opengl`.
 - Render selection is two-dimensional: `renderer` selects the TVP render
   pipeline (`software` or `opengl`), while `graphics_backend` selects the
-  presenter/device backend (`opengl` or `vulkan`). Valid combinations include
-  `opengl+vulkan`, `opengl+opengl`, and `software+vulkan`.
+  presenter/device backend (`opengl`, `vulkan`, or `gpuapi`). Valid
+  combinations include `opengl+vulkan`, `opengl+opengl`,
+  `software+vulkan`, and `software+gpuapi`.
 - `sdlgpu` is compiled as an independent core module under `cpp/core/render/sdlgpu`.
 - The first backend layer provides SDL_GPU device creation, texture creation, texture upload, release, and basic memory/upload statistics.
 - `SDLGpuTvpAdapter` now owns TVP texture format mapping, region upload validation, and RGB-to-RGBA staging for future `CreateTexture2D` / `UpdateTexture2D` routing.
 - `SDLGpuTextureCache` owns SDL_GPU texture handles, 10 MiB single-texture and 256 MiB total budgets, and LRU eviction for the future TVP upload path.
-- No game path is switched to SDL_GPU yet.
-- Android hybrid builds keep Cocos as the active presenter until an SDL or Flutter texture presenter is actually available; SDL screen takeover requests stay disabled in this mode.
+- Selecting `graphics_backend=gpuapi` enables the SDL_GPU texture cache/shadow
+  upload path while presentation still uses the active host presenter. This is
+  intentionally separate from the `renderer` pipeline selection.
+- Android hybrid builds keep Cocos as the active presenter until an SDL or
+  Flutter texture presenter has successfully presented a frame; takeover may be
+  requested earlier, but Cocos is only hidden after the presenter is ready.
 - The SDL surface mirror copies frames only while a real screen presenter consumer is active, so Android hybrid builds do not pay the extra CPU copy cost.
 
 ## Migration order
@@ -22,7 +27,8 @@
 3. Implement SDL_GPU cache eviction with the existing texture budget policy.
 4. Move Layer compositing operations to SDL_GPU render passes incrementally.
 5. Replace the cocos present path after SDL_GPU texture and compositing paths are stable.
-6. Expose `sdlgpu` in launcher settings only after startup, touch, video, and fast-skip tests pass.
+6. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
+   after startup, touch, video, and fast-skip tests pass.
 
 ## Initial backend scope
 

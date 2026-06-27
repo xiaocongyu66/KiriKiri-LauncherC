@@ -392,6 +392,21 @@ std::string ReadCommandLineString(const tjs_char *name) {
     return std::string();
 }
 
+std::string NormalizeGraphicsBackendName(std::string backend) {
+    for(char &ch : backend) {
+        if(ch >= 'A' && ch <= 'Z')
+            ch = static_cast<char>(ch - 'A' + 'a');
+    }
+    if(backend == "vulkan" || backend == "vk")
+        return "vulkan";
+    if(backend == "opengl" || backend == "gles" || backend == "opengles")
+        return "opengl";
+    if(backend == "gpuapi" || backend == "sdlgpu" ||
+       backend == "sdl_gpu" || backend == "gpu")
+        return "gpuapi";
+    return std::string();
+}
+
 std::string PreferredGraphicsBackend() {
     std::string backend = ReadCommandLineString(TJS_W("graphics_backend"));
     if(backend.empty()) {
@@ -405,10 +420,9 @@ std::string PreferredGraphicsBackend() {
         backend = IndividualConfigManager::GetInstance()->GetValue<std::string>(
             "angle_backend", "");
     }
-    if(backend == "vulkan" || backend == "vk")
-        return "vulkan";
-    if(backend == "opengl" || backend == "gles" || backend == "opengles")
-        return "opengl";
+    backend = NormalizeGraphicsBackendName(backend);
+    if(!backend.empty())
+        return backend;
 
     std::string legacyRenderer = ReadCommandLineString(TJS_W("renderer"));
     if(legacyRenderer.empty()) {
@@ -416,8 +430,9 @@ std::string PreferredGraphicsBackend() {
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
                 "renderer", "software");
     }
-    if(legacyRenderer == "vulkan" || legacyRenderer == "vk")
-        return "vulkan";
+    legacyRenderer = NormalizeGraphicsBackendName(legacyRenderer);
+    if(legacyRenderer == "vulkan")
+        return legacyRenderer;
     return "opengl";
 }
 
@@ -427,6 +442,8 @@ std::string PreferredSDLRendererDriver() {
         return forced;
 
     const std::string backend = PreferredGraphicsBackend();
+    if(backend == "gpuapi")
+        return "gpu,vulkan,opengles2,opengl";
     if(backend == "vulkan")
         return "vulkan,opengles2,opengl,gpu";
     return "opengles2,opengl,vulkan,gpu";
@@ -828,7 +845,7 @@ bool IsSDLGpuShadowUploadEnabled() {
             std::strcmp(value, "false") != 0 &&
             std::strcmp(value, "FALSE") != 0;
     });
-    return gSDLShadowUploadEnabled;
+    return gSDLShadowUploadEnabled || PreferredGraphicsBackend() == "gpuapi";
 }
 
 bool IsSDLRenderDiagnosticsActive() {
@@ -2989,6 +3006,49 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     uint64_t gpuFailures = 0;
     uint64_t gpuAttempts = 0;
     std::string gpuError;
+    bool gpuFailureLogged = false;
+
+    if(shadowUpload) {
+        bool knownTexture = false;
+        std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
+        knownTexture = gSDLGpuPresenterState.textureCache.Contains(texture);
+        gpuAttempts = ++gSDLGpuPresenterState.attempts;
+        if(EnsureSDLGpuPresenterLocked(stage)) {
+            const tTVPRect *sourceRect =
+                knownTexture && hasDirty ? &updateRect : nullptr;
+            auto result = gSDLGpuPresenterState.textureCache.Upsert(
+                *texture, sourceRect, "tvp-window-presenter");
+            if(result.uploaded) {
+                gpuUploaded = true;
+                gpuConverted = result.converted;
+                gpuUploadBytes = result.uploadBytes;
+                gpuUploads = ++gSDLGpuPresenterState.uploads;
+            } else {
+                gpuError = result.error;
+                gpuFailures = ++gSDLGpuPresenterState.failures;
+            }
+        } else {
+            gpuError = "SDL_GPU presenter backend is unavailable";
+            gpuFailures = ++gSDLGpuPresenterState.failures;
+        }
+    }
+
+    if(shadowUpload && !gpuUploaded && takeoverActive) {
+        gpuFailureLogged = true;
+        if(ShouldLogScreenPresenter(gpuFailures)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "upload failed #%llu attempt=%llu stage=%s tex=%p "
+                          "dirty=%d,%d,%dx%d error=%s",
+                          static_cast<unsigned long long>(gpuFailures),
+                          static_cast<unsigned long long>(gpuAttempts),
+                          stage ? stage : "", static_cast<void *>(texture),
+                          updateRect.left, updateRect.top,
+                          updateRect.get_width(), updateRect.get_height(),
+                          gpuError.c_str());
+            LogSDLGpuPresenter(message);
+        }
+    }
 
 #if defined(__ANDROID__)
     if(takeoverActive) {
@@ -3044,33 +3104,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     }
 #endif
 
-    if(shadowUpload) {
-        bool knownTexture = false;
-        std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
-        knownTexture = gSDLGpuPresenterState.textureCache.Contains(texture);
-        gpuAttempts = ++gSDLGpuPresenterState.attempts;
-        if(EnsureSDLGpuPresenterLocked(stage)) {
-            const tTVPRect *sourceRect =
-                knownTexture && hasDirty ? &updateRect : nullptr;
-            auto result = gSDLGpuPresenterState.textureCache.Upsert(
-                *texture, sourceRect, "tvp-window-presenter");
-            if(result.uploaded) {
-                gpuUploaded = true;
-                gpuConverted = result.converted;
-                gpuUploadBytes = result.uploadBytes;
-                gpuUploads = ++gSDLGpuPresenterState.uploads;
-            } else {
-                gpuError = result.error;
-                gpuFailures = ++gSDLGpuPresenterState.failures;
-            }
-        } else {
-            gpuError = "SDL_GPU presenter backend is unavailable";
-            gpuFailures = ++gSDLGpuPresenterState.failures;
-        }
-    }
-
     if(shadowUpload && !gpuUploaded) {
-        if(ShouldLogScreenPresenter(gpuFailures)) {
+        if(!gpuFailureLogged && ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];
             std::snprintf(message, sizeof(message),
                           "upload failed #%llu attempt=%llu stage=%s tex=%p "

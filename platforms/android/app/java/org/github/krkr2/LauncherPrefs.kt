@@ -225,7 +225,8 @@ object LauncherPrefs {
         "ogl_accurate_render",
     )
     private val SUPPORTED_RENDERERS = setOf("software", "opengl")
-    private val SUPPORTED_GRAPHICS_BACKENDS = setOf("opengl", "vulkan")
+    private val SUPPORTED_GRAPHICS_BACKENDS =
+        setOf("opengl", "vulkan", "gpuapi")
 
     fun normalizeRendererPreference(value: String?): String {
         val raw = value?.trim().orEmpty()
@@ -238,11 +239,12 @@ object LauncherPrefs {
     }
 
     fun normalizeGraphicsBackendPreference(value: String?): String {
-        val raw = value?.trim().orEmpty()
+        val raw = value?.trim()?.lowercase(Locale.ROOT).orEmpty()
         return when {
             raw in SUPPORTED_GRAPHICS_BACKENDS -> raw
             raw == "vk" -> "vulkan"
             raw == "gles" || raw == "opengles" -> "opengl"
+            raw == "sdlgpu" || raw == "sdl_gpu" || raw == "gpu" -> "gpuapi"
             else -> "opengl"
         }
     }
