@@ -41,9 +41,25 @@
   unless explicit shadow upload diagnostics are enabled. This keeps `gpuapi`
   from doubling per-frame texture readback/upload cost before a real
   SDL_GPU/SurfaceTexture presenter exists.
+- Android has an opt-in EGL/SurfaceTexture presenter experiment behind
+  `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1`. It reuses the existing Flutter
+  `TextureRegistry.SurfaceTextureEntry` bridge, acquires the same
+  `ANativeWindow`, creates an EGL `WindowSurface` on the render thread, draws
+  the final native GL texture as a full-frame quad, and presents with
+  `eglSwapBuffers`. Any failure falls back to the stable direct
+  `ANativeWindow_lock` CPU presenter. Software textures are intentionally not
+  uploaded by this path unless
+  `KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE=1` is set for diagnostics.
+- The EGL/SurfaceTexture path never partial-swaps dirty rectangles. Dirty state
+  only decides whether a frame should be presented; when the path presents, it
+  redraws the full source texture to avoid stale back-buffer contents. Set
+  `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=1` only if device logs/screenshots prove
+  the external Flutter texture is vertically inverted.
 - With `showfps` enabled, the Flutter overlay reports the TVP pipeline,
-  presenter, selected `graphics_backend`, and SDL_GPU shadow-upload state
-  (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`).
+  presenter, selected `graphics_backend`, SDL_GPU shadow-upload state
+  (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`), and opt-in
+  Android EGL presenter counters (`androidEgl=...`) when the experiment is
+  enabled.
 - Android hybrid builds keep Cocos as the active presenter until an SDL or
   Flutter texture presenter has successfully presented a frame; takeover may be
   requested earlier, but Cocos is only hidden after the presenter is ready.
@@ -55,8 +71,12 @@
 2. Route texture allocation/upload through a TVP adapter that can choose `software`, `opengl`, or `sdlgpu`.
 3. Implement SDL_GPU cache eviction with the existing texture budget policy.
 4. Move Layer compositing operations to SDL_GPU render passes incrementally.
-5. Replace the cocos present path after SDL_GPU texture and compositing paths are stable.
-6. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
+5. Validate the opt-in Android EGL/SurfaceTexture presenter on real devices:
+   nonblank first frame, continuous frames, correct orientation, responsive
+   touch, resize/detach safety, and no fallback spam.
+6. Replace the cocos present path after SDL_GPU texture and compositing paths are
+   stable.
+7. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
    after startup, touch, video, and fast-skip tests pass.
 
 ## Initial backend scope

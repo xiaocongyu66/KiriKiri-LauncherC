@@ -238,8 +238,112 @@ Important observations:
 - Next performance targets:
   - reduce Flutter/SDL input queue drops by coalescing move events while never
     dropping begin/end/cancel ordering;
-  - investigate AetherKiri-style EGL attachment to Flutter `SurfaceTexture`
-    as the future zero-copy path.
+  - validate the opt-in AetherKiri-style EGL attachment to Flutter
+    `SurfaceTexture` as the next low-copy path.
+
+## Current EGL/SurfaceTexture experiment
+
+This work is intentionally opt-in. The stable Android presenter is still the
+direct Flutter `ANativeWindow_lock` CPU copy path.
+
+New implementation in progress:
+
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Includes Android EGL/GLES2 headers under `__ANDROID__`.
+  - Adds `TVPAndroidEGLSurfacePresenterState` guarded by
+    `gSDLAndroidEGLPresenterMutex`.
+  - Adds `TryPresentAndroidEGLSurfaceTexture()` before the existing
+    `TryPresentAndroidFlutterTexture()` fallback in `TVPSDLTryPresentTexture()`.
+  - Enables the EGL path only when
+    `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1`.
+  - The path acquires the existing Flutter `ANativeWindow` through
+    `TVPAndroidAcquireFlutterGameSurfaceWindow()`, discovers the current EGL
+    display/context/config from the Cocos render thread, creates an EGL
+    `WindowSurface` for the Flutter `SurfaceTexture`, temporarily makes that
+    surface current with the current context, draws a full-frame GLES2 quad from
+    `iTVPTexture2D::GetNativeGLTextureId()`, flushes, swaps with
+    `eglSwapBuffers`, then restores the previous EGL draw/read surfaces and GL
+    state.
+  - It calls `TVPSetRenderTarget(0)` before sampling a native GL texture so the
+    final TVP texture is not still attached to the engine FBO.
+  - It computes UV scale from `GetWidth()/GetInternalWidth()` and
+    `GetHeight()/GetInternalHeight()` so power-of-two internal textures sample
+    only the logical frame.
+  - It does not partial-present dirty rectangles. A successful EGL present is
+    always logged as `present-texture-egl ... fullFrame=1`; dirty state only
+    determines whether a new present is needed.
+  - It does not upload software textures by default. If
+    `GetNativeGLTextureId() == 0`, the path returns false and the stable CPU
+    presenter handles the frame. Set
+    `KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE=1` only for diagnostics; that
+    copies scanlines into a scratch buffer and uploads one RGBA GL texture.
+  - Set `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=1` only if device evidence shows the
+    Flutter external texture is vertically inverted. AetherKiri's Android
+    SurfaceTexture path does not flip by default.
+  - Logs use the `android-egl-presenter` tag:
+    `surface ready ...`, `program ready ...`, `present-android-egl ...`, and
+    `failure ...`.
+  - With `showfps`, overlay renderer info appends `androidEgl=...` counters
+    when the flag is enabled.
+  - Any EGL/program/draw/swap failure returns false so the existing direct CPU
+    presenter remains the visible fallback. If restoring the original EGL
+    current surface fails, the path marks itself fatal and reports the restore
+    error.
+- `cpp/core/environ/sdl/SDLGameManager.h`
+  - Adds Android-only C ABI
+    `TVPSDLNotifyAndroidFlutterGameSurfaceChanged(const char *reason)`.
+- `platforms/android/cpp/krkr2_android.cpp`
+  - `nativeSetGameSurface`, `nativeResizeGameSurface`, and
+    `nativeDetachGameSurface` now notify the SDL presenter after updating the
+    stored Flutter `ANativeWindow`.
+  - The notification drops cached EGL window-surface resources so the render
+    thread recreates them on the next present. This is necessary because Dart
+    route disposal is unawaited and Java may release the `SurfaceTextureEntry`
+    while frames are still in flight.
+- `docs/sdlgpu-render-plan.md`
+  - Documents the opt-in EGL/SurfaceTexture path and diagnostics env vars.
+- `docs/runtime-host-architecture.md`
+  - Notes that the EGL path is a controlled experiment, not the final default
+    SDL3 host.
+
+Why this path was chosen:
+
+- New device logs proved SDL_GPU can create a Vulkan device, but no SDL_GPU
+  swapchain consumes the final texture yet. Vulkan is therefore not the next
+  presenter step.
+- `MainActivity.createGameSurfaceTexture()` already creates the correct Flutter
+  external texture and passes a `Surface` to native. Reusing that bridge keeps
+  the Dart `Texture` widget, touch mapping, metrics polling, and Cocos-hide
+  behavior intact.
+- AetherKiri uses the same conceptual model:
+  `SurfaceTexture -> Surface -> ANativeWindow -> EGL WindowSurface ->
+  full-frame GL blit -> eglSwapBuffers`.
+- SDL3's stock Android backend still obtains its native window through
+  SDLActivity/SDLSurface, so making SDL3 own the Flutter external texture would
+  require a vendored SDL Android backend patch. The current manual EGL bridge is
+  the lower-risk first step while the project still uses the Cocos GL thread.
+
+Validation required on device before making EGL default:
+
+- `android-egl-presenter surface ready` appears after the Flutter texture is
+  created.
+- `present-android-egl` reaches high frame counts, not just frame 1.
+- `present-flutter-direct` stops or becomes fallback-only when the EGL flag is
+  enabled and EGL succeeds.
+- Screen is nonblank, not vertically inverted, and not stale/double-buffer
+  flickering.
+- Touch begin/move/end still maps to the game surface correctly.
+- Resize/dispose does not crash; logs should show surface dropped/recreated.
+- Input queue `maxAgeMs` should improve compared with full-frame CPU copy logs.
+
+Known risks:
+
+- This borrows the current Cocos EGL context. GL state is saved/restored, but
+  device logs are still required to catch vendor-specific state-cache issues.
+- EGL surface creation can fail with `EGL_BAD_MATCH` if the current config is
+  incompatible with the Flutter `ANativeWindow`; fallback should keep rendering.
+- If the final texture is not GL-backed, the default EGL path intentionally does
+  nothing and lets the CPU presenter handle the frame.
 
 ## Subagent status
 
@@ -272,22 +376,19 @@ explorers were started and returned:
 
 ## Next concrete steps
 
-1. Finish and push the follow-up patch from the subagent reviews:
-   - safe owned-batch input coalescing;
-   - stale move direct-touch cancellation;
-   - RuntimeHost empty-path diagnostics;
-   - SDL_GPU verbose/hint fixes;
-   - skip Android direct-present shadow uploads unless explicitly requested;
-   - update docs and memory.
-2. Run available local checks:
+1. Finish local checks for the EGL/SurfaceTexture experiment:
    - `git diff --check`;
    - `python3 -m json.tool vcpkg.json`;
-   - grep changed symbols for obvious declaration/order mistakes.
-3. Commit with a message like
-   `Improve SDL GPU Android compatibility`.
-4. Push to `origin/main` using one-shot credential injection if needed.
-5. Monitor GitHub Actions for the new commit. Fix CI failures immediately.
-6. Next patch after CI:
-   - validate input queue coalescing on device logs and tune thresholds;
-   - or start an AetherKiri-style EGL/SurfaceTexture experimental presenter
-     behind an env flag, without making it default until verified.
+   - grep changed symbols for obvious declaration/order mistakes;
+   - rely on CI for Android compile because local `cmake`, `java`, `flutter`,
+     and `clang-format` are unavailable.
+2. Commit with a message like
+   `Add opt-in Android EGL SurfaceTexture presenter`.
+3. Push to `origin/main` using one-shot credential input if needed. Do not
+   store the PAT.
+4. Monitor GitHub Actions for the new commit. Fix compile/format failures
+   immediately.
+5. Ask for or inspect new device logs with:
+   - default flags, to ensure fallback behavior is unchanged;
+   - `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1`, to validate the EGL path;
+   - optionally `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=1` if output is inverted.

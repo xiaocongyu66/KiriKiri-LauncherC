@@ -724,68 +724,79 @@ Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
                                                         jobject surface,
                                                         jint width,
                                                         jint height) {
-    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
-    if(gFlutterGameSurfaceWindow) {
-        ANativeWindow_release(gFlutterGameSurfaceWindow);
-        gFlutterGameSurfaceWindow = nullptr;
-    }
-    gFlutterGameSurfaceWidth = 0;
-    gFlutterGameSurfaceHeight = 0;
-
-    if(surface) {
-        gFlutterGameSurfaceWindow = ANativeWindow_fromSurface(env, surface);
+    {
+        std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
         if(gFlutterGameSurfaceWindow) {
-            gFlutterGameSurfaceWidth = width > 0 ? width : 0;
-            gFlutterGameSurfaceHeight = height > 0 ? height : 0;
-            ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
-                                             gFlutterGameSurfaceWidth,
-                                             gFlutterGameSurfaceHeight,
-                                             WINDOW_FORMAT_RGBA_8888);
-            char message[192];
-            std::snprintf(message, sizeof(message),
-                          "set game surface window=%p size=%dx%d",
-                          static_cast<void *>(gFlutterGameSurfaceWindow),
-                          gFlutterGameSurfaceWidth,
-                          gFlutterGameSurfaceHeight);
-            TVPNativeLogInfo("flutter-surface", message);
+            ANativeWindow_release(gFlutterGameSurfaceWindow);
+            gFlutterGameSurfaceWindow = nullptr;
+        }
+        gFlutterGameSurfaceWidth = 0;
+        gFlutterGameSurfaceHeight = 0;
+
+        if(surface) {
+            gFlutterGameSurfaceWindow = ANativeWindow_fromSurface(env, surface);
+            if(gFlutterGameSurfaceWindow) {
+                gFlutterGameSurfaceWidth = width > 0 ? width : 0;
+                gFlutterGameSurfaceHeight = height > 0 ? height : 0;
+                ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
+                                                 gFlutterGameSurfaceWidth,
+                                                 gFlutterGameSurfaceHeight,
+                                                 WINDOW_FORMAT_RGBA_8888);
+                char message[192];
+                std::snprintf(message, sizeof(message),
+                              "set game surface window=%p size=%dx%d",
+                              static_cast<void *>(gFlutterGameSurfaceWindow),
+                              gFlutterGameSurfaceWidth,
+                              gFlutterGameSurfaceHeight);
+                TVPNativeLogInfo("flutter-surface", message);
+            } else {
+                TVPNativeLogInfo("flutter-surface",
+                                 "set game surface failed: null ANativeWindow");
+            }
         } else {
             TVPNativeLogInfo("flutter-surface",
-                             "set game surface failed: null ANativeWindow");
+                             "set game surface: null surface");
         }
-    } else {
-        TVPNativeLogInfo("flutter-surface", "set game surface: null surface");
     }
+    TVPSDLNotifyAndroidFlutterGameSurfaceChanged("set");
 }
 
 JNIEXPORT void JNICALL
 Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
                                                            jint width,
                                                            jint height) {
-    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
-    gFlutterGameSurfaceWidth = width > 0 ? width : 0;
-    gFlutterGameSurfaceHeight = height > 0 ? height : 0;
-    if(gFlutterGameSurfaceWindow) {
-        ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
-                                         gFlutterGameSurfaceWidth,
-                                         gFlutterGameSurfaceHeight,
-                                         WINDOW_FORMAT_RGBA_8888);
+    {
+        std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+        gFlutterGameSurfaceWidth = width > 0 ? width : 0;
+        gFlutterGameSurfaceHeight = height > 0 ? height : 0;
+        if(gFlutterGameSurfaceWindow) {
+            ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
+                                             gFlutterGameSurfaceWidth,
+                                             gFlutterGameSurfaceHeight,
+                                             WINDOW_FORMAT_RGBA_8888);
+        }
+        char message[160];
+        std::snprintf(message, sizeof(message),
+                      "resize game surface size=%dx%d",
+                      gFlutterGameSurfaceWidth, gFlutterGameSurfaceHeight);
+        TVPNativeLogInfo("flutter-surface", message);
     }
-    char message[160];
-    std::snprintf(message, sizeof(message), "resize game surface size=%dx%d",
-                  gFlutterGameSurfaceWidth, gFlutterGameSurfaceHeight);
-    TVPNativeLogInfo("flutter-surface", message);
+    TVPSDLNotifyAndroidFlutterGameSurfaceChanged("resize");
 }
 
 JNIEXPORT void JNICALL
 Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
-    std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
-    if(gFlutterGameSurfaceWindow) {
-        ANativeWindow_release(gFlutterGameSurfaceWindow);
-        gFlutterGameSurfaceWindow = nullptr;
+    {
+        std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+        if(gFlutterGameSurfaceWindow) {
+            ANativeWindow_release(gFlutterGameSurfaceWindow);
+            gFlutterGameSurfaceWindow = nullptr;
+        }
+        gFlutterGameSurfaceWidth = 0;
+        gFlutterGameSurfaceHeight = 0;
+        TVPNativeLogInfo("flutter-surface", "detach game surface");
     }
-    gFlutterGameSurfaceWidth = 0;
-    gFlutterGameSurfaceHeight = 0;
-    TVPNativeLogInfo("flutter-surface", "detach game surface");
+    TVPSDLNotifyAndroidFlutterGameSurfaceChanged("detach");
 }
 
 JNIEXPORT void JNICALL
