@@ -62,6 +62,8 @@ Logs from the pushed build:
 - `/root/log/78.log`
 - `/root/log/20260629022307020.log`
 - `/root/log/20260629022423320.log`
+- `/root/log/20260629041311767.log`
+- `/root/log/20260629041351243.log`
 
 Important observations:
 
@@ -89,6 +91,23 @@ Important observations:
 - Logs show `sdl-inputqueue` drops happen during heavy script/render work and
   rapid touch move bursts. Begin/end/cancel ordering must not be broken when
   this is optimized.
+- New 04:13 logs after commits `36c9dcb` and `105c4f3` show real progress:
+  - `sdl-gpu-presenter backend ready ... driver=vulkan`, so Android relaxed
+    SDL_GPU device creation now works on the target device.
+  - `present-flutter-direct` no longer stops at `#1`; logs show continuous
+    direct presentation through at least `#256`.
+  - The white/static first-frame failure is therefore mitigated by forcing
+    continuous full-frame presentation for GL-backed textures.
+  - Current bottleneck is performance: every Android takeover frame still does
+    a 1920x1080 CPU readback/copy into Flutter's `ANativeWindow`, and with
+    `graphics_backend=gpuapi` it also did a per-frame SDL_GPU shadow upload.
+    Since no SDL_GPU swapchain consumes the uploaded texture yet, that shadow
+    upload is diagnostic-only duplicate work.
+  - Input latency still has spikes under heavy script/render work:
+    `maxAgeMs=401` in `20260629041311767.log` and `maxAgeMs=549` in
+    `20260629041351243.log`. Coalescing keeps backlog from growing
+    permanently, but reducing per-frame duplicate work is the next practical
+    performance fix.
 
 ## Reference project findings already known
 
@@ -181,6 +200,13 @@ Important observations:
     `SDL_HINT_OVERRIDE)` is set before device creation so an external
     `SDL_GPU_DRIVER` hint cannot silently override the project-specific
     diagnostic knob.
+  - Follow-up after 04:13 device logs: `graphics_backend=gpuapi` now means
+    SDL_GPU device initialization and diagnostics by default. On Android, while
+    the active presenter is still Flutter direct `ANativeWindow`, per-frame
+    SDL_GPU shadow uploads are skipped unless
+    `KRKR2_ENABLE_SDL_GPU_SHADOW_UPLOAD=1` is explicitly set. This avoids
+    double-paying CPU readback/copy plus Vulkan upload before a real
+    SDL_GPU/SurfaceTexture presenter consumes the GPU texture.
   - This should make the next device log useful without rebuilding a special
     diagnostic branch.
 - Flutter launcher documentation:
@@ -251,6 +277,7 @@ explorers were started and returned:
    - stale move direct-touch cancellation;
    - RuntimeHost empty-path diagnostics;
    - SDL_GPU verbose/hint fixes;
+   - skip Android direct-present shadow uploads unless explicitly requested;
    - update docs and memory.
 2. Run available local checks:
    - `git diff --check`;

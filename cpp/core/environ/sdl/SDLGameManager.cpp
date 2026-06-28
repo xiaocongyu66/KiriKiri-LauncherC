@@ -179,7 +179,7 @@ struct TVPSDLGpuPresenterState {
     std::string unavailableReason;
     uint64_t attempts = 0;
     uint64_t uploads = 0;
-    uint64_t skippedClean = 0;
+    uint64_t skippedDirect = 0;
     uint64_t failures = 0;
 };
 
@@ -914,6 +914,9 @@ void AppendSDLGpuOverlayInfo(std::ostringstream &rendererInfo) {
         const char *driver = gSDLGpuPresenterState.backend.DriverName();
         rendererInfo << (driver && *driver ? driver : "ready");
         rendererInfo << " uploads=" << gSDLGpuPresenterState.uploads;
+        if(gSDLGpuPresenterState.skippedDirect > 0)
+            rendererInfo << " skippedDirect="
+                         << gSDLGpuPresenterState.skippedDirect;
         if(gSDLGpuPresenterState.failures > 0)
             rendererInfo << " failures=" << gSDLGpuPresenterState.failures;
         return;
@@ -953,7 +956,7 @@ bool IsSDLSurfaceMirrorConsumerActive() {
     return gSDLSurfaceMirrorConsumerActive.load(std::memory_order_relaxed);
 }
 
-bool IsSDLGpuShadowUploadEnabled() {
+bool IsExplicitSDLGpuShadowUploadEnabled() {
     std::call_once(gSDLShadowUploadFlagOnce, []() {
         const char *value = SDL_getenv("KRKR2_ENABLE_SDL_GPU_SHADOW_UPLOAD");
         gSDLShadowUploadEnabled =
@@ -961,7 +964,24 @@ bool IsSDLGpuShadowUploadEnabled() {
             std::strcmp(value, "false") != 0 &&
             std::strcmp(value, "FALSE") != 0;
     });
-    return gSDLShadowUploadEnabled || PreferredGraphicsBackend() == "gpuapi";
+    return gSDLShadowUploadEnabled;
+}
+
+bool IsSDLGpuShadowUploadEnabled() {
+    return IsExplicitSDLGpuShadowUploadEnabled() ||
+        PreferredGraphicsBackend() == "gpuapi";
+}
+
+bool ShouldRunSDLGpuShadowUpload(bool takeoverActive) {
+#if defined(__ANDROID__)
+    if(takeoverActive && PreferredGraphicsBackend() == "gpuapi" &&
+       !IsExplicitSDLGpuShadowUploadEnabled()) {
+        return false;
+    }
+#else
+    (void)takeoverActive;
+#endif
+    return IsSDLGpuShadowUploadEnabled();
 }
 
 bool IsSDLRenderDiagnosticsActive() {
@@ -3150,8 +3170,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
 
     const bool takeoverActive =
         TVPSDLIsScreenTakeoverEnabled() && TVPSDLIsScreenTakeoverSupported();
-    const bool shadowUpload = IsSDLGpuShadowUploadEnabled();
-    if(!takeoverActive && !shadowUpload)
+    const bool sdlGpuRequested = IsSDLGpuShadowUploadEnabled();
+    const bool shadowUpload = ShouldRunSDLGpuShadowUpload(takeoverActive);
+    if(!takeoverActive && !sdlGpuRequested)
         return false;
 
     TVPSDLInitializeRuntime();
@@ -3195,6 +3216,27 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     std::string gpuError;
     bool gpuFailureLogged = false;
     bool gpuUnavailable = false;
+
+    if(sdlGpuRequested && !shadowUpload) {
+        std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
+        if(gSDLGpuPresenterState.unavailable) {
+            gpuUnavailable = true;
+            gpuError = gSDLGpuPresenterState.unavailableReason;
+        } else if(EnsureSDLGpuPresenterLocked(stage)) {
+            const uint64_t skipped = ++gSDLGpuPresenterState.skippedDirect;
+            if(ShouldLogScreenPresenter(skipped)) {
+                char message[384];
+                std::snprintf(
+                    message, sizeof(message),
+                    "shadow-upload skipped #%llu stage=%s reason=%s "
+                    "driver=%s",
+                    static_cast<unsigned long long>(skipped),
+                    stage ? stage : "", "android-direct-flutter-presenter",
+                    gSDLGpuPresenterState.backend.DriverName());
+                LogSDLGpuPresenter(message);
+            }
+        }
+    }
 
     if(shadowUpload) {
         bool knownTexture = false;

@@ -12,9 +12,14 @@
 - The first backend layer provides SDL_GPU device creation, texture creation, texture upload, release, and basic memory/upload statistics.
 - `SDLGpuTvpAdapter` now owns TVP texture format mapping, region upload validation, and RGB-to-RGBA staging for future `CreateTexture2D` / `UpdateTexture2D` routing.
 - `SDLGpuTextureCache` owns SDL_GPU texture handles, 10 MiB single-texture and 256 MiB total budgets, and LRU eviction for the future TVP upload path.
-- Selecting `graphics_backend=gpuapi` enables the SDL_GPU texture cache/shadow
-  upload path while presentation still uses the active host presenter. This is
-  intentionally separate from the `renderer` pipeline selection.
+- Selecting `graphics_backend=gpuapi` requests SDL_GPU device initialization and
+  reports the selected driver in diagnostics while presentation still uses the
+  active host presenter. On Android, if the active presenter is the Flutter
+  direct `ANativeWindow` path, per-frame SDL_GPU shadow uploads are skipped by
+  default because no SDL_GPU swapchain consumes them yet and the direct
+  presenter still performs the required CPU copy. Set
+  `KRKR2_ENABLE_SDL_GPU_SHADOW_UPLOAD=1` to force the old shadow-upload
+  diagnostics.
 - Android builds request SDL3's Vulkan feature so SDL_GPU has a device backend
   when the platform supports it. Runtime device selection is compatibility
   first: SDL_GPU uses SDL's automatic driver selection unless
@@ -31,6 +36,11 @@
   once, including the selected shader formats and strict/relaxed feature
   profile, then stays disabled; Flutter direct presentation continues to carry
   the frame.
+- If SDL_GPU initializes while Android Flutter direct presentation is active,
+  logs report `shadow-upload skipped ... reason=android-direct-flutter-presenter`
+  unless explicit shadow upload diagnostics are enabled. This keeps `gpuapi`
+  from doubling per-frame texture readback/upload cost before a real
+  SDL_GPU/SurfaceTexture presenter exists.
 - With `showfps` enabled, the Flutter overlay reports the TVP pipeline,
   presenter, selected `graphics_backend`, and SDL_GPU shadow-upload state
   (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`).
