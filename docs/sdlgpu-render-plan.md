@@ -15,6 +15,13 @@
 - Selecting `graphics_backend=gpuapi` enables the SDL_GPU texture cache/shadow
   upload path while presentation still uses the active host presenter. This is
   intentionally separate from the `renderer` pipeline selection.
+- Android builds request SDL3's Vulkan feature so SDL_GPU has a device backend
+  when the platform supports it. If SDL still reports no GPU driver at runtime,
+  the shadow upload path logs the available driver list once and stays disabled;
+  Flutter direct presentation continues to carry the frame.
+- With `showfps` enabled, the Flutter overlay reports the TVP pipeline,
+  presenter, selected `graphics_backend`, and SDL_GPU shadow-upload state
+  (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`).
 - Android hybrid builds keep Cocos as the active presenter until an SDL or
   Flutter texture presenter has successfully presented a frame; takeover may be
   requested earlier, but Cocos is only hidden after the presenter is ready.

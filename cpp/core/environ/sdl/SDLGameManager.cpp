@@ -171,6 +171,10 @@ struct TVPSDLGpuPresenterState {
     krkr::render::sdlgpu::tvp::TextureCache textureCache;
     bool initializeTried = false;
     bool ready = false;
+    bool unavailable = false;
+    std::string preferredDriver;
+    std::string availableDrivers;
+    std::string unavailableReason;
     uint64_t attempts = 0;
     uint64_t uploads = 0;
     uint64_t skippedClean = 0;
@@ -372,6 +376,7 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
 }
 
 void LogSDLScreenPresenter(const char *message);
+bool IsSDLGpuShadowUploadEnabled();
 
 bool IsTruthyEnv(const char *name) {
     const char *value = SDL_getenv(name);
@@ -447,6 +452,46 @@ std::string PreferredSDLRendererDriver() {
     if(backend == "vulkan")
         return "vulkan,opengles2,opengl,gpu";
     return "opengles2,opengl,vulkan,gpu";
+}
+
+std::string AvailableSDLGpuDrivers() {
+    const int driverCount = SDL_GetNumGPUDrivers();
+    if(driverCount <= 0)
+        return "(none)";
+
+    std::string drivers;
+    for(int index = 0; index < driverCount; ++index) {
+        const char *driver = SDL_GetGPUDriver(index);
+        if(!driver || !*driver)
+            continue;
+        if(!drivers.empty())
+            drivers += ",";
+        drivers += driver;
+    }
+    return drivers.empty() ? "(none)" : drivers;
+}
+
+std::string PreferredSDLGpuDriver() {
+    const char *forced = SDL_getenv("KRKR2_SDL_GPU_DRIVER");
+    if(forced && *forced)
+        return forced;
+
+    const std::string backend = PreferredGraphicsBackend();
+    if(backend == "gpuapi" || backend == "vulkan")
+        return "vulkan";
+    return std::string();
+}
+
+std::string ClipOverlayString(std::string value, size_t limit) {
+    for(char &ch : value) {
+        if(ch == '\r' || ch == '\n' || ch == '\t')
+            ch = ' ';
+    }
+    if(value.size() > limit) {
+        value.resize(limit);
+        value += "...";
+    }
+    return value;
 }
 
 void LogSDLScreenPresenter(const char *message) {
@@ -786,14 +831,41 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
 bool EnsureSDLGpuPresenterLocked(const char *stage) {
     if(gSDLGpuPresenterState.ready)
         return true;
-    if(gSDLGpuPresenterState.initializeTried)
+    if(gSDLGpuPresenterState.initializeTried) {
+        if(!gSDLGpuPresenterState.unavailable) {
+            gSDLGpuPresenterState.unavailable = true;
+            gSDLGpuPresenterState.unavailableReason =
+                "SDL_GPU presenter initialization already failed";
+        }
         return false;
+    }
 
     gSDLGpuPresenterState.initializeTried = true;
     TVPSDLInitializeRuntime();
 
+    gSDLGpuPresenterState.preferredDriver = PreferredSDLGpuDriver();
+    gSDLGpuPresenterState.availableDrivers = AvailableSDLGpuDrivers();
+    {
+        char message[384];
+        std::snprintf(
+            message, sizeof(message),
+            "backend init begin stage=%s preferred=%s available=%s",
+            stage ? stage : "",
+            gSDLGpuPresenterState.preferredDriver.empty()
+                ? "(auto)"
+                : gSDLGpuPresenterState.preferredDriver.c_str(),
+            gSDLGpuPresenterState.availableDrivers.c_str());
+        LogSDLGpuPresenter(message);
+    }
+
     if((SDL_WasInit(0) & SDL_INIT_VIDEO) == 0 &&
        !SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+        gSDLGpuPresenterState.unavailable = true;
+        gSDLGpuPresenterState.unavailableReason = "SDL_INIT_VIDEO failed";
+        if(const char *error = SDL_GetError(); error && *error) {
+            gSDLGpuPresenterState.unavailableReason += ": ";
+            gSDLGpuPresenterState.unavailableReason += error;
+        }
         char message[320];
         std::snprintf(message, sizeof(message),
                       "video init failed stage=%s error=%s",
@@ -802,12 +874,19 @@ bool EnsureSDLGpuPresenterLocked(const char *stage) {
         return false;
     }
 
-    if(!gSDLGpuPresenterState.backend.Initialize(nullptr, false)) {
+    if(!gSDLGpuPresenterState.backend.Initialize(
+           gSDLGpuPresenterState.preferredDriver.empty()
+               ? nullptr
+               : gSDLGpuPresenterState.preferredDriver.c_str(),
+           false)) {
+        gSDLGpuPresenterState.unavailable = true;
+        gSDLGpuPresenterState.unavailableReason =
+            gSDLGpuPresenterState.backend.LastError();
         char message[384];
         std::snprintf(message, sizeof(message),
                       "backend init failed stage=%s error=%s",
                       stage ? stage : "",
-                      gSDLGpuPresenterState.backend.LastError().c_str());
+                      gSDLGpuPresenterState.unavailableReason.c_str());
         LogSDLGpuPresenter(message);
         return false;
     }
@@ -815,6 +894,8 @@ bool EnsureSDLGpuPresenterLocked(const char *stage) {
     gSDLGpuPresenterState.textureCache.SetBackend(
         &gSDLGpuPresenterState.backend);
     gSDLGpuPresenterState.ready = true;
+    gSDLGpuPresenterState.unavailable = false;
+    gSDLGpuPresenterState.unavailableReason.clear();
 
     char message[256];
     std::snprintf(message, sizeof(message),
@@ -823,6 +904,43 @@ bool EnsureSDLGpuPresenterLocked(const char *stage) {
                   gSDLGpuPresenterState.backend.DriverName());
     LogSDLGpuPresenter(message);
     return true;
+}
+
+void AppendSDLGpuOverlayInfo(std::ostringstream &rendererInfo) {
+    if(!IsSDLGpuShadowUploadEnabled())
+        return;
+
+    std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
+    rendererInfo << " sdlgpu=";
+    if(gSDLGpuPresenterState.ready) {
+        const char *driver = gSDLGpuPresenterState.backend.DriverName();
+        rendererInfo << (driver && *driver ? driver : "ready");
+        rendererInfo << " uploads=" << gSDLGpuPresenterState.uploads;
+        if(gSDLGpuPresenterState.failures > 0)
+            rendererInfo << " failures=" << gSDLGpuPresenterState.failures;
+        return;
+    }
+
+    if(gSDLGpuPresenterState.unavailable) {
+        rendererInfo << "unavailable";
+        if(!gSDLGpuPresenterState.preferredDriver.empty()) {
+            rendererInfo << " preferred="
+                         << gSDLGpuPresenterState.preferredDriver;
+        }
+        if(!gSDLGpuPresenterState.availableDrivers.empty()) {
+            rendererInfo << " available="
+                         << gSDLGpuPresenterState.availableDrivers;
+        }
+        if(!gSDLGpuPresenterState.unavailableReason.empty()) {
+            rendererInfo << " reason="
+                         << ClipOverlayString(
+                                gSDLGpuPresenterState.unavailableReason, 96);
+        }
+        return;
+    }
+
+    rendererInfo << (gSDLGpuPresenterState.initializeTried ? "initializing"
+                                                           : "pending");
 }
 
 bool IsSDLScreenPresenterWindowSupported() {
@@ -2838,6 +2956,7 @@ void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
         rendererInfo << " presenter=" << presenterName;
     if(!graphicsBackend.empty())
         rendererInfo << " backend=" << graphicsBackend;
+    AppendSDLGpuOverlayInfo(rendererInfo);
     const std::string rendererName = rendererInfo.str();
 
     std::lock_guard<std::mutex> lock(gSDLRenderOverlayMutex);
@@ -3013,13 +3132,21 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     uint64_t gpuAttempts = 0;
     std::string gpuError;
     bool gpuFailureLogged = false;
+    bool gpuUnavailable = false;
 
     if(shadowUpload) {
         bool knownTexture = false;
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
-        knownTexture = gSDLGpuPresenterState.textureCache.Contains(texture);
-        gpuAttempts = ++gSDLGpuPresenterState.attempts;
-        if(EnsureSDLGpuPresenterLocked(stage)) {
+        if(gSDLGpuPresenterState.unavailable) {
+            gpuUnavailable = true;
+            gpuError = gSDLGpuPresenterState.unavailableReason;
+            gpuAttempts = gSDLGpuPresenterState.attempts;
+            gpuFailures = gSDLGpuPresenterState.failures;
+        } else {
+            knownTexture = gSDLGpuPresenterState.textureCache.Contains(texture);
+            gpuAttempts = ++gSDLGpuPresenterState.attempts;
+        }
+        if(!gpuUnavailable && EnsureSDLGpuPresenterLocked(stage)) {
             const tTVPRect *sourceRect =
                 knownTexture && hasDirty ? &updateRect : nullptr;
             auto result = gSDLGpuPresenterState.textureCache.Upsert(
@@ -3033,13 +3160,13 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                 gpuError = result.error;
                 gpuFailures = ++gSDLGpuPresenterState.failures;
             }
-        } else {
+        } else if(!gpuUnavailable) {
             gpuError = "SDL_GPU presenter backend is unavailable";
             gpuFailures = ++gSDLGpuPresenterState.failures;
         }
     }
 
-    if(shadowUpload && !gpuUploaded && takeoverActive) {
+    if(shadowUpload && !gpuUploaded && takeoverActive && !gpuUnavailable) {
         gpuFailureLogged = true;
         if(ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];
@@ -3111,7 +3238,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
 #endif
 
     if(shadowUpload && !gpuUploaded) {
-        if(!gpuFailureLogged && ShouldLogScreenPresenter(gpuFailures)) {
+        if(!gpuUnavailable && !gpuFailureLogged &&
+           ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];
             std::snprintf(message, sizeof(message),
                           "upload failed #%llu attempt=%llu stage=%s tex=%p "

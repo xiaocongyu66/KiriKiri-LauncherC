@@ -84,7 +84,12 @@
       "name": "opusfile",
       "default-features": false
     },
-    "sdl3",
+    {
+      "name": "sdl3",
+      "features": [
+        "vulkan"
+      ]
+    },
     "sqlite3",
     "spdlog",
     {
