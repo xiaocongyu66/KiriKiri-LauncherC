@@ -15,6 +15,13 @@ struct TVPRuntimeHostFrameMetrics {
     float scale = 1.0f;
 };
 
+enum class TVPRuntimeHostLaunchStatus {
+    Started,
+    EmptyPath,
+    NoHost,
+    RejectedByHost,
+};
+
 class iTVPRuntimeHost {
 public:
     virtual ~iTVPRuntimeHost() = default;
@@ -28,3 +35,8 @@ public:
 void TVPSetRuntimeHost(iTVPRuntimeHost *host);
 iTVPRuntimeHost *TVPGetRuntimeHost();
 const char *TVPGetRuntimeHostName();
+TVPRuntimeHostLaunchStatus
+TVPStartGameOnRuntimeHostDetailed(const TVPRuntimeHostLaunchRequest &request,
+                                  const char *source = nullptr);
+bool TVPStartGameOnRuntimeHost(const TVPRuntimeHostLaunchRequest &request,
+                               const char *source = nullptr);

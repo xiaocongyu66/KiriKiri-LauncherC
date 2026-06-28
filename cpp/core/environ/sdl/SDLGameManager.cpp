@@ -55,6 +55,7 @@ std::atomic_bool gSDLInputQueueReady{false};
 std::atomic_uint64_t gSDLInputQueued{0};
 std::atomic_uint64_t gSDLInputDrained{0};
 std::atomic_uint64_t gSDLInputDropped{0};
+std::atomic_uint64_t gSDLInputCoalesced{0};
 std::atomic_uint64_t gSDLInputBatches{0};
 std::atomic_uint64_t gSDLInputMaxBacklog{0};
 std::atomic_uint64_t gSDLInputMaxAgeMs{0};
@@ -475,10 +476,6 @@ std::string PreferredSDLGpuDriver() {
     const char *forced = SDL_getenv("KRKR2_SDL_GPU_DRIVER");
     if(forced && *forced)
         return forced;
-
-    const std::string backend = PreferredGraphicsBackend();
-    if(backend == "gpuapi" || backend == "vulkan")
-        return "vulkan";
     return std::string();
 }
 
@@ -1478,9 +1475,9 @@ bool CopyRegionToSDLSurfaceMirror(iTVPTexture2D *texture,
     return true;
 }
 
-uint64_t CalculateBacklog(uint64_t queued, uint64_t drained,
-                          uint64_t dropped) {
-    const uint64_t completed = drained + dropped;
+uint64_t CalculateBacklog(uint64_t queued, uint64_t drained, uint64_t dropped,
+                          uint64_t coalesced) {
+    const uint64_t completed = drained + dropped + coalesced;
     return queued > completed ? queued - completed : 0;
 }
 
@@ -1601,8 +1598,10 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
             gSDLInputDrained.load(std::memory_order_relaxed);
         const uint64_t droppedBefore =
             gSDLInputDropped.load(std::memory_order_relaxed);
-        const uint64_t backlog =
-            CalculateBacklog(queuedBefore, drained, droppedBefore);
+        const uint64_t coalesced =
+            gSDLInputCoalesced.load(std::memory_order_relaxed);
+        const uint64_t backlog = CalculateBacklog(
+            queuedBefore, drained, droppedBefore, coalesced);
         if(backlog >= kSDLDirectTouchMoveBacklogLimit) {
             const uint64_t queuedCount =
                 gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
@@ -1657,18 +1656,23 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
 
     const uint64_t drained = gSDLInputDrained.load(std::memory_order_relaxed);
     const uint64_t dropped = gSDLInputDropped.load(std::memory_order_relaxed);
-    const uint64_t backlog = CalculateBacklog(queuedCount, drained, dropped);
+    const uint64_t coalesced =
+        gSDLInputCoalesced.load(std::memory_order_relaxed);
+    const uint64_t backlog =
+        CalculateBacklog(queuedCount, drained, dropped, coalesced);
     UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
 
     if(ShouldLogInputQueueEvent(queuedCount, eventName)) {
         char message[320];
         std::snprintf(message, sizeof(message),
                       "queued=%llu backlog=%llu drained=%llu dropped=%llu "
-                      "event=%s count=%d x=%.2f y=%.2f code=%d state=%d",
+                      "coalesced=%llu event=%s count=%d x=%.2f y=%.2f "
+                      "code=%d state=%d",
                       static_cast<unsigned long long>(queuedCount),
                       static_cast<unsigned long long>(backlog),
                       static_cast<unsigned long long>(drained),
                       static_cast<unsigned long long>(dropped),
+                      static_cast<unsigned long long>(coalesced),
                       eventName ? eventName : "", itemCount, x, y, code,
                       state ? 1 : 0);
         LogSDLInputQueue(message);
@@ -1963,7 +1967,8 @@ void DropQueuedAndroidInputEvents(const char *reason) {
         droppedInBatch;
     const uint64_t backlog = CalculateBacklog(
         gSDLInputQueued.load(std::memory_order_relaxed),
-        gSDLInputDrained.load(std::memory_order_relaxed), dropped);
+        gSDLInputDrained.load(std::memory_order_relaxed), dropped,
+        gSDLInputCoalesced.load(std::memory_order_relaxed));
     char message[320];
     std::snprintf(message, sizeof(message),
                   "lifecycle-drop reason=%s items=%llu dropped=%llu "
@@ -2057,6 +2062,59 @@ void DispatchSDLDirectTouchEvent(const TVPSDLQueuedInputEvent &queued) {
         }
         ResetSDLDirectTouch();
         return;
+    }
+}
+
+bool IsQueuedDirectTouchMove(const TVPSDLQueuedInputEvent *queued, int code) {
+    return queued &&
+        IsSDLDirectTouchMoveInput(queued->eventName.c_str(),
+                                  queued->dispatchToTVP) &&
+        queued->code == code;
+}
+
+TVPSDLQueuedInputEvent *CoalescePendingDirectTouchMoves(
+    TVPSDLQueuedInputEvent *queued, uint64_t &coalescedInBatch,
+    uint64_t &droppedInBatch) {
+    if(!IsQueuedDirectTouchMove(queued, queued ? queued->code : -1))
+        return queued;
+
+    for(;;) {
+        SDL_Event nextEvent;
+        if(SDL_PeepEvents(&nextEvent, 1, SDL_PEEKEVENT,
+                          gSDLInputQueueEventType,
+                          gSDLInputQueueEventType) != 1) {
+            return queued;
+        }
+
+        auto *nextQueued =
+            static_cast<TVPSDLQueuedInputEvent *>(nextEvent.user.data1);
+        if(!nextQueued) {
+            if(SDL_PeepEvents(&nextEvent, 1, SDL_GETEVENT,
+                              gSDLInputQueueEventType,
+                              gSDLInputQueueEventType) == 1) {
+                droppedInBatch++;
+            }
+            continue;
+        }
+
+        if(!IsQueuedDirectTouchMove(nextQueued, queued->code))
+            return queued;
+
+        if(SDL_PeepEvents(&nextEvent, 1, SDL_GETEVENT,
+                          gSDLInputQueueEventType,
+                          gSDLInputQueueEventType) != 1) {
+            return queued;
+        }
+        nextQueued =
+            static_cast<TVPSDLQueuedInputEvent *>(nextEvent.user.data1);
+        if(!nextQueued) {
+            droppedInBatch++;
+            continue;
+        }
+
+        delete queued;
+        queued = nextQueued;
+        coalescedInBatch++;
     }
 }
 
@@ -2257,6 +2315,7 @@ void TVPSDLProcessAndroidInputQueue() {
 
     uint64_t drainedInBatch = 0;
     uint64_t droppedInBatch = 0;
+    uint64_t coalescedInBatch = 0;
     uint64_t maxAgeInBatch = 0;
     uint64_t lastSequence = 0;
     std::string lastEventName;
@@ -2271,17 +2330,25 @@ void TVPSDLProcessAndroidInputQueue() {
             continue;
         }
 
+        queued = CoalescePendingDirectTouchMoves(queued, coalescedInBatch,
+                                                 droppedInBatch);
+        if(!queued) {
+            droppedInBatch++;
+            continue;
+        }
+
         const uint64_t age = SDL_GetTicks() - queued->ticks;
         if(age > maxAgeInBatch)
             maxAgeInBatch = age;
         lastEventName = queued->eventName;
         lastSequence = queued->sequence;
+        const bool directMove = IsSDLDirectTouchMoveInput(
+            queued->eventName.c_str(), queued->dispatchToTVP);
         const bool dropDirectTouch =
-            queued->dispatchToTVP &&
+            directMove &&
             (!TVPSDLHasScreenPresenterPresented() ||
              age > kSDLStaleDirectTouchAgeMs);
         if(dropDirectTouch) {
-            ResetSDLDirectTouch();
             delete queued;
             droppedInBatch++;
             continue;
@@ -2302,24 +2369,31 @@ void TVPSDLProcessAndroidInputQueue() {
         gSDLInputDropped.fetch_add(droppedInBatch,
                                    std::memory_order_relaxed) +
         droppedInBatch;
+    const uint64_t coalesced =
+        gSDLInputCoalesced.fetch_add(coalescedInBatch,
+                                     std::memory_order_relaxed) +
+        coalescedInBatch;
     const uint64_t batch =
         gSDLInputBatches.fetch_add(1, std::memory_order_relaxed) + 1;
     const uint64_t backlog = CalculateBacklog(
-        gSDLInputQueued.load(std::memory_order_relaxed), drained, dropped);
+        gSDLInputQueued.load(std::memory_order_relaxed), drained, dropped,
+        coalesced);
     UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
     UpdateAtomicMax(gSDLInputMaxAgeMs, maxAgeInBatch);
 
     if(ShouldLogInputQueueSequence(batch) || droppedInBatch > 0 ||
-       maxAgeInBatch > 50) {
-        char message[320];
+       coalescedInBatch > 0 || maxAgeInBatch > 50) {
+        char message[384];
         std::snprintf(
             message, sizeof(message),
-            "batch=%llu items=%llu drained=%llu dropped=%llu backlog=%llu "
-            "maxAgeMs=%llu maxBacklog=%llu maxSeenAgeMs=%llu lastSeq=%llu last=%s",
+            "batch=%llu items=%llu drained=%llu dropped=%llu "
+            "coalesced=%llu backlog=%llu maxAgeMs=%llu maxBacklog=%llu "
+            "maxSeenAgeMs=%llu lastSeq=%llu last=%s",
             static_cast<unsigned long long>(batch),
             static_cast<unsigned long long>(drainedInBatch),
             static_cast<unsigned long long>(drained),
             static_cast<unsigned long long>(dropped),
+            static_cast<unsigned long long>(coalesced),
             static_cast<unsigned long long>(backlog),
             static_cast<unsigned long long>(maxAgeInBatch),
             static_cast<unsigned long long>(

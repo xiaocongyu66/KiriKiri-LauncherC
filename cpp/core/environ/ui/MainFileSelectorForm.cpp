@@ -24,6 +24,7 @@
 #include "TipsHelpForm.h"
 #include "XP3RepackForm.h"
 #include "csd/CsdUIFactory.h"
+#include "runtime/RuntimeHost.h"
 
 using namespace cocos2d;
 using namespace cocos2d::ui;
@@ -244,7 +245,9 @@ void TVPMainFileSelectorForm::startup(const std::string &path) {
 }
 
 void TVPMainFileSelectorForm::doStartup(const std::string &path) {
-    if(TVPMainScene::GetInstance()->startupFrom(path)) {
+    TVPRuntimeHostLaunchRequest request;
+    request.gamePath = path;
+    if(TVPStartGameOnRuntimeHost(request, "file-selector")) {
         if(GlobalConfigManager::GetInstance()->GetValue<bool>(
                "remember_last_path", true)) {
             _AddHistory(path);

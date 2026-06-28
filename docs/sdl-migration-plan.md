@@ -85,6 +85,11 @@ incremental and does not accidentally replace launcher behavior.
 - SDL input queue diagnostics now include event details, backlog, maximum drain
   age, and high-water backlog counters so input stalls can be tied to a concrete
   event batch.
+- Android direct-touch queue processing now coalesces contiguous high-frequency
+  `touch-move` events for the same pointer and tracks them separately from
+  dropped events. Once the first frame has presented, stale-event dropping is
+  limited to move events so begin/end and cancel ordering is preserved during
+  render or script stalls.
 - The Cocos draw-buffer update path now reports `sdl-renderprobe` entries with
   frame size, internal texture size, texture-change count, SDL subsystem state,
   and texture pointers. This is a non-presenting probe for the future SDL
@@ -163,6 +168,10 @@ incremental and does not accidentally replace launcher behavior.
   per-frame engine tick through `iTVPRuntimeHost::RunFrame()`, with the Cocos
   host preserving the old `Application->Run()` behavior. This is the first step
   toward making SDL3 the owner of lifecycle and presentation.
+- File-selector launches, Flutter overlay launch requests, and the app-delegate
+  startup callback now use the shared `TVPStartGameOnRuntimeHost*()` helper so
+  host lookup, result logging, and C ABI error mapping are centralized for the
+  future SDL3 host.
 - `KRKR2_ENABLE_COCOS_HOST` now guards the legacy Cocos host source and target
   links. It defaults to `ON`; `OFF` is only a dependency audit mode until the
   SDL3 host and Flutter/C ABI launcher path reach parity.

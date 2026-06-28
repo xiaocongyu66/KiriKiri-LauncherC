@@ -19,9 +19,9 @@ Initial exported C API in `cpp/core/environ/ui/FlutterGameMenuBridge.cpp`:
 | --- | --- |
 | `KR2LauncherGetMainMenuJson()` | Returns active TJS main menu as UTF-8 JSON. |
 | `KR2LauncherActivateMenuItem(const char*)` | Invokes a menu item by slash-separated index path. |
-| `KR2LauncherLaunchGame(const char*)` | Enters a game through the existing native `TVPMainScene::startupFrom` path. |
+| `KR2LauncherLaunchGame(const char*)` | Enters a game through the active native `RuntimeHost` launch path. |
 
-The Dart side loads `libkrkr2.so`/process symbols from `flutter_launcher/lib/src/bridge/launcher_bridge.dart`. Game scanning should follow the same C ABI pattern next. Platform UI only handles file pickers, permissions, and hosting; entering the game is done through `KR2LauncherLaunchGame`.
+The Dart side loads `libkrkr2.so`/process symbols from `flutter_launcher/lib/src/bridge/launcher_bridge.dart`. Game scanning should follow the same C ABI pattern next. Platform UI only handles file pickers, permissions, and hosting; entering the game is done through `KR2LauncherLaunchGame`, which now maps native `RuntimeHost` launch results back to stable C ABI status codes.
 
 ## `TVPGameMainMenu` Replacement Seam
 

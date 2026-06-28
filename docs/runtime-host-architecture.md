@@ -35,9 +35,12 @@ ownership. A host owns:
 The initial implementation registers a `cocos2d` host from
 `CocosRuntimeHost.cpp` and routes `TVPSDLRunGameLaunch()` startup through the
 active host. `TVPMainScene::update()` also delegates the per-frame engine tick
-through `iTVPRuntimeHost::RunFrame()`. Current behavior remains unchanged, but
-launch orchestration and frame ticking no longer hard-code the Cocos scene as
-the owner.
+through `iTVPRuntimeHost::RunFrame()`. File-selector launches and Flutter
+overlay launch requests also call `TVPStartGameOnRuntimeHost*()` now. The
+helper centralizes host lookup, launch-result diagnostics, and error mapping
+for C ABI callers. Current behavior remains unchanged, but launch
+orchestration and frame ticking no longer hard-code the Cocos scene as the
+owner.
 
 ## Build Switch
 

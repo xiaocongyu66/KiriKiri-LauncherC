@@ -60,6 +60,118 @@ std::string SdlErrorString(const char *prefix) {
     return message;
 }
 
+bool IsTruthyEnv(const char *name) {
+    const char *value = SDL_getenv(name);
+    return value && *value && std::strcmp(value, "0") != 0 &&
+        std::strcmp(value, "false") != 0 &&
+        std::strcmp(value, "FALSE") != 0;
+}
+
+SDL_GPUShaderFormat PreferredShaderFormats() {
+#if defined(__ANDROID__)
+    return SDL_GPU_SHADERFORMAT_SPIRV;
+#else
+    return SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXBC |
+        SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB |
+        SDL_GPU_SHADERFORMAT_MSL;
+#endif
+}
+
+bool UseRelaxedDeviceFeatures() {
+#if defined(__ANDROID__)
+    return !IsTruthyEnv("KRKR2_SDL_GPU_STRICT_FEATURES");
+#else
+    return IsTruthyEnv("KRKR2_SDL_GPU_RELAXED_FEATURES");
+#endif
+}
+
+const char *DeviceFeatureProfileName() {
+    return UseRelaxedDeviceFeatures() ? "relaxed" : "strict";
+}
+
+std::string ShaderFormatNames(SDL_GPUShaderFormat shaderFormats) {
+    std::string names;
+    auto append = [&names](const char *name) {
+        if(!names.empty())
+            names += ",";
+        names += name;
+    };
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_SPIRV)
+        append("spirv");
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_DXBC)
+        append("dxbc");
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_DXIL)
+        append("dxil");
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_METALLIB)
+        append("metallib");
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_MSL)
+        append("msl");
+    return names.empty() ? "none" : names;
+}
+
+void SetShaderFormatProperties(SDL_PropertiesID props,
+                               SDL_GPUShaderFormat shaderFormats) {
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_SPIRV) {
+        SDL_SetBooleanProperty(
+            props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_SPIRV_BOOLEAN, true);
+    }
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_DXBC) {
+        SDL_SetBooleanProperty(
+            props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_DXBC_BOOLEAN, true);
+    }
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_DXIL) {
+        SDL_SetBooleanProperty(
+            props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_DXIL_BOOLEAN, true);
+    }
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_METALLIB) {
+        SDL_SetBooleanProperty(
+            props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_METALLIB_BOOLEAN, true);
+    }
+    if(shaderFormats & SDL_GPU_SHADERFORMAT_MSL) {
+        SDL_SetBooleanProperty(
+            props, SDL_PROP_GPU_DEVICE_CREATE_SHADERS_MSL_BOOLEAN, true);
+    }
+}
+
+SDL_GPUDevice *CreateCompatibleGPUDevice(SDL_GPUShaderFormat shaderFormats,
+                                         bool debugMode,
+                                         const char *preferredDriver) {
+    SDL_PropertiesID props = SDL_CreateProperties();
+    if(!props)
+        return nullptr;
+
+    SetShaderFormatProperties(props, shaderFormats);
+    SDL_SetBooleanProperty(props,
+                           SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN,
+                           debugMode);
+    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VERBOSE_BOOLEAN,
+                           debugMode);
+    if(preferredDriver && *preferredDriver) {
+        SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
+                              preferredDriver);
+    }
+
+    if(UseRelaxedDeviceFeatures()) {
+        SDL_SetBooleanProperty(
+            props,
+            SDL_PROP_GPU_DEVICE_CREATE_FEATURE_CLIP_DISTANCE_BOOLEAN, false);
+        SDL_SetBooleanProperty(
+            props,
+            SDL_PROP_GPU_DEVICE_CREATE_FEATURE_DEPTH_CLAMPING_BOOLEAN, false);
+        SDL_SetBooleanProperty(
+            props,
+            SDL_PROP_GPU_DEVICE_CREATE_FEATURE_INDIRECT_DRAW_FIRST_INSTANCE_BOOLEAN,
+            false);
+        SDL_SetBooleanProperty(
+            props, SDL_PROP_GPU_DEVICE_CREATE_FEATURE_ANISOTROPY_BOOLEAN,
+            false);
+    }
+
+    SDL_GPUDevice *device = SDL_CreateGPUDeviceWithProperties(props);
+    SDL_DestroyProperties(props);
+    return device;
+}
+
 } // namespace
 
 struct Backend::Impl {
@@ -97,14 +209,20 @@ bool Backend::Initialize(const char *preferredDriver, bool debugMode) {
     }
     Shutdown();
 
-    const SDL_GPUShaderFormat shaderFormats =
-        SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXBC |
-        SDL_GPU_SHADERFORMAT_DXIL | SDL_GPU_SHADERFORMAT_METALLIB |
-        SDL_GPU_SHADERFORMAT_MSL;
+    const SDL_GPUShaderFormat shaderFormats = PreferredShaderFormats();
 
-    impl_->device = SDL_CreateGPUDevice(shaderFormats, debugMode, preferredDriver);
+    impl_->device =
+        CreateCompatibleGPUDevice(shaderFormats, debugMode, preferredDriver);
     if(!impl_->device) {
-        impl_->lastError = SdlErrorString("SDL_CreateGPUDevice failed");
+        impl_->lastError =
+            SdlErrorString("SDL_CreateGPUDeviceWithProperties failed");
+        impl_->lastError += " driver=";
+        impl_->lastError +=
+            preferredDriver && *preferredDriver ? preferredDriver : "(auto)";
+        impl_->lastError += " shaders=";
+        impl_->lastError += ShaderFormatNames(shaderFormats);
+        impl_->lastError += " features=";
+        impl_->lastError += DeviceFeatureProfileName();
         return false;
     }
 

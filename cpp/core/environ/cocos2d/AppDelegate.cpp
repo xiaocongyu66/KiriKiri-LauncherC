@@ -163,9 +163,9 @@ bool TVPAppDelegate::applicationDidFinishLaunching() {
                 TVPRuntimeHostLaunchRequest request;
                 request.gamePath = gamePath;
                 request.preferenceRoot = gameDir;
-                iTVPRuntimeHost *host = TVPGetRuntimeHost();
-                const bool ok = host && host->StartGame(request);
-                KR2_LAUNCH_LOG("runtimeHost=%s startupFrom('%s') returned %d",
+                const bool ok =
+                    TVPStartGameOnRuntimeHost(request, "app-delegate");
+                KR2_LAUNCH_LOG("runtimeHost=%s StartGame('%s') returned %d",
                                TVPGetRuntimeHostName(), gamePath.c_str(),
                                (int)ok);
                 return ok;

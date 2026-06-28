@@ -7,6 +7,7 @@
 #include "Application.h"
 #include "Platform.h"
 #include "sdl/SDLGameManager.h"
+#include "runtime/RuntimeHost.h"
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -203,11 +204,21 @@ extern "C" int KR2LauncherLaunchGame(const char *gamePathUtf8) {
     if(!gamePathUtf8 || !*gamePathUtf8)
         return -1;
 
-    auto *scene = TVPMainScene::GetInstance();
-    if(!scene)
-        return -2;
-
-    return scene->startupFrom(gamePathUtf8) ? 0 : -3;
+    TVPRuntimeHostLaunchRequest request;
+    request.gamePath = gamePathUtf8;
+    const TVPRuntimeHostLaunchStatus status =
+        TVPStartGameOnRuntimeHostDetailed(request, "flutter-overlay");
+    switch(status) {
+        case TVPRuntimeHostLaunchStatus::Started:
+            return 0;
+        case TVPRuntimeHostLaunchStatus::NoHost:
+            return -2;
+        case TVPRuntimeHostLaunchStatus::EmptyPath:
+            return -1;
+        case TVPRuntimeHostLaunchStatus::RejectedByHost:
+        default:
+            return -3;
+    }
 }
 
 extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {

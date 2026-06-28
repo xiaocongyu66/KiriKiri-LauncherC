@@ -16,9 +16,21 @@
   upload path while presentation still uses the active host presenter. This is
   intentionally separate from the `renderer` pipeline selection.
 - Android builds request SDL3's Vulkan feature so SDL_GPU has a device backend
-  when the platform supports it. If SDL still reports no GPU driver at runtime,
-  the shadow upload path logs the available driver list once and stays disabled;
-  Flutter direct presentation continues to carry the frame.
+  when the platform supports it. Runtime device selection is compatibility
+  first: SDL_GPU uses SDL's automatic driver selection unless
+  `KRKR2_SDL_GPU_DRIVER` explicitly names a driver. This avoids treating
+  `SDL_GetGPUDriver()` enumeration as proof that a specific backend can pass
+  `PrepareDriver()` on the current Android device.
+- Android SDL_GPU device creation uses `SDL_CreateGPUDeviceWithProperties` and
+  relaxes SDL's Vulkan optional feature requirements by default: clip distance,
+  depth clamping, indirect draw first instance, and anisotropy. Set
+  `KRKR2_SDL_GPU_STRICT_FEATURES=1` to restore strict Android feature
+  requirements for diagnostics.
+- If SDL still cannot create an SDL_GPU device at runtime, the shadow upload
+  path logs the preferred driver, available driver list, and SDL error once,
+  including the selected shader formats and strict/relaxed feature profile,
+  then stays disabled; Flutter direct presentation continues to carry the
+  frame.
 - With `showfps` enabled, the Flutter overlay reports the TVP pipeline,
   presenter, selected `graphics_backend`, and SDL_GPU shadow-upload state
   (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`).
