@@ -144,9 +144,14 @@ SDL_GPUDevice *CreateCompatibleGPUDevice(SDL_GPUShaderFormat shaderFormats,
     SDL_SetBooleanProperty(props,
                            SDL_PROP_GPU_DEVICE_CREATE_DEBUGMODE_BOOLEAN,
                            debugMode);
-    SDL_SetBooleanProperty(props, SDL_PROP_GPU_DEVICE_CREATE_VERBOSE_BOOLEAN,
-                           debugMode);
+    if(debugMode) {
+        SDL_SetBooleanProperty(props,
+                               SDL_PROP_GPU_DEVICE_CREATE_VERBOSE_BOOLEAN,
+                               true);
+    }
     if(preferredDriver && *preferredDriver) {
+        SDL_SetHintWithPriority(SDL_HINT_GPU_DRIVER, preferredDriver,
+                                SDL_HINT_OVERRIDE);
         SDL_SetStringProperty(props, SDL_PROP_GPU_DEVICE_CREATE_NAME_STRING,
                               preferredDriver);
     }

@@ -51,6 +51,7 @@ std::atomic_uint64_t gSDLLifecycleEventSequence{0};
 std::atomic_uint64_t gSDLInputEventSequence{0};
 std::once_flag gSDLInputQueueInitOnce;
 Uint32 gSDLInputQueueEventType = 0;
+std::mutex gSDLInputQueueMutex;
 std::atomic_bool gSDLInputQueueReady{false};
 std::atomic_uint64_t gSDLInputQueued{0};
 std::atomic_uint64_t gSDLInputDrained{0};
@@ -1943,6 +1944,13 @@ void ResetSDLDirectTouch() {
     gSDLDirectTouchState.pointerId = -1;
 }
 
+void CancelSDLDirectTouchForPointer(int pointerId) {
+    if(gSDLDirectTouchState.active &&
+       (pointerId < 0 || gSDLDirectTouchState.pointerId == pointerId)) {
+        ResetSDLDirectTouch();
+    }
+}
+
 void DropQueuedAndroidInputEvents(const char *reason) {
     ResetSDLDirectTouch();
     if(!gSDLInputQueueReady.load(std::memory_order_acquire))
@@ -1950,6 +1958,7 @@ void DropQueuedAndroidInputEvents(const char *reason) {
 
     uint64_t droppedInBatch = 0;
     SDL_Event event;
+    std::lock_guard<std::mutex> lock(gSDLInputQueueMutex);
     while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
                          gSDLInputQueueEventType) == 1) {
         auto *queued =
@@ -2073,49 +2082,24 @@ bool IsQueuedDirectTouchMove(const TVPSDLQueuedInputEvent *queued, int code) {
 }
 
 TVPSDLQueuedInputEvent *CoalescePendingDirectTouchMoves(
-    TVPSDLQueuedInputEvent *queued, uint64_t &coalescedInBatch,
-    uint64_t &droppedInBatch) {
+    TVPSDLQueuedInputEvent *queued,
+    std::deque<TVPSDLQueuedInputEvent *> &pending,
+    uint64_t &coalescedInBatch) {
     if(!IsQueuedDirectTouchMove(queued, queued ? queued->code : -1))
         return queued;
 
-    for(;;) {
-        SDL_Event nextEvent;
-        if(SDL_PeepEvents(&nextEvent, 1, SDL_PEEKEVENT,
-                          gSDLInputQueueEventType,
-                          gSDLInputQueueEventType) != 1) {
-            return queued;
-        }
-
-        auto *nextQueued =
-            static_cast<TVPSDLQueuedInputEvent *>(nextEvent.user.data1);
-        if(!nextQueued) {
-            if(SDL_PeepEvents(&nextEvent, 1, SDL_GETEVENT,
-                              gSDLInputQueueEventType,
-                              gSDLInputQueueEventType) == 1) {
-                droppedInBatch++;
-            }
-            continue;
-        }
-
+    while(!pending.empty()) {
+        auto *nextQueued = pending.front();
         if(!IsQueuedDirectTouchMove(nextQueued, queued->code))
             return queued;
 
-        if(SDL_PeepEvents(&nextEvent, 1, SDL_GETEVENT,
-                          gSDLInputQueueEventType,
-                          gSDLInputQueueEventType) != 1) {
-            return queued;
-        }
-        nextQueued =
-            static_cast<TVPSDLQueuedInputEvent *>(nextEvent.user.data1);
-        if(!nextQueued) {
-            droppedInBatch++;
-            continue;
-        }
-
+        pending.pop_front();
         delete queued;
         queued = nextQueued;
         coalescedInBatch++;
     }
+
+    return queued;
 }
 
 } // namespace
@@ -2313,12 +2297,14 @@ void TVPSDLProcessAndroidInputQueue() {
     if(!gSDLInputQueueReady.load(std::memory_order_acquire))
         return;
 
+    std::lock_guard<std::mutex> lock(gSDLInputQueueMutex);
     uint64_t drainedInBatch = 0;
     uint64_t droppedInBatch = 0;
     uint64_t coalescedInBatch = 0;
     uint64_t maxAgeInBatch = 0;
     uint64_t lastSequence = 0;
     std::string lastEventName;
+    std::deque<TVPSDLQueuedInputEvent *> pending;
 
     SDL_Event event;
     while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
@@ -2329,13 +2315,14 @@ void TVPSDLProcessAndroidInputQueue() {
             droppedInBatch++;
             continue;
         }
+        pending.push_back(queued);
+    }
 
-        queued = CoalescePendingDirectTouchMoves(queued, coalescedInBatch,
-                                                 droppedInBatch);
-        if(!queued) {
-            droppedInBatch++;
-            continue;
-        }
+    while(!pending.empty()) {
+        auto *queued = pending.front();
+        pending.pop_front();
+        queued = CoalescePendingDirectTouchMoves(queued, pending,
+                                                 coalescedInBatch);
 
         const uint64_t age = SDL_GetTicks() - queued->ticks;
         if(age > maxAgeInBatch)
@@ -2349,6 +2336,7 @@ void TVPSDLProcessAndroidInputQueue() {
             (!TVPSDLHasScreenPresenterPresented() ||
              age > kSDLStaleDirectTouchAgeMs);
         if(dropDirectTouch) {
+            CancelSDLDirectTouchForPointer(queued->code);
             delete queued;
             droppedInBatch++;
             continue;

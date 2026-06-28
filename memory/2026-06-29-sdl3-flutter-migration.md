@@ -151,9 +151,20 @@ Important observations:
   - `TVPSDLProcessAndroidInputQueue()` coalesces contiguous direct
     `touch-move` events for the same pointer and dispatches only the latest
     position.
+  - Follow-up after subagent review: do not use `SDL_PEEKEVENT` to inspect a
+    `TVPSDLQueuedInputEvent *` before owning it. The processor now drains the
+    current SDL custom-event batch into a local `std::deque` under
+    `gSDLInputQueueMutex`, then coalesces adjacent move pointers from that
+    owned local batch. `DropQueuedAndroidInputEvents()` uses the same mutex.
+    This avoids a lifecycle drain deleting a pointer that coalescing only
+    peeked.
   - During queue processing after the first frame has presented, stale
     direct-touch dropping now applies to `touch-move` only; begin/end and
     cancel are preserved to avoid breaking click/tap ordering under load.
+  - Follow-up after subagent review: when a stale direct `touch-move` is
+    dropped for the active pointer, `CancelSDLDirectTouchForPointer()` resets
+    the direct-touch state. This prevents a delayed `touch-end` from turning a
+    stale drag into a synthetic click.
   - Pre-first-frame direct-touch events are still dropped before queueing when
     no presenter has produced a frame. This avoids replaying stale touches into
     a game surface that did not exist yet.
@@ -161,6 +172,15 @@ Important observations:
 - SDL_GPU diagnostics work added in `SDLGpuBackend.cpp`:
   - Failure from `SDL_CreateGPUDeviceWithProperties` now appends
     `driver=...`, `shaders=...`, and `features=strict|relaxed` to the error.
+  - Follow-up after subagent review: normal initialization no longer sets
+    `SDL_PROP_GPU_DEVICE_CREATE_VERBOSE_BOOLEAN` to false. SDL's default verbose
+    creation diagnostics are preserved; debug mode still explicitly enables
+    verbose logging.
+  - Follow-up after subagent review: when `KRKR2_SDL_GPU_DRIVER` explicitly
+    selects a driver, `SDL_SetHintWithPriority(SDL_HINT_GPU_DRIVER, ...,`
+    `SDL_HINT_OVERRIDE)` is set before device creation so an external
+    `SDL_GPU_DRIVER` hint cannot silently override the project-specific
+    diagnostic knob.
   - This should make the next device log useful without rebuilding a special
     diagnostic branch.
 - Flutter launcher documentation:
@@ -168,6 +188,10 @@ Important observations:
     `KR2LauncherLaunchGame(const char*)` is documented as going through the
     active `RuntimeHost` launch path instead of directly through
     `TVPMainScene::startupFrom`.
+  - Follow-up after subagent review: null or empty
+    `KR2LauncherLaunchGame()` paths now still call
+    `TVPStartGameOnRuntimeHostDetailed()` with an empty path so the
+    centralized `runtime-host` diagnostic records the `EmptyPath` rejection.
 
 ## Recommended direction
 
@@ -202,24 +226,31 @@ subagents were spawned, but all failed due provider/key/limit errors:
 - Flutter/SurfaceTexture comparison: failed with provider parameter/key error.
 
 Do not wait for those failed agents. Later in this run, three new read-only
-explorers were started:
+explorers were started and returned:
 
 - `019f0fbd-9482-7b00-8e9a-98a708a07536` / Planck: input queue coalescing
-  review.
+  review. Important findings: high-risk `SDL_PEEKEVENT` use-before-ownership
+  with concurrent lifecycle drain; medium-risk stale move drop leaving
+  direct-touch state active. Both were fixed in the follow-up patch described
+  above.
 - `019f0fbd-9525-7fc3-a4cf-5c2c08e228bf` / Hubble: SDL_GPU compatibility
-  review.
+  review. Important findings: stale move direct-touch reset regression,
+  suppressed SDL_GPU verbose diagnostics, external `SDL_GPU_DRIVER` hint
+  priority. These were fixed or documented as described above. It also noted
+  that `available=` GPU drivers are compiled candidates, not proof that
+  `PrepareDriver()` passed.
 - `019f0fbd-95b4-7d51-82b5-4b71d87fcfcf` / Kuhn: RuntimeHost launch
-  migration review.
-
-They are read-only and should not be expected to edit files. If they finish
-before commit, integrate any real findings. If they fail or are slow, continue
-with local checks and CI.
+  migration review. Important finding: empty-string C ABI launches bypassed
+  centralized diagnostics. Fixed by routing null/empty paths through
+  `TVPStartGameOnRuntimeHostDetailed()`.
 
 ## Next concrete steps
 
-1. Finish the current patch:
-   - ensure SDL_GPU default driver is `(auto)`;
-   - ensure Android relaxed feature properties compile against SDL 3.4.10;
+1. Finish and push the follow-up patch from the subagent reviews:
+   - safe owned-batch input coalescing;
+   - stale move direct-touch cancellation;
+   - RuntimeHost empty-path diagnostics;
+   - SDL_GPU verbose/hint fixes;
    - update docs and memory.
 2. Run available local checks:
    - `git diff --check`;

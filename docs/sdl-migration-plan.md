@@ -89,7 +89,10 @@ incremental and does not accidentally replace launcher behavior.
   `touch-move` events for the same pointer and tracks them separately from
   dropped events. Once the first frame has presented, stale-event dropping is
   limited to move events so begin/end and cancel ordering is preserved during
-  render or script stalls.
+  render or script stalls. The queue processor drains the current SDL custom
+  event batch into owned native pointers before coalescing; lifecycle drains
+  share the same queue mutex so a peeked event pointer cannot be deleted by a
+  concurrent pause/resume handler.
 - The Cocos draw-buffer update path now reports `sdl-renderprobe` entries with
   frame size, internal texture size, texture-change count, SDL subsystem state,
   and texture pointers. This is a non-presenting probe for the future SDL

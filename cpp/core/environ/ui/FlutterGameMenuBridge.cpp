@@ -201,11 +201,8 @@ void TVPShowPopMenu(tTJSNI_MenuItem *menu) {
 #endif
 
 extern "C" int KR2LauncherLaunchGame(const char *gamePathUtf8) {
-    if(!gamePathUtf8 || !*gamePathUtf8)
-        return -1;
-
     TVPRuntimeHostLaunchRequest request;
-    request.gamePath = gamePathUtf8;
+    request.gamePath = gamePathUtf8 ? gamePathUtf8 : "";
     const TVPRuntimeHostLaunchStatus status =
         TVPStartGameOnRuntimeHostDetailed(request, "flutter-overlay");
     switch(status) {

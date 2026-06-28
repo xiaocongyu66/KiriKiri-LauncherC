@@ -27,10 +27,10 @@
   `KRKR2_SDL_GPU_STRICT_FEATURES=1` to restore strict Android feature
   requirements for diagnostics.
 - If SDL still cannot create an SDL_GPU device at runtime, the shadow upload
-  path logs the preferred driver, available driver list, and SDL error once,
-  including the selected shader formats and strict/relaxed feature profile,
-  then stays disabled; Flutter direct presentation continues to carry the
-  frame.
+  path logs the preferred driver, compiled candidate driver list, and SDL error
+  once, including the selected shader formats and strict/relaxed feature
+  profile, then stays disabled; Flutter direct presentation continues to carry
+  the frame.
 - With `showfps` enabled, the Flutter overlay reports the TVP pipeline,
   presenter, selected `graphics_backend`, and SDL_GPU shadow-upload state
   (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`).
