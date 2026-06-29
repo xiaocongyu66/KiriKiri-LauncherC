@@ -392,3 +392,119 @@ explorers were started and returned:
    - default flags, to ensure fallback behavior is unchanged;
    - `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1`, to validate the EGL path;
    - optionally `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=1` if output is inverted.
+
+## 2026-06-30 continuation checkpoint
+
+User asked to continue after new logs:
+
+- `/root/log/78.log`
+- `/root/log/20260629041311767.log`
+- `/root/log/20260629041351243.log`
+
+Repository state at the start of this checkpoint:
+
+- Working tree: `/root/kiriki-work/KiriKiri-LauncherC`
+- Branch: `main`
+- Local/remote commit before changes:
+  `2324833 Add opt-in Android EGL SurfaceTexture presenter`
+- `main` was synced with `origin/main`.
+- Only this project may be edited. Other `/root/kiriki-work/*` projects remain
+  reference-only.
+
+GitHub Actions failure investigated:
+
+- Failed workflow/job from commit `2324833`:
+  - Build Flutter Android run: `28336119071`
+  - Job: `83942523641`
+  - Conclusion: failure
+- The job logs endpoint returned a plain text log body, not a zip archive. The
+  log was saved temporarily as
+  `/tmp/kiriki-ci-logs/job-83942523641.zip`, but it is text despite the name.
+- Exact compile failure:
+  - `cpp/core/environ/sdl/SDLGameManager.cpp:1301:9`
+  - `error: use of undeclared identifier 'RememberPresentedSurfaceSize'; did
+    you mean 'TVPSDLGetPresentedSurfaceSize'?`
+  - Follow-up diagnostic:
+    `cannot initialize a parameter of type 'int *' with an lvalue of type
+    'int'`
+- Root cause:
+  - `TryPresentAndroidEGLSurfaceTexture()` calls
+    `RememberPresentedSurfaceSize(surfaceWidth, surfaceHeight)` before the
+    helper's definition.
+  - The helper was defined later in the Android presenter block and had no
+    forward declaration.
+  - The older CPU presenter paths call the helper after its definition, so this
+    only surfaced when the new EGL path was compiled.
+- Fix applied in `cpp/core/environ/sdl/SDLGameManager.cpp`:
+  - Added an Android-only anonymous-namespace forward declaration:
+    `void RememberPresentedSurfaceSize(int width, int height);`
+  - Kept the helper definition in place to avoid moving large presenter blocks
+    or changing ABI-visible code.
+
+Extra robustness applied while fixing the CI break:
+
+- The Android EGL blit presenter already saves/restores framebuffer, viewport,
+  active texture, texture binding, array buffer, program, blend/depth/scissor,
+  and vertex attributes.
+- The software diagnostic upload path calls `glPixelStorei(GL_UNPACK_ALIGNMENT,
+  1)`, and the draw path sets `glClearColor(...)`.
+- Added `unpackAlignment` and `clearColor` to `TVPAndroidGLStateSnapshot`, then
+  save/restore them in `SaveAndroidGLState()` and
+  `RestoreAndroidGLState()`.
+- This prevents the opt-in EGL presenter from leaking pixel-store or clear
+  color state back into the Cocos/TVP render path after presenting.
+
+Local checks run after the patch:
+
+- `git diff --check`: passed.
+- `python3 -m json.tool vcpkg.json`: passed.
+- Manual line-length scan found only pre-existing long lines in
+  `SDLGameManager.cpp`; the new lines are within the existing formatting style.
+- Local Android compile is still not possible in this environment because
+  `cmake`, `java`, `flutter`, `dart`, and `clang-format` are unavailable.
+  GitHub Actions remains authoritative for Android build and format.
+
+New device/application log inspection:
+
+- `20260629041311767.log`:
+  - `android-egl-presenter` occurrences: `0`
+  - `present-flutter-direct` occurrences: `13`
+  - `present-texture-direct` occurrences: `13`
+  - core error/critical/fatal/SIGSEGV matches: `0`
+- `20260629041351243.log`:
+  - `android-egl-presenter` occurrences: `0`
+  - `present-flutter-direct` occurrences: `13`
+  - `present-texture-direct` occurrences: `13`
+  - core error/critical/fatal/SIGSEGV matches: `0`
+- Interpretation:
+  - These logs appear to be from the previous build or default flags, not from
+    the opt-in EGL path.
+  - The stable Flutter `ANativeWindow_lock` CPU presenter fallback is still
+    working at 1920x1080.
+  - SDL_GPU/Vulkan diagnostic backend still initializes (`available=vulkan`,
+    `backend ready ... driver=vulkan`) and the final frame still presents via
+    the Flutter external texture CPU path.
+
+Subagents started in this continuation:
+
+- Existing agent `019f0fe1-aaf2-7611-ba5a-9e0e1793e5b1` was asked to inspect
+  current Android EGL presenter compile/NDK/GLES/EGL hazards.
+- Existing agent `019f0fec-8657-70c3-8038-b60c3057470d` was asked to compare
+  SDL3/reference project Surface/EGL implementation details.
+- Existing agent `019f0fed-315d-7c62-b5b5-67850638c9fa` was asked to locate
+  the CI failure or infer likely failure points.
+- Do not block on them unless their output is needed. The main CI failure was
+  already confirmed directly from the GitHub Actions log.
+
+Next concrete steps from here:
+
+1. Commit the current fix with a message like
+   `Fix Android EGL presenter compile guard`.
+2. Push to `origin/main` using one-shot credential input only if required.
+3. Monitor new GitHub Actions runs until both `format-check` and
+   `build-android` complete.
+4. If CI reveals another compile issue, fetch the exact log and patch only
+   `KiriKiri-LauncherC`.
+5. After CI passes, request/test a build with
+   `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1` to gather real
+   `android-egl-presenter` runtime logs.

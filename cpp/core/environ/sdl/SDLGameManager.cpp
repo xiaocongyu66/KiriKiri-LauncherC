@@ -423,6 +423,9 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
 
 void LogSDLScreenPresenter(const char *message);
 bool IsSDLGpuShadowUploadEnabled();
+#if defined(__ANDROID__)
+void RememberPresentedSurfaceSize(int width, int height);
+#endif
 
 bool IsTruthyEnv(const char *name) {
     const char *value = SDL_getenv(name);
@@ -564,6 +567,8 @@ struct TVPAndroidGLStateSnapshot {
     GLint texture0Binding = 0;
     GLint arrayBuffer = 0;
     GLint program = 0;
+    GLint unpackAlignment = 4;
+    GLfloat clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     GLboolean blend = GL_FALSE;
     GLboolean depthTest = GL_FALSE;
     GLboolean scissorTest = GL_FALSE;
@@ -694,6 +699,8 @@ TVPAndroidGLStateSnapshot SaveAndroidGLState(GLint positionAttrib,
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &snapshot.texture0Binding);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &snapshot.arrayBuffer);
     glGetIntegerv(GL_CURRENT_PROGRAM, &snapshot.program);
+    glGetIntegerv(GL_UNPACK_ALIGNMENT, &snapshot.unpackAlignment);
+    glGetFloatv(GL_COLOR_CLEAR_VALUE, snapshot.clearColor);
     snapshot.blend = glIsEnabled(GL_BLEND);
     snapshot.depthTest = glIsEnabled(GL_DEPTH_TEST);
     snapshot.scissorTest = glIsEnabled(GL_SCISSOR_TEST);
@@ -715,6 +722,9 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
     glBindTexture(GL_TEXTURE_2D,
                   static_cast<GLuint>(snapshot.texture0Binding));
     glActiveTexture(static_cast<GLenum>(snapshot.activeTexture));
+    glPixelStorei(GL_UNPACK_ALIGNMENT, snapshot.unpackAlignment);
+    glClearColor(snapshot.clearColor[0], snapshot.clearColor[1],
+                 snapshot.clearColor[2], snapshot.clearColor[3]);
     if(snapshot.blend)
         glEnable(GL_BLEND);
     else
