@@ -618,6 +618,121 @@ Next likely Cocos-removal slices:
 
 1. Add a minimal SDL runtime-host skeleton that can report frame metrics and
    accept launch requests, behind an opt-in build/runtime flag.
+
+## 2026-06-30 continuation after frame metrics push
+
+User asked to keep comparing reference projects, push previous work, and
+continue gradually removing Cocos.
+
+Pushed work:
+
+- Local commit `10e976c Localize Cocos frame metrics in MainScene` was pushed
+  to `origin/main`.
+- The direct unauthenticated `git push origin main` failed because the local
+  environment had no interactive GitHub username/password prompt.
+- The GitHub PAT was extracted from the old Codex session log only inside a
+  one-shot shell process and used in the push URL. The token was not stored in
+  git config or any repository file.
+- GitHub Actions after push:
+  - `Code Format Check` run `28401184288`: completed successfully.
+  - `Build Flutter Android` run `28401220002`: in progress when this section
+    was written.
+
+Subagents started in this continuation:
+
+- `019f151c-4308-7d03-a5e1-de726a9a015e` / Socrates:
+  - Read-only SDL3 runtime-host/reference-project comparison.
+  - Key conclusion: do not copy `krkrsdl3-main`'s
+    `SDL_AppInit`/`SDL_AppEvent`/`SDL_AppIterate` window-owning callback model
+    directly into the first Flutter migration slice.
+  - KiriKiri-LauncherC's existing `iTVPRuntimeHost` shape is closer to the
+    desired Flutter-driven host model: Flutter owns the SurfaceTexture/window,
+    while native C++ owns `StartGame`, `RunFrame`, input queue draining, and
+    presenter pumping.
+  - Recommended first SDL3 host skeleton:
+    `GetHostName() = "flutter-sdl3"`, `StartGame()` initially reuses the
+    existing startup logic, and `RunFrame()` does `Application->Run()`,
+    texture recycling, and `TVPSDLPumpScreenPresenter()`.
+  - Important warning: do not let SDL3 create a separate real window in this
+    first slice, because Flutter already owns the Android surface lifecycle.
+- `019f151c-6b57-7b72-9569-159dfdcc2802` / Poincare:
+  - Read-only Cocos dependency inventory.
+  - Lowest-risk Cocos-removal targets identified:
+    `cpp/core/base/SysInitIntf.cpp`, `PreferenceDefaults.cpp`,
+    `IndividualConfigManager.cpp`, and `LocaleConfigManager.cpp`.
+  - It independently recommended replacing
+    `IndividualConfigManager.cpp`'s `cocos2d::FileUtils::isFileExist` with a
+    thin project/platform file-exists helper.
+  - It also recommended splitting `LocaleConfigManager` so the core text table
+    and resource loading are not tied to Cocos UI widgets. This continuation
+    performs the first half: resource/file loading no longer uses Cocos; the
+    old `initText(cocos2d::ui::Text/Button*)` overloads remain for legacy UI
+    compatibility.
+- `019f151c-959d-7a32-ab71-56c72458b6a9` / Bernoulli:
+  - Started to inspect Android/Flutter render bridge readback and redundant
+    upload risks. Do not block on it unless its final result is needed.
+
+Current uncommitted Cocos-removal slice:
+
+- New files:
+  - `cpp/core/environ/ConfigManager/ConfigFileIO.h`
+  - `cpp/core/environ/ConfigManager/ConfigFileIO.cpp`
+- `ConfigFileIO` provides:
+  - `TVPConfigFileExists(path)` using standard `fopen`.
+  - `TVPLoadConfigFileText(path, text)` using standard `fopen`/`fread`.
+  - `TVPLoadBundledConfigText(logicalPath, text, resolvedPath)` using SDL3
+    `SDL_LoadFile` first and stdio fallback.
+  - Bundled resource lookup tries logical paths as packaged in Android assets
+    (`locale/en_us.xml`), desktop source-tree paths
+    (`ui/cocos-studio/locale/en_us.xml`), Flutter copied asset paths
+    (`flutter_launcher/assets/cocos-studio/locale/en_us.xml`), and base-path
+    prefixed variants.
+- `cpp/core/environ/CMakeLists.txt` now builds `ConfigFileIO.cpp`.
+- `cpp/core/environ/ConfigManager/IndividualConfigManager.cpp`:
+  - Removed `platform/CCFileUtils.h`.
+  - `CheckExistAt()` and `UsePreferenceAt()` now call
+    `TVPConfigFileExists()`.
+- `cpp/core/environ/ConfigManager/LocaleConfigManager.cpp`:
+  - Removed `platform/CCFileUtils.h`.
+  - Replaced Cocos `isFileExist`, `fullPathForFilename`, and
+    `getStringFromFile` usage with `TVPLoadBundledConfigText()`.
+  - Keeps fallback to `en_us` when the selected language XML cannot be loaded.
+- `cpp/core/environ/ConfigManager/LocaleConfigManager.h`:
+  - Renamed the private path helper to `GetLogicalFilePath() const`.
+  - Still forward-declares `cocos2d::ui::Text/Button` because legacy Cocos UI
+    text binding overloads remain in place for now.
+
+Why this slice matters:
+
+- A future `flutter-sdl3` host must be able to initialize preferences and
+  locale text without constructing Cocos `FileUtils`.
+- This slice does not touch the old Cocos scene tree, forms, or input behavior,
+  so it is a low-risk boundary cleanup.
+- It also avoids adding any render-path validation or pixel readback work; the
+  performance fix from `0a660f0` remains intact.
+
+Checks run for this slice:
+
+- `git diff --check`: passed.
+- `python3 -m json.tool vcpkg.json`: passed.
+- Grep confirmed no `CCFileUtils`, `cocos2d::FileUtils`,
+  `getStringFromFile`, `fullPathForFilename`, or `isFileExist` remain under
+  `cpp/core/environ/ConfigManager`.
+- Local full compile remains unavailable because this machine has no `cmake`,
+  `java`, `flutter`, `dart`, or `clang-format`. GitHub Actions must verify the
+  Android build.
+
+Recommended next steps:
+
+1. Recheck GitHub Actions run `28401220002` for pushed commit `10e976c`.
+2. If that CI is green, commit the current ConfigFileIO slice with a message
+   like `Remove Cocos file IO from config managers`.
+3. Push and monitor format + Android build.
+4. Next low-risk slices after this:
+   - replace Cocos platform macros in `cpp/core/base/SysInitIntf.cpp`;
+   - replace Cocos platform macros in `PreferenceDefaults.cpp`;
+   - add an opt-in `flutter-sdl3` runtime-host skeleton without SDL window
+     ownership.
 2. Move Android file/path helpers away from Cocos `FileUtils` first in places
    that already use regular filesystem paths.
 3. Keep Cocos UI forms and legacy `TVPWindowLayer` as the compatibility host

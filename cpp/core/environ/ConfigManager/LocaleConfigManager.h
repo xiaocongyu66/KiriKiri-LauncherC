@@ -19,7 +19,7 @@ class LocaleConfigManager {
 
     LocaleConfigManager();
 
-    std::string GetFilePath();
+    std::string GetLogicalFilePath() const;
 
 public:
     static LocaleConfigManager *GetInstance();

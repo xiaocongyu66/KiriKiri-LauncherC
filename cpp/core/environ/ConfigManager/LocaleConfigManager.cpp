@@ -1,5 +1,5 @@
 #include "LocaleConfigManager.h"
-#include "platform/CCFileUtils.h"
+#include "ConfigFileIO.h"
 #include "GlobalConfigManager.h"
 #include "tinyxml2/tinyxml2.h"
 #include "ui/UIText.h"
@@ -7,16 +7,9 @@
 
 LocaleConfigManager::LocaleConfigManager() = default;
 
-std::string LocaleConfigManager::GetFilePath() {
+std::string LocaleConfigManager::GetLogicalFilePath() const {
     std::string pathprefix = "locale/"; // constant file in app package
-    std::string fullpath =
-        pathprefix + currentLangCode + ".xml"; // exp. "local/en_us.xml"
-    if(!cocos2d::FileUtils::getInstance()->isFileExist(fullpath)) {
-        currentLangCode =
-            "en_us"; // restore to default language config(must exist)
-        return GetFilePath();
-    }
-    return cocos2d::FileUtils::getInstance()->fullPathForFilename(fullpath);
+    return pathprefix + currentLangCode + ".xml"; // exp. "locale/en_us.xml"
 }
 
 LocaleConfigManager *LocaleConfigManager::GetInstance() {
@@ -41,8 +34,11 @@ void LocaleConfigManager::Initialize(const std::string &sysLang) {
         currentLangCode = sysLang;
     AllConfig.clear();
     tinyxml2::XMLDocument doc;
-    std::string xmlData =
-        cocos2d::FileUtils::getInstance()->getStringFromFile(GetFilePath());
+    std::string xmlData;
+    if(!TVPLoadBundledConfigText(GetLogicalFilePath(), &xmlData)) {
+        currentLangCode = "en_us"; // restore to default language config
+        TVPLoadBundledConfigText(GetLogicalFilePath(), &xmlData);
+    }
     bool _writeBOM = false;
     const char *p = xmlData.c_str();
     p = tinyxml2::XMLUtil::ReadBOM(p, &_writeBOM);

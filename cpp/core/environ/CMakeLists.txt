@@ -27,6 +27,7 @@ set(ENVIRON_SOURCE_FILES
     $<$<BOOL:${MACOS}>:${ENVIRON_PATH}/apple/macos/platform.mm>
 
     ${ENVIRON_PATH}/ConfigManager/GlobalConfigManager.cpp
+    ${ENVIRON_PATH}/ConfigManager/ConfigFileIO.cpp
     ${ENVIRON_PATH}/ConfigManager/IndividualConfigManager.cpp
     ${ENVIRON_PATH}/ConfigManager/LocaleConfigManager.cpp
     ${ENVIRON_PATH}/ConfigManager/PreferenceDefaults.cpp
