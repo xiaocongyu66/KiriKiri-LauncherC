@@ -1976,6 +1976,24 @@ TVPMainScene *TVPMainScene::CreateInstance() {
     return _instance;
 }
 
+TVPRuntimeHostFrameMetrics TVPMainScene::GetRuntimeFrameMetrics() {
+    TVPRuntimeHostFrameMetrics metrics;
+    auto glview = cocos2d::Director::getInstance()->getOpenGLView();
+    cocos2d::Size sceneSize =
+        GameNode ? GameNode->getContentSize() : getContentSize();
+    cocos2d::Size frameSize = glview ? glview->getFrameSize() : sceneSize;
+    metrics.frameWidth = static_cast<int>(frameSize.width);
+    metrics.frameHeight = static_cast<int>(frameSize.height);
+    metrics.sceneWidth = static_cast<int>(sceneSize.width);
+    metrics.sceneHeight = static_cast<int>(sceneSize.height);
+    metrics.scale = sceneSize.height > 0.0f
+        ? frameSize.height / sceneSize.height
+        : 1.0f;
+    if(metrics.scale <= 0.0f)
+        metrics.scale = 1.0f;
+    return metrics;
+}
+
 void TVPMainScene::initialize() {
     auto glview = cocos2d::Director::getInstance()->getOpenGLView();
     cocos2d::Size screenSize = glview->getFrameSize();

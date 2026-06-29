@@ -10,6 +10,7 @@ namespace cocos2d {
 
 class TVPWindowLayer;
 class TVPGameMainMenu;
+struct TVPRuntimeHostFrameMetrics;
 class TVPMainScene : public cocos2d::Scene, public cocos2d::IMEDelegate {
     TVPMainScene();
     static TVPMainScene *create();
@@ -49,6 +50,7 @@ public:
 
     bool startupFrom(const std::string &path,
                      const std::string &gameDirForPreference = {});
+    TVPRuntimeHostFrameMetrics GetRuntimeFrameMetrics();
 
     float getUIScale();
 

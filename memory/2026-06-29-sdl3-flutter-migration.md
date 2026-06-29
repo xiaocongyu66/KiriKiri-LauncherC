@@ -588,3 +588,37 @@ Checks:
 - Local full Android build still unavailable here because `cmake`, `java`,
   `flutter`, `dart`, and `clang-format` are absent; GitHub Actions is still
   authoritative.
+
+## 2026-06-30 Cocos dependency reduction slice
+
+After pushing `0a660f0`, user reiterated that the hard goal is still
+Flutter + SDL3 and that Cocos should be removed gradually.
+
+Small low-risk code slice applied:
+
+- `TVPMainScene` now exposes `GetRuntimeFrameMetrics()`.
+- `CocosRuntimeHost::GetFrameMetrics()` no longer reads
+  `cocos2d::Director::getInstance()->getOpenGLView()` directly.
+- The Cocos-specific frame/scene size calculation is now localized inside
+  `MainScene.cpp`; `CocosRuntimeHost.cpp` simply returns
+  `scene->GetRuntimeFrameMetrics()`.
+- This keeps behavior unchanged while narrowing the runtime-host boundary for a
+  future SDL3 host.
+
+Why this helps remove Cocos:
+
+- `runtime/RuntimeHost` should be the stable engine-host boundary used by both
+  the current Cocos host and the future SDL3 host.
+- Host-independent code should ask the active host for frame metrics instead of
+  importing Cocos APIs or assuming a Cocos GLView.
+- This is a small step toward matching `krkrsdl3-main`, where SDL owns the app
+  callbacks (`SDL_AppInit`, `SDL_AppEvent`, `SDL_AppIterate`) and frame loop.
+
+Next likely Cocos-removal slices:
+
+1. Add a minimal SDL runtime-host skeleton that can report frame metrics and
+   accept launch requests, behind an opt-in build/runtime flag.
+2. Move Android file/path helpers away from Cocos `FileUtils` first in places
+   that already use regular filesystem paths.
+3. Keep Cocos UI forms and legacy `TVPWindowLayer` as the compatibility host
+   until SDL3 presentation and input parity are proven.

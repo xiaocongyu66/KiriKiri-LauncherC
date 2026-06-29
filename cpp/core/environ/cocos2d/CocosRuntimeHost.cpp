@@ -5,8 +5,6 @@
 #include "NativeLog.h"
 #include "runtime/RuntimeHost.h"
 
-#include "base/CCDirector.h"
-
 #include <cstdio>
 
 namespace {
@@ -31,24 +29,10 @@ public:
     }
 
     TVPRuntimeHostFrameMetrics GetFrameMetrics() override {
-        TVPRuntimeHostFrameMetrics metrics;
         TVPMainScene *scene = Scene;
         if(!scene)
-            return metrics;
-
-        auto glview = cocos2d::Director::getInstance()->getOpenGLView();
-        cocos2d::Size sceneSize = scene->getGameNodeSize();
-        cocos2d::Size frameSize = glview ? glview->getFrameSize() : sceneSize;
-        metrics.frameWidth = static_cast<int>(frameSize.width);
-        metrics.frameHeight = static_cast<int>(frameSize.height);
-        metrics.sceneWidth = static_cast<int>(sceneSize.width);
-        metrics.sceneHeight = static_cast<int>(sceneSize.height);
-        metrics.scale = sceneSize.height > 0.0f
-            ? frameSize.height / sceneSize.height
-            : 1.0f;
-        if(metrics.scale <= 0.0f)
-            metrics.scale = 1.0f;
-        return metrics;
+            return {};
+        return scene->GetRuntimeFrameMetrics();
     }
 
     void Attach(TVPMainScene *scene) { Scene = scene; }
