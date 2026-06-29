@@ -63,7 +63,12 @@
 - Android hybrid builds keep Cocos as the active presenter until an SDL or
   Flutter texture presenter has successfully presented a frame; takeover may be
   requested earlier, but Cocos is only hidden after the presenter is ready.
-- The SDL surface mirror copies frames only while a real screen presenter consumer is active, so Android hybrid builds do not pay the extra CPU copy cost.
+- The SDL surface mirror is not enabled by default on Android hybrid builds.
+  It can force GPU-backed TVP textures through CPU scanline readback while
+  bitmap regions complete, so Android now uses the Flutter external texture
+  direct presenter as the default path. Set
+  `KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR=1` only when diagnosing the legacy
+  SDL surface presenter fallback.
 
 ## Migration order
 

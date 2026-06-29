@@ -83,10 +83,13 @@ Fast-forward mode must not be limited by a UI framework render loop. The SDL3
 host should present dirty game frames directly through the native presenter and
 only notify Flutter/Cocos for UI overlay state. Flutter should not receive every
 game-frame copy when no launcher or menu UI needs it. The current Android
-hybrid `ANativeWindow` dirty-copy path is kept correctness-first and must not
-drop partial dirty regions; fast-forward performance should move to an SDL3
-GPU/SurfaceTexture native presenter instead of throttling those copies. The
-opt-in `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1` path is the current
+hybrid path presents through the Flutter external texture directly and does not
+enable the SDL surface mirror on Android by default, because that mirror copies
+regions from TVP textures and can force GPU-backed textures through CPU pixel
+readback. Set `KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR=1` only for diagnostics
+or legacy fallback investigation. Fast-forward performance should move to an
+SDL3 GPU/SurfaceTexture native presenter instead of throttling those copies.
+The opt-in `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1` path is the current
 SurfaceTexture bridge experiment: it must stay behind the flag until real
-device logs prove nonblank continuous frames, correct orientation, resize/detach
-safety, and responsive input.
+device logs prove nonblank continuous frames, correct orientation,
+resize/detach safety, and responsive input.

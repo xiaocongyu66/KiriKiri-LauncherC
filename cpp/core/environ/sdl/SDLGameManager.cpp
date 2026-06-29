@@ -1845,8 +1845,15 @@ bool ShouldRunSDLGpuShadowUpload(bool takeoverActive) {
 }
 
 bool IsSDLRenderDiagnosticsActive() {
-    return IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") ||
-        IsSDLGpuShadowUploadEnabled();
+    return IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS");
+}
+
+bool ShouldUseSDLSurfaceMirrorForTakeover() {
+#if defined(__ANDROID__)
+    return IsTruthyEnv("KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR");
+#else
+    return true;
+#endif
 }
 
 void DestroySDLSurfaceMirrorLocked() {
@@ -3434,7 +3441,9 @@ void TVPSDLRecordPresenterFrame(iTVPTexture2D *texture, const char *stage,
 void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
                                        int sourceWidth, int sourceHeight,
                                        int destWidth, int destHeight) {
-    if(!IsSDLRenderDiagnosticsActive())
+    const bool diagnostics = IsSDLRenderDiagnosticsActive();
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    if(!diagnostics && !surfaceMirrorWanted)
         return;
 
     TVPSDLInitializeRuntime();
@@ -3462,7 +3471,7 @@ void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
         gSDLBitmapCompletionState.unionRect.clear();
     }
 
-    if(ShouldLogBitmapCompletionBatch(batch)) {
+    if(diagnostics && ShouldLogBitmapCompletionBatch(batch)) {
         const Uint32 initialized = SDL_WasInit(0);
         char message[256];
         std::snprintf(
@@ -3485,7 +3494,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
                                         const tTVPRect &clipRect, int type,
                                         int opacity, int sourceWidth,
                                         int sourceHeight) {
-    if(!IsSDLRenderDiagnosticsActive())
+    const bool diagnostics = IsSDLRenderDiagnosticsActive();
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    if(!diagnostics && !surfaceMirrorWanted)
         return;
 
     TVPSDLInitializeRuntime();
@@ -3600,7 +3611,6 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
     uint64_t surfaceCopiedTotal = 0;
     uint64_t surfaceCopiedBytesTotal = 0;
     uint64_t surfaceSkippedTotal = 0;
-    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
     const bool surfaceCopied = surfaceMirrorWanted && copyReady &&
         CopyRegionToSDLSurfaceMirror(texture, clipRect, x, y, sourceWidth,
                                      sourceHeight, format, globalRegion,
@@ -3626,8 +3636,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
             unionRect = gSDLBitmapCompletionState.unionRect;
             hasUnion = gSDLBitmapCompletionState.hasUnion;
         }
-        shouldLog = ShouldLogBitmapCompletionRegion(globalRegion, batchRegion) ||
-            !inBounds || surfaceSkipped;
+        shouldLog = diagnostics &&
+            (ShouldLogBitmapCompletionRegion(globalRegion, batchRegion) ||
+             !inBounds || surfaceSkipped);
     }
 
     if(!shouldLog)
@@ -3671,7 +3682,9 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
 
 void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
                                      int sourceWidth, int sourceHeight) {
-    if(!IsSDLRenderDiagnosticsActive())
+    const bool diagnostics = IsSDLRenderDiagnosticsActive();
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    if(!diagnostics && !surfaceMirrorWanted)
         return;
 
     TVPSDLInitializeRuntime();
@@ -3711,6 +3724,9 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
     if(TVPSDLIsScreenTakeoverEnabled()) {
         TVPSDLPumpScreenPresenter("bitmap-end");
     }
+
+    if(!diagnostics)
+        return;
 
     if(!ShouldLogBitmapCompletionBatch(batch) && outOfBounds == 0 &&
        surfaceSkipped == 0)
@@ -3958,7 +3974,10 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
     const bool requested = enabled;
     const bool supported = IsSDLScreenPresenterWindowSupported();
     enabled = enabled && supported;
-    gSDLSurfaceMirrorConsumerActive.store(enabled, std::memory_order_relaxed);
+    const bool useSurfaceMirror =
+        enabled && ShouldUseSDLSurfaceMirrorForTakeover();
+    gSDLSurfaceMirrorConsumerActive.store(useSurfaceMirror,
+                                          std::memory_order_relaxed);
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
         gSDLScreenPresenterState.takeoverEnabled = enabled;
@@ -3974,9 +3993,11 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
     const Uint32 initialized = SDL_WasInit(0);
     char message[384];
     std::snprintf(message, sizeof(message),
-                  "takeover enabled=%d requested=%d reason=%s unsupported=%s "
-                  "frame=%dx%d scene=%dx%d events=%d video=%d audio=%d ticks=%u",
-                  enabled ? 1 : 0, requested ? 1 : 0, reason ? reason : "",
+                  "takeover enabled=%d requested=%d surfaceMirror=%d reason=%s "
+                  "unsupported=%s frame=%dx%d scene=%dx%d events=%d video=%d "
+                  "audio=%d ticks=%u",
+                  enabled ? 1 : 0, requested ? 1 : 0,
+                  useSurfaceMirror ? 1 : 0, reason ? reason : "",
                   supported ? "" : SDLScreenPresenterUnsupportedReason(),
                   frameWidth, frameHeight, sceneWidth, sceneHeight,
                   (initialized & SDL_INIT_EVENTS) ? 1 : 0,
@@ -3984,8 +4005,9 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
                   (initialized & SDL_INIT_AUDIO) ? 1 : 0,
                   static_cast<unsigned>(SDL_GetTicks()));
     LogSDLScreenPresenter(message);
-    if(!enabled) {
-        DropSDLSurfaceMirror("takeover-disabled");
+    if(!useSurfaceMirror) {
+        DropSDLSurfaceMirror(enabled ? "surface-mirror-disabled"
+                                     : "takeover-disabled");
     }
 }
 

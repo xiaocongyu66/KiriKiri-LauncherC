@@ -508,3 +508,83 @@ Next concrete steps from here:
 5. After CI passes, request/test a build with
    `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1` to gather real
    `android-egl-presenter` runtime logs.
+
+## 2026-06-30 render performance continuation
+
+User clarified that the performance concern is not ordinary logging, but
+graphics-integrity style validation/probing: paths that touch texture pixels,
+read scanlines, or force GPU-backed textures into CPU readback.
+
+Important finding:
+
+- Android screen takeover previously set
+  `gSDLSurfaceMirrorConsumerActive = true`.
+- That made every bitmap completion region run
+  `CopyRegionToSDLSurfaceMirror()`.
+- `CopyRegionToSDLSurfaceMirror()` copies each row through
+  `texture->GetScanLineForRead(...)`.
+- For OpenGL-backed TVP textures, `GetScanLineForRead()` in
+  `RenderManager_ogl.cpp` can allocate a CPU pixel cache and call
+  `glReadPixels()` for the whole texture. This is exactly the kind of
+  graphics-integrity/readback work that hurts Android frame time.
+- The actual Flutter direct presenter does not need the SDL surface mirror:
+  `BasicDrawDevice::Show()` still calls `UpdateDrawBuffer(tex)`, which reaches
+  `TVPSDLTryPresentTexture()` and then the Android Flutter direct presenter.
+
+Patch applied:
+
+- `IsSDLRenderDiagnosticsActive()` now only honors the explicit
+  `KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS` flag.
+  - Selecting `graphics_backend=gpuapi` or enabling SDL_GPU no longer
+    automatically turns on render diagnostics.
+- Added `ShouldUseSDLSurfaceMirrorForTakeover()`.
+  - On Android it defaults to false.
+  - Set `KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR=1` only for diagnostics or
+    legacy fallback investigation.
+  - Non-Android behavior remains true so desktop SDL window/surface presenter
+    behavior is not changed by this Android performance fix.
+- `TVPSDLSetScreenTakeoverEnabled()` now logs `surfaceMirror=0/1` and only
+  keeps the mirror active when the new helper allows it.
+- `TVPSDLRecordBitmapCompletionStart/Region/End()` now return immediately when
+  both diagnostics and surface mirror are disabled.
+  - When diagnostics are disabled but the surface mirror is explicitly enabled,
+    they still maintain the mirror and pump the surface presenter.
+  - When only diagnostics are enabled, they still produce the previous
+    `sdl-bitmap` probe logs.
+- Updated docs:
+  - `docs/runtime-host-architecture.md`
+  - `docs/sdlgpu-render-plan.md`
+
+Why this matches the Flutter + SDL3 migration goal:
+
+- Default Android presentation now prefers the Flutter external texture direct
+  path and avoids an extra per-region CPU mirror.
+- This keeps the stable fallback available behind an environment flag while the
+  low-copy EGL/SurfaceTexture path matures.
+- It moves the project away from Cocos-era bitmap completion mirroring and
+  toward a presenter boundary that can be owned by SDL3/Flutter.
+
+Reference notes gathered this turn:
+
+- `krkrsdl3-main/cpp/krkrsdl.cpp` uses SDL3 callback entry points
+  `SDL_AppInit`, `SDL_AppEvent`, and `SDL_AppIterate`.
+- `krkrsdl3-main/cpp/environ/MainWindowLayer.cpp` forwards update/event work
+  through `SDL_AppIterate()` and `SDL_AppEvent()`, showing the shape of an
+  SDL-owned frame loop without Cocos.
+- `AetherKiri/bridge/engine_api/src/android_jni_bridge.cpp` stores an
+  `ANativeWindow` from a SurfaceTexture/Surface bridge.
+- `AetherKiri/bridge/engine_api/src/engine_api.cpp` auto-attaches pending
+  `ANativeWindow` instances during `engine_tick()`.
+- `AetherKiri/cpp/core/visual/ogl/krkr_egl_context.cpp` creates and attaches
+  EGL `WindowSurface` objects from `ANativeWindow`, then uses
+  `eglSwapBuffers()` to deliver frames to the SurfaceTexture. This reinforces
+  the current direction: prefer SurfaceTexture/EGL presenter work over CPU
+  bitmap/surface mirrors.
+
+Checks:
+
+- `git diff --check`: passed.
+- `python3 -m json.tool vcpkg.json`: passed.
+- Local full Android build still unavailable here because `cmake`, `java`,
+  `flutter`, `dart`, and `clang-format` are absent; GitHub Actions is still
+  authoritative.
