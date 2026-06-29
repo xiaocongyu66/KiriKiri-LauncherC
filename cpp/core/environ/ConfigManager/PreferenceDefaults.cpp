@@ -2,6 +2,18 @@
 
 #include "GlobalConfigManager.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) &&                                                     \
+    ((defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) ||                       \
+     (defined(TARGET_OS_IOS) && TARGET_OS_IOS))
+#define TVP_CONFIG_PLATFORM_IOS 1
+#else
+#define TVP_CONFIG_PLATFORM_IOS 0
+#endif
+
 namespace {
 
 void EnsureBool(iSysConfigManager *config, const char *key, bool value) {
@@ -33,7 +45,7 @@ void TVPInitializePreferenceDefaults() {
     EnsureString(config, "graphics_backend", "opengl");
     EnsureString(config, "default_font", "");
     EnsureBool(config, "force_default_font", false);
-#if defined(CC_TARGET_OS_IPHONE)
+#if TVP_CONFIG_PLATFORM_IOS
     EnsureString(config, "memusage", "high");
 #else
     EnsureString(config, "memusage", "unlimited");
@@ -42,9 +54,7 @@ void TVPInitializePreferenceDefaults() {
     EnsureFloat(config, "vcursor_scale", 0.5f);
     EnsureFloat(config, "menu_handler_opa", 0.15f);
     EnsureBool(config, "remember_last_path", true);
-#if defined(__ANDROID__) || defined(ANDROID) ||                                 \
-    (defined(CC_TARGET_PLATFORM) && defined(CC_PLATFORM_ANDROID) &&             \
-     CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID)
+#if defined(__ANDROID__) || defined(ANDROID)
     EnsureBool(config, "hide_android_sys_btn", false);
     EnsureBool(config, "ffmpeg_image_decoder", false);
     EnsureString(config, "ffmpeg_decode_mode", "software");
@@ -53,7 +63,7 @@ void TVPInitializePreferenceDefaults() {
     EnsureString(config, "software_draw_thread", "0");
     EnsureString(config, "software_compress_tex", "none");
 
-#if defined(CC_TARGET_OS_IPHONE)
+#if TVP_CONFIG_PLATFORM_IOS
     EnsureBool(config, "GL_EXT_shader_framebuffer_fetch", true);
 #else
     EnsureBool(config, "GL_EXT_shader_framebuffer_fetch", false);

@@ -19,6 +19,18 @@
 #include "ScriptMgnIntf.h"
 #include "tvpgl.h"
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+#if defined(__APPLE__) &&                                                     \
+    ((defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE) ||                       \
+     (defined(TARGET_OS_IOS) && TARGET_OS_IOS))
+#define TVP_CORE_PLATFORM_IOS 1
+#else
+#define TVP_CORE_PLATFORM_IOS 0
+#endif
+
 //---------------------------------------------------------------------------
 // global data
 //---------------------------------------------------------------------------
@@ -32,8 +44,8 @@ extern void TVPGL_C_Init();
 // TVPSystemInit : Entire System Initialization
 //---------------------------------------------------------------------------
 void TVPSystemInit() {
-#if CC_TARGET_PLATFORM != CC_PLATFORM_WIN32
-#ifndef CC_TARGET_OS_IPHONE
+#if !defined(_WIN32)
+#if !TVP_CORE_PLATFORM_IOS
     if(!TVPProtectInit())
         return;
 #endif

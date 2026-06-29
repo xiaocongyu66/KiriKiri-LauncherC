@@ -733,6 +733,56 @@ Recommended next steps:
    - replace Cocos platform macros in `PreferenceDefaults.cpp`;
    - add an opt-in `flutter-sdl3` runtime-host skeleton without SDL window
      ownership.
+
+## 2026-06-30 additional platform-macro cleanup
+
+After committing and pushing the ConfigFileIO slice:
+
+- Commit `82b3c9f Remove Cocos file IO from config managers` was pushed to
+  `origin/main`.
+- GitHub Actions:
+  - `Code Format Check` run `28401800595`: completed successfully.
+  - `Build Flutter Android` run `28401838181`: in progress when this section
+    was written.
+- Previous commit `10e976c` Android build run `28401220002` completed
+  successfully.
+
+Second low-risk Cocos-removal slice applied locally:
+
+- `cpp/core/base/SysInitIntf.cpp`
+  - Removed use of `CC_TARGET_PLATFORM`, `CC_PLATFORM_WIN32`, and
+    `CC_TARGET_OS_IPHONE`.
+  - Added local Apple `TargetConditionals.h` handling and a translation-unit
+    macro `TVP_CORE_PLATFORM_IOS`.
+  - Windows detection now uses `_WIN32`.
+  - This removes the only direct Cocos platform-macro dependency under
+    `cpp/core/base`.
+- `cpp/core/environ/ConfigManager/PreferenceDefaults.cpp`
+  - Removed use of `CC_TARGET_OS_IPHONE`, `CC_TARGET_PLATFORM`, and
+    `CC_PLATFORM_ANDROID`.
+  - Added local Apple `TargetConditionals.h` handling and
+    `TVP_CONFIG_PLATFORM_IOS`.
+  - Android defaults now use only `__ANDROID__` / `ANDROID`.
+  - Default behavior remains the same: iOS keeps `memusage=high` and
+    `GL_EXT_shader_framebuffer_fetch=true`; Android still gets
+    `hide_android_sys_btn`, `ffmpeg_image_decoder`, and
+    `ffmpeg_decode_mode` defaults.
+
+Checks for this second slice:
+
+- `git diff --check`: passed.
+- `python3 -m json.tool vcpkg.json`: passed.
+- Grep confirmed no `CC_TARGET_PLATFORM`, `CC_PLATFORM_`, or
+  `CC_TARGET_OS_IPHONE` remain under `cpp/core/base` or
+  `cpp/core/environ/ConfigManager`.
+
+Why this matters:
+
+- `cpp/core/base` is now free of direct Cocos platform macros, which is a
+  prerequisite for building more of the engine under a future SDL3/Flutter host
+  without dragging Cocos headers/macros through base initialization.
+- `PreferenceDefaults` is still shared by the legacy Cocos host and future
+  Flutter/SDL3 host, so its platform policy should not depend on Cocos.
 2. Move Android file/path helpers away from Cocos `FileUtils` first in places
    that already use regular filesystem paths.
 3. Keep Cocos UI forms and legacy `TVPWindowLayer` as the compatibility host
