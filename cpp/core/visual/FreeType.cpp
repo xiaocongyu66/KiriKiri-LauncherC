@@ -42,13 +42,21 @@ extern bool TVPEncodeUTF8ToUTF16(ttstr &output, const std::string &source);
 //---------------------------------------------------------------------------
 
 FT_Library FreeTypeLibrary = nullptr; //!< FreeType ライブラリ
+static int FreeTypeRefCount = 0;
 void TVPInitializeFont() {
     if(FreeTypeLibrary == nullptr) {
         FT_Error err = FT_Init_FreeType(&FreeTypeLibrary);
+        if(err || !FreeTypeLibrary) {
+            FreeTypeLibrary = nullptr;
+            TVPThrowExceptionMessage(TVPFontCannotBeUsed, ttstr("FreeType"));
+        }
     }
+    FreeTypeRefCount++;
 }
 void TVPUninitializeFreeFont() {
-    if(FreeTypeLibrary) {
+    if(FreeTypeRefCount > 0)
+        FreeTypeRefCount--;
+    if(FreeTypeRefCount <= 0 && FreeTypeLibrary) {
         FT_Done_FreeType(FreeTypeLibrary);
         FreeTypeLibrary = nullptr;
     }
@@ -260,35 +268,40 @@ tFreeTypeFace::tFreeTypeFace(const ttstr &fontname, tjs_uint32 options) :
 
     // フィールドをクリア
     Face = nullptr;
+    FTFace = nullptr;
     GlyphIndexToCharcodeVector = nullptr;
     UnicodeToLocalChar = nullptr;
     LocalCharToUnicode = nullptr;
     Options = options;
     Height = 10;
 
-    // フォントを開く
-    // if(options & TVP_FACE_OPTIONS_FILE)
-    {
-        // ファイルを開く
-        Face = new tGenericFreeTypeFace(fontname, options);
-        // 例外がここで発生する可能性があるので注意
-    }
-    // else
-    {
-        // ネイティブのフォント名による指定 (プラットフォーム依存)
-        // Face = new tNativeFreeTypeFace(fontname, options);
-        // 例外がここで発生する可能性があるので注意
-    }
-    FTFace = Face->GetFTFace();
+    try {
+        // フォントを開く
+        // if(options & TVP_FACE_OPTIONS_FILE)
+        {
+            // ファイルを開く
+            Face = new tGenericFreeTypeFace(fontname, options);
+            // 例外がここで発生する可能性があるので注意
+        }
+        // else
+        {
+            // ネイティブのフォント名による指定 (プラットフォーム依存)
+            // Face = new tNativeFreeTypeFace(fontname, options);
+            // 例外がここで発生する可能性があるので注意
+        }
+        FTFace = Face ? Face->GetFTFace() : nullptr;
+        if(!FTFace) {
+            TVPThrowExceptionMessage(TVPFontCannotBeUsed, fontname);
+        }
 
-    // マッピングを確認する
-    if(FTFace->charmap == nullptr) {
-        // FreeType は自動的に UNICODE マッピングを使用するが、
-        // フォントが UNICODE マッピングの情報を含んでいない場合は
-        // 自動的な文字マッピングの選択は行われない。
-        // とりあえず(日本語環境に限って言えば) SJIS
-        // マッピングしかもってない
-        // フォントが多いのでSJISを選択させてみる。
+        // マッピングを確認する
+        if(FTFace->charmap == nullptr) {
+            // FreeType は自動的に UNICODE マッピングを使用するが、
+            // フォントが UNICODE マッピングの情報を含んでいない場合は
+            // 自動的な文字マッピングの選択は行われない。
+            // とりあえず(日本語環境に限って言えば) SJIS
+            // マッピングしかもってない
+            // フォントが多いのでSJISを選択させてみる。
 #if 0
 		FT_Error err = FT_Select_Charmap(FTFace, FT_ENCODING_SJIS);
 		if(!err)
@@ -300,20 +313,30 @@ tFreeTypeFace::tFreeTypeFace(const ttstr &fontname, tjs_uint32 options) :
 		}
 		else
 #else
-        FT_Error err;
+            FT_Error err;
 #endif
-        {
-            int numcharmap = FTFace->num_charmaps;
-            for(int i = 0; i < numcharmap; i++) {
-                FT_Encoding enc = FTFace->charmaps[i]->encoding;
-                if(enc != FT_ENCODING_NONE && enc != FT_ENCODING_APPLE_ROMAN) {
-                    err = FT_Select_Charmap(FTFace, enc);
-                    if(!err) {
-                        break;
+            {
+                int numcharmap = FTFace->num_charmaps;
+                for(int i = 0; i < numcharmap; i++) {
+                    FT_Encoding enc = FTFace->charmaps[i]->encoding;
+                    if(enc != FT_ENCODING_NONE &&
+                       enc != FT_ENCODING_APPLE_ROMAN) {
+                        err = FT_Select_Charmap(FTFace, enc);
+                        if(!err) {
+                            break;
+                        }
                     }
                 }
             }
         }
+    } catch(...) {
+        if(Face) {
+            delete Face;
+            Face = nullptr;
+        }
+        FTFace = nullptr;
+        TVPUninitializeFreeFont();
+        throw;
     }
 }
 //---------------------------------------------------------------------------
@@ -327,6 +350,7 @@ tFreeTypeFace::~tFreeTypeFace() {
         delete GlyphIndexToCharcodeVector;
     if(Face)
         delete Face;
+    TVPUninitializeFreeFont();
 }
 //---------------------------------------------------------------------------
 
@@ -402,7 +426,11 @@ void tFreeTypeFace::GetFaceNameList(std::vector<ttstr> &dest) {
  * @param height	フォントの高さ(ピクセル単位)
  */
 void tFreeTypeFace::SetHeight(int height) {
+    if(height <= 0)
+        height = 1;
     Height = height;
+    if(!FTFace)
+        return;
     FT_Error err = FT_Set_Pixel_Sizes(FTFace, 0, Height);
     if(err) {
         // TODO: Error ハンドリング
@@ -639,6 +667,8 @@ bool tFreeTypeFace::GetGlyphSizeFromCharcode(tjs_char code,
  */
 bool tFreeTypeFace::LoadGlyphSlotFromCharcode(tjs_char code) {
     // TODO: スレッド保護
+    if(!FTFace)
+        return false;
 
     // 文字コードを得る
     FT_ULong localcode;

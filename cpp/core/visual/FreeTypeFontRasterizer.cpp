@@ -14,7 +14,6 @@
 #include "FontSystem.h"
 #include <complex>
 
-extern void TVPUninitializeFreeFont();
 extern FontSystem *TVPFontSystem;
 extern const ttstr &TVPGetDefaultFontName();
 void FreeTypeFontRasterizer::ApplyFallbackFace() {
@@ -60,7 +59,6 @@ FreeTypeFontRasterizer::~FreeTypeFontRasterizer() {
         delete FaceFallback;
         FaceFallback = nullptr;
     }
-    TVPUninitializeFreeFont();
 }
 void FreeTypeFontRasterizer::AddRef() { RefCount++; }
 //---------------------------------------------------------------------------
@@ -100,17 +98,30 @@ void FreeTypeFontRasterizer::ApplyFont(const tTVPFont &font) {
     opt |= (font.Flags & TVP_TF_STRIKEOUT) ? TVP_TF_STRIKEOUT : 0;
     opt |= (font.Flags & TVP_TF_FONTFILE) ? TVP_FACE_OPTIONS_FILE : 0;
     bool recreate = false;
+    const tjs_int height = font.Height < 0 ? -font.Height : font.Height;
     if(Face) {
         if(Face->GetFontName() != stdname) {
+            tFreeTypeFace *newFace = new tFreeTypeFace(stdname, opt);
+            newFace->SetHeight(height);
             delete Face;
-            Face = new tFreeTypeFace(stdname, opt);
+            Face = newFace;
+            if(FaceFallback) {
+                delete FaceFallback;
+                FaceFallback = nullptr;
+            }
             recreate = true;
         }
     } else {
         Face = new tFreeTypeFace(stdname, opt);
+        Face->SetHeight(height);
         recreate = true;
     }
-    Face->SetHeight(font.Height < 0 ? -font.Height : font.Height);
+    if(!Face) {
+        LastBitmap = nullptr;
+        return;
+    }
+    if(!recreate)
+        Face->SetHeight(height);
     if(recreate == false) {
         if(font.Flags & TVP_TF_ITALIC) {
             Face->SetOption(TVP_TF_ITALIC);
@@ -138,6 +149,8 @@ void FreeTypeFontRasterizer::ApplyFont(const tTVPFont &font) {
 //---------------------------------------------------------------------------
 void FreeTypeFontRasterizer::GetTextExtent(tjs_char ch, tjs_int &w,
                                            tjs_int &h) {
+    w = 0;
+    h = 0;
     if(Face) {
         tGlyphMetrics metrics{};
         if(Face->GetGlyphSizeFromCharcode(ch, metrics)) {
@@ -165,6 +178,8 @@ static bool isUnicodeSpace(char16_t ch) {
 tTVPCharacterData *
 FreeTypeFontRasterizer::GetBitmap(const tTVPFontAndCharacterData &font,
                                   tjs_int aofsx, tjs_int aofsy) {
+    if(!Face)
+        return nullptr;
     if(font.Antialiased) {
         Face->ClearOption(TVP_FACE_OPTIONS_NO_ANTIALIASING);
     } else {
@@ -224,6 +239,10 @@ FreeTypeFontRasterizer::GetBitmap(const tTVPFontAndCharacterData &font,
 //---------------------------------------------------------------------------
 void FreeTypeFontRasterizer::GetGlyphDrawRect(const ttstr &text,
                                               tTVPRect &area) {
+    if(!Face) {
+        area.left = area.top = area.right = area.bottom = 0;
+        return;
+    }
     // アンチエイリアスとヒンティングは有効にする
     Face->ClearOption(TVP_FACE_OPTIONS_NO_ANTIALIASING);
     Face->ClearOption(TVP_FACE_OPTIONS_NO_HINTING);

@@ -71,6 +71,15 @@ rectangle, fallback rectangle, and actual present result. New SDL presenter
 modules should return these result types instead of leaking Android/EGL local
 state back into `SDLGameManager.cpp`.
 
+`cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp` now owns the first slice
+of Android Flutter presenter state: the last presented native-surface size and
+the force-full-frame flag raised after surface changes or size changes. This
+keeps resize/full-frame policy out of `SDLGameManager.cpp`. It also owns the
+direct Flutter CPU fallback that posts frames with `ANativeWindow_lock`, while
+`SDLGameManager.cpp` remains responsible for dirty rect selection and present
+result recording. The remaining Android EGL SurfaceTexture path should move
+behind the same presenter module next.
+
 The important architectural rule is that Cocos may call the runtime presenter
 while it remains the compatibility host, but the presenter must not require a
 Cocos scene. Future SDL3 host work should call the same presenter contract

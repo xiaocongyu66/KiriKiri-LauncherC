@@ -592,3 +592,202 @@ git diff --check
 The grep shows Cocos texture/program includes only inside `krkr_texture2d.h`.
 `RenderManager.h` only has the forward alias.
 `git diff --check` passed.
+
+## 2026-07-01 follow-up: first Android Flutter presenter extraction
+
+Implemented the first low-risk slice of `SDLAndroidFlutterPresenter` extraction.
+
+New files:
+
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.h`
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+
+Moved ownership:
+
+- Presented Flutter/native surface size:
+  - old globals in `SDLGameManager.cpp`:
+    - `gSDLPresentedSurfaceWidth`
+    - `gSDLPresentedSurfaceHeight`
+  - new API:
+    - `TVPSDLAndroidFlutterPresenterGetPresentedSurfaceSize()`
+    - `TVPSDLAndroidFlutterPresenterHasPresentedSurface()`
+    - `TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize()`
+- Full-frame-after-resize/surface-change flag:
+  - old global in `SDLGameManager.cpp`:
+    - `gSDLAndroidForceFullFramePresent`
+  - new API:
+    - `TVPSDLAndroidFlutterPresenterMarkSurfaceChanged()`
+    - `TVPSDLAndroidFlutterPresenterConsumeForceFullFramePresent()`
+
+Updated `SDLGameManager.cpp` call sites:
+
+- Android EGL present success records the presented surface size through the
+  new presenter API.
+- Direct Flutter texture and direct Flutter surface fallback record size
+  through the new presenter API.
+- Touch coordinate clamping and Android view-to-presented-surface mapping read
+  presented size through the new presenter API.
+- `TVPSDLGetPresentedSurfaceSize()` checks the new presenter state first, then
+  falls back to SDL surface mirror state exactly as before.
+- `TVPSDLNotifyAndroidFlutterGameSurfaceChanged()` marks the new full-frame
+  flag before dropping EGL window-surface state.
+- `TVPSDLTryPresentTexture()` consumes the new full-frame flag before building
+  the present plan.
+- `TVPSDLPumpScreenPresenter()` uses
+  `TVPSDLAndroidFlutterPresenterHasPresentedSurface()` to suppress legacy
+  no-surface fallback noise after the Flutter presenter has already produced a
+  frame.
+
+Build integration:
+
+- Added `sdl/SDLAndroidFlutterPresenter.cpp` to
+  `cpp/core/environ/CMakeLists.txt`.
+
+Why this slice is intentionally small:
+
+- It does not move EGL shader/program/window code yet.
+- It does not move direct `ANativeWindow_lock` copies yet.
+- It preserves dirty rect ownership in `TVPSDLTryPresentTexture()`.
+- It makes the next extraction easier because surface-size state and the
+  full-frame resize gate are no longer anonymous globals inside
+  `SDLGameManager.cpp`.
+
+Second extraction slice implemented:
+
+- Moved Android direct Flutter CPU fallback helpers into
+  `SDLAndroidFlutterPresenter.cpp`:
+  - `CopySurfaceToAndroidBuffer`
+  - `CopyTextureToAndroidBuffer`
+  - `TVPSDLAndroidFlutterPresenterTryPresentTexture`
+  - `TVPSDLAndroidFlutterPresenterTryPresentSurface`
+- Moved direct fallback counters into the presenter module:
+  - presented frames
+  - failures
+  - unavailable-window count
+- Moved `KRKR2_ANDROID_DIRECT_PARTIAL_PRESENT` handling into:
+  - `TVPSDLAndroidFlutterPresenterIsDirectPartialPresentEnabled()`
+- Updated `SDLGameManager.cpp`:
+  - `TryPresentAndroidTexturePlan()` now calls
+    `TVPSDLAndroidFlutterPresenterTryPresentTexture()` after EGL fallback
+    fails.
+  - Android surface mirror pump now calls
+    `TVPSDLAndroidFlutterPresenterTryPresentSurface()`.
+  - Present plan construction queries direct-partial policy through the new
+    presenter API.
+
+Behavior preserved:
+
+- EGL remains first for GL-backed texture presentation.
+- Direct `ANativeWindow_lock` fallback remains second.
+- Direct fallback still defaults to full-frame posting unless
+  `KRKR2_ANDROID_DIRECT_PARTIAL_PRESENT=1` is set.
+- Dirty rect ownership and consumption remain in `TVPSDLTryPresentTexture()`.
+
+Next extraction step:
+
+1. Move Android EGL SurfaceTexture helpers into `SDLAndroidFlutterPresenter.cpp`:
+   - EGL state struct and mutex
+   - EGL enable/flip/software-upload flags
+   - GL state snapshot/restore helpers
+   - shader/program setup
+   - EGL window-surface create/drop/reset
+   - `TryPresentAndroidEGLSurfaceTexture`
+   - `AppendAndroidEGLPresenterOverlayInfo`
+2. Replace `TryPresentAndroidTexturePlan()` with a presenter-owned entrypoint
+   returning `TVPSDLTexturePresentResult`.
+
+## 2026-07-01 78.log crash follow-up: FreeType text metrics SIGSEGV
+
+Latest full log inspected:
+
+- `/root/log/78.log`
+
+Important crash evidence:
+
+- `07-01 04:52:12.301`
+  - `Fatal signal 11 (SIGSEGV), code 1 (SEGV_MAPERR)`
+  - `fault addr 0x1a`
+  - thread: `GLThread 21886`
+  - process: `org.github.krkr2`, pid `19848`
+- Tombstone timestamp:
+  - `2026-07-01 04:52:12.579571656+0800`
+- Top backtrace:
+  - `#00 FreeTypeFontRasterizer::GetAscentHeight()+24`
+  - `#01 tTVPNativeBaseBitmap::ApplyFont()+456`
+  - `#02 tTVPNativeBaseBitmap::GetTextSize(...)`
+  - `#03 tTVPNativeBaseBitmap::GetTextHeight(...)`
+  - `#04 tTJSNI_BaseLayer::GetTextHeight(...)`
+  - then TJS call chain.
+
+This is the same crash family as the earlier `04:47:04` and `04:47:36`
+entries in the same log. It is not an EGL/Flutter presenter crash. The
+presenter logs before the crash show EGL was presenting normally; the native
+crash occurs while KAG/backlog UI is measuring text.
+
+Root-cause direction:
+
+- `FreeTypeFontRasterizer::GetAscentHeight()` calls `Face->GetAscent()`.
+- Previous code allowed `tFreeTypeFace` / `FTFace` / `FTFace->size` to become
+  invalid or null.
+- The old FreeType lifetime was especially risky because multiple
+  `FreeTypeFontRasterizer` instances can exist:
+  - global bitmap rasterizer in visual layer
+  - `textrender` plugin rasterizer
+  - fallback font face inside the rasterizer
+- If one owner released FreeType while another still held an `FT_Face`, text
+  measurement could crash in backlog/UI scripts.
+
+Fixes now applied in current working tree:
+
+- `cpp/core/visual/FreeType.cpp`
+  - `FreeTypeRefCount` remains, but ownership is now paired with
+    `tFreeTypeFace`, not with the rasterizer.
+  - `tFreeTypeFace` constructor calls `TVPInitializeFont()`.
+  - `tFreeTypeFace` destructor calls `TVPUninitializeFreeFont()`.
+  - Constructor now initializes `FTFace = nullptr` before opening the face.
+  - Constructor now throws `TVPFontCannotBeUsed` if `Face->GetFTFace()` is null
+    instead of dereferencing `FTFace->charmap`.
+  - Constructor catch path deletes any partially created `Face`, clears
+    `FTFace`, decrements FreeType refcount, then rethrows.
+  - `SetHeight()` clamps non-positive height to `1` and returns if `FTFace` is
+    null.
+  - `LoadGlyphSlotFromCharcode()` returns false if `FTFace` is null.
+- `cpp/core/visual/FreeType.h`
+  - `GetDefaultChar()` handles null `Face`.
+  - `GetFirstChar()` handles null `FTFace`.
+  - `GetAscent()`, `GetUnderline()`, and `GetStrikeOut()` handle null
+    `FTFace`, null `FTFace->size`, and zero `units_per_EM`.
+- `cpp/core/visual/FreeTypeFontRasterizer.cpp`
+  - Removed the rasterizer-level `TVPUninitializeFreeFont()` call. Releasing
+    FreeType from the rasterizer was the wrong ownership granularity once
+    multiple `tFreeTypeFace` objects exist.
+  - `ApplyFont()` now constructs a new `tFreeTypeFace` first and only replaces
+    the old `Face` after the new face is successfully created and sized.
+  - Font fallback face is cleared when the primary font face changes.
+  - `GetTextExtent()` initializes `w/h` to zero.
+  - `GetBitmap()` and `GetGlyphDrawRect()` return safely if no current face is
+    available.
+
+Why this does not conflict with the user's render-performance requirement:
+
+- These guards are in font creation/text metrics failure paths, not the
+  OpenGL/EGL present hot path.
+- The render presenter still avoids extra per-frame validation; EGL remains
+  first, direct `ANativeWindow_lock` fallback second.
+
+Checks after these changes:
+
+```sh
+git -C /root/kiriki-work/KiriKiri-LauncherC diff --check
+python3 -m json.tool /root/kiriki-work/KiriKiri-LauncherC/vcpkg.json >/dev/null
+```
+
+Both passed.
+
+Android build status:
+
+- Full `./gradlew assembleRelease` cannot be verified in this container because
+  `JAVA_HOME` is unset and no `java`, Android SDK, or Android NDK installation
+  was found.
+- Do not claim runtime/build verification until a JDK + Android SDK/NDK are
+  available or the user provides a built APK from this working tree.
