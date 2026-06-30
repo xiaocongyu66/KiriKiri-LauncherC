@@ -1,5 +1,7 @@
 #include "RuntimeRenderManager.h"
 
+#include "RuntimePresenter.h"
+
 #include <mutex>
 #include <sstream>
 
@@ -57,6 +59,20 @@ std::string TVPRuntimeDescribeRenderManager() {
         stream << " presenterFast=1";
     if(snapshot.cpuCopyFreePresenter)
         stream << " cpuCopyFree=1";
+    TVPRuntimePresentFrameInfo frame = TVPRuntimeGetPresentFrameInfo();
+    if(frame.valid) {
+        stream << " frame=" << frame.sequence;
+        stream << " src=" << frame.sourceRect.x << "," << frame.sourceRect.y
+               << "," << frame.sourceRect.w << "x" << frame.sourceRect.h;
+        stream << " dst=" << frame.destRect.x << "," << frame.destRect.y
+               << "," << frame.destRect.w << "x" << frame.destRect.h;
+        if(frame.fullFrame)
+            stream << " full=1";
+        if(frame.nativeGL)
+            stream << " nativeGL=1";
+        if(frame.cpuCopyFree)
+            stream << " cpuCopyFreeFrame=1";
+    }
     for(const TVPRuntimeRenderModuleInfo &module : snapshot.modules)
         AppendModuleSummary(stream, module);
     return stream.str();

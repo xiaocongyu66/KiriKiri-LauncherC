@@ -1369,3 +1369,104 @@ Next architecture work:
    under `RuntimeRenderManager`.
 5. Continue reducing Cocos ownership after SDL3/Flutter presenter parity is
    stable.
+
+## 2026-07-01 krkrsdl2/krkrsdl3 reference pass and presenter frame state
+
+User explicitly asked to also inspect:
+
+- `/root/kiriki-work/krkrsdl2-main`
+- `/root/kiriki-work/krkrsdl3-main`
+
+Reference findings:
+
+- `krkrsdl2-main/src/core/sdl2/SDLApplication.cpp`
+  - `TVPWindowWindow` owns SDL window/renderer/GL context lifecycle.
+  - `TickBeat()` handles software/SDL renderer presentation:
+    `SDL_UpdateTexture(texture, &rect, surface->pixels, surface->pitch)`,
+    then `SDL_RenderCopy()` and `SDL_RenderPresent()`.
+  - It keeps `LastSentDrawDeviceDestRect`, `FullScreenDestRect`,
+    `ActualZoomNumer`, and `ActualZoomDenom`.
+  - `SetDrawDeviceDestRect()` updates the draw device destination rectangle
+    only when it changes.
+  - Mouse coordinate conversion uses `LastSentDrawDeviceDestRect` to map
+    host/window coordinates back into game coordinates.
+  - This is the important architectural lesson for LauncherC: presenter state
+    must own source rect, destination rect, scale, and input reverse mapping.
+    Do not leave that state hidden inside Cocos sprite nodes.
+- `krkrsdl3-main/cpp/krkrsdl.cpp`
+  - Uses SDL3 callback lifecycle:
+    `SDL_AppInit`, `SDL_AppEvent`, `SDL_AppIterate`, `SDL_AppQuit`.
+  - Initializes SDL video/audio, creates an OpenGL SDL window/context, starts
+    the TVP application, and draws on each `SDL_AppIterate()`.
+  - Android touch events are converted to mouse events after applying the
+    current sprite's `xPos/yPos/scale`.
+- `krkrsdl3-main/cpp/environ/MainWindowLayer.cpp`
+  - `DrawDevice::Show()` ultimately calls
+    `form->UpdateDrawBuffer(buf->GetTexture())`.
+  - `TVPWindowLayer` owns an `SDL_Sprite`, not a Cocos sprite.
+  - `UpdateDrawBuffer()` updates the GL texture from the TVP texture data.
+  - `ResetDrawSprite()` recreates the GL texture if size changes.
+- `krkrsdl3-main/cpp/krkrsdl_gl.cpp`
+  - `SDL_GL_BaseSet()` binds default framebuffer, clears, disables depth/blend,
+    sets viewport, and ensures one shared shader/VAO.
+  - `SDL_GL_DrawTexture()` computes:
+    `scale = min(windowW / spriteW, windowH / spriteH)`,
+    `xPos = (windowW - scaledW) / 2`,
+    `yPos = (windowH - scaledH) / 2`,
+    then draws a full quad using uniforms.
+  - `SDL_GL_UpdateTexture()` uploads RGBA using:
+    `GL_UNPACK_ROW_LENGTH = pitch / 4`,
+    `GL_UNPACK_ALIGNMENT = 1`,
+    `glTexSubImage2D(... GL_RGBA, GL_UNSIGNED_BYTE, buff)`,
+    then resets row length/alignment.
+
+Design choice for LauncherC:
+
+- Keep AetherKiri as the stronger reference for Android EGL/SurfaceTexture
+  lifecycle and old GLES compatibility.
+- Use `krkrsdl2` as the reference for stable dest-rect and input mapping
+  ownership.
+- Use `krkrsdl3` as the reference for SDL3 callback lifecycle and removing
+  Cocos presentation state.
+- Do not copy `krkrsdl3`'s simplified GL texture format handling wholesale:
+  it mostly assumes RGBA/Gray and modern `GL_R8/GL_RED`; LauncherC still needs
+  AetherKiri-style RGB/Gray/RGBA compatibility and GLES2-safe paths.
+
+Patch made after this reference pass:
+
+- `cpp/core/environ/runtime/RuntimePresenter.h/.cpp`
+  - Added `TVPRuntimePresentRect`.
+  - Added `TVPRuntimePresentFrameInfo`.
+  - Added `TVPRuntimeRecordPresentFrame()` and
+    `TVPRuntimeGetPresentFrameInfo()`.
+  - Stores the last presented frame behind a small mutex-protected snapshot.
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - On successful Android texture present, records:
+    texture size, layer size, source rect, destination rect, whether it was
+    a full-frame present, whether the source was native GL, and whether the
+    frame was CPU-copy-free.
+  - For now `destRect == sourceRect` because the Flutter SurfaceTexture path
+    presents into the same-sized native window. Future viewport/letterbox
+    work should set `destRect` from a presenter-owned layout manager.
+- `cpp/core/environ/runtime/RuntimeRenderManager.cpp`
+  - `TVPRuntimeDescribeRenderManager()` now includes the last present frame:
+    `frame=N src=x,y,wxh dst=x,y,wxh full=1 nativeGL=1 cpuCopyFreeFrame=1`.
+
+Why this matters:
+
+- It starts moving presentation geometry and frame facts into runtime-level
+  modules rather than Cocos `DrawSprite` state.
+- It mirrors the stable `krkrsdl2` idea that destination rect is a first-class
+  part of rendering and input mapping.
+- It gives future Flutter+SDL3 presenter modules a place to publish state
+  without adding heavyweight validation to the render hot path.
+
+Next concrete architecture step:
+
+- Extract the Android EGL/Flutter presenter into its own module and make that
+  module own:
+  - native window attach/detach;
+  - source rect;
+  - destination rect;
+  - frame dirty/full-frame state;
+  - input coordinate reverse mapping.

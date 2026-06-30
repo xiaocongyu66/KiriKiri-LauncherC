@@ -4,10 +4,13 @@
 
 #include <atomic>
 #include <cstdio>
+#include <mutex>
 
 namespace {
 
 std::atomic<iTVPRuntimePresenter *> gRuntimePresenter{ nullptr };
+std::mutex gRuntimePresentFrameMutex;
+TVPRuntimePresentFrameInfo gRuntimePresentFrameInfo;
 
 const char *SafeString(const char *value, const char *fallback) {
     return value && *value ? value : fallback;
@@ -122,4 +125,15 @@ bool TVPRuntimePresentHostWindowTexture(
 void TVPRuntimeRecordOverlayFrame(float deltaSeconds) {
     if(iTVPRuntimePresenter *presenter = TVPGetRuntimePresenter())
         presenter->RecordOverlayFrame(deltaSeconds);
+}
+
+void TVPRuntimeRecordPresentFrame(const TVPRuntimePresentFrameInfo &info) {
+    std::lock_guard<std::mutex> lock(gRuntimePresentFrameMutex);
+    gRuntimePresentFrameInfo = info;
+    gRuntimePresentFrameInfo.valid = true;
+}
+
+TVPRuntimePresentFrameInfo TVPRuntimeGetPresentFrameInfo() {
+    std::lock_guard<std::mutex> lock(gRuntimePresentFrameMutex);
+    return gRuntimePresentFrameInfo;
 }

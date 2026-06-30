@@ -1,7 +1,30 @@
 #pragma once
 
+#include <cstdint>
+
 class iTVPTexture2D;
 class tTJSNI_BaseWindow;
+
+struct TVPRuntimePresentRect {
+    int x = 0;
+    int y = 0;
+    int w = 0;
+    int h = 0;
+};
+
+struct TVPRuntimePresentFrameInfo {
+    bool valid = false;
+    uint64_t sequence = 0;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    int layerWidth = 0;
+    int layerHeight = 0;
+    TVPRuntimePresentRect sourceRect;
+    TVPRuntimePresentRect destRect;
+    bool fullFrame = false;
+    bool nativeGL = false;
+    bool cpuCopyFree = false;
+};
 
 struct TVPRuntimeScreenTakeoverRequest {
     bool enabled = false;
@@ -50,3 +73,5 @@ bool TVPRuntimePresentTexture(const TVPRuntimeTexturePresentRequest &request);
 bool TVPRuntimePresentHostWindowTexture(
     tTJSNI_BaseWindow *window, const TVPRuntimeTexturePresentRequest &request);
 void TVPRuntimeRecordOverlayFrame(float deltaSeconds);
+void TVPRuntimeRecordPresentFrame(const TVPRuntimePresentFrameInfo &info);
+TVPRuntimePresentFrameInfo TVPRuntimeGetPresentFrameInfo();

@@ -13,6 +13,7 @@
 #include "SDLRuntimePresenter.h"
 #include "SDLUIManager.h"
 #include "SysInitIntf.h"
+#include "runtime/RuntimePresenter.h"
 #include "runtime/RuntimeRenderManager.h"
 #include "WindowIntf.h"
 #include "TVPWindow.h"
@@ -4336,6 +4337,20 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                 std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
                 presented = ++gSDLScreenPresenterState.presentedFrames;
             }
+            TVPRuntimePresentFrameInfo frameInfo;
+            frameInfo.sequence = presented;
+            frameInfo.textureWidth = static_cast<int>(texture->GetWidth());
+            frameInfo.textureHeight = static_cast<int>(texture->GetHeight());
+            frameInfo.layerWidth = layerWidth;
+            frameInfo.layerHeight = layerHeight;
+            frameInfo.sourceRect = { directRect.x, directRect.y, directRect.w,
+                                     directRect.h };
+            frameInfo.destRect = frameInfo.sourceRect;
+            frameInfo.fullFrame = androidFullFramePresent;
+            frameInfo.nativeGL = texture->GetNativeGLTextureId() != 0;
+            frameInfo.cpuCopyFree = std::strcmp(androidPresenter, "egl") == 0 &&
+                frameInfo.nativeGL;
+            TVPRuntimeRecordPresentFrame(frameInfo);
             tTVPRect consumed;
             texture->ConsumeDirtyRect(consumed);
             const uint64_t presentSequence =
