@@ -87,6 +87,7 @@ std::atomic_uint64_t gSDLPresenterCpuAccessible{0};
 std::atomic_uint64_t gSDLAndroidFlutterSurfacePresented{0};
 std::atomic_uint64_t gSDLAndroidFlutterSurfaceFailures{0};
 std::atomic_uint64_t gSDLAndroidFlutterSurfaceUnavailable{0};
+std::atomic_bool gSDLAndroidForceFullFramePresent{false};
 std::atomic_uint64_t gSDLBitmapCompletionBatchSequence{0};
 std::atomic_uint64_t gSDLBitmapCompletionRegionSequence{0};
 
@@ -1379,8 +1380,16 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
 void RememberPresentedSurfaceSize(int width, int height) {
     if(width > 0 && height > 0) {
-        gSDLPresentedSurfaceWidth.store(width, std::memory_order_relaxed);
-        gSDLPresentedSurfaceHeight.store(height, std::memory_order_relaxed);
+        const int previousWidth =
+            gSDLPresentedSurfaceWidth.exchange(width, std::memory_order_relaxed);
+        const int previousHeight =
+            gSDLPresentedSurfaceHeight.exchange(height,
+                                                std::memory_order_relaxed);
+        if((previousWidth > 0 && previousWidth != width) ||
+           (previousHeight > 0 && previousHeight != height)) {
+            gSDLAndroidForceFullFramePresent.store(true,
+                                                   std::memory_order_relaxed);
+        }
     }
 }
 
@@ -4135,6 +4144,7 @@ extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height) {
 #if defined(__ANDROID__)
 extern "C" void TVPSDLNotifyAndroidFlutterGameSurfaceChanged(
     const char *reason) {
+    gSDLAndroidForceFullFramePresent.store(true, std::memory_order_relaxed);
     if(!IsAndroidEGLSurfacePresenterEnabled())
         return;
     std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
@@ -4175,6 +4185,13 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     if(hasDirty)
         updateRect.clip(fullRect);
     bool forceFullFramePresent = false;
+    if(takeoverActive &&
+       gSDLAndroidForceFullFramePresent.exchange(false,
+                                                 std::memory_order_relaxed)) {
+        updateRect = fullRect;
+        hasDirty = !updateRect.is_empty();
+        forceFullFramePresent = hasDirty;
+    }
     const bool needsTakeoverFullFrame =
         takeoverActive && (!presenterAlreadyPresented || glBackedTexture);
     if(!hasDirty && needsTakeoverFullFrame) {

@@ -1258,3 +1258,114 @@ Architecture rule after this slice:
 - The next major migration should create concrete software/OpenGL/EGL/SDL_GPU
   manager modules and move logic out of `SDLGameManager.cpp` behind these
   boundaries.
+
+## 2026-07-01 02:17+ logs: black block and layered OpenGL color issue
+
+New logs inspected:
+
+- `/root/log/20260701021706608.log`
+- `/root/log/20260701021825276.log`
+- `/root/log/20260701021937331.log`
+- `/root/log/78.log`
+
+User clarified the visual issue:
+
+- It is not simply "the whole background is black and white".
+- The top visible layer is the correct layer and is positioned correctly, but
+  it becomes gray/white instead of colorful.
+- A lower colorful image/layer is visible, but it is not the correct top layer
+  and appears offset. It can show outside the expected screen area.
+- The correct interpretation is: one OpenGL texture/layer path is losing color,
+  while another stale or lower layer remains colorful and misaligned. Do not
+  treat this as a final SurfaceTexture shader problem.
+
+Log findings for temporary black blocks:
+
+- `20260701021706608.log` and `20260701021937331.log` are successful EGL paths:
+  - `present-android-egl` and `present-texture-egl` are present.
+  - `nativeGL=5`, `softwareUpload=0`, and `fullFrame=1`.
+  - The EGL path consistently presents full frames after takeover.
+- `20260701021825276.log` is the CPU/direct fallback path:
+  - EGL presenter says `reason=no-native-gl`.
+  - It falls back to `present-flutter-direct`.
+  - Early frames show `surface=1920x1080` but `flutter=2780x1264`, then resize
+    catches up to `1920x1080`.
+  - Later direct frames use partial dirty rects such as `0,969,1920x60` and
+    `0,817,1920x263`.
+- The "failure" grep hits in the logs are mostly license text or Android
+  system Binder/network noise, not project EGL failures.
+- Temporary black blocks are most likely from direct CPU fallback posting
+  partial dirty rects into a newly resized/recreated Flutter `ANativeWindow`
+  buffer whose old content is not guaranteed to be preserved.
+
+Reference conclusions:
+
+- AetherKiri's stable model keeps native window lifecycle explicit:
+  `AttachNativeWindow`, `DetachNativeWindow`, `UpdateNativeWindowSize`,
+  `MarkFrameDirty`, `ConsumeFrameDirty`.
+- AetherKiri's presenter swaps only when a real dirty frame is available.
+  This is the direction for the new SDL3/Flutter architecture.
+- AetherKiri and krkrsdl3 both keep final draw buffer presentation as a
+  texture update/present contract; the current Cocos fallback is transitional
+  and should not accumulate more ownership.
+
+Patches made in this slice:
+
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
+  - Added a real `TVPShrink_RGB()` using `CV_8UC3` and
+    `dpitch=(dstw*3+7)&~7`.
+  - `TVPShrinkImage()` now selects `RGBA -> TVPShrink`,
+    `RGB -> TVPShrink_RGB`, and `Gray -> TVPShrink_8`.
+  - `CreateStaticTexture2D()` now calls `TVPShrinkImage()` instead of treating
+    every non-RGBA texture as 8-bit grayscale.
+  - `TVPCheckOpaqueRGBA()` is now only called for RGBA textures after scaling.
+  - This targets the user's "correct top layer is gray/white" symptom without
+    adding per-frame validation. The bug was in texture creation/resize format
+    routing, not in hot presenter loops.
+- `cpp/core/environ/cocos2d/MainScene.cpp`
+  - Added cached draw texture rect size:
+    `_drawTextureRectWidth`, `_drawTextureRectHeight`.
+  - Added `UpdateDrawSpriteTextureLayout(iTVPTexture2D*)`.
+  - The helper recalculates scale and clamps the visible texture rect to the
+    texture's internal size.
+  - `UpdateDrawBuffer()` now updates texture layout even when
+    `tex2d == newtex`, so adapter texture reuse no longer leaves an old
+    `TextureRect`/scale on the Cocos sprite.
+  - `ResetDrawSprite()` now uses the cached texture rect instead of blindly
+    resetting to `LayerWidth/LayerHeight`.
+  - This is still a compatibility bridge. Long-term architecture must move
+    presentation behind SDL/runtime modules and stop depending on Cocos sprite
+    state.
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Added `gSDLAndroidForceFullFramePresent`.
+  - `TVPSDLNotifyAndroidFlutterGameSurfaceChanged()` sets this flag on
+    surface set/resize/drop/recreate notifications.
+  - `RememberPresentedSurfaceSize()` sets this flag if the presented size
+    changes.
+  - `TVPSDLTryPresentTexture()` consumes the flag once and expands the next
+    present dirty rect to the full texture rect.
+  - This specifically protects the direct CPU fallback path from partial dirty
+    updates after Flutter SurfaceTexture resize, while also keeping EGL
+    behavior full-frame after lifecycle changes.
+
+Important caution:
+
+- Do not add heavy graphical integrity validation to the render hot path.
+  The user explicitly reported that too much validation hurts performance.
+  Prefer reference-proven direct format/state routing, small lifecycle flags,
+  and manager boundaries over repeated per-frame verification.
+
+Next architecture work:
+
+1. Extract Android EGL/Flutter SurfaceTexture presenter state out of
+   `SDLGameManager.cpp` into a dedicated module, e.g.
+   `SDLAndroidSurfacePresenter` or `SDLAndroidEGLPresenter`.
+2. Expose AetherKiri-style lifecycle methods:
+   `AttachNativeWindow`, `DetachNativeWindow`, `UpdateNativeWindowSize`,
+   `MarkFrameDirty`, `ConsumeFrameDirty`.
+3. Route `TVPSDLNotifyAndroidFlutterGameSurfaceChanged()` and
+   `TVPSDLTryPresentTexture()` through that manager instead of direct globals.
+4. Keep OpenGL/Vulkan/SDL_GPU/software as separate render/presenter modules
+   under `RuntimeRenderManager`.
+5. Continue reducing Cocos ownership after SDL3/Flutter presenter parity is
+   stable.

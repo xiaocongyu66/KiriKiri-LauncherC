@@ -882,14 +882,34 @@ static tjs_uint8 *TVPShrink_8(tjs_uint *dpitch, const tjs_uint8 *src,
     return tmp;
 }
 
+static tjs_uint8 *TVPShrink_RGB(tjs_uint *dpitch, const tjs_uint8 *src,
+                                tjs_int spitch, tjs_uint srcw, tjs_uint srch,
+                                tjs_uint dstw, tjs_uint dsth) {
+    *dpitch = (dstw * 3 + 7) & ~7;
+    tjs_uint8 *tmp = new tjs_uint8[*dpitch * dsth];
+    cv::Size dsize(dstw, dsth);
+    cv::Mat src_img(srch, srcw, CV_8UC3, (void *)src, spitch);
+    cv::Mat dst_img(dsth, dstw, CV_8UC3, (void *)tmp, *dpitch);
+    cv::resize(src_img, dst_img, dsize, 0, 0, cv::INTER_LINEAR);
+    return tmp;
+}
+
 static tjs_uint8 *TVPShrinkImage(TVPTextureFormat::e fmt, tjs_uint &dpitch,
                                  const tjs_uint8 *src, tjs_int spitch,
                                  tjs_uint srcw, tjs_uint srch, tjs_uint dstw,
                                  tjs_uint dsth) {
     if(srch == dsth && srcw == dstw)
         return nullptr;
-    return (fmt == TVPTextureFormat::RGBA ? TVPShrink : TVPShrink_8)(
-        &dpitch, src, spitch, srcw, srch, dstw, dsth);
+    switch(fmt) {
+        case TVPTextureFormat::RGBA:
+            return TVPShrink(&dpitch, src, spitch, srcw, srch, dstw, dsth);
+        case TVPTextureFormat::RGB:
+            return TVPShrink_RGB(&dpitch, src, spitch, srcw, srch, dstw, dsth);
+        case TVPTextureFormat::Gray:
+            return TVPShrink_8(&dpitch, src, spitch, srcw, srch, dstw, dsth);
+        default:
+            return nullptr;
+    }
 }
 
 static bool TVPCheckOpaqueRGBA(const tjs_uint8 *pixel, tjs_int pitch, tjs_int w,
@@ -2717,15 +2737,15 @@ protected:
         float sw = 1.f, sh = 1.f;
         if(dstw != tw || dsth != th) {
             tjs_uint dpitch;
-            tmp = (fmt == TVPTextureFormat::RGBA ? TVPShrink : TVPShrink_8)(
-                &dpitch, pixel, pitch, tw, th, dstw, dsth);
+            tmp = TVPShrinkImage(fmt, dpitch, pixel, pitch, tw, th, dstw,
+                                 dsth);
             pixel = tmp;
             h = dsth;
             w = dstw;
             pitch = dpitch;
             sw = (float)(dstw - (tw & 1)) / tw;
             sh = (float)(dsth - (th & 1)) / th;
-            if(!isOpaque) {
+            if(fmt == TVPTextureFormat::RGBA && !isOpaque) {
                 isOpaque = TVPCheckOpaqueRGBA(pixel, dpitch, w, h);
             }
         }

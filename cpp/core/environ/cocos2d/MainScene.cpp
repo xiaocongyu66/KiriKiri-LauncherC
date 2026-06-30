@@ -463,6 +463,7 @@ class TVPWindowLayer : public cocos2d::extension::ScrollView,
     //	std::map<tTJSNI_BaseVideoOverlay*, Sprite*> _AllOverlay;
     float _drawSpriteScaleX = 1.0f, _drawSpriteScaleY = 1.0f;
     float _drawTextureScaleX = 1.f, _drawTextureScaleY = 1.f;
+    float _drawTextureRectWidth = 0.f, _drawTextureRectHeight = 0.f;
     bool UseMouseKey = false, MouseLeftButtonEmulatedPushed = false,
          MouseRightButtonEmulatedPushed = false;
     bool LastMouseMoved = false, Visible = false;
@@ -972,6 +973,44 @@ public:
 
     void SetCaption(const std::string &s) override { _caption = s; }
 
+    void UpdateDrawSpriteTextureLayout(iTVPTexture2D *tex) {
+        float texScaleX = 1.f;
+        float texScaleY = 1.f;
+        tex->GetScale(texScaleX, texScaleY);
+
+        const float layerWidth =
+            LayerWidth > 0 ? (float)LayerWidth : (float)tex->GetWidth();
+        const float layerHeight =
+            LayerHeight > 0 ? (float)LayerHeight : (float)tex->GetHeight();
+        const float internalWidth = (float)tex->GetInternalWidth();
+        const float internalHeight = (float)tex->GetInternalHeight();
+
+        _drawTextureScaleX = texScaleX == 1.f ? 1.f : 1.f / texScaleX;
+        _drawTextureScaleY = texScaleY == 1.f ? 1.f : 1.f / texScaleY;
+
+        _drawTextureRectWidth = texScaleX == 1.f
+            ? layerWidth
+            : internalWidth * (layerWidth / tex->GetWidth());
+        _drawTextureRectHeight = texScaleY == 1.f
+            ? layerHeight
+            : internalHeight * (layerHeight / tex->GetHeight());
+
+        if(_drawTextureRectWidth > internalWidth)
+            _drawTextureRectWidth = internalWidth;
+        if(_drawTextureRectHeight > internalHeight)
+            _drawTextureRectHeight = internalHeight;
+        if(_drawTextureRectWidth < 0.f)
+            _drawTextureRectWidth = 0.f;
+        if(_drawTextureRectHeight < 0.f)
+            _drawTextureRectHeight = 0.f;
+
+        DrawSprite->setScale(_drawTextureScaleX, _drawTextureScaleY);
+        DrawSprite->setTextureRect(
+            cocos2d::Rect(0, 0, _drawTextureRectWidth,
+                          _drawTextureRectHeight));
+        DrawSprite->setBlendFunc(BlendFunc::DISABLE);
+    }
+
     void ResetDrawSprite() {
         if(DrawSprite) {
             cocos2d::Size size = getContentSize();
@@ -996,7 +1035,8 @@ public:
             // size.height));
             DrawSprite->setScale(_drawTextureScaleX, _drawTextureScaleY);
             DrawSprite->setTextureRect(
-                cocos2d::Rect(0, 0, LayerWidth, LayerHeight));
+                cocos2d::Rect(0, 0, _drawTextureRectWidth,
+                              _drawTextureRectHeight));
             DrawSprite->setPosition(Vec2(0, size.height));
             PrimaryLayerArea->setContentSize(size);
             PrimaryLayerArea->setScale(scale);
@@ -1218,32 +1258,19 @@ public:
 #endif
         if(tex2d != newtex) {
             DrawSprite->setTexture(newtex);
-            float sw, sh;
-            tex->GetScale(_drawTextureScaleX, _drawTextureScaleY);
-            if(_drawTextureScaleX == 1.f)
-                sw = LayerWidth; // tex->GetWidth();
-            else {
-                sw = tex->GetInternalWidth() *
-                    ((float)LayerWidth / tex->GetWidth());
-                _drawTextureScaleX = 1 / _drawTextureScaleX;
-            }
-            if(_drawTextureScaleY == 1.f)
-                sh = LayerHeight; // tex->GetHeight();
-            else {
-                sh = tex->GetInternalHeight() *
-                    ((float)LayerHeight / tex->GetHeight());
-                _drawTextureScaleY = 1 / _drawTextureScaleY;
-            }
+            UpdateDrawSpriteTextureLayout(tex);
 #if defined(__ANDROID__)
             if(TVPSDLIsRenderDiagnosticsEnabled()) {
                 KR2RenderProbeWriteF(
                     "WindowLayer::UpdateDrawBuffer applied "
                     "sw=%.1f sh=%.1f scaleX=%.3f scaleY=%.3f",
-                    sw, sh, _drawTextureScaleX, _drawTextureScaleY);
+                    _drawTextureRectWidth, _drawTextureRectHeight,
+                    _drawTextureScaleX, _drawTextureScaleY);
             }
 #endif
-            DrawSprite->setTextureRect(cocos2d::Rect(0, 0, sw, sh));
-            DrawSprite->setBlendFunc(BlendFunc::DISABLE);
+            ResetDrawSprite();
+        } else {
+            UpdateDrawSpriteTextureLayout(tex);
             ResetDrawSprite();
         }
     }
