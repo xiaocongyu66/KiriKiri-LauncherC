@@ -13,6 +13,7 @@
 #include "SDLRuntimePresenter.h"
 #include "SDLUIManager.h"
 #include "SysInitIntf.h"
+#include "runtime/RuntimeRenderManager.h"
 #include "WindowIntf.h"
 #include "TVPWindow.h"
 #include "vkdefine.h"
@@ -3962,14 +3963,45 @@ void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
             presenterName = "window-surface";
         }
     }
-    const std::string graphicsBackend = PreferredGraphicsBackend();
+    TVPRuntimeRenderManagerSnapshot renderSnapshot;
+    renderSnapshot.pipelineName = pipelineName;
+    renderSnapshot.presenterName = presenterName;
+    renderSnapshot.graphicsBackend = PreferredGraphicsBackend();
+    renderSnapshot.available = available;
+    renderSnapshot.drawCount = drawCount;
+    renderSnapshot.videoMemoryBytes = videoMemoryBytes;
+    renderSnapshot.presentedFrames = presentedFrames;
+#if defined(__ANDROID__)
+    {
+        std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
+        const auto &eglState = gSDLAndroidEGLPresenterState;
+        if(eglState.presented > 0 && !eglState.autoDisabled &&
+           !eglState.fatal) {
+            renderSnapshot.highPerformancePresenter = true;
+            renderSnapshot.cpuCopyFreePresenter = true;
+        }
+    }
+#endif
+    renderSnapshot.modules.push_back(TVPRuntimeRenderModuleInfo{
+        pipelineName.empty() ? "unknown" : pipelineName, "renderer", true,
+        available && pipelineName != "Software", false, videoMemoryBytes, 0 });
+    if(!presenterName.empty()) {
+        renderSnapshot.modules.push_back(TVPRuntimeRenderModuleInfo{
+            presenterName, "presenter", true,
+            renderSnapshot.highPerformancePresenter,
+            renderSnapshot.cpuCopyFreePresenter, 0, 0 });
+    }
+    if(!renderSnapshot.graphicsBackend.empty()) {
+        renderSnapshot.modules.push_back(TVPRuntimeRenderModuleInfo{
+            renderSnapshot.graphicsBackend, "backend", true,
+            renderSnapshot.graphicsBackend == "vulkan" ||
+                renderSnapshot.graphicsBackend == "gpuapi",
+            false, 0, 0 });
+    }
+    TVPRuntimeUpdateRenderManagerSnapshot(renderSnapshot);
+
     std::ostringstream rendererInfo;
-    rendererInfo << "pipeline="
-                 << (pipelineName.empty() ? "unknown" : pipelineName);
-    if(!presenterName.empty())
-        rendererInfo << " presenter=" << presenterName;
-    if(!graphicsBackend.empty())
-        rendererInfo << " backend=" << graphicsBackend;
+    rendererInfo << TVPRuntimeDescribeRenderManager();
     AppendSDLGpuOverlayInfo(rendererInfo);
 #if defined(__ANDROID__)
     AppendAndroidEGLPresenterOverlayInfo(rendererInfo);

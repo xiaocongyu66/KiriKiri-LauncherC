@@ -16,6 +16,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/XP3ArchiveRepack.cpp
     ${ENVIRON_PATH}/runtime/RuntimeHost.cpp
     ${ENVIRON_PATH}/runtime/RuntimePresenter.cpp
+    ${ENVIRON_PATH}/runtime/RuntimeRenderManager.cpp
 
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android/AndroidUtils.cpp>
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android/KrkrJniHelper.cpp>

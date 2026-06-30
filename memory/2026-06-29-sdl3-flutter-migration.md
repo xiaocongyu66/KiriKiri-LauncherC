@@ -1154,3 +1154,107 @@ Next concrete rendering slice:
 4. Add viewport/dest-rect synchronization to the runtime presenter so display
    and input mapping can stay correct when Flutter surface aspect ratio differs
    from the game texture.
+
+## 2026-07-01 OpenGL color and render-module management slice
+
+User reported that the previous OpenGL render pipeline plus Vulkan/backend path
+is now very satisfactory: frame pacing is stable and performance is high.
+Software rendering is still weak, around 10 FPS. Remaining visual issue:
+OpenGL renders the colorful main-menu background as black-and-white while other
+content appears correct. User also asked for deeper bottom-layer logic and
+module-level management: each renderer should have its own manager, and the
+runtime should call the appropriate manager instead of continuing to pile logic
+into Cocos or one global SDL file.
+
+Logs inspected:
+
+- `/root/log/20260701014233815.log`
+- `/root/log/20260701014327699.log`
+- `/root/log/20260701014407678.log`
+- `/root/log/78.log`
+
+Findings:
+
+- `20260701014233815.log` and `20260701014327699.log` are software/fallback
+  runs:
+  - `present-android-egl`: 0
+  - `present-texture-egl`: 0
+  - `present-flutter-direct`: 15 / 14
+  - `reason=no-native-gl`: 15 / 14
+  - This matches the user's observation that software rendering remains slow:
+    it still goes through CPU texture access and Flutter `ANativeWindow_lock`.
+- `20260701014407678.log` is the desired OpenGL/EGL path:
+  - `present-android-egl`: 19
+  - `present-texture-egl`: 19
+  - `present-flutter-direct`: 0
+  - `softwareUpload=0`: 19
+  - `flipY=1`: 19
+  - `android-egl-presenter failure`: 0
+  - Therefore the black-and-white background is not caused by the
+    SurfaceTexture presenter or EGL swap path. It is almost certainly upstream
+    in OpenGL texture upload/format handling.
+
+Root cause candidate found and patched:
+
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
+  `tTVPOGLTexture2D_split::AsSingleTexture()` downscales large static textures.
+- Before this patch it always allocated a 4-channel temp buffer and used
+  `CV_8UC4`, but then uploaded the buffer using the texture's original format:
+  `GL_LUMINANCE` for Gray, `GL_RGB` for RGB, or `GL_RGBA` for RGBA.
+- For RGB static large images this meant a 4-byte RGBA/BGRA row could be
+  interpreted as 3-byte RGB during upload. For Gray it could be interpreted as
+  1-byte luminance. That explains colorful large menu/background images turning
+  grayscale/incorrect on OpenGL while other content stays correct.
+- Patch:
+  - Added `TVPSetGLUnpackAlignmentForPitch()`.
+  - `AsSingleTexture()` now selects `CV_8UC1`, `CV_8UC3`, or `CV_8UC4` based on
+    `TVPTextureFormat::Gray`, `RGB`, or `RGBA`.
+  - The temporary upload buffer size is now `internalW * internalH * pixsize`,
+    not always `* 4`.
+  - `glTexImage2D()` receives data whose byte layout matches `pixfmt`.
+
+Texture cache/budget patch:
+
+- Ported the safer part of AetherKiri's split-texture cache design:
+  - `MAX_SPLIT_CACHE_ENTRIES = 8`
+  - `_cachedVMemBytes`
+  - `ClearTextureCache()` subtracts cached bytes from `_totalVMemSize`
+  - cache is cleared before adding a ninth split cache entry
+- This gives large static images a bounded GL cache instead of letting split
+  texture entries grow indefinitely.
+- Destructor now handles the `AsSingleTexture()` case where `Bitmap` was
+  released early to reduce memory peak.
+
+New bottom-layer render management:
+
+- Added `cpp/core/environ/runtime/RuntimeRenderManager.h`.
+  - Defines `TVPRuntimeRenderModuleInfo`.
+  - Defines `TVPRuntimeRenderManagerSnapshot`.
+  - Exposes `TVPRuntimeUpdateRenderManagerSnapshot()`,
+    `TVPRuntimeGetRenderManagerSnapshot()`, and
+    `TVPRuntimeDescribeRenderManager()`.
+- Added `cpp/core/environ/runtime/RuntimeRenderManager.cpp`.
+  - Stores the active render snapshot behind a mutex.
+  - Formats a stable diagnostic string that includes:
+    `pipeline`, `presenter`, `backend`, `presenterFast`, `cpuCopyFree`, and
+    per-module summaries.
+- Updated `cpp/core/environ/CMakeLists.txt`.
+  - Adds `runtime/RuntimeRenderManager.cpp`.
+- Updated `cpp/core/environ/sdl/SDLGameManager.cpp`.
+  - `TVPSDLRecordRenderOverlayFrame()` now builds a
+    `TVPRuntimeRenderManagerSnapshot`.
+  - It records active TVP pipeline, active presenter, selected graphics
+    backend, draw count, video memory, presented frame count, high-performance
+    presenter flag, and CPU-copy-free presenter flag.
+  - Overlay text now starts from `TVPRuntimeDescribeRenderManager()`, then
+    appends existing SDL_GPU and Android EGL counters.
+
+Architecture rule after this slice:
+
+- `RuntimeHost` owns lifecycle and ticking.
+- `RuntimePresenter` owns frame delivery to host surfaces.
+- `RuntimeRenderManager` owns module-level renderer/presenter/backend state and
+  budget/capability reporting.
+- The next major migration should create concrete software/OpenGL/EGL/SDL_GPU
+  manager modules and move logic out of `SDLGameManager.cpp` behind these
+  boundaries.

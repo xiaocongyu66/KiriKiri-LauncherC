@@ -70,6 +70,27 @@ while it remains the compatibility host, but the presenter must not require a
 Cocos scene. Future SDL3 host work should call the same presenter contract
 directly.
 
+## Render Manager Boundary
+
+`cpp/core/environ/runtime/RuntimeRenderManager.h` is the low-level render
+module registry and status boundary. It does not render frames by itself.
+Instead, each renderer/presenter/backend module reports a small snapshot:
+
+- TVP render pipeline name, such as `Software` or `OpenGL`
+- active presenter name, such as the SDL renderer, SDL surface fallback, or
+  Android EGL SurfaceTexture presenter
+- selected graphics backend, such as `opengl`, `vulkan`, or `gpuapi`
+- per-frame draw count and video-memory usage
+- module capability flags, including high-performance and CPU-copy-free paths
+- future texture-budget fields for renderer-specific cache policy
+
+This is the bottom-layer management direction for the migration: every renderer
+gets its own implementation and budget policy, while the runtime render manager
+keeps the current active state queryable by Flutter, SDL3, diagnostics, and
+future scheduling logic. It replaces ad hoc renderer string construction in
+host code and gives the next SDL3 host a stable place to decide which module to
+drive.
+
 ## Build Switch
 
 `KRKR2_ENABLE_COCOS_HOST` defaults to `ON`. It keeps current CI behavior and
@@ -99,12 +120,14 @@ areas are moved behind host/platform services:
    `runtime/RuntimeHost` methods.
 3. Move presentation calls into `runtime/RuntimePresenter` so host lifecycle
    and frame delivery can evolve independently.
-4. Move loading console and input handoff behind runtime/platform services.
-5. Add an SDL3 runtime host that owns the frame loop and presenter without
+4. Route renderer/presenter/backend status through
+   `runtime/RuntimeRenderManager` instead of per-host ad hoc checks.
+5. Move loading console and input handoff behind runtime/platform services.
+6. Add an SDL3 runtime host that owns the frame loop and presenter without
    requiring a Cocos scene.
-6. Keep Flutter as launcher/UI shell and call native C ABI/runtime host methods
+7. Keep Flutter as launcher/UI shell and call native C ABI/runtime host methods
    for launch, settings, diagnostics, and in-game menu actions.
-7. Once Android and desktop smoke tests pass with the SDL3 host, turn
+8. Once Android and desktop smoke tests pass with the SDL3 host, turn
    `KRKR2_ENABLE_COCOS_HOST` off in a CI audit job, then delete the legacy host
    after parity.
 

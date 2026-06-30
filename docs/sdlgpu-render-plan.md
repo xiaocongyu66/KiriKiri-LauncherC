@@ -74,6 +74,10 @@
   is enabled, but the SDL3 presenter is registered independently and can be
   reused by the future Flutter/SDL3 runtime host. This keeps the high
   performance Android EGL path outside the Cocos scene boundary.
+- Renderer, presenter, and backend state is now summarized through
+  `runtime/RuntimeRenderManager.h`. This is the shared bottom-layer management
+  point for module-specific renderer policy, including future texture budgets,
+  CPU-copy-free capability flags, and active backend selection.
 - The SDL surface mirror is not enabled by default on Android hybrid builds.
   It can force GPU-backed TVP textures through CPU scanline readback while
   bitmap regions complete, so Android now uses the Flutter external texture
@@ -84,18 +88,21 @@
 ## Migration order
 
 1. Keep `software` as the compatibility fallback.
-2. Route texture allocation/upload through a TVP adapter that can choose `software`, `opengl`, or `sdlgpu`.
-3. Implement SDL_GPU cache eviction with the existing texture budget policy.
-4. Move Layer compositing operations to SDL_GPU render passes incrementally.
-5. Validate the Android EGL/SurfaceTexture presenter on real devices:
+2. Keep renderer module state in `RuntimeRenderManager` so software, OpenGL,
+   Android EGL, and SDL_GPU can be managed independently.
+3. Route texture allocation/upload through a TVP adapter that can choose
+   `software`, `opengl`, or `sdlgpu`.
+4. Implement SDL_GPU cache eviction with the existing texture budget policy.
+5. Move Layer compositing operations to SDL_GPU render passes incrementally.
+6. Validate the Android EGL/SurfaceTexture presenter on real devices:
    nonblank first frame, continuous frames, correct orientation, responsive
    touch, resize/detach safety, and no fallback spam.
-6. Move the Android EGL surface lifecycle into a dedicated SDL runtime
+7. Move the Android EGL surface lifecycle into a dedicated SDL runtime
    presenter module with an AetherKiri-style `MarkFrameDirty` /
    `ConsumeFrameDirty` swap gate.
-7. Replace the cocos present path after SDL_GPU texture and compositing paths
+8. Replace the cocos present path after SDL_GPU texture and compositing paths
    are stable.
-8. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
+9. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
    after startup, touch, video, and fast-skip tests pass.
 
 ## Initial backend scope

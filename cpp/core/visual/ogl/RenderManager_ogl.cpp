@@ -482,6 +482,26 @@ static unsigned int power_of_two(unsigned int input, unsigned int value = 32) {
     return value;
 }
 
+static void TVPSetGLUnpackAlignmentForPitch(unsigned int pitch) {
+    switch(pitch & 7) {
+        case 0:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
+            break;
+        case 2:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+            break;
+        case 4:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+            break;
+        case 6:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 2);
+            break;
+        default:
+            glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+            break;
+    }
+}
+
 static void _glBindTexture2D(GLuint t) {
     cocos2d::GL::activeTexture(GL_TEXTURE0);
     cocos2d::GL::bindTexture2D(t);
@@ -1216,6 +1236,8 @@ static TVPTextureFormat::e _GetTextureFormatFromBPP(int bpp) {
 }
 
 class tTVPOGLTexture2D_split : public tTVPOGLTexture2D {
+    static constexpr size_t MAX_SPLIT_CACHE_ENTRIES = 8;
+
     struct GLTextureInfoPoint {
         uint16_t X, Y; // max to 65535 x 65535
     };
@@ -1234,6 +1256,7 @@ class tTVPOGLTexture2D_split : public tTVPOGLTexture2D {
     std::map<uint32_t /*GLTextureInfoIndexer.Index*/, GLTextureInfo>
         CachedTexture;
     tTVPBitmap *Bitmap;
+    uint64_t _cachedVMemBytes = 0;
 
     void ClearTextureCache() {
         // 		for (GLuint& name : UnusedTextureName) {
@@ -1243,6 +1266,8 @@ class tTVPOGLTexture2D_split : public tTVPOGLTexture2D {
         for(auto &it : CachedTexture) {
             cocos2d::GL::deleteTexture(it.second.Name);
         }
+        _totalVMemSize -= _cachedVMemBytes;
+        _cachedVMemBytes = 0;
         CachedTexture.clear();
         texture = 0;
     }
@@ -1274,10 +1299,12 @@ public:
         Bitmap->AddRef();
     }
     ~tTVPOGLTexture2D_split() override {
-        internalW = 0;
-        internalH = 0;
-        ClearTextureCache();
-        Bitmap->Release();
+        if(Bitmap) {
+            ClearTextureCache();
+            internalW = 0;
+            internalH = 0;
+            Bitmap->Release();
+        }
     }
     const void *GetScanLineForRead(tjs_uint l) override {
         return Bitmap->GetScanLine(l);
@@ -1356,6 +1383,8 @@ public:
                 break;
         }
 
+        const uint64_t oldBytes =
+            static_cast<uint64_t>(texinfo.Width) * texinfo.Height * pixsize;
         TVPCheckMemory();
         _glBindTexture2D(texinfo.Name);
         texinfo.Width = pitch / pixsize;
@@ -1397,6 +1426,10 @@ public:
         }
 
         // if size is same, is's better to use glTexSubImage2D
+        const uint64_t newBytes =
+            static_cast<uint64_t>(texinfo.Width) * texinfo.Height * pixsize;
+        _cachedVMemBytes += newBytes - oldBytes;
+        _totalVMemSize += newBytes - oldBytes;
         CHECK_GL_ERROR_DEBUG();
     }
 
@@ -1412,53 +1445,50 @@ public:
             internalH = GetMaxTextureHeight();
         }
 
-        unsigned char *tmp = new unsigned char[internalW * internalH * 4];
-        cv::Size dsize(internalW, internalH);
-        cv::Mat src_img(Bitmap->GetHeight(), Bitmap->GetWidth(), CV_8UC4,
-                        (void *)Bitmap->GetBits(), Bitmap->GetPitch());
-        cv::Mat dst_img(internalH, internalW, CV_8UC4, (void *)tmp,
-                        internalW * 4);
-        cv::resize(src_img, dst_img, dsize, 0, 0, cv::INTER_LINEAR);
-
-        Bitmap->Release(); // release here to relieve memory peak
-        Bitmap = nullptr;
-
         unsigned int pixsize = Format & 0xF;
         GLenum pixfmt = GL_RGBA;
         GLenum internalfmt = GL_RGBA;
+        int cvType = CV_8UC4;
         switch(Format) {
             case TVPTextureFormat::Gray:
                 pixfmt = GL_LUMINANCE;
                 internalfmt = GL_LUMINANCE;
+                cvType = CV_8UC1;
                 break;
             case TVPTextureFormat::RGB:
                 pixfmt = GL_RGB;
                 internalfmt = GL_RGB;
+                cvType = CV_8UC3;
                 break;
             case TVPTextureFormat::RGBA:
                 pixfmt = GL_RGBA;
                 internalfmt = GL_RGBA;
+                cvType = CV_8UC4;
                 break;
             default:
                 break;
         }
 
-        unsigned int pitch = internalW * 4;
-        switch(pitch & 7) {
-            case 0:
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
-                break;
-            case 4:
-                glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-                break;
-        }
+        const unsigned int pitch = internalW * pixsize;
+        std::vector<unsigned char> tmp(
+            static_cast<size_t>(pitch) * internalH);
+        cv::Size dsize(internalW, internalH);
+        cv::Mat src_img(Bitmap->GetHeight(), Bitmap->GetWidth(), cvType,
+                        (void *)Bitmap->GetBits(), Bitmap->GetPitch());
+        cv::Mat dst_img(internalH, internalW, cvType, tmp.data(), pitch);
+        cv::resize(src_img, dst_img, dsize, 0, 0, cv::INTER_LINEAR);
+
+        Bitmap->Release(); // release here to relieve memory peak
+        Bitmap = nullptr;
+
+        TVPSetGLUnpackAlignmentForPitch(pitch);
 
         TVPCheckMemory();
         texture = FetchGLTexture();
         glTexImage2D(GL_TEXTURE_2D, 0, internalfmt, internalW, internalH, 0,
-                     pixfmt, GL_UNSIGNED_BYTE, tmp);
-
-        delete[] tmp;
+                     pixfmt, GL_UNSIGNED_BYTE, tmp.data());
+        _totalVMemSize +=
+            static_cast<uint64_t>(internalW) * internalH * getPixelSize();
     }
 
     void ApplyVertex(GLVertexInfo &vtx, const tTVPPointD *p, int n) override {
@@ -1509,6 +1539,8 @@ public:
                 UpdateTextureData(*texinfo, rc);
             }
         } else {
+            if(CachedTexture.size() >= MAX_SPLIT_CACHE_ENTRIES)
+                ClearTextureCache();
             texture = FetchGLTexture();
             texinfo = &CachedTexture[indexer.Index];
             texinfo->Name = texture;
@@ -1577,6 +1609,8 @@ public:
             //	it->second.LastAccessTimeStamp = 120; // max to 120
             // frames ?
         } else {
+            if(CachedTexture.size() >= MAX_SPLIT_CACHE_ENTRIES)
+                ClearTextureCache();
             texture = FetchGLTexture();
             texinfo = &CachedTexture[indexer.Index];
             texinfo->Name = texture;
