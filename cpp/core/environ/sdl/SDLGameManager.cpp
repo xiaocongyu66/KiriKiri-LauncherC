@@ -609,8 +609,9 @@ bool IsAndroidEGLSurfacePresenterForcedEnabled() {
 
 bool IsAndroidEGLSurfaceFlipYEnabled() {
     std::call_once(gSDLAndroidEGLFlipYFlagOnce, []() {
+        const char *value = SDL_getenv("KRKR2_ANDROID_EGL_SURFACE_FLIP_Y");
         gSDLAndroidEGLFlipY =
-            IsTruthyEnv("KRKR2_ANDROID_EGL_SURFACE_FLIP_Y");
+            value ? IsTruthyEnv("KRKR2_ANDROID_EGL_SURFACE_FLIP_Y") : true;
     });
     return gSDLAndroidEGLFlipY;
 }
@@ -1212,6 +1213,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     uint64_t softwareUploadCount = 0;
     float uvScaleU = 1.0f;
     float uvScaleV = 1.0f;
+    bool flipY = false;
     {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
         auto &state = gSDLAndroidEGLPresenterState;
@@ -1308,8 +1310,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         }
         glUniform1i(state.textureUniform, 0);
         glUniform2f(state.uvScaleUniform, uvScaleU, uvScaleV);
-        glUniform1f(state.flipYUniform,
-                    IsAndroidEGLSurfaceFlipYEnabled() ? 1.0f : 0.0f);
+        flipY = IsAndroidEGLSurfaceFlipYEnabled();
+        glUniform1f(state.flipYUniform, flipY ? 1.0f : 0.0f);
         glBindBuffer(GL_ARRAY_BUFFER, state.vertexBuffer);
         glEnableVertexAttribArray(static_cast<GLuint>(state.positionAttrib));
         glVertexAttribPointer(static_cast<GLuint>(state.positionAttrib), 2,
@@ -1361,13 +1363,13 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         std::snprintf(message, sizeof(message),
                       "present-android-egl #%llu stage=%s surface=%dx%d "
                       "rect=%d,%d,%dx%d nativeGL=%u softwareUpload=%d "
-                      "softwareUploads=%llu uv=%.4f,%.4f",
+                      "softwareUploads=%llu uv=%.4f,%.4f flipY=%d",
                       static_cast<unsigned long long>(presentedCount),
                       stage ? stage : "", surfaceWidth, surfaceHeight, rect.x,
                       rect.y, rect.w, rect.h, nativeTexture,
                       copiedSoftware ? 1 : 0,
                       static_cast<unsigned long long>(softwareUploadCount),
-                      uvScaleU, uvScaleV);
+                      uvScaleU, uvScaleV, flipY ? 1 : 0);
         LogSDLAndroidEGLPresenter(message);
     }
     return presented;

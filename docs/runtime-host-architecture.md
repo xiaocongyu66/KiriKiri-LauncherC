@@ -93,4 +93,6 @@ The Android EGL/SurfaceTexture path is now the default presenter for GL-backed
 TVP textures. It draws the native GL texture into Flutter's SurfaceTexture with
 `eglSwapBuffers` and only falls back to `ANativeWindow_lock` CPU copies when EGL
 is unavailable, explicitly disabled, or repeatedly fails before the first EGL
-present.
+present. The GL texture blit flips Y by default because the native TVP texture
+comes from the OpenGL/FBO path while the game image convention is top-left
+oriented; software CPU fallback remains unflipped.

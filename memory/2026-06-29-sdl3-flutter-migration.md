@@ -36,6 +36,12 @@ KiriKiri-LauncherC to a Flutter shell plus SDL3/native runtime and presenter.
   projects first. Prefer the design that minimizes CPU copies/readbacks,
   preserves compatibility fallback behavior, and fits the Flutter + SDL3
   migration target.
+- When a reference project already has a stable implementation for a hard
+  problem, prefer adapting or directly porting that proven approach over
+  inventing a novel path. Avoid experimental "clever" designs unless the
+  reference implementations cannot fit this project's Flutter + SDL3 host
+  boundary. Stability, compatibility, and measured performance are more
+  important than originality.
 - The implementation should be as complete, robust, high-performance, and
   compatible as possible. Do not settle for a cosmetic fallback when a real
   presenter/runtime fix is required.
@@ -936,6 +942,61 @@ Expected log after this patch:
   - `present-flutter-direct ... glBacked=0` means renderer is still software or
     final texture is not GL-backed; check preference migration and per-game
     overrides.
+
+## 2026-07-01 OpenGL EGL orientation logs
+
+New logs inspected:
+
+- `/root/log/20260701000026954.log`
+- `/root/log/20260701000106962.log`
+- `/root/log/20260701000316549.log`
+- `/root/log/20260701000350893.log`
+- `/root/log/20260701000427583.log`
+- `/root/log/78.log`
+
+Findings:
+
+- OpenGL runs now enter the desired high-performance path:
+  - `present-android-egl`
+  - `present-texture-egl`
+  - `nativeGL=5`
+  - `softwareUpload=0`
+- Software runs still show:
+  - `reason=no-native-gl`
+  - `present-flutter-direct ... glBacked=0`
+  - This is expected because a software TVP texture has no native GL texture.
+- The user's visual report is that OpenGL renderer flips the game image while
+  software renderer does not. This isolates the problem to the EGL blit's
+  texture coordinate mapping, not the Flutter Texture bridge or CPU fallback.
+
+Reference comparison:
+
+- `AetherKiri/cpp/core/environ/stubs/ui_stubs.cpp` uses a host blit shader
+  with optional `uFlipY` and `uUVScale`. Its vertex data maps KRKR's top-left
+  image convention explicitly; comments there are not directly transferable to
+  this project because our fullscreen quad initially used unflipped GL-style
+  texture coordinates.
+- `AetherKiri/cpp/plugins/krkrlive2d.cpp` explicitly uses Android
+  `flipY=1` for a GL texture blit so the display is right-side up.
+- Therefore the right fix for KiriKiri-LauncherC's current EGL presenter is to
+  flip the sampled TVP GL texture by default, not to change the Flutter
+  SurfaceTexture bridge or return to CPU copies.
+
+Patch applied locally:
+
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - `IsAndroidEGLSurfaceFlipYEnabled()` now defaults to true.
+  - `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=0` disables the flip if a device proves
+    the opposite orientation.
+  - `present-android-egl` logs now include `flipY=0/1`.
+- Docs updated:
+  - `docs/sdlgpu-render-plan.md`
+  - `docs/runtime-host-architecture.md`
+
+Expected next OpenGL log:
+
+- `present-android-egl ... softwareUpload=0 ... flipY=1`
+- Image should no longer be vertically inverted.
 2. Move Android file/path helpers away from Cocos `FileUtils` first in places
    that already use regular filesystem paths.
 3. Keep Cocos UI forms and legacy `TVPWindowLayer` as the compatibility host

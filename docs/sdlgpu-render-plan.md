@@ -56,9 +56,12 @@
   `KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE=1` is set for diagnostics.
 - The EGL/SurfaceTexture path never partial-swaps dirty rectangles. Dirty state
   only decides whether a frame should be presented; when the path presents, it
-  redraws the full source texture to avoid stale back-buffer contents. Set
-  `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=1` only if device logs/screenshots prove
-  the external Flutter texture is vertically inverted.
+  redraws the full source texture to avoid stale back-buffer contents. GL-backed
+  TVP textures are Y-flipped by default when blitted into the Flutter
+  SurfaceTexture so KRKR's top-left image convention displays correctly through
+  the OpenGL FBO/native texture path. Set
+  `KRKR2_ANDROID_EGL_SURFACE_FLIP_Y=0` only if a device proves the default is
+  inverted.
 - With `showfps` enabled, the Flutter overlay reports the TVP pipeline,
   presenter, selected `graphics_backend`, SDL_GPU shadow-upload state
   (`sdlgpu=<driver>` or `sdlgpu=unavailable ... reason=...`), and Android EGL
