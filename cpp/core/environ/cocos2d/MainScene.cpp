@@ -41,6 +41,7 @@
 #include "ui/csd/CsdUIFactory.h"
 #include "CocosRuntimeHost.h"
 #include "runtime/RuntimeHost.h"
+#include "runtime/RuntimePresenter.h"
 #include "sdl/SDLGameManager.h"
 
 #include <filesystem>
@@ -1164,9 +1165,10 @@ public:
         // 			mgr->OperateRect(method, DrawTexture, nullptr,
         // rctar, src_tex); 			tex = DrawTexture;
         // 		}
-        if(TVPSDLPresentHostWindowTexture(
-               TJSNativeInstance, tex, "WindowLayer::UpdateDrawBuffer",
-               LayerWidth, LayerHeight))
+        if(TVPRuntimePresentHostWindowTexture(
+               TJSNativeInstance,
+               { tex, "WindowLayer::UpdateDrawBuffer", LayerWidth,
+                 LayerHeight }))
             return;
 
         Texture2D *tex2d = DrawSprite->getTexture();
@@ -2406,17 +2408,18 @@ void TVPMainScene::doStartup(float dt, std::string path) {
 
 #if defined(__ANDROID__)
     {
-        TVPSDLSetScreenTakeoverEnabled(
-            true, "doStartup", static_cast<int>(screenSize.width),
-            static_cast<int>(screenSize.height),
-            static_cast<int>(getContentSize().width),
-            static_cast<int>(getContentSize().height));
-        const bool takeoverSupported = TVPSDLIsScreenTakeoverSupported();
-        const bool takeoverEnabled = TVPSDLIsScreenTakeoverEnabled();
+        TVPRuntimeSetScreenTakeoverEnabled(
+            { true, "doStartup", static_cast<int>(screenSize.width),
+              static_cast<int>(screenSize.height),
+              static_cast<int>(getContentSize().width),
+              static_cast<int>(getContentSize().height) });
+        const bool takeoverSupported =
+            TVPRuntimeIsScreenTakeoverSupported();
+        const bool takeoverEnabled = TVPRuntimeIsScreenTakeoverEnabled();
         const bool pumped = takeoverEnabled
-            ? TVPSDLPumpScreenPresenter("doStartup")
+            ? TVPRuntimePumpScreenPresenter("doStartup")
             : false;
-        const bool presenterReady = TVPSDLHasScreenPresenterPresented();
+        const bool presenterReady = TVPRuntimeHasPresentedFrame();
         if(presenterReady) {
             if(UINode)
                 UINode->setVisible(false);
@@ -2441,7 +2444,7 @@ void TVPMainScene::doStartup(float dt, std::string path) {
 
     bool showNativeFps = pGlobalCfgMgr->GetValue<bool>("showfps", false);
 #if defined(__ANDROID__)
-    if(TVPSDLIsScreenTakeoverEnabled())
+    if(TVPRuntimeIsScreenTakeoverEnabled())
         showNativeFps = false;
 #endif
     if(showNativeFps) {
@@ -2474,8 +2477,8 @@ void TVPMainScene::update(float delta) {
     if(_postUpdate)
         _postUpdate();
 #if defined(__ANDROID__)
-    if(!_fpsLabel && TVPSDLIsScreenTakeoverEnabled())
-        TVPSDLRecordRenderOverlayFrame(delta);
+    if(!_fpsLabel && TVPRuntimeIsScreenTakeoverEnabled())
+        TVPRuntimeRecordOverlayFrame(delta);
 #endif
     if(_fpsLabel) {
         unsigned int drawCount;
@@ -2520,9 +2523,9 @@ void TVPMainScene::update(float delta) {
         }
     }
 #if defined(__ANDROID__)
-    if(TVPSDLIsScreenTakeoverEnabled()) {
-        TVPSDLPumpScreenPresenter("main-scene-update");
-        if(TVPSDLHasScreenPresenterPresented()) {
+    if(TVPRuntimeIsScreenTakeoverEnabled()) {
+        TVPRuntimePumpScreenPresenter("main-scene-update");
+        if(TVPRuntimeHasPresentedFrame()) {
             if(UINode && UINode->isVisible())
                 UINode->setVisible(false);
             if(GameNode && GameNode->isVisible())

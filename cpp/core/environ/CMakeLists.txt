@@ -15,6 +15,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/NativeLog.cpp
     ${ENVIRON_PATH}/XP3ArchiveRepack.cpp
     ${ENVIRON_PATH}/runtime/RuntimeHost.cpp
+    ${ENVIRON_PATH}/runtime/RuntimePresenter.cpp
 
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android/AndroidUtils.cpp>
     $<$<BOOL:${ANDROID}>:${ENVIRON_PATH}/android/KrkrJniHelper.cpp>
@@ -32,6 +33,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/ConfigManager/LocaleConfigManager.cpp
     ${ENVIRON_PATH}/ConfigManager/PreferenceDefaults.cpp
     ${ENVIRON_PATH}/sdl/SDLGameManager.cpp
+    ${ENVIRON_PATH}/sdl/SDLRuntimePresenter.cpp
     ${ENVIRON_PATH}/sdl/SDLUIManager.cpp
     ${ENVIRON_PATH}/sdl/tvpsdl.cpp
 

@@ -4,6 +4,7 @@
 #include "MainScene.h"
 #include "NativeLog.h"
 #include "runtime/RuntimeHost.h"
+#include "sdl/SDLRuntimePresenter.h"
 
 #include <cstdio>
 
@@ -65,6 +66,7 @@ void LogRuntimeHostRegistration(const char *action, TVPMainScene *scene) {
 void TVPRegisterCocosRuntimeHost(TVPMainScene *scene) {
     gCocosRuntimeHost.Attach(scene);
     TVPSetRuntimeHost(&gCocosRuntimeHost);
+    TVPRegisterSDLRuntimePresenter();
     LogRuntimeHostRegistration("registered", scene);
 }
 

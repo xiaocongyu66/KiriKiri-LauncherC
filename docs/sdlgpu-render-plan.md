@@ -69,6 +69,11 @@
 - Android hybrid builds keep Cocos as the active presenter until an SDL or
   Flutter texture presenter has successfully presented a frame; takeover may be
   requested earlier, but Cocos is only hidden after the presenter is ready.
+- The active presenter is now exposed through
+  `runtime/RuntimePresenter.h`. Cocos still calls into it while the legacy host
+  is enabled, but the SDL3 presenter is registered independently and can be
+  reused by the future Flutter/SDL3 runtime host. This keeps the high
+  performance Android EGL path outside the Cocos scene boundary.
 - The SDL surface mirror is not enabled by default on Android hybrid builds.
   It can force GPU-backed TVP textures through CPU scanline readback while
   bitmap regions complete, so Android now uses the Flutter external texture
@@ -85,9 +90,12 @@
 5. Validate the Android EGL/SurfaceTexture presenter on real devices:
    nonblank first frame, continuous frames, correct orientation, responsive
    touch, resize/detach safety, and no fallback spam.
-6. Replace the cocos present path after SDL_GPU texture and compositing paths are
-   stable.
-7. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
+6. Move the Android EGL surface lifecycle into a dedicated SDL runtime
+   presenter module with an AetherKiri-style `MarkFrameDirty` /
+   `ConsumeFrameDirty` swap gate.
+7. Replace the cocos present path after SDL_GPU texture and compositing paths
+   are stable.
+8. Promote `gpuapi` from shadow-upload diagnostics to a full presenter only
    after startup, touch, video, and fast-skip tests pass.
 
 ## Initial backend scope

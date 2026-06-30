@@ -10,6 +10,7 @@
 #include "RenderManager.h"
 #include "SDLGpuBackend.h"
 #include "SDLGpuTextureCache.h"
+#include "SDLRuntimePresenter.h"
 #include "SDLUIManager.h"
 #include "SysInitIntf.h"
 #include "WindowIntf.h"
@@ -3047,6 +3048,7 @@ TVPSDLQueuedInputEvent *CoalescePendingDirectTouchMoves(
 
 bool TVPSDLInitializeRuntime() {
     std::call_once(gSDLRuntimeInitOnce, []() {
+        TVPRegisterSDLRuntimePresenter();
         SDL_SetMainReady();
 #if defined(SDL_HINT_TOUCH_MOUSE_EVENTS)
         SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");

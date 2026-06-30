@@ -1001,3 +1001,156 @@ Expected next OpenGL log:
    that already use regular filesystem paths.
 3. Keep Cocos UI forms and legacy `TVPWindowLayer` as the compatibility host
    until SDL3 presentation and input parity are proven.
+
+## 2026-07-01 RuntimePresenter boundary slice
+
+User asked to continue because rendering efficiency is still low and the
+project must keep moving to the new Flutter + SDL3 architecture instead of
+continuing to rely on Cocos. The hard low-level requirement was restated:
+complete, high-performance, high-compatibility, and reference the stable
+render/upload/present implementations in `AetherKiri`, `kirikiroid2-web`,
+`KrKr2-Next`, `krkrsdl2-main`, `krkrsdl3-main`, and `SDL-release-3.4.10`
+instead of inventing unusual paths.
+
+CI baseline checked before new edits:
+
+- `61a0a0a Fix Android EGL presenter orientation`
+  - `Code Format Check`: success, run `28458837659`
+  - `Build Flutter Android`: success, run `28458886177`
+- Local branch was clean and matched `origin/main` at `61a0a0a`.
+
+Subagent/reference findings from this continuation:
+
+- `AetherKiri`:
+  - Stable model is
+    `SurfaceTexture -> Surface -> ANativeWindow -> EGL WindowSurface ->
+    full-frame GL blit -> eglSwapBuffers`.
+  - `engine_tick()` auto-attaches a pending Android native window. If EGL is
+    not initialized it calls `InitializeWithWindow()`, otherwise it calls
+    `AttachNativeWindow()`.
+  - Its EGL manager owns `AttachNativeWindow`, `DetachNativeWindow`,
+    `UpdateNativeWindowSize`, `MarkFrameDirty`, and `ConsumeFrameDirty`.
+  - `HostWindowLayer::UpdateDrawBuffer()` is the real present entry: it takes
+    the TVP texture, unbinds the render target, computes aspect-correct
+    viewport/letterbox, updates DrawDevice destination/clip/window size, draws
+    a full-frame quad with `uUVScale` and `uFlipY`, then marks the frame dirty.
+  - `TVPForceSwapBuffer()` only swaps when a native window exists and
+    `ConsumeFrameDirty()` returns true. This is the next important thing to
+    port because it prevents redundant swaps and stale SurfaceTexture
+    double-buffer flicker.
+- `krkrsdl3-main` / `krkrsdl2-main` / `KrKr2-Next`:
+  - SDL3 standalone uses `SDL_AppInit`, `SDL_AppEvent`, `SDL_AppIterate`; good
+    reference for an SDL-owned runtime, but not safe to copy wholesale while
+    Flutter owns the host surface.
+  - SDL2's mature order is event pump, application idle/run, then presenter.
+  - Flutter should call native through stable C ABI / host contract and should
+    not depend on `TVPMainScene` or Cocos types.
+  - Split `RuntimeHost` and `Presenter`: lifecycle/frame ticking/input belong
+    to the host, while texture/window presentation belongs to a presenter.
+
+Patch applied locally:
+
+- Added `cpp/core/environ/runtime/RuntimePresenter.h`.
+  - Defines `TVPRuntimeScreenTakeoverRequest`.
+  - Defines `TVPRuntimeTexturePresentRequest`.
+  - Defines `iTVPRuntimePresenter`.
+  - Provides global helpers:
+    `TVPSetRuntimePresenter`, `TVPGetRuntimePresenter`,
+    `TVPGetRuntimePresenterName`,
+    `TVPRuntimeSetScreenTakeoverEnabled`,
+    `TVPRuntimeIsScreenTakeoverSupported`,
+    `TVPRuntimeIsScreenTakeoverEnabled`,
+    `TVPRuntimeHasPresentedFrame`,
+    `TVPRuntimePumpScreenPresenter`,
+    `TVPRuntimePresentTexture`,
+    `TVPRuntimePresentHostWindowTexture`,
+    `TVPRuntimeRecordOverlayFrame`.
+- Added `cpp/core/environ/runtime/RuntimePresenter.cpp`.
+  - Stores the active presenter in an atomic pointer.
+  - Default virtual methods are safe no-ops/false.
+  - Android logs presenter registration through `runtime-presenter`.
+- Added `cpp/core/environ/sdl/SDLRuntimePresenter.h`.
+  - Declares `TVPRegisterSDLRuntimePresenter()` and
+    `TVPUnregisterSDLRuntimePresenter()`.
+- Added `cpp/core/environ/sdl/SDLRuntimePresenter.cpp`.
+  - Implements `TVPSDLRuntimePresenter`.
+  - Adapts existing proven SDL functions:
+    `TVPSDLSetScreenTakeoverEnabled`,
+    `TVPSDLIsScreenTakeoverSupported`,
+    `TVPSDLIsScreenTakeoverEnabled`,
+    `TVPSDLHasScreenPresenterPresented`,
+    `TVPSDLPumpScreenPresenter`,
+    `TVPSDLTryPresentTexture`,
+    `TVPSDLPresentHostWindowTexture`,
+    `TVPSDLRecordRenderOverlayFrame`.
+  - Presenter name is `sdl3`.
+- Updated `cpp/core/environ/CMakeLists.txt`.
+  - Adds `runtime/RuntimePresenter.cpp`.
+  - Adds `sdl/SDLRuntimePresenter.cpp`.
+- Updated `cpp/core/environ/sdl/SDLGameManager.cpp`.
+  - Includes `SDLRuntimePresenter.h`.
+  - `TVPSDLInitializeRuntime()` registers the SDL runtime presenter. This
+    matters for future non-Cocos Flutter/SDL3 host entry points.
+- Updated `cpp/core/environ/cocos2d/CocosRuntimeHost.cpp`.
+  - Includes `sdl/SDLRuntimePresenter.h`.
+  - `TVPRegisterCocosRuntimeHost()` now registers the SDL presenter when the
+    legacy Cocos host registers. This prevents early `doStartup` presenter
+    calls from becoming no-ops before SDL's explicit runtime init path runs.
+- Updated `cpp/core/environ/cocos2d/MainScene.cpp`.
+  - `TVPWindowLayer::UpdateDrawBuffer()` now calls
+    `TVPRuntimePresentHostWindowTexture()` instead of directly calling
+    `TVPSDLPresentHostWindowTexture()`.
+  - Android startup takeover now calls:
+    `TVPRuntimeSetScreenTakeoverEnabled`,
+    `TVPRuntimeIsScreenTakeoverSupported`,
+    `TVPRuntimeIsScreenTakeoverEnabled`,
+    `TVPRuntimePumpScreenPresenter`,
+    `TVPRuntimeHasPresentedFrame`.
+  - Android overlay frame stats now call `TVPRuntimeRecordOverlayFrame()`.
+  - Android update-enforced takeover pump now uses runtime presenter helpers.
+  - Remaining `TVPSDL*` calls in `MainScene.cpp` are diagnostics/loading
+    console/render probes, not presenter ownership.
+
+Why this is the right next slice:
+
+- It does not try to delete Cocos in one risky step.
+- It moves the high-performance Android EGL/Flutter SurfaceTexture presenter
+  behind a reusable runtime boundary.
+- It matches the reference-project conclusion that Flutter/SDL3 needs a host
+  contract and presenter contract, not direct `TVPMainScene` dependencies.
+- It keeps the current default rendering behavior intact: the SDL presenter
+  still chooses Android EGL for GL-backed textures and falls back to CPU
+  Flutter `ANativeWindow_lock` when needed.
+
+Local checks after the patch:
+
+- `git diff --check`: passed.
+- `python3 -m json.tool vcpkg.json`: passed.
+- Grep confirms no direct Cocos `MainScene.cpp` calls remain to
+  `TVPSDLSetScreenTakeoverEnabled`,
+  `TVPSDLIsScreenTakeoverSupported`,
+  `TVPSDLHasScreenPresenterPresented`,
+  `TVPSDLPumpScreenPresenter`, or `TVPSDLPresentHostWindowTexture`.
+
+Known remaining limitations:
+
+- `SDLGameManager.cpp` is still too large and still owns Android EGL
+  presenter state directly.
+- The current EGL presenter swaps immediately inside
+  `TryPresentAndroidEGLSurfaceTexture()`. It does not yet have AetherKiri's
+  explicit `MarkFrameDirty` / `ConsumeFrameDirty` swap gate.
+- Aspect-correct viewport and input-transform synchronization are still not
+  as complete as AetherKiri's `HostWindowLayer::UpdateDrawBuffer()` model.
+- Software textures still use CPU fallback by default; the EGL software upload
+  path remains diagnostic-only. This is compatible but not final performance.
+
+Next concrete rendering slice:
+
+1. Extract Android EGL SurfaceTexture state out of `SDLGameManager.cpp` into a
+   dedicated SDL runtime presenter module.
+2. Port AetherKiri-style `AttachNativeWindow`, `DetachNativeWindow`,
+   `UpdateNativeWindowSize`, `MarkFrameDirty`, and `ConsumeFrameDirty`.
+3. Move swap control toward a dirty-gated presenter lifecycle.
+4. Add viewport/dest-rect synchronization to the runtime presenter so display
+   and input mapping can stay correct when Flutter surface aspect ratio differs
+   from the game texture.

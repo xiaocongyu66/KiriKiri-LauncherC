@@ -30,7 +30,6 @@ ownership. A host owns:
 - physical frame size, virtual scene size, and scaling data
 - loading console handoff
 - input and text/IME handoff
-- game-frame presentation handoff
 
 The initial implementation registers a `cocos2d` host from
 `CocosRuntimeHost.cpp` and routes `TVPSDLRunGameLaunch()` startup through the
@@ -41,6 +40,35 @@ helper centralizes host lookup, launch-result diagnostics, and error mapping
 for C ABI callers. Current behavior remains unchanged, but launch
 orchestration and frame ticking no longer hard-code the Cocos scene as the
 owner.
+
+## Presenter Boundary
+
+`cpp/core/environ/runtime/RuntimePresenter.h` is the host-independent
+presentation boundary. It exists so the Flutter + SDL3 path can take over
+screen ownership without making new code depend on `TVPMainScene` or Cocos
+types.
+
+A presenter owns:
+
+- screen takeover enablement and capability checks
+- texture presentation from TVP draw devices
+- host-window size synchronization after a successful present
+- Flutter/SDL overlay frame statistics
+- fallback pumping for legacy SDL window/surface presenters
+
+`cpp/core/environ/sdl/SDLRuntimePresenter.cpp` is the first presenter
+implementation. It adapts the existing SDL3/Android presenter functions,
+including the Android EGL/SurfaceTexture path and the CPU
+`ANativeWindow_lock` fallback. The Cocos host registers this SDL presenter when
+it registers the legacy runtime host, and `TVPSDLInitializeRuntime()` registers
+the same presenter when SDL is initialized independently. This keeps current
+Android behavior intact while making the presenter reusable by a future
+Flutter/SDL3 runtime host.
+
+The important architectural rule is that Cocos may call the runtime presenter
+while it remains the compatibility host, but the presenter must not require a
+Cocos scene. Future SDL3 host work should call the same presenter contract
+directly.
 
 ## Build Switch
 
@@ -67,13 +95,16 @@ areas are moved behind host/platform services:
 ## Migration Order
 
 1. Keep `KRKR2_ENABLE_COCOS_HOST=ON` as the shipping path.
-2. Move launch, frame metrics, loading console, input, and presentation calls
-   from `TVPMainScene` methods into `runtime/RuntimeHost` methods.
-3. Add an SDL3 runtime host that owns the frame loop and presenter without
+2. Move launch and frame metrics from `TVPMainScene` methods into
+   `runtime/RuntimeHost` methods.
+3. Move presentation calls into `runtime/RuntimePresenter` so host lifecycle
+   and frame delivery can evolve independently.
+4. Move loading console and input handoff behind runtime/platform services.
+5. Add an SDL3 runtime host that owns the frame loop and presenter without
    requiring a Cocos scene.
-4. Keep Flutter as launcher/UI shell and call native C ABI/runtime host methods
+6. Keep Flutter as launcher/UI shell and call native C ABI/runtime host methods
    for launch, settings, diagnostics, and in-game menu actions.
-5. Once Android and desktop smoke tests pass with the SDL3 host, turn
+7. Once Android and desktop smoke tests pass with the SDL3 host, turn
    `KRKR2_ENABLE_COCOS_HOST` off in a CI audit job, then delete the legacy host
    after parity.
 
@@ -96,3 +127,12 @@ is unavailable, explicitly disabled, or repeatedly fails before the first EGL
 present. The GL texture blit flips Y by default because the native TVP texture
 comes from the OpenGL/FBO path while the game image convention is top-left
 oriented; software CPU fallback remains unflipped.
+
+AetherKiri's strongest reference point is its native-window presenter
+lifecycle: attach the Flutter/Android `ANativeWindow` as an EGL WindowSurface,
+draw the final TVP texture into that surface, mark the frame dirty, and only
+swap when the frame is dirty. KiriKiri-LauncherC now has the runtime presenter
+contract needed to move toward that design without growing the Cocos scene
+again. The next rendering slice should move the Android EGL surface state out
+of `SDLGameManager.cpp` and add the same dirty/swap gate before the SDL3 host
+becomes the default owner.
