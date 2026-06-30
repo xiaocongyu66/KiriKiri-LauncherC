@@ -231,10 +231,10 @@ object LauncherPrefs {
     fun normalizeRendererPreference(value: String?): String {
         val raw = value?.trim().orEmpty()
         return when {
-            raw.isBlank() -> "software"
+            raw.isBlank() -> "opengl"
             raw in SUPPORTED_RENDERERS -> raw
             raw == "vulkan" || raw == "vk" -> "opengl"
-            else -> "software"
+            else -> "opengl"
         }
     }
 

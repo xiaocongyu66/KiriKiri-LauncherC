@@ -89,6 +89,8 @@ std::atomic_uint64_t gSDLBitmapCompletionBatchSequence{0};
 std::atomic_uint64_t gSDLBitmapCompletionRegionSequence{0};
 
 #if defined(__ANDROID__)
+constexpr uint64_t kAndroidEGLAutoDisableFailureLimit = 8;
+
 struct TVPAndroidEGLSurfacePresenterState {
     EGLDisplay display = EGL_NO_DISPLAY;
     EGLContext context = EGL_NO_CONTEXT;
@@ -116,7 +118,9 @@ struct TVPAndroidEGLSurfacePresenterState {
     uint64_t contextResets = 0;
     uint64_t softwareUploads = 0;
     bool fatal = false;
+    bool autoDisabled = false;
     std::string fatalReason;
+    std::string autoDisabledReason;
 };
 
 std::mutex gSDLAndroidEGLPresenterMutex;
@@ -581,10 +585,26 @@ void LogSDLAndroidEGLPresenter(const char *message) {
 
 bool IsAndroidEGLSurfacePresenterEnabled() {
     std::call_once(gSDLAndroidEGLPresenterFlagOnce, []() {
-        gSDLAndroidEGLPresenterEnabled =
-            IsTruthyEnv("KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT");
+        if(IsTruthyEnv("KRKR2_DISABLE_ANDROID_EGL_SURFACE_PRESENT")) {
+            gSDLAndroidEGLPresenterEnabled = false;
+            return;
+        }
+
+        const char *legacyEnable =
+            SDL_getenv("KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT");
+        if(legacyEnable &&
+           !IsTruthyEnv("KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT")) {
+            gSDLAndroidEGLPresenterEnabled = false;
+            return;
+        }
+
+        gSDLAndroidEGLPresenterEnabled = true;
     });
     return gSDLAndroidEGLPresenterEnabled;
+}
+
+bool IsAndroidEGLSurfacePresenterForcedEnabled() {
+    return IsTruthyEnv("KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT");
 }
 
 bool IsAndroidEGLSurfaceFlipYEnabled() {
@@ -648,13 +668,27 @@ std::string AndroidEGLFormatError(const char *stage, EGLint error) {
 }
 
 void LogAndroidEGLFailureLocked(const char *stage, const std::string &reason) {
-    const uint64_t failures = ++gSDLAndroidEGLPresenterState.failures;
+    auto &state = gSDLAndroidEGLPresenterState;
+    const uint64_t failures = ++state.failures;
     if(ShouldLogScreenPresenter(failures)) {
         char message[384];
         std::snprintf(message, sizeof(message),
                       "failure #%llu stage=%s reason=%s",
                       static_cast<unsigned long long>(failures),
                       stage ? stage : "", reason.c_str());
+        LogSDLAndroidEGLPresenter(message);
+    }
+    if(!state.autoDisabled && state.presented == 0 &&
+       failures >= kAndroidEGLAutoDisableFailureLimit &&
+       !IsAndroidEGLSurfacePresenterForcedEnabled()) {
+        state.autoDisabled = true;
+        state.autoDisabledReason = reason;
+        char message[384];
+        std::snprintf(
+            message, sizeof(message),
+            "auto-disabled failures=%llu stage=%s reason=%s fallback=flutter-cpu",
+            static_cast<unsigned long long>(failures), stage ? stage : "",
+            reason.c_str());
         LogSDLAndroidEGLPresenter(message);
     }
 }
@@ -1129,6 +1163,32 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
        format != TVPTextureFormat::RGBA || rect.w <= 0 || rect.h <= 0)
         return false;
 
+    const GLuint nativeTexture =
+        static_cast<GLuint>(texture->GetNativeGLTextureId());
+    const bool softwareUpload =
+        nativeTexture == 0 && IsAndroidEGLSoftwareUploadEnabled();
+    if(nativeTexture == 0 && !softwareUpload) {
+        std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
+        const uint64_t unavailable =
+            ++gSDLAndroidEGLPresenterState.unavailable;
+        if(ShouldLogScreenPresenter(unavailable)) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "unavailable #%llu stage=%s reason=no-native-gl "
+                          "surface=%dx%d",
+                          static_cast<unsigned long long>(unavailable),
+                          stage ? stage : "", surfaceWidth, surfaceHeight);
+            LogSDLAndroidEGLPresenter(message);
+        }
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
+        if(gSDLAndroidEGLPresenterState.autoDisabled)
+            return false;
+    }
+
     ANativeWindow *window = TVPAndroidAcquireFlutterGameSurfaceWindow();
     if(!window) {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
@@ -1138,27 +1198,6 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             char message[256];
             std::snprintf(message, sizeof(message),
                           "unavailable #%llu stage=%s reason=no-window "
-                          "surface=%dx%d",
-                          static_cast<unsigned long long>(unavailable),
-                          stage ? stage : "", surfaceWidth, surfaceHeight);
-            LogSDLAndroidEGLPresenter(message);
-        }
-        return false;
-    }
-
-    const GLuint nativeTexture =
-        static_cast<GLuint>(texture->GetNativeGLTextureId());
-    const bool softwareUpload =
-        nativeTexture == 0 && IsAndroidEGLSoftwareUploadEnabled();
-    if(nativeTexture == 0 && !softwareUpload) {
-        TVPAndroidReleaseFlutterGameSurfaceWindow(window);
-        std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
-        const uint64_t unavailable =
-            ++gSDLAndroidEGLPresenterState.unavailable;
-        if(ShouldLogScreenPresenter(unavailable)) {
-            char message[256];
-            std::snprintf(message, sizeof(message),
-                          "unavailable #%llu stage=%s reason=no-native-gl "
                           "surface=%dx%d",
                           static_cast<unsigned long long>(unavailable),
                           stage ? stage : "", surfaceWidth, surfaceHeight);
@@ -1177,6 +1216,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
         auto &state = gSDLAndroidEGLPresenterState;
         ++state.attempts;
+        if(state.autoDisabled) {
+            TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+            return false;
+        }
         if(state.fatal) {
             LogAndroidEGLFailureLocked(stage, state.fatalReason);
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
@@ -1524,16 +1567,17 @@ bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
     RememberPresentedSurfaceSize(surfaceWidth, surfaceHeight);
     const uint64_t presented = ++gSDLAndroidFlutterSurfacePresented;
     if(ShouldLogScreenPresenter(presented)) {
+        const int glBacked = texture->GetNativeGLTextureId() != 0 ? 1 : 0;
         char message[512];
         std::snprintf(message, sizeof(message),
                       "present-flutter-direct #%llu stage=%s surface=%dx%d "
                       "flutter=%dx%d buffer=%dx%d stride=%d format=%d "
-                      "rect=%d,%d,%dx%d",
+                      "rect=%d,%d,%dx%d glBacked=%d",
                       static_cast<unsigned long long>(presented),
                       stage ? stage : "", surfaceWidth, surfaceHeight,
                       flutterWidth, flutterHeight, buffer.width,
                       buffer.height, buffer.stride, buffer.format, rect.x,
-                      rect.y, rect.w, rect.h);
+                      rect.y, rect.w, rect.h, glBacked);
         LogSDLScreenPresenter(message);
     }
     return true;
@@ -1786,6 +1830,14 @@ void AppendAndroidEGLPresenterOverlayInfo(std::ostringstream &rendererInfo) {
         if(!state.fatalReason.empty()) {
             rendererInfo << " reason="
                          << ClipOverlayString(state.fatalReason, 72);
+        }
+        return;
+    }
+    if(state.autoDisabled) {
+        rendererInfo << "autoDisabled";
+        if(!state.autoDisabledReason.empty()) {
+            rendererInfo << " reason="
+                         << ClipOverlayString(state.autoDisabledReason, 72);
         }
         return;
     }
@@ -4050,6 +4102,11 @@ extern "C" void TVPSDLNotifyAndroidFlutterGameSurfaceChanged(
     if(!IsAndroidEGLSurfacePresenterEnabled())
         return;
     std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
+    if(gSDLAndroidEGLPresenterState.autoDisabled) {
+        gSDLAndroidEGLPresenterState.autoDisabled = false;
+        gSDLAndroidEGLPresenterState.autoDisabledReason.clear();
+        gSDLAndroidEGLPresenterState.failures = 0;
+    }
     DestroyAndroidEGLWindowSurfaceLocked(reason ? reason : "surface-changed");
 }
 #endif

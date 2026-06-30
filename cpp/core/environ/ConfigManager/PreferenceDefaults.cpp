@@ -14,6 +14,12 @@
 #define TVP_CONFIG_PLATFORM_IOS 0
 #endif
 
+#if defined(__ANDROID__) || defined(ANDROID)
+#define TVP_CONFIG_PLATFORM_ANDROID 1
+#else
+#define TVP_CONFIG_PLATFORM_ANDROID 0
+#endif
+
 namespace {
 
 void EnsureBool(iSysConfigManager *config, const char *key, bool value) {
@@ -41,7 +47,11 @@ void TVPInitializePreferenceDefaults() {
     EnsureBool(config, "outputlog", true);
     EnsureBool(config, "showfps", false);
     EnsureString(config, "fps_limit", "60");
+#if TVP_CONFIG_PLATFORM_ANDROID
+    EnsureString(config, "renderer", "opengl");
+#else
     EnsureString(config, "renderer", "software");
+#endif
     EnsureString(config, "graphics_backend", "opengl");
     EnsureString(config, "default_font", "");
     EnsureBool(config, "force_default_font", false);
@@ -54,7 +64,7 @@ void TVPInitializePreferenceDefaults() {
     EnsureFloat(config, "vcursor_scale", 0.5f);
     EnsureFloat(config, "menu_handler_opa", 0.15f);
     EnsureBool(config, "remember_last_path", true);
-#if defined(__ANDROID__) || defined(ANDROID)
+#if TVP_CONFIG_PLATFORM_ANDROID
     EnsureBool(config, "hide_android_sys_btn", false);
     EnsureBool(config, "ffmpeg_image_decoder", false);
     EnsureString(config, "ffmpeg_decode_mode", "software");

@@ -407,8 +407,15 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
           _overlayBounds = Size(constraints.maxWidth, constraints.maxHeight);
           final frameWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : (_gameSurfaceWidth > 0 ? _gameSurfaceWidth : 1);
           final frameHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : (_gameSurfaceHeight > 0 ? _gameSurfaceHeight : 1);
-          final requestedSurfaceWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : 1920;
-          final requestedSurfaceHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : 1080;
+          final mediaSize = MediaQuery.sizeOf(context);
+          final fallbackLogicalWidth = constraints.hasBoundedWidth && constraints.maxWidth.isFinite && constraints.maxWidth > 0
+              ? constraints.maxWidth
+              : mediaSize.width;
+          final fallbackLogicalHeight = constraints.hasBoundedHeight && constraints.maxHeight.isFinite && constraints.maxHeight > 0
+              ? constraints.maxHeight
+              : mediaSize.height;
+          final requestedSurfaceWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : math.max(1, (fallbackLogicalWidth * _devicePixelRatio).round());
+          final requestedSurfaceHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : math.max(1, (fallbackLogicalHeight * _devicePixelRatio).round());
           _scheduleGameSurface(requestedSurfaceWidth, requestedSurfaceHeight);
           _gameDisplaySize = _containSize(
             Size(frameWidth / _devicePixelRatio, frameHeight / _devicePixelRatio),

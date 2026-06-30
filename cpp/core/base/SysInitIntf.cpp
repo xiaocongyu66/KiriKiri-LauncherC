@@ -31,6 +31,12 @@
 #define TVP_CORE_PLATFORM_IOS 0
 #endif
 
+#if defined(__ANDROID__) || defined(ANDROID)
+#define TVP_CORE_PLATFORM_ANDROID 1
+#else
+#define TVP_CORE_PLATFORM_ANDROID 0
+#endif
+
 //---------------------------------------------------------------------------
 // global data
 //---------------------------------------------------------------------------
@@ -44,17 +50,11 @@ extern void TVPGL_C_Init();
 // TVPSystemInit : Entire System Initialization
 //---------------------------------------------------------------------------
 void TVPSystemInit() {
-#if !defined(_WIN32)
-#if !TVP_CORE_PLATFORM_IOS
-    if(!TVPProtectInit())
-        return;
-#endif
-// #else
-#ifdef USING_PROTECT
+#if defined(USING_PROTECT) && !defined(_WIN32) && !TVP_CORE_PLATFORM_IOS &&   \
+    !TVP_CORE_PLATFORM_ANDROID
     while(!TVPProtectInit()) {
         TVPUpdateLicense();
     }
-#endif
 #endif
 
     TVPBeforeSystemInit();

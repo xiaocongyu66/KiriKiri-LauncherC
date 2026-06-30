@@ -20,6 +20,9 @@ class KR2Application : Application() {
         // First-run and migration bootstrap for engine prefs. Renderer values
         // are normalized every process start because old builds and in-game
         // preference files may still contain unsupported native Vulkan values.
+        // v5 promotes Android's global default renderer to OpenGL so the
+        // Flutter SurfaceTexture path can present native GL textures through
+        // EGL instead of falling back to CPU window-buffer copies.
         runCatching {
             val prefs = getSharedPreferences("krkr2_launcher_bootstrap", MODE_PRIVATE)
             val snap = KrkrPrefsStore.load(this)
@@ -50,6 +53,14 @@ class KR2Application : Application() {
                     .putBoolean("engine_defaults_v2_applied", true)
                     .putBoolean("engine_defaults_v3_applied", true)
                     .putBoolean("engine_defaults_v4_applied", true)
+                    .apply()
+            }
+            if (!prefs.getBoolean("engine_defaults_v5_opengl_renderer_applied", false)) {
+                if (renderer.isNullOrBlank() || renderer == "software") {
+                    seed["renderer"] = "opengl"
+                }
+                prefs.edit()
+                    .putBoolean("engine_defaults_v5_opengl_renderer_applied", true)
                     .apply()
             }
             if (seed.isNotEmpty()) KrkrPrefsStore.update(this, seed)

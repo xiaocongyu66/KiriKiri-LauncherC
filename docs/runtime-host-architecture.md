@@ -89,7 +89,8 @@ regions from TVP textures and can force GPU-backed textures through CPU pixel
 readback. Set `KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR=1` only for diagnostics
 or legacy fallback investigation. Fast-forward performance should move to an
 SDL3 GPU/SurfaceTexture native presenter instead of throttling those copies.
-The opt-in `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1` path is the current
-SurfaceTexture bridge experiment: it must stay behind the flag until real
-device logs prove nonblank continuous frames, correct orientation,
-resize/detach safety, and responsive input.
+The Android EGL/SurfaceTexture path is now the default presenter for GL-backed
+TVP textures. It draws the native GL texture into Flutter's SurfaceTexture with
+`eglSwapBuffers` and only falls back to `ANativeWindow_lock` CPU copies when EGL
+is unavailable, explicitly disabled, or repeatedly fails before the first EGL
+present.

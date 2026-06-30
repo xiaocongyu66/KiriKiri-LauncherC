@@ -20,6 +20,22 @@ KiriKiri-LauncherC to a Flutter shell plus SDL3/native runtime and presenter.
 ## User requirements and engineering policy
 
 - Hard target: migrate toward `Flutter + SDL3`.
+- Non-negotiable quality bar from the user: implementation must be complete,
+  high-performance, and highly compatible. Do not accept a slow but convenient
+  fallback as the final design when a stronger GPU/native path is available.
+- Reference projects that must be consulted for architecture and performance
+  decisions:
+  - `AetherKiri`
+  - `kirikiroid2-web`
+  - `KrKr2-Next`
+  - `krkrsdl2-main`
+  - `krkrsdl3-main`
+  - `SDL-release-3.4.10`
+- When touching rendering, loading, presentation, texture upload, color upload,
+  pixel conversion, or image decode paths, compare against those reference
+  projects first. Prefer the design that minimizes CPU copies/readbacks,
+  preserves compatibility fallback behavior, and fits the Flutter + SDL3
+  migration target.
 - The implementation should be as complete, robust, high-performance, and
   compatible as possible. Do not settle for a cosmetic fallback when a real
   presenter/runtime fix is required.
@@ -783,6 +799,143 @@ Why this matters:
   without dragging Cocos headers/macros through base initialization.
 - `PreferenceDefaults` is still shared by the legacy Cocos host and future
   Flutter/SDL3 host, so its platform policy should not depend on Cocos.
+
+## 2026-06-30 Android render performance push
+
+New user feedback:
+
+- Runtime performance still feels lower than expected.
+- The user explicitly asked to study `AetherKiri`, `kirikiroid2-web`,
+  `KrKr2-Next`, `krkrsdl2-main`, `krkrsdl3-main`, and `SDL-release-3.4.10`
+  for rendering, upload, loading, presentation, texture upload, color upload,
+  and GPU API design.
+- The bottom-line requirement is complete implementation, high performance,
+  and high compatibility.
+
+New log inspected:
+
+- `/root/log/20260630045249943.log`
+- Key counts:
+  - `android-egl-presenter`: 0
+  - `present-android-egl`: 0
+  - `present-flutter-direct`: 13
+  - `present-texture-direct`: 13
+  - `surfaceMirror=0`: present
+  - `sdl-bitmap`: 0
+  - fatal/critical/SIGSEGV: 0
+- Interpretation:
+  - The previous surface-mirror/readback fix is working: Android no longer
+    enables the SDL surface mirror by default and bitmap completion diagnostics
+    are not forcing per-region scanline reads.
+  - The device still uses the CPU Flutter direct path:
+    `ANativeWindow_lock` + `CopyTextureToAndroidBuffer`.
+  - The EGL/SurfaceTexture path was not entered at all because it was still
+    behind `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1`.
+  - Input queue `maxSeenAgeMs` reached 325 ms. This is likely tied to render
+    thread stalls from CPU copy/readback; fix presentation first before more
+    input-queue tuning.
+
+Subagent/reference finding from Mill:
+
+- The current bridge already matches the high-performance shape used by
+  AetherKiri/KrKr2-Next:
+  Flutter `SurfaceTextureEntry` -> Java `Surface` -> JNI `ANativeWindow` ->
+  native EGL `WindowSurface` -> `eglSwapBuffers`.
+- The missing piece is default selection:
+  - Android default renderer was still `software`.
+  - A software TVP texture has no `GetNativeGLTextureId()`.
+  - Without a native GL texture, `TryPresentAndroidEGLSurfaceTexture()` cannot
+    zero/low-copy present and falls back to CPU.
+- SDL_GPU should not be treated as the immediate zero-copy Android solution
+  yet. Current SDL_GPU upload still reads TVP scanlines and uploads through
+  `SDL_UploadToGPUTexture`; it is useful for future renderer work but not a
+  Flutter SurfaceTexture presenter today.
+
+Local patch in progress:
+
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Android EGL/SurfaceTexture presenter is now enabled by default.
+  - `KRKR2_DISABLE_ANDROID_EGL_SURFACE_PRESENT=1` disables it.
+  - Existing `KRKR2_ENABLE_ANDROID_EGL_SURFACE_PRESENT=1` still forces
+    diagnostics and prevents auto-disable.
+  - Added `autoDisabled` state. If EGL fails repeatedly before any successful
+    EGL present, it auto-disables for that surface generation and falls back to
+    the compatible CPU presenter to avoid retry overhead.
+  - A Flutter surface resize/set/detach notification clears non-fatal
+    auto-disable state so a recreated SurfaceTexture can be retried.
+  - `TryPresentAndroidEGLSurfaceTexture()` now checks
+    `GetNativeGLTextureId()` before acquiring the Flutter `ANativeWindow`, so
+    software textures do not pay native-window overhead unless explicit
+    software upload diagnostics are enabled.
+  - `present-flutter-direct` logs now append `glBacked=0/1`, so new logs can
+    distinguish software fallback from GL texture readback fallback.
+  - Overlay `androidEgl=` can report `autoDisabled reason=...`.
+- `cpp/core/environ/ConfigManager/PreferenceDefaults.cpp`
+  - Android default renderer is now `opengl`; non-Android default remains
+    `software`.
+- `platforms/android/app/java/org/github/krkr2/KrkrPrefsSchema.kt`
+  - Launcher preference schema default for `renderer` is now `opengl`.
+- `platforms/android/app/java/org/github/krkr2/LauncherPrefs.kt`
+  - Empty/unknown renderer preferences normalize to `opengl` instead of
+    `software`.
+- `platforms/android/app/java/org/github/krkr2/KR2Application.kt`
+  - Added one-time bootstrap `engine_defaults_v5_opengl_renderer_applied`.
+  - If global renderer is missing or still the old default `software`, it seeds
+    `renderer=opengl`.
+  - Users can still switch back to software later; this migration is intended
+    to move existing old-default installs onto the high-performance path.
+- `flutter_launcher/lib/src/bridge/launcher_bridge.dart`
+  - Desktop/missing-plugin fallback engine settings now default to
+    `renderer=opengl`.
+- `flutter_launcher/lib/src/pages/launcher_home_page.dart`
+  - Settings UI fallback for renderer now shows OpenGL.
+- `flutter_launcher/lib/src/pages/game_overlay_page.dart`
+  - Initial game SurfaceTexture size no longer hardcodes `1920x1080`.
+  - Before native frame metrics are available, it uses the current Flutter
+    layout constraints times device pixel ratio. This reduces unnecessary
+    scaling/copy cost and better matches the active display surface.
+- Docs updated:
+  - `docs/sdlgpu-render-plan.md`
+  - `docs/runtime-host-architecture.md`
+
+CI baseline issue found and fixed locally:
+
+- Commit `2fd17a5 Remove Cocos platform macros from base config` had
+  `Code Format Check` success but Android build run `28402089691` failed.
+- Job `84155636801` exact error:
+  `cpp/core/base/SysInitIntf.cpp:49:9: error: use of undeclared identifier
+  'TVPProtectInit'`.
+- Cause:
+  - Removing Cocos platform macros made Android compile an old protection
+    branch that previously was not active in this build.
+  - No `TVPProtectInit` declaration/implementation exists in the current
+    Android build.
+- Local fix:
+  - Added `TVP_CORE_PLATFORM_ANDROID`.
+  - Restricted the protection loop to
+    `defined(USING_PROTECT) && !defined(_WIN32) && !TVP_CORE_PLATFORM_IOS &&
+    !TVP_CORE_PLATFORM_ANDROID`.
+
+Checks run locally:
+
+- `git diff --check`: passed.
+- `python3 -m json.tool vcpkg.json`: passed.
+- Grep found no remaining Android/Flutter default `renderer=software` in the
+  touched launcher/default paths.
+
+Expected log after this patch:
+
+- Preferred successful path:
+  - `android-egl-presenter present-android-egl ... nativeGL=<nonzero>
+    softwareUpload=0`
+  - `sdl-gpu-presenter present-texture-egl ...`
+  - `present-flutter-direct` should stop or be fallback-only.
+- If still falling back:
+  - `present-flutter-direct ... glBacked=1` means GL texture exists but EGL
+    failed, so inspect `android-egl-presenter failure` or `auto-disabled`.
+  - `present-flutter-direct ... glBacked=0` means renderer is still software or
+    final texture is not GL-backed; check preference migration and per-game
+    overrides.
 2. Move Android file/path helpers away from Cocos `FileUtils` first in places
    that already use regular filesystem paths.
 3. Keep Cocos UI forms and legacy `TVPWindowLayer` as the compatibility host

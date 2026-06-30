@@ -83,7 +83,7 @@ object KrkrPrefsSchema {
             PrefItem.Select(
                 key = "renderer",
                 captionRes = "preference_select_renderer",
-                default = "software",
+                default = "opengl",
                 options = listOf(
                     "preference_opengl" to "opengl",
                     "preference_software" to "software",

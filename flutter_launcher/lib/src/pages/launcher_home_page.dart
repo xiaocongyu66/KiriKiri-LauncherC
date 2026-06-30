@@ -982,8 +982,8 @@ class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> 
             if (snapshot.connectionState == ConnectionState.waiting) const LinearProgressIndicator(),
             _SelectSetting(
               title: '渲染管线',
-              value: _normalizeRenderPipeline(_settings['renderer'], 'software'),
-              fallback: '软件',
+              value: _normalizeRenderPipeline(_settings['renderer'], 'opengl'),
+              fallback: 'OpenGL',
               choices: const {'opengl': 'OpenGL', 'software': '软件'},
               onChanged: (value) => _set('renderer', value),
             ),
