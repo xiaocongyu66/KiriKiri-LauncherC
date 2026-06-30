@@ -791,3 +791,105 @@ Android build status:
   was found.
 - Do not claim runtime/build verification until a JDK + Android SDK/NDK are
   available or the user provides a built APK from this working tree.
+
+## 2026-07-01 follow-up: Android EGL presenter moved behind Flutter presenter boundary
+
+Goal:
+
+- Continue the hard migration target toward Flutter + SDL3.
+- Reduce `SDLGameManager.cpp` ownership of Android/Flutter presentation.
+- Keep the proven fast path intact:
+  - EGL/GL texture presenter first.
+  - direct `ANativeWindow_lock` CPU fallback second.
+  - dirty rect ownership and final frame accounting remain in
+    `TVPSDLTryPresentTexture()`.
+
+Moved from `cpp/core/environ/sdl/SDLGameManager.cpp` into
+`cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`:
+
+- Android EGL presenter state:
+  - `TVPAndroidEGLSurfacePresenterState`
+  - `gSDLAndroidEGLPresenterMutex`
+  - EGL enable/flip/software-upload flags
+  - auto-disable/failure counters
+  - EGL window surface lifetime state
+  - software-upload scratch texture state
+- Android EGL helpers:
+  - EGL error formatting
+  - GL state save/restore
+  - shader/program setup
+  - EGL config lookup
+  - EGL window surface create/drop/reset
+  - software texture upload path
+  - `TryPresentAndroidEGLSurfaceTexture`
+- Presenter plan execution:
+  - `TryPresentAndroidTexturePlan` now lives in the presenter module.
+  - It still tries EGL first and CPU fallback second.
+- Render diagnostics for EGL:
+  - EGL high-performance presenter state is now queried through presenter API.
+  - EGL overlay text is appended through presenter API.
+- Surface-change handling:
+  - `SDLGameManager.cpp` keeps the C ABI wrapper
+    `TVPSDLNotifyAndroidFlutterGameSurfaceChanged(const char *)`.
+  - The wrapper delegates to
+    `TVPSDLAndroidFlutterPresenterNotifySurfaceChanged()`.
+
+New/expanded public presenter API in `SDLAndroidFlutterPresenter.h`:
+
+- `TVPSDLAndroidFlutterPresenterTryPresentTexturePlan(...)`
+- `TVPSDLAndroidFlutterPresenterPresentPathLogName(...)`
+- `TVPSDLAndroidFlutterPresenterAppendEGLOverlayInfo(...)`
+- `TVPSDLAndroidFlutterPresenterIsEGLHighPerformanceActive()`
+- `TVPSDLAndroidFlutterPresenterNotifySurfaceChanged(...)`
+
+What remains in `SDLGameManager.cpp` by design:
+
+- `TVPSDLTryPresentTexture()` still owns:
+  - takeover/shadow-upload policy
+  - dirty rect collection and clamping
+  - force full-frame after surface change
+  - `TVPRuntimeRecordPresentFrame`
+  - `texture->ConsumeDirtyRect(...)`
+  - high-level present logs
+- SDL GPU shadow-upload state remains there for now.
+- Android input/touch coordinate logic remains there for now.
+- `TVPAndroidGetFlutterGameSurfaceSize(...)` is still used for input clamping
+  fallback; this should be moved behind presenter API in a later slice.
+
+Why this is aligned with the architecture target:
+
+- Android Flutter surface presentation is now a real module instead of a large
+  anonymous block inside `SDLGameManager.cpp`.
+- The presenter module is now the natural home for future SDL3 host work:
+  texture upload, Flutter surface lifecycle, EGL reset, and diagnostics are no
+  longer scattered through the runtime manager.
+- This does not remove Cocos yet, but it reduces the presenter dependency on
+  Cocos-era game loop code and makes the next host split easier.
+
+Checks run after this slice:
+
+```sh
+git -C /root/kiriki-work/KiriKiri-LauncherC diff --check
+python3 -m json.tool /root/kiriki-work/KiriKiri-LauncherC/vcpkg.json >/dev/null
+/root/kiriki-work/KiriKiri-LauncherC/platforms/android/gradlew \
+  -p /root/kiriki-work/KiriKiri-LauncherC/platforms/android assembleRelease
+```
+
+Results:
+
+- `git diff --check`: passed.
+- `vcpkg.json` JSON parse: passed.
+- Local Gradle build is still blocked by environment:
+  - `JAVA_HOME` is unset.
+  - no `java` command is available in `PATH`.
+  - Push to GitHub Actions is needed for real Android build verification.
+
+Follow-up candidates:
+
+1. Add presenter API for Flutter surface size so `SDLGameManager.cpp` no longer
+   needs `TVPAndroidGetFlutterGameSurfaceSize`.
+2. Split SDL GPU shadow upload into its own presenter-adjacent module.
+3. Continue removing Cocos from Android JNI by extracting Cocos input fallback
+   and Cocos bootstrap into adapter files.
+4. Start an `SDLRuntimeHost` skeleton behind a flag, keeping current Cocos host
+   as default until event pumping and metrics are proven.

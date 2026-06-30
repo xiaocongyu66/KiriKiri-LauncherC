@@ -1,8 +1,11 @@
 #pragma once
 
 #include "RenderManager.h"
+#include "SDLPresentTypes.h"
 
 #include <SDL3/SDL.h>
+
+#include <iosfwd>
 
 class iTVPTexture2D;
 
@@ -14,6 +17,16 @@ void TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize(int width,
 void TVPSDLAndroidFlutterPresenterMarkSurfaceChanged();
 bool TVPSDLAndroidFlutterPresenterConsumeForceFullFramePresent();
 bool TVPSDLAndroidFlutterPresenterIsDirectPartialPresentEnabled();
+const char *TVPSDLAndroidFlutterPresenterPresentPathLogName(
+    TVPSDLPresentPath path);
+bool TVPSDLAndroidFlutterPresenterTryPresentTexturePlan(
+    iTVPTexture2D *texture, TVPTextureFormat::e format, const char *stage,
+    const TVPSDLTexturePresentPlan &plan,
+    TVPSDLTexturePresentResult &result);
+void TVPSDLAndroidFlutterPresenterAppendEGLOverlayInfo(
+    std::ostream &rendererInfo);
+bool TVPSDLAndroidFlutterPresenterIsEGLHighPerformanceActive();
+void TVPSDLAndroidFlutterPresenterNotifySurfaceChanged(const char *reason);
 bool TVPSDLAndroidFlutterPresenterTryPresentTexture(iTVPTexture2D *texture,
                                                     TVPTextureFormat::e format,
                                                     int surfaceWidth,
