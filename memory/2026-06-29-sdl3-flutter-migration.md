@@ -258,6 +258,78 @@ Important observations:
 - Continue moving launch/input/presentation ownership behind `RuntimeHost`
   without deleting Cocos in one large change.
 - Next performance targets:
+
+## 2026-07-01 OpenGL fast-scene block artifact fix
+
+Context:
+
+- The newest user logs showed that the Android EGL presenter path was already
+  presenting full frames continuously with native GL textures:
+  `present-texture-egl ... dirty=0,0,1920x1080 ... fullFrame=1`.
+- This means the reported fast-scene character blocks/black blocks are not
+  primarily a final SurfaceTexture dirty-rect problem on the EGL path.
+- Direct software/Flutter fallback can still present partial dirty rectangles,
+  but the high-performance path the user likes is the EGL path.
+
+Root cause candidate fixed:
+
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp` had one reusable `tempTexture`
+  for all target-as-source snapshots inside one GL draw.
+- When a draw both:
+  - samples a source texture that is also the render target, and
+  - uses a render method with `tar_as_src`,
+  the second snapshot could overwrite the same temporary GL texture object that
+  the first `GLVertexInfo` still points to.
+- This can show as a rectangular piece of the wrong layer/frame during fast
+  transitions or heavy layer effects.
+
+Implemented change:
+
+- `TVPRenderManager_OpenGL` now owns `tempTextures`, a small per-slot temporary
+  texture pool.
+- `GetTempTexture2D(src, rc, slot)` copies into an independent slot.
+- `OperateRect()` and `OperateTriangles()` consume a new slot for each
+  self-target source and for the method-level `tar_as_src` snapshot.
+- This keeps the proven AetherKiri copy-before-render approach while removing
+  the single-slot overwrite hazard.
+- No heavy validation was added in the render hot path.
+
+Follow-up after device test:
+
+- If blocks persist, inspect transition/blend methods that set
+  `RENDER_METHOD_FLAG_TARGET_AS_INPUT` or call `SetTargetAsSrc()`, especially
+  when framebuffer-fetch is unavailable.
+- Continue SDL3/Flutter migration by extracting the Android EGL presenter state
+  from `SDLGameManager.cpp` into `SDLAndroidEGLPresenter.*`, but keep behavior
+  equivalent until the new module is proven stable.
+
+Additional direct fallback fix:
+
+- Subagent log analysis isolated the most suspicious block-artifact run to the
+  direct `ANativeWindow_lock` path where EGL is unavailable because the texture
+  is not native GL.
+- Direct fallback frames could still be partial, e.g. narrow strips, after the
+  first full frame.
+- Android direct fallback now presents full frames by default to avoid stale
+  contents from buffer-queue dirty preservation.
+- `KRKR2_ANDROID_DIRECT_PARTIAL_PRESENT=1` restores old partial direct behavior
+  only for diagnostics.
+- Runtime frame info and `present-texture-direct` logs now record the actual
+  direct fallback present rect.
+
+New presenter pipeline slice:
+
+- Added `cpp/core/environ/sdl/SDLPresentTypes.h`.
+- It defines `TVPSDLPresentPath`, `TVPSDLPresentRect`,
+  `TVPSDLTexturePresentPlan`, and `TVPSDLTexturePresentResult`.
+- `TVPSDLTryPresentTexture()` now builds a structured Android present plan and
+  consumes a structured present result instead of keeping all Android
+  EGL/direct fallback state as scattered local variables.
+- Added internal `TryPresentAndroidTexturePlan()` in `SDLGameManager.cpp`.
+  It tries Android EGL first, then direct Flutter CPU fallback, and returns the
+  result object.
+- This is the first concrete step toward extracting
+  `SDLAndroidFlutterPresenter.{h,cpp}` while preserving current behavior.
   - reduce Flutter/SDL input queue drops by coalescing move events while never
     dropping begin/end/cancel ordering;
   - validate the opt-in AetherKiri-style EGL attachment to Flutter

@@ -65,6 +65,12 @@ the same presenter when SDL is initialized independently. This keeps current
 Android behavior intact while making the presenter reusable by a future
 Flutter/SDL3 runtime host.
 
+`cpp/core/environ/sdl/SDLPresentTypes.h` is the first shared presenter pipeline
+type boundary. It names the active present path and carries the planned dirty
+rectangle, fallback rectangle, and actual present result. New SDL presenter
+modules should return these result types instead of leaking Android/EGL local
+state back into `SDLGameManager.cpp`.
+
 The important architectural rule is that Cocos may call the runtime presenter
 while it remains the compatibility host, but the presenter must not require a
 Cocos scene. Future SDL3 host work should call the same presenter contract
@@ -90,6 +96,16 @@ keeps the current active state queryable by Flutter, SDL3, diagnostics, and
 future scheduling logic. It replaces ad hoc renderer string construction in
 host code and gives the next SDL3 host a stable place to decide which module to
 drive.
+
+`cpp/core/visual/ogl/krkr_texture2d.h` is the current texture-adapter boundary
+for removing Cocos from the renderer surface. `RenderManager.h`,
+`RenderManager.cpp`, and `RenderManager_ogl.cpp` now talk about
+`krkr::Texture2D` rather than exposing `cocos2d::Texture2D` directly. During the
+legacy host phase, `krkr::Texture2D` is a compatibility alias to the Cocos
+texture type so `TVPMainScene` can still pass adapter textures to Cocos sprites.
+After the Flutter + SDL3 host owns presentation, this header should switch to
+the standalone AetherKiri-style texture wrapper and the Cocos alias can be
+deleted.
 
 ## Build Switch
 
@@ -149,7 +165,11 @@ TVP textures. It draws the native GL texture into Flutter's SurfaceTexture with
 is unavailable, explicitly disabled, or repeatedly fails before the first EGL
 present. The GL texture blit flips Y by default because the native TVP texture
 comes from the OpenGL/FBO path while the game image convention is top-left
-oriented; software CPU fallback remains unflipped.
+oriented; software CPU fallback remains unflipped. The CPU fallback now locks
+and posts full frames by default because partial `ANativeWindow` dirty updates
+can reuse stale contents from another Android buffer during fast scene changes.
+`KRKR2_ANDROID_DIRECT_PARTIAL_PRESENT=1` keeps the old partial path available
+for diagnostics only.
 
 AetherKiri's strongest reference point is its native-window presenter
 lifecycle: attach the Flutter/Android `ANativeWindow` as an EGL WindowSurface,

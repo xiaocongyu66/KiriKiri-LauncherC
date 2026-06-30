@@ -54,6 +54,11 @@
   keeps EGL attempts forced for diagnostics. Software textures are intentionally
   not uploaded by this path unless
   `KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE=1` is set for diagnostics.
+- The direct `ANativeWindow_lock` CPU fallback presents full frames by default.
+  Android dirty-rectangle locks can expose stale contents from another buffer in
+  the swap queue during fast scene changes, so partial direct presents are now
+  diagnostic-only. Set `KRKR2_ANDROID_DIRECT_PARTIAL_PRESENT=1` only when
+  investigating CPU-copy fallback behavior.
 - The EGL/SurfaceTexture path never partial-swaps dirty rectangles. Dirty state
   only decides whether a frame should be presented; when the path presents, it
   redraws the full source texture to avoid stale back-buffer contents. GL-backed

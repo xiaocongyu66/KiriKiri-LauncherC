@@ -9,6 +9,7 @@
 #include "LayerBitmapIntf.h"
 #include "RenderManager.h"
 #include "SDLGpuBackend.h"
+#include "SDLPresentTypes.h"
 #include "SDLGpuTextureCache.h"
 #include "SDLRuntimePresenter.h"
 #include "SDLUIManager.h"
@@ -135,6 +136,8 @@ std::once_flag gSDLAndroidEGLFlipYFlagOnce;
 bool gSDLAndroidEGLFlipY = false;
 std::once_flag gSDLAndroidEGLSoftwareUploadFlagOnce;
 bool gSDLAndroidEGLSoftwareUploadEnabled = false;
+std::once_flag gSDLAndroidDirectPartialPresentFlagOnce;
+bool gSDLAndroidDirectPartialPresentEnabled = false;
 #endif
 
 struct TVPSDLPresenterProbeState {
@@ -626,6 +629,30 @@ bool IsAndroidEGLSoftwareUploadEnabled() {
             IsTruthyEnv("KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE");
     });
     return gSDLAndroidEGLSoftwareUploadEnabled;
+}
+
+bool IsAndroidDirectPartialPresentEnabled() {
+    std::call_once(gSDLAndroidDirectPartialPresentFlagOnce, []() {
+        gSDLAndroidDirectPartialPresentEnabled =
+            IsTruthyEnv("KRKR2_ANDROID_DIRECT_PARTIAL_PRESENT");
+    });
+    return gSDLAndroidDirectPartialPresentEnabled;
+}
+
+SDL_Rect FullAndroidSurfaceRect(int surfaceWidth, int surfaceHeight) {
+    return SDL_Rect{ 0, 0, surfaceWidth, surfaceHeight };
+}
+
+TVPSDLPresentRect ToPresentRect(const SDL_Rect &rect) {
+    return TVPSDLPresentRect{ rect.x, rect.y, rect.w, rect.h };
+}
+
+SDL_Rect ToSDLRect(const TVPSDLPresentRect &rect) {
+    return SDL_Rect{ rect.x, rect.y, rect.w, rect.h };
+}
+
+TVPSDLPresentRect FullPresentRect(int width, int height) {
+    return TVPSDLPresentRect{ 0, 0, width, height };
 }
 
 const char *AndroidEGLErrorName(EGLint error) {
@@ -1535,11 +1562,15 @@ bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
         }
     }
 
+    SDL_Rect presentRect = rect;
+    if(!IsAndroidDirectPartialPresentEnabled())
+        presentRect = FullAndroidSurfaceRect(surfaceWidth, surfaceHeight);
+
     ARect dirty;
-    dirty.left = rect.x;
-    dirty.top = rect.y;
-    dirty.right = rect.x + rect.w;
-    dirty.bottom = rect.y + rect.h;
+    dirty.left = presentRect.x;
+    dirty.top = presentRect.y;
+    dirty.right = presentRect.x + presentRect.w;
+    dirty.bottom = presentRect.y + presentRect.h;
 
     ANativeWindow_Buffer buffer{};
     const int lockResult = ANativeWindow_lock(window, &buffer, &dirty);
@@ -1552,7 +1583,8 @@ bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
                           "surface=%dx%d rect=%d,%d,%dx%d result=%d",
                           static_cast<unsigned long long>(failed),
                           stage ? stage : "", surfaceWidth, surfaceHeight,
-                          rect.x, rect.y, rect.w, rect.h, lockResult);
+                          presentRect.x, presentRect.y, presentRect.w,
+                          presentRect.h, lockResult);
             LogSDLScreenPresenter(message);
         }
         TVPAndroidReleaseFlutterGameSurfaceWindow(window);
@@ -1560,7 +1592,7 @@ bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
     }
 
     const bool copied = CopyTextureToAndroidBuffer(
-        texture, surfaceWidth, surfaceHeight, rect, buffer);
+        texture, surfaceWidth, surfaceHeight, presentRect, buffer);
     const int unlockResult = ANativeWindow_unlockAndPost(window);
     TVPAndroidReleaseFlutterGameSurfaceWindow(window);
     if(!copied || unlockResult != 0) {
@@ -1590,8 +1622,9 @@ bool TryPresentAndroidFlutterTexture(iTVPTexture2D *texture,
                       static_cast<unsigned long long>(presented),
                       stage ? stage : "", surfaceWidth, surfaceHeight,
                       flutterWidth, flutterHeight, buffer.width,
-                      buffer.height, buffer.stride, buffer.format, rect.x,
-                      rect.y, rect.w, rect.h, glBacked);
+                      buffer.height, buffer.stride, buffer.format,
+                      presentRect.x, presentRect.y, presentRect.w,
+                      presentRect.h, glBacked);
         LogSDLScreenPresenter(message);
     }
     return true;
@@ -1651,11 +1684,15 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
         }
     }
 
+    SDL_Rect presentRect = rect;
+    if(!IsAndroidDirectPartialPresentEnabled())
+        presentRect = FullAndroidSurfaceRect(surfaceWidth, surfaceHeight);
+
     ARect dirty;
-    dirty.left = rect.x;
-    dirty.top = rect.y;
-    dirty.right = rect.x + rect.w;
-    dirty.bottom = rect.y + rect.h;
+    dirty.left = presentRect.x;
+    dirty.top = presentRect.y;
+    dirty.right = presentRect.x + presentRect.w;
+    dirty.bottom = presentRect.y + presentRect.h;
 
     ANativeWindow_Buffer buffer{};
     const int lockResult = ANativeWindow_lock(window, &buffer, &dirty);
@@ -1668,7 +1705,8 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
                           "surface=%dx%d rect=%d,%d,%dx%d result=%d",
                           static_cast<unsigned long long>(failed),
                           stage ? stage : "", surfaceWidth, surfaceHeight,
-                          rect.x, rect.y, rect.w, rect.h, lockResult);
+                          presentRect.x, presentRect.y, presentRect.w,
+                          presentRect.h, lockResult);
             LogSDLScreenPresenter(message);
         }
         TVPAndroidReleaseFlutterGameSurfaceWindow(window);
@@ -1676,7 +1714,7 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
     }
 
     CopySurfaceToAndroidBuffer(surface, surfaceWidth, surfaceHeight, pitch,
-                               rect, buffer);
+                               presentRect, buffer);
     const int unlockResult = ANativeWindow_unlockAndPost(window);
     TVPAndroidReleaseFlutterGameSurfaceWindow(window);
     if(unlockResult != 0) {
@@ -1705,11 +1743,63 @@ bool TryPresentAndroidFlutterSurface(SDL_Surface *surface, int surfaceWidth,
                       static_cast<unsigned long long>(presented),
                       stage ? stage : "", surfaceWidth, surfaceHeight,
                       flutterWidth, flutterHeight, buffer.width,
-                      buffer.height, buffer.stride, buffer.format, rect.x,
-                      rect.y, rect.w, rect.h);
+                      buffer.height, buffer.stride, buffer.format,
+                      presentRect.x, presentRect.y, presentRect.w,
+                      presentRect.h);
         LogSDLScreenPresenter(message);
     }
     return true;
+}
+
+const char *PresentPathLogName(TVPSDLPresentPath path) {
+    switch(path) {
+        case TVPSDLPresentPath::AndroidEGL:
+            return "egl";
+        case TVPSDLPresentPath::AndroidFlutterDirect:
+            return "direct";
+        case TVPSDLPresentPath::SDLWindowSurface:
+            return "sdl";
+        case TVPSDLPresentPath::None:
+        default:
+            return "none";
+    }
+}
+
+bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
+                                  TVPTextureFormat::e format,
+                                  const char *stage,
+                                  const TVPSDLTexturePresentPlan &plan,
+                                  TVPSDLTexturePresentResult &result) {
+    if(!texture || plan.textureWidth <= 0 || plan.textureHeight <= 0 ||
+       plan.dirtyRect.IsEmpty())
+        return false;
+
+    const SDL_Rect dirtyRect = ToSDLRect(plan.dirtyRect);
+    if(TryPresentAndroidEGLSurfaceTexture(texture, format, plan.textureWidth,
+                                          plan.textureHeight, dirtyRect,
+                                          stage)) {
+        result.path = TVPSDLPresentPath::AndroidEGL;
+        result.sourceRect =
+            FullPresentRect(plan.textureWidth, plan.textureHeight);
+        result.fullFrame = true;
+        result.nativeGL = texture->GetNativeGLTextureId() != 0;
+        result.cpuCopyFree = result.nativeGL;
+        return true;
+    }
+
+    if(TryPresentAndroidFlutterTexture(texture, format, plan.textureWidth,
+                                       plan.textureHeight,
+                                       ToSDLRect(plan.fallbackRect), stage)) {
+        result.path = TVPSDLPresentPath::AndroidFlutterDirect;
+        result.sourceRect = plan.fallbackRect;
+        result.fullFrame = result.sourceRect.IsFullFrame(plan.textureWidth,
+                                                         plan.textureHeight);
+        result.nativeGL = texture->GetNativeGLTextureId() != 0;
+        result.cpuCopyFree = false;
+        return true;
+    }
+
+    return false;
 }
 #endif
 
@@ -4295,13 +4385,19 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
 
 #if defined(__ANDROID__)
     if(takeoverActive) {
-        SDL_Rect directRect;
-        directRect.x = updateRect.left;
-        directRect.y = updateRect.top;
-        directRect.w = updateRect.get_width();
-        directRect.h = updateRect.get_height();
         const int directWidth = static_cast<int>(texture->GetWidth());
         const int directHeight = static_cast<int>(texture->GetHeight());
+        TVPSDLTexturePresentPlan androidPlan;
+        androidPlan.textureWidth = directWidth;
+        androidPlan.textureHeight = directHeight;
+        androidPlan.dirtyRect =
+            TVPSDLPresentRect{ updateRect.left, updateRect.top,
+                               updateRect.get_width(),
+                               updateRect.get_height() };
+        androidPlan.forceFullFrame = forceFullFramePresent;
+        androidPlan.directPartialAllowed =
+            IsAndroidDirectPartialPresentEnabled();
+        SDL_Rect directRect = ToSDLRect(androidPlan.dirtyRect);
         if(directRect.x < 0) {
             directRect.w += directRect.x;
             directRect.x = 0;
@@ -4314,24 +4410,14 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             directRect.w = directWidth - directRect.x;
         if(directRect.y + directRect.h > directHeight)
             directRect.h = directHeight - directRect.y;
-        bool androidPresented = false;
-        const char *androidPresenter = "direct";
-        bool androidFullFramePresent = forceFullFramePresent;
-        if(directRect.w > 0 && directRect.h > 0) {
-            if(TryPresentAndroidEGLSurfaceTexture(
-                   texture, copyFormat, directWidth, directHeight, directRect,
-                   stage)) {
-                androidPresented = true;
-                androidPresenter = "egl";
-                androidFullFramePresent = true;
-            } else if(TryPresentAndroidFlutterTexture(
-                          texture, copyFormat, directWidth, directHeight,
-                          directRect, stage)) {
-                androidPresented = true;
-                androidPresenter = "direct";
-            }
-        }
-        if(androidPresented) {
+        androidPlan.dirtyRect = ToPresentRect(directRect);
+        androidPlan.fallbackRect = androidPlan.directPartialAllowed
+            ? androidPlan.dirtyRect
+            : FullPresentRect(directWidth, directHeight);
+        TVPSDLTexturePresentResult androidResult;
+        TryPresentAndroidTexturePlan(texture, copyFormat, stage, androidPlan,
+                                     androidResult);
+        if(androidResult.Presented()) {
             uint64_t presented = 0;
             {
                 std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
@@ -4343,13 +4429,14 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             frameInfo.textureHeight = static_cast<int>(texture->GetHeight());
             frameInfo.layerWidth = layerWidth;
             frameInfo.layerHeight = layerHeight;
-            frameInfo.sourceRect = { directRect.x, directRect.y, directRect.w,
-                                     directRect.h };
+            frameInfo.sourceRect = { androidResult.sourceRect.x,
+                                     androidResult.sourceRect.y,
+                                     androidResult.sourceRect.w,
+                                     androidResult.sourceRect.h };
             frameInfo.destRect = frameInfo.sourceRect;
-            frameInfo.fullFrame = androidFullFramePresent;
-            frameInfo.nativeGL = texture->GetNativeGLTextureId() != 0;
-            frameInfo.cpuCopyFree = std::strcmp(androidPresenter, "egl") == 0 &&
-                frameInfo.nativeGL;
+            frameInfo.fullFrame = androidResult.fullFrame;
+            frameInfo.nativeGL = androidResult.nativeGL;
+            frameInfo.cpuCopyFree = androidResult.cpuCopyFree;
             TVPRuntimeRecordPresentFrame(frameInfo);
             tTVPRect consumed;
             texture->ConsumeDirtyRect(consumed);
@@ -4362,14 +4449,14 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                     "present-texture-%s #%llu stage=%s tex=%p size=%ux%u "
                     "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
                     "takeover=1 fullFrame=%d",
-                    androidPresenter,
+                    PresentPathLogName(androidResult.path),
                     static_cast<unsigned long long>(presentSequence),
                     stage ? stage : "", static_cast<void *>(texture),
-                    texture->GetWidth(), texture->GetHeight(), updateRect.left,
-                    updateRect.top, updateRect.get_width(),
-                    updateRect.get_height(),
+                    texture->GetWidth(), texture->GetHeight(),
+                    androidResult.sourceRect.x, androidResult.sourceRect.y,
+                    androidResult.sourceRect.w, androidResult.sourceRect.h,
                     static_cast<unsigned long long>(gpuUploadBytes),
-                    gpuConverted ? 1 : 0, androidFullFramePresent ? 1 : 0);
+                    gpuConverted ? 1 : 0, androidResult.fullFrame ? 1 : 0);
                 LogSDLGpuPresenter(message);
             }
             return true;

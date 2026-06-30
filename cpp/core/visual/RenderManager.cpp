@@ -1,6 +1,6 @@
 #include "RenderManager.h"
-#include "renderer/CCTexture2D.h"
-typedef cocos2d::Texture2D::PixelFormat CCPixelFormat;
+#include "ogl/krkr_texture2d.h"
+typedef krkr::PixelFormat CCPixelFormat;
 #include "MsgIntf.h"
 #include "LayerBitmapIntf.h"
 #include "SysInitIntf.h"
@@ -408,7 +408,7 @@ protected:
         AdapterDirtyRect.clear();
     }
 
-    bool UploadAdapterDirtyRect(cocos2d::Texture2D *texture,
+    bool UploadAdapterDirtyRect(krkr::Texture2D *texture,
                                 const tTVPRect &dirty) {
         if(!texture || !BmpData || Format != TVPTextureFormat::RGBA ||
            Pitch <= 0)
@@ -441,16 +441,16 @@ protected:
     }
 
 public:
-    cocos2d::Texture2D *
-    GetAdapterTexture(cocos2d::Texture2D *origTex) override {
+    krkr::Texture2D *
+    GetAdapterTexture(krkr::Texture2D *origTex) override {
         const int textureWidth = GetAdapterTextureWidth();
         if(!origTex || origTex->getPixelsWide() != textureWidth ||
            origTex->getPixelsHigh() != Height) {
-            origTex = new cocos2d::Texture2D;
+            origTex = new krkr::Texture2D;
             origTex->autorelease();
             origTex->initWithData(BmpData, Pitch * Height,
                                   CCPixelFormat::RGBA8888, textureWidth, Height,
-                                  cocos2d::Size::ZERO);
+                                  krkr::Size::ZERO);
             ClearAdapterDirtyRect();
         } else {
             tTVPRect dirty;
@@ -558,17 +558,17 @@ public:
         assert(0);
     }
 
-    cocos2d::Texture2D *
-    GetAdapterTexture(cocos2d::Texture2D *origTex) override {
+    krkr::Texture2D *
+    GetAdapterTexture(krkr::Texture2D *origTex) override {
         const int textureWidth = GetAdapterTextureWidth();
         if(!origTex || origTex->getPixelsWide() != textureWidth ||
            origTex->getPixelsHigh() != Height) {
             GetPixelData();
-            origTex = new cocos2d::Texture2D;
+            origTex = new krkr::Texture2D;
             origTex->autorelease();
             origTex->initWithData(BmpData, Pitch * Height,
                                   CCPixelFormat::RGBA8888, textureWidth, Height,
-                                  cocos2d::Size::ZERO);
+                                  krkr::Size::ZERO);
             ClearAdapterDirtyRect();
         } else {
             tTVPRect dirty;
@@ -657,15 +657,15 @@ public:
         return 1;
     }
 
-    cocos2d::Texture2D *
-    GetAdapterTexture(cocos2d::Texture2D *origTex) override {
+    krkr::Texture2D *
+    GetAdapterTexture(krkr::Texture2D *origTex) override {
         if(!origTex || origTex->getPixelsWide() != Width ||
            origTex->getPixelsHigh() != _scanline.size()) {
-            origTex = new cocos2d::Texture2D;
+            origTex = new krkr::Texture2D;
             origTex->autorelease();
             origTex->initWithData(nullptr, Pitch * _scanline.size(),
                                   CCPixelFormat::RGBA8888, Width,
-                                  _scanline.size(), cocos2d::Size::ZERO);
+                                  _scanline.size(), krkr::Size::ZERO);
             MarkDirtyRect(tTVPRect(0, 0, Width, Height));
         }
         tTVPRect dirty;
