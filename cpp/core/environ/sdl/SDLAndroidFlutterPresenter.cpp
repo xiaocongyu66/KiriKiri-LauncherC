@@ -212,6 +212,9 @@ struct TVPAndroidGLStateSnapshot {
     GLint arrayBuffer = 0;
     GLint program = 0;
     GLint unpackAlignment = 4;
+#if defined(GL_UNPACK_ROW_LENGTH)
+    GLint unpackRowLength = 0;
+#endif
     GLfloat clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     GLboolean blend = GL_FALSE;
     GLboolean depthTest = GL_FALSE;
@@ -263,6 +266,40 @@ bool IsAndroidEGLSoftwareUploadEnabled() {
     });
     return gSDLAndroidEGLSoftwareUploadEnabled;
 }
+
+#if defined(GL_UNPACK_ROW_LENGTH)
+bool AndroidGLStringHasToken(const char *text, const char *token) {
+    if(!text || !token || !*token)
+        return false;
+    const size_t tokenLength = std::strlen(token);
+    const char *cursor = text;
+    while((cursor = std::strstr(cursor, token)) != nullptr) {
+        const bool leftBoundary = cursor == text || cursor[-1] == ' ';
+        const char right = cursor[tokenLength];
+        const bool rightBoundary = right == '\0' || right == ' ';
+        if(leftBoundary && rightBoundary)
+            return true;
+        cursor += tokenLength;
+    }
+    return false;
+}
+
+bool IsAndroidGLUnpackRowLengthSupported() {
+    static std::once_flag flag;
+    static bool supported = false;
+    std::call_once(flag, []() {
+        const char *version =
+            reinterpret_cast<const char *>(glGetString(GL_VERSION));
+        const char *extensions =
+            reinterpret_cast<const char *>(glGetString(GL_EXTENSIONS));
+        supported =
+            (version && (std::strstr(version, "OpenGL ES 3.") ||
+                         std::strstr(version, "OpenGL ES 4."))) ||
+            AndroidGLStringHasToken(extensions, "GL_EXT_unpack_subimage");
+    });
+    return supported;
+}
+#endif
 
 TVPSDLPresentRect ToPresentRect(const SDL_Rect &rect) {
     return TVPSDLPresentRect{ rect.x, rect.y, rect.w, rect.h };
@@ -387,6 +424,10 @@ TVPAndroidGLStateSnapshot SaveAndroidGLState(GLint positionAttrib,
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &snapshot.arrayBuffer);
     glGetIntegerv(GL_CURRENT_PROGRAM, &snapshot.program);
     glGetIntegerv(GL_UNPACK_ALIGNMENT, &snapshot.unpackAlignment);
+#if defined(GL_UNPACK_ROW_LENGTH)
+    if(IsAndroidGLUnpackRowLengthSupported())
+        glGetIntegerv(GL_UNPACK_ROW_LENGTH, &snapshot.unpackRowLength);
+#endif
     glGetFloatv(GL_COLOR_CLEAR_VALUE, snapshot.clearColor);
     snapshot.blend = glIsEnabled(GL_BLEND);
     snapshot.depthTest = glIsEnabled(GL_DEPTH_TEST);
@@ -410,6 +451,10 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
                   static_cast<GLuint>(snapshot.texture0Binding));
     glActiveTexture(static_cast<GLenum>(snapshot.activeTexture));
     glPixelStorei(GL_UNPACK_ALIGNMENT, snapshot.unpackAlignment);
+#if defined(GL_UNPACK_ROW_LENGTH)
+    if(IsAndroidGLUnpackRowLengthSupported())
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, snapshot.unpackRowLength);
+#endif
     glClearColor(snapshot.clearColor[0], snapshot.clearColor[1],
                  snapshot.clearColor[2], snapshot.clearColor[3]);
     if(snapshot.blend)

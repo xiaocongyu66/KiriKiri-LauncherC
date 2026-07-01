@@ -492,3 +492,45 @@ CI state while applying this slice:
   - status at last poll: `in_progress`
   - URL:
     `https://github.com/xiaocongyu66/KiriKiri-LauncherC/actions/runs/28546701023`
+
+## 2026-07-02 EGL Pixel-Store Snapshot Prep
+
+After the explicit-link/interface slice, a small Android EGL presenter prep
+change was made for future pitch-aware uploads.
+
+Reason:
+
+- Reference analysis showed krkrsdl3 and AetherKiri both rely on
+  `GL_UNPACK_ROW_LENGTH` for pitched uploads.
+- The Android Flutter EGL presenter already saves/restores important GL state
+  around external surface presentation.
+- Before adding row-length uploads, that state snapshot must also preserve
+  `GL_UNPACK_ROW_LENGTH` when the current GL context supports it.
+
+Change:
+
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - Added optional `unpackRowLength` field to `TVPAndroidGLStateSnapshot`.
+  - Added token-aware extension helper for `GL_EXT_unpack_subimage`.
+  - Added one-time runtime support detection:
+    - true for OpenGL ES 3.x / 4.x contexts.
+    - true for GLES2 contexts advertising `GL_EXT_unpack_subimage`.
+  - `SaveAndroidGLState()` now reads `GL_UNPACK_ROW_LENGTH` only when supported.
+  - `RestoreAndroidGLState()` restores `GL_UNPACK_ROW_LENGTH` only when
+    supported.
+
+Compatibility note:
+
+- The code is guarded by `#if defined(GL_UNPACK_ROW_LENGTH)`.
+- It also checks runtime support before touching the enum. This avoids
+  `GL_INVALID_ENUM` on GLES2 drivers that do not support row-length pixel
+  storage.
+
+Checks:
+
+```sh
+git -C /root/kiriki-work/KiriKiri-LauncherC diff --check
+python3 -m json.tool /root/kiriki-work/KiriKiri-LauncherC/vcpkg.json >/dev/null
+```
+
+Both passed.
