@@ -625,6 +625,2073 @@ void AppendSDLGpuOverlayInfo(std::ostringstream &rendererInfo) {
                                                            : "pending");
 }
 
+bool IsSDLScreenPresenterWindowSupported() {
+    return !IsSDLScreenPresenterDisabled();
+}
+
+const char *SDLScreenPresenterUnsupportedReason() {
+    return IsSDLScreenPresenterDisabled() ? "disabled-by-env" : "";
+}
+
+bool IsSDLSurfaceMirrorConsumerActive() {
+    return gSDLSurfaceMirrorConsumerActive.load(std::memory_order_relaxed);
+}
+
+bool IsExplicitSDLGpuShadowUploadEnabled() {
+    std::call_once(gSDLShadowUploadFlagOnce, []() {
+        const char *value = SDL_getenv("KRKR2_ENABLE_SDL_GPU_SHADOW_UPLOAD");
+        gSDLShadowUploadEnabled =
+            value && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "false") != 0 &&
+            std::strcmp(value, "FALSE") != 0;
+    });
+    return gSDLShadowUploadEnabled;
+}
+
+bool IsSDLGpuShadowUploadEnabled() {
+    return IsExplicitSDLGpuShadowUploadEnabled() ||
+        PreferredGraphicsBackend() == "gpuapi";
+}
+
+bool ShouldRunSDLGpuShadowUpload(bool takeoverActive) {
+#if defined(__ANDROID__)
+    if(takeoverActive && PreferredGraphicsBackend() == "gpuapi" &&
+       !IsExplicitSDLGpuShadowUploadEnabled()) {
+        return false;
+    }
+#else
+    (void)takeoverActive;
+#endif
+    return IsSDLGpuShadowUploadEnabled();
+}
+
+bool IsSDLRenderDiagnosticsActive() {
+    return IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS");
+}
+
+bool ShouldUseSDLSurfaceMirrorForTakeover() {
+#if defined(__ANDROID__)
+    return IsTruthyEnv("KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR");
+#else
+    return true;
+#endif
+}
+
+void DestroySDLSurfaceMirrorLocked() {
+    if(gSDLSurfaceMirrorState.surface) {
+        SDL_DestroySurface(gSDLSurfaceMirrorState.surface);
+        gSDLSurfaceMirrorState.surface = nullptr;
+    }
+    gSDLSurfaceMirrorState.width = 0;
+    gSDLSurfaceMirrorState.height = 0;
+    gSDLSurfaceMirrorState.hasUpdate = false;
+    gSDLSurfaceMirrorState.updateRect.clear();
+}
+
+void DropSDLSurfaceMirror(const char *reason) {
+    std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+    if(!gSDLSurfaceMirrorState.surface)
+        return;
+
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "drop reason=%s copiedRegions=%llu copiedBytes=%llu",
+                  reason ? reason : "",
+                  static_cast<unsigned long long>(
+                      gSDLSurfaceMirrorState.copiedRegions),
+                  static_cast<unsigned long long>(
+                      gSDLSurfaceMirrorState.copiedBytes));
+    DestroySDLSurfaceMirrorLocked();
+    TVPNativeLogInfo("sdl-surface", message);
+}
+
+void DestroySDLScreenTextureLocked() {
+    if(gSDLScreenPresenterState.texture) {
+        SDL_DestroyTexture(gSDLScreenPresenterState.texture);
+        gSDLScreenPresenterState.texture = nullptr;
+    }
+    gSDLScreenPresenterState.textureWidth = 0;
+    gSDLScreenPresenterState.textureHeight = 0;
+}
+
+void DestroySDLScreenPresenterLocked() {
+    DestroySDLScreenTextureLocked();
+    gSDLScreenPresenterState.windowSurface = nullptr;
+    if(gSDLScreenPresenterState.renderer) {
+        SDL_DestroyRenderer(gSDLScreenPresenterState.renderer);
+        gSDLScreenPresenterState.renderer = nullptr;
+    }
+    if(gSDLScreenPresenterState.window) {
+        SDL_DestroyWindow(gSDLScreenPresenterState.window);
+        gSDLScreenPresenterState.window = nullptr;
+    }
+    gSDLScreenPresenterState.windowFailed = false;
+    gSDLScreenPresenterState.rendererFailed = false;
+    gSDLScreenPresenterState.hybridWindowDeferred = false;
+}
+
+bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
+                                    const char *stage) {
+    if(!IsSDLScreenPresenterWindowSupported()) {
+        gSDLScreenPresenterState.hybridWindowDeferred = true;
+        const uint64_t deferred = ++gSDLScreenPresenterState.deferredPumps;
+        if(ShouldLogScreenPresenter(deferred)) {
+            const Uint32 initialized = SDL_WasInit(0);
+            char message[512];
+            std::snprintf(
+                message, sizeof(message),
+                "window creation deferred #%llu stage=%s reason=%s "
+                "surface=%dx%d frame=%dx%d scene=%dx%d events=%d video=%d "
+                "audio=%d",
+                static_cast<unsigned long long>(deferred), stage ? stage : "",
+                SDLScreenPresenterUnsupportedReason(), surfaceWidth,
+                surfaceHeight, gSDLScreenPresenterState.frameWidth,
+                gSDLScreenPresenterState.frameHeight,
+                gSDLScreenPresenterState.sceneWidth,
+                gSDLScreenPresenterState.sceneHeight,
+                (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+                (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+                (initialized & SDL_INIT_AUDIO) ? 1 : 0);
+            LogSDLScreenPresenter(message);
+        }
+        return false;
+    }
+
+    TVPSDLInitializeRuntime();
+
+    if(!gSDLScreenPresenterState.videoInitTried) {
+        gSDLScreenPresenterState.videoInitTried = true;
+        if(SDL_InitSubSystem(SDL_INIT_VIDEO)) {
+            gSDLScreenPresenterState.videoReady = true;
+            const char *driver = SDL_GetCurrentVideoDriver();
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "video ready stage=%s driver=%s frame=%dx%d "
+                          "scene=%dx%d",
+                          stage ? stage : "", driver ? driver : "",
+                          gSDLScreenPresenterState.frameWidth,
+                          gSDLScreenPresenterState.frameHeight,
+                          gSDLScreenPresenterState.sceneWidth,
+                          gSDLScreenPresenterState.sceneHeight);
+            LogSDLScreenPresenter(message);
+        } else {
+            gSDLScreenPresenterState.videoReady = false;
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "video init failed stage=%s error=%s events=%d "
+                          "video=%d",
+                          stage ? stage : "", SDL_GetError(),
+                          (SDL_WasInit(0) & SDL_INIT_EVENTS) ? 1 : 0,
+                          (SDL_WasInit(0) & SDL_INIT_VIDEO) ? 1 : 0);
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+    }
+
+    if(!gSDLScreenPresenterState.videoReady)
+        return false;
+
+    int windowWidth = gSDLScreenPresenterState.frameWidth > 0
+        ? gSDLScreenPresenterState.frameWidth
+        : surfaceWidth;
+    int windowHeight = gSDLScreenPresenterState.frameHeight > 0
+        ? gSDLScreenPresenterState.frameHeight
+        : surfaceHeight;
+    SDL_WindowFlags windowFlags = 0;
+#if defined(__ANDROID__)
+    windowFlags |= SDL_WINDOW_RESIZABLE;
+    windowFlags |= SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    windowFlags |= SDL_WINDOW_FULLSCREEN;
+    windowWidth = 0;
+    windowHeight = 0;
+#endif
+
+    if(!gSDLScreenPresenterState.window &&
+       !gSDLScreenPresenterState.windowFailed) {
+        gSDLScreenPresenterState.window = SDL_CreateWindow(
+            "KiriKiri SDL Presenter", windowWidth, windowHeight, windowFlags);
+        if(!gSDLScreenPresenterState.window) {
+            gSDLScreenPresenterState.windowFailed = true;
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "window create failed stage=%s size=%dx%d "
+                          "surface=%dx%d error=%s",
+                          stage ? stage : "", windowWidth, windowHeight,
+                          surfaceWidth, surfaceHeight, SDL_GetError());
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "window created stage=%s window=%p size=%dx%d "
+                      "surface=%dx%d",
+                      stage ? stage : "",
+                      static_cast<void *>(gSDLScreenPresenterState.window),
+                      windowWidth, windowHeight, surfaceWidth, surfaceHeight);
+        LogSDLScreenPresenter(message);
+    }
+
+    if(!gSDLScreenPresenterState.window)
+        return false;
+
+    if(!gSDLScreenPresenterState.renderer &&
+       !gSDLScreenPresenterState.rendererFailed &&
+       !gSDLScreenPresenterState.windowSurface) {
+        const std::string graphicsBackend = PreferredGraphicsBackend();
+        const std::string rendererDriver = PreferredSDLRendererDriver();
+        gSDLScreenPresenterState.renderer =
+            SDL_CreateRenderer(gSDLScreenPresenterState.window,
+                               rendererDriver.empty() ? nullptr
+                                                      : rendererDriver.c_str());
+        if(!gSDLScreenPresenterState.renderer) {
+            char rendererError[256];
+            std::snprintf(rendererError, sizeof(rendererError), "%s",
+                          SDL_GetError());
+            gSDLScreenPresenterState.windowSurface =
+                SDL_GetWindowSurface(gSDLScreenPresenterState.window);
+            if(!gSDLScreenPresenterState.windowSurface) {
+                gSDLScreenPresenterState.rendererFailed = true;
+                char message[512];
+                std::snprintf(message, sizeof(message),
+                              "renderer/window-surface failed stage=%s "
+                              "rendererError=%s surfaceError=%s",
+                              stage ? stage : "", rendererError,
+                              SDL_GetError());
+                LogSDLScreenPresenter(message);
+                return false;
+            }
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "renderer failed, using window surface stage=%s "
+                          "backend=%s driver=%s rendererError=%s windowSurface=%p "
+                          "size=%dx%d pitch=%d",
+                          stage ? stage : "", graphicsBackend.c_str(),
+                          rendererDriver.c_str(), rendererError,
+                          static_cast<void *>(
+                              gSDLScreenPresenterState.windowSurface),
+                          gSDLScreenPresenterState.windowSurface->w,
+                          gSDLScreenPresenterState.windowSurface->h,
+                          gSDLScreenPresenterState.windowSurface->pitch);
+            LogSDLScreenPresenter(message);
+            return true;
+        }
+        SDL_SetRenderVSync(gSDLScreenPresenterState.renderer, 1);
+        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer,
+                                         surfaceWidth, surfaceHeight,
+                                         SDL_LOGICAL_PRESENTATION_STRETCH);
+        const char *actualDriver =
+            SDL_GetRendererName(gSDLScreenPresenterState.renderer);
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "renderer created stage=%s renderer=%p backend=%s "
+                      "driver=%s actual=%s logical=%dx%d",
+                      stage ? stage : "",
+                      static_cast<void *>(gSDLScreenPresenterState.renderer),
+                      graphicsBackend.c_str(),
+                      rendererDriver.c_str(),
+                      actualDriver ? actualDriver : "",
+                      surfaceWidth, surfaceHeight);
+        LogSDLScreenPresenter(message);
+    }
+
+    if(!gSDLScreenPresenterState.renderer)
+        return gSDLScreenPresenterState.windowSurface != nullptr;
+
+    if(gSDLScreenPresenterState.windowSurface)
+        return false;
+
+    if(!gSDLScreenPresenterState.texture ||
+       gSDLScreenPresenterState.textureWidth != surfaceWidth ||
+       gSDLScreenPresenterState.textureHeight != surfaceHeight) {
+        DestroySDLScreenTextureLocked();
+        gSDLScreenPresenterState.texture = SDL_CreateTexture(
+            gSDLScreenPresenterState.renderer, SDL_PIXELFORMAT_RGBA32,
+            SDL_TEXTUREACCESS_STREAMING, surfaceWidth, surfaceHeight);
+        if(!gSDLScreenPresenterState.texture) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "texture create failed stage=%s size=%dx%d "
+                          "error=%s",
+                          stage ? stage : "", surfaceWidth, surfaceHeight,
+                          SDL_GetError());
+            LogSDLScreenPresenter(message);
+            return false;
+        }
+        gSDLScreenPresenterState.textureWidth = surfaceWidth;
+        gSDLScreenPresenterState.textureHeight = surfaceHeight;
+        SDL_SetTextureScaleMode(gSDLScreenPresenterState.texture,
+                                SDL_SCALEMODE_LINEAR);
+        SDL_SetTextureBlendMode(gSDLScreenPresenterState.texture,
+                                SDL_BLENDMODE_NONE);
+        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer,
+                                         surfaceWidth, surfaceHeight,
+                                         SDL_LOGICAL_PRESENTATION_STRETCH);
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "texture created stage=%s texture=%p size=%dx%d",
+                      stage ? stage : "",
+                      static_cast<void *>(gSDLScreenPresenterState.texture),
+                      surfaceWidth, surfaceHeight);
+        LogSDLScreenPresenter(message);
+    }
+
+    return gSDLScreenPresenterState.texture != nullptr;
+}
+
+const char *TextureFormatName(TVPTextureFormat::e format) {
+    switch(format) {
+        case TVPTextureFormat::None:
+            return "None";
+        case TVPTextureFormat::Gray:
+            return "Gray";
+        case TVPTextureFormat::RGB:
+            return "RGB";
+        case TVPTextureFormat::RGBA:
+            return "RGBA";
+        case TVPTextureFormat::Compressed:
+            return "Compressed";
+        case TVPTextureFormat::CompressedEnd:
+            return "CompressedEnd";
+    }
+    return "Unknown";
+}
+
+bool IsDirectCpuProbeFormat(TVPTextureFormat::e format) {
+    return format == TVPTextureFormat::Gray ||
+        format == TVPTextureFormat::RGB ||
+        format == TVPTextureFormat::RGBA;
+}
+
+int TextureBytesPerPixel(TVPTextureFormat::e format) {
+    switch(format) {
+        case TVPTextureFormat::Gray:
+            return 1;
+        case TVPTextureFormat::RGB:
+            return 3;
+        case TVPTextureFormat::RGBA:
+            return 4;
+        case TVPTextureFormat::None:
+        case TVPTextureFormat::Compressed:
+        case TVPTextureFormat::CompressedEnd:
+            break;
+    }
+    return 0;
+}
+
+bool IsBitmapCompletionInBounds(int x, int y, const tTVPRect &clipRect,
+                                int sourceWidth, int sourceHeight,
+                                int bitmapWidth, int bitmapHeight) {
+    return x >= 0 && y >= 0 &&
+        x + clipRect.get_width() <= sourceWidth &&
+        y + clipRect.get_height() <= sourceHeight &&
+        clipRect.left >= 0 && clipRect.top >= 0 &&
+        clipRect.right <= bitmapWidth && clipRect.bottom <= bitmapHeight;
+}
+
+bool EnsureSDLSurfaceMirrorLocked(int width, int height) {
+    if(width <= 0 || height <= 0)
+        return false;
+    if(gSDLSurfaceMirrorState.surface &&
+       gSDLSurfaceMirrorState.width == width &&
+       gSDLSurfaceMirrorState.height == height)
+        return true;
+
+    if(gSDLSurfaceMirrorState.surface) {
+        SDL_DestroySurface(gSDLSurfaceMirrorState.surface);
+        gSDLSurfaceMirrorState.surface = nullptr;
+    }
+
+    gSDLSurfaceMirrorState.surface =
+        SDL_CreateSurface(width, height, SDL_PIXELFORMAT_RGBA32);
+    if(!gSDLSurfaceMirrorState.surface) {
+        char message[256];
+        std::snprintf(message, sizeof(message),
+                      "create failed size=%dx%d error=%s", width, height,
+                      SDL_GetError());
+        TVPNativeLogInfo("sdl-surface", message);
+        gSDLSurfaceMirrorState.width = 0;
+        gSDLSurfaceMirrorState.height = 0;
+        return false;
+    }
+
+    gSDLSurfaceMirrorState.width = width;
+    gSDLSurfaceMirrorState.height = height;
+    gSDLSurfaceMirrorState.creates++;
+    gSDLSurfaceMirrorState.hasUpdate = false;
+    gSDLSurfaceMirrorState.updateRect.clear();
+
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "create #%llu surface=%p size=%dx%d pitch=%d format=%s",
+                  static_cast<unsigned long long>(
+                      gSDLSurfaceMirrorState.creates),
+                  static_cast<void *>(gSDLSurfaceMirrorState.surface), width,
+                  height, gSDLSurfaceMirrorState.surface->pitch,
+                  SDL_GetPixelFormatName(gSDLSurfaceMirrorState.surface->format));
+    TVPNativeLogInfo("sdl-surface", message);
+    return true;
+}
+
+bool CopyRegionToSDLSurfaceMirror(iTVPTexture2D *texture,
+                                  const tTVPRect &clipRect, int x, int y,
+                                  int sourceWidth, int sourceHeight,
+                                  TVPTextureFormat::e format,
+                                  uint64_t globalRegion,
+                                  uint64_t batchRegion,
+                                  uint64_t &copiedTotal,
+                                  uint64_t &copiedBytesTotal,
+                                  uint64_t &skippedTotal) {
+    copiedTotal = 0;
+    copiedBytesTotal = 0;
+    skippedTotal = 0;
+
+    if(!texture)
+        return false;
+
+    const int bytesPerPixel = TextureBytesPerPixel(format);
+    if(format != TVPTextureFormat::RGBA || bytesPerPixel != 4) {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        skippedTotal = ++gSDLSurfaceMirrorState.skippedUnsupported;
+        if(skippedTotal <= 8 || (skippedTotal % 128) == 0) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "skip unsupported total=%llu global=%llu "
+                          "format=%s(%d) bpp=%d",
+                          static_cast<unsigned long long>(skippedTotal),
+                          static_cast<unsigned long long>(globalRegion),
+                          TextureFormatName(format), static_cast<int>(format),
+                          bytesPerPixel);
+            TVPNativeLogInfo("sdl-surface", message);
+        }
+        return false;
+    }
+
+    const int copyWidth = clipRect.get_width();
+    const int copyHeight = clipRect.get_height();
+    if(copyWidth <= 0 || copyHeight <= 0)
+        return false;
+
+    const int mirrorWidth = sourceWidth > 0 ? sourceWidth
+                                            : static_cast<int>(texture->GetWidth());
+    const int mirrorHeight = sourceHeight > 0
+        ? sourceHeight
+        : static_cast<int>(texture->GetHeight());
+
+    std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+    if(!EnsureSDLSurfaceMirrorLocked(mirrorWidth, mirrorHeight)) {
+        gSDLSurfaceMirrorState.failedCopies++;
+        return false;
+    }
+
+    SDL_Surface *surface = gSDLSurfaceMirrorState.surface;
+    bool locked = false;
+    if(SDL_MUSTLOCK(surface)) {
+        if(SDL_LockSurface(surface) != 0) {
+            gSDLSurfaceMirrorState.failedCopies++;
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "lock failed global=%llu error=%s",
+                          static_cast<unsigned long long>(globalRegion),
+                          SDL_GetError());
+            TVPNativeLogInfo("sdl-surface", message);
+            return false;
+        }
+        locked = true;
+    }
+
+    bool copied = false;
+    std::string failureReason;
+    try {
+        for(int row = 0; row < copyHeight; ++row) {
+            const auto *src = static_cast<const tjs_uint8 *>(
+                texture->GetScanLineForRead(clipRect.top + row));
+            if(!src)
+                throw std::runtime_error("scanline unavailable");
+            src += clipRect.left * bytesPerPixel;
+            auto *dst = static_cast<tjs_uint8 *>(surface->pixels) +
+                surface->pitch * (y + row) + x * 4;
+            SDL_memcpy(dst, src, static_cast<size_t>(copyWidth) * 4);
+        }
+        copied = true;
+    } catch(const std::exception &e) {
+        failureReason = e.what();
+    } catch(...) {
+        failureReason = "unknown exception";
+    }
+
+    if(!copied) {
+        const uint64_t failed = ++gSDLSurfaceMirrorState.failedCopies;
+        if(failed <= 8 || (failed % 128) == 0) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "copy failed total=%llu global=%llu batchRegion=%llu "
+                          "dst=%d,%d clip=%d,%d,%dx%d mirror=%dx%d "
+                          "pitch=%d reason=%s",
+                          static_cast<unsigned long long>(failed),
+                          static_cast<unsigned long long>(globalRegion),
+                          static_cast<unsigned long long>(batchRegion), x, y,
+                          clipRect.left, clipRect.top, copyWidth, copyHeight,
+                          gSDLSurfaceMirrorState.width,
+                          gSDLSurfaceMirrorState.height, surface->pitch,
+                          failureReason.c_str());
+            TVPNativeLogInfo("sdl-surface", message);
+        }
+    }
+
+    if(locked)
+        SDL_UnlockSurface(surface);
+
+    if(!copied)
+        return false;
+
+    tTVPRect updateRect(x, y, x + copyWidth, y + copyHeight);
+    if(gSDLSurfaceMirrorState.hasUpdate) {
+        gSDLSurfaceMirrorState.updateRect.do_union(updateRect);
+    } else {
+        gSDLSurfaceMirrorState.updateRect = updateRect;
+        gSDLSurfaceMirrorState.hasUpdate = true;
+    }
+
+    gSDLSurfaceMirrorState.copiedRegions++;
+    gSDLSurfaceMirrorState.copiedBytes +=
+        static_cast<uint64_t>(copyWidth) * copyHeight * 4;
+    copiedTotal = gSDLSurfaceMirrorState.copiedRegions;
+    copiedBytesTotal = gSDLSurfaceMirrorState.copiedBytes;
+
+    if(ShouldLogSurfaceMirrorCopy(copiedTotal)) {
+        const tTVPRect &ur = gSDLSurfaceMirrorState.updateRect;
+        char message[384];
+        std::snprintf(
+            message, sizeof(message),
+            "copy total=%llu global=%llu batchRegion=%llu dst=%d,%d "
+            "size=%dx%d mirror=%dx%d pitch=%d bytesTotal=%llu "
+            "update=%d,%d,%dx%d failed=%llu",
+            static_cast<unsigned long long>(copiedTotal),
+            static_cast<unsigned long long>(globalRegion),
+            static_cast<unsigned long long>(batchRegion), x, y, copyWidth,
+            copyHeight, gSDLSurfaceMirrorState.width,
+            gSDLSurfaceMirrorState.height, surface->pitch,
+            static_cast<unsigned long long>(copiedBytesTotal),
+            gSDLSurfaceMirrorState.hasUpdate ? ur.left : 0,
+            gSDLSurfaceMirrorState.hasUpdate ? ur.top : 0,
+            gSDLSurfaceMirrorState.hasUpdate ? ur.get_width() : 0,
+            gSDLSurfaceMirrorState.hasUpdate ? ur.get_height() : 0,
+            static_cast<unsigned long long>(
+                gSDLSurfaceMirrorState.failedCopies));
+        TVPNativeLogInfo("sdl-surface", message);
+    }
+
+    return true;
+}
+
+uint64_t CalculateBacklog(uint64_t queued, uint64_t drained, uint64_t dropped,
+                          uint64_t coalesced) {
+    const uint64_t completed = drained + dropped + coalesced;
+    return queued > completed ? queued - completed : 0;
+}
+
+void UpdateAtomicMax(std::atomic_uint64_t &target, uint64_t value) {
+    uint64_t previous = target.load(std::memory_order_relaxed);
+    while(value > previous &&
+          !target.compare_exchange_weak(previous, value,
+                                        std::memory_order_relaxed,
+                                        std::memory_order_relaxed)) {
+    }
+}
+
+void LogSDLInputQueue(const char *message) {
+    TVPNativeLogInfo("sdl-inputqueue", message ? message : "");
+}
+
+void LogSDLInputQueueF(const char *fmt, uint64_t a = 0, uint64_t b = 0,
+                       uint64_t c = 0) {
+    char message[256];
+    std::snprintf(message, sizeof(message), fmt,
+                  static_cast<unsigned long long>(a),
+                  static_cast<unsigned long long>(b),
+                  static_cast<unsigned long long>(c));
+    LogSDLInputQueue(message);
+}
+
+bool EnsureSDLInputQueue() {
+    std::call_once(gSDLInputQueueInitOnce, []() {
+        if(!TVPSDLInitializeRuntime()) {
+            std::string message = "init events failed";
+            if(!gSDLRuntimeError.empty()) {
+                message += ": " + gSDLRuntimeError;
+            }
+            LogSDLInputQueue(message.c_str());
+            return;
+        }
+
+        const Uint32 eventType = SDL_RegisterEvents(1);
+        if(eventType == 0) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "register custom event failed: %s",
+                          SDL_GetError());
+            LogSDLInputQueue(message);
+            return;
+        }
+
+        gSDLInputQueueEventType = eventType;
+        gSDLInputQueueReady.store(true, std::memory_order_release);
+
+        char message[128];
+        std::snprintf(message, sizeof(message),
+                      "ready custom_event_type=%u",
+                      static_cast<unsigned>(eventType));
+        LogSDLInputQueue(message);
+    });
+
+    return gSDLInputQueueReady.load(std::memory_order_acquire);
+}
+
+void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
+                            float y, int code, bool state,
+                            bool dispatchToTVP) {
+    if(gSDLInputPaused.load(std::memory_order_acquire) &&
+       IsSDLUITouchInput(eventName)) {
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        if(ShouldLogInputQueueEvent(dropped, eventName)) {
+            char message[256];
+            std::snprintf(message, sizeof(message),
+                          "paused-drop dropped=%llu event=%s count=%d "
+                          "x=%.2f y=%.2f code=%d",
+                          static_cast<unsigned long long>(dropped),
+                          eventName ? eventName : "", itemCount, x, y,
+                          code);
+            LogSDLInputQueue(message);
+        }
+        return;
+    }
+
+    if(IsSDLDirectTouchInput(eventName, dispatchToTVP) &&
+       !TVPSDLHasScreenPresenterPresented()) {
+        const uint64_t queuedCount =
+            gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        if(ShouldLogInputQueueEvent(queuedCount, eventName)) {
+            char message[320];
+            std::snprintf(
+                message, sizeof(message),
+                "prepresent-drop queued=%llu dropped=%llu event=%s count=%d "
+                "x=%.2f y=%.2f code=%d state=%d",
+                static_cast<unsigned long long>(queuedCount),
+                static_cast<unsigned long long>(dropped),
+                eventName ? eventName : "", itemCount, x, y, code,
+                state ? 1 : 0);
+            LogSDLInputQueue(message);
+        }
+        return;
+    }
+
+    if(!EnsureSDLInputQueue()) {
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        if(ShouldLogInputQueueSequence(dropped)) {
+            LogSDLInputQueueF("queue-unavailable dropped=%llu drained=%llu queued=%llu",
+                              dropped,
+                              gSDLInputDrained.load(std::memory_order_relaxed),
+                              gSDLInputQueued.load(std::memory_order_relaxed));
+        }
+        return;
+    }
+
+    if(IsSDLDirectTouchMoveInput(eventName, dispatchToTVP)) {
+        const uint64_t queuedBefore =
+            gSDLInputQueued.load(std::memory_order_relaxed);
+        const uint64_t drained =
+            gSDLInputDrained.load(std::memory_order_relaxed);
+        const uint64_t droppedBefore =
+            gSDLInputDropped.load(std::memory_order_relaxed);
+        const uint64_t coalesced =
+            gSDLInputCoalesced.load(std::memory_order_relaxed);
+        const uint64_t backlog = CalculateBacklog(
+            queuedBefore, drained, droppedBefore, coalesced);
+        if(backlog >= kSDLDirectTouchMoveBacklogLimit) {
+            const uint64_t queuedCount =
+                gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
+            const uint64_t dropped =
+                gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+            UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
+            if(ShouldLogInputQueueSequence(queuedCount)) {
+                char message[320];
+                std::snprintf(
+                    message, sizeof(message),
+                    "move-backpressure-drop queued=%llu backlog=%llu "
+                    "limit=%llu drained=%llu dropped=%llu x=%.2f y=%.2f "
+                    "code=%d",
+                    static_cast<unsigned long long>(queuedCount),
+                    static_cast<unsigned long long>(backlog),
+                    static_cast<unsigned long long>(
+                        kSDLDirectTouchMoveBacklogLimit),
+                    static_cast<unsigned long long>(drained),
+                    static_cast<unsigned long long>(dropped), x, y, code);
+                LogSDLInputQueue(message);
+            }
+            return;
+        }
+    }
+
+    const uint64_t queuedCount =
+        gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
+    auto *queued = new TVPSDLQueuedInputEvent{
+        eventName ? eventName : "", itemCount, x, y, code, state,
+        dispatchToTVP, SDL_GetTicks(), queuedCount,
+    };
+
+    SDL_Event event;
+    SDL_memset(&event, 0, sizeof(event));
+    event.type = gSDLInputQueueEventType;
+    event.user.code = code;
+    event.user.data1 = queued;
+
+    if(!SDL_PushEvent(&event)) {
+        delete queued;
+        const uint64_t dropped =
+            gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
+        char message[256];
+        std::snprintf(message, sizeof(message),
+                      "push failed event=%s dropped=%llu error=%s",
+                      eventName ? eventName : "",
+                      static_cast<unsigned long long>(dropped),
+                      SDL_GetError());
+        LogSDLInputQueue(message);
+        return;
+    }
+
+    const uint64_t drained = gSDLInputDrained.load(std::memory_order_relaxed);
+    const uint64_t dropped = gSDLInputDropped.load(std::memory_order_relaxed);
+    const uint64_t coalesced =
+        gSDLInputCoalesced.load(std::memory_order_relaxed);
+    const uint64_t backlog =
+        CalculateBacklog(queuedCount, drained, dropped, coalesced);
+    UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
+
+    if(ShouldLogInputQueueEvent(queuedCount, eventName)) {
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "queued=%llu backlog=%llu drained=%llu dropped=%llu "
+                      "coalesced=%llu event=%s count=%d x=%.2f y=%.2f "
+                      "code=%d state=%d",
+                      static_cast<unsigned long long>(queuedCount),
+                      static_cast<unsigned long long>(backlog),
+                      static_cast<unsigned long long>(drained),
+                      static_cast<unsigned long long>(dropped),
+                      static_cast<unsigned long long>(coalesced),
+                      eventName ? eventName : "", itemCount, x, y, code,
+                      state ? 1 : 0);
+        LogSDLInputQueue(message);
+    }
+}
+
+tjs_int RoundInputCoord(float value) {
+    return static_cast<tjs_int>(std::lround(value));
+}
+
+float ClampInputCoord(float value, int limit) {
+    if(limit <= 0)
+        return value;
+    if(value < 0.0f)
+        return 0.0f;
+    const float maxValue = static_cast<float>(limit - 1);
+    if(value > maxValue)
+        return maxValue;
+    return value;
+}
+
+void ClampFlutterTouchToPresentedSurface(float &x, float &y) {
+    int width = 0;
+    int height = 0;
+    TVPSDLAndroidFlutterPresenterGetPresentedSurfaceSize(&width, &height);
+    if(width <= 0 || height <= 0) {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        width = gSDLSurfaceMirrorState.width;
+        height = gSDLSurfaceMirrorState.height;
+    }
+#if defined(__ANDROID__)
+    if(width <= 0 || height <= 0)
+        TVPAndroidGetFlutterGameSurfaceSize(&width, &height);
+#endif
+    x = ClampInputCoord(x, width);
+    y = ClampInputCoord(y, height);
+}
+
+void UpdateWindowCursor(tTJSNI_Window *window, tjs_int x, tjs_int y) {
+    if(!window)
+        return;
+    if(auto *form = window->GetForm()) {
+        form->SetCursorPos(x, y);
+    }
+}
+
+void PostSDLDirectMouseMove(tTJSNI_Window *window, float x, float y,
+                            tjs_uint32 shift, bool discardable) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(new tTVPOnMouseMoveInputEvent(window, ix, iy, shift),
+                      discardable ? TVP_EPT_DISCARDABLE : TVP_EPT_POST);
+}
+
+void PostSDLDirectMouseDown(tTJSNI_Window *window, float x, float y) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(new tTVPOnMouseDownInputEvent(
+        window, ix, iy, mbLeft, TVP_SS_LEFT));
+}
+
+void PostSDLDirectMouseUp(tTJSNI_Window *window, float x, float y) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(
+        new tTVPOnMouseUpInputEvent(window, ix, iy, mbLeft, 0));
+}
+
+void PostSDLDirectClick(tTJSNI_Window *window, float x, float y) {
+    if(!window)
+        return;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    TVPPostInputEvent(new tTVPOnClickInputEvent(window, ix, iy));
+}
+
+bool CanDispatchDirectTVPInput() {
+    return TVPSDLIsScreenTakeoverEnabled() &&
+        TVPSDLHasScreenPresenterPresented() && TVPMainWindow;
+}
+
+bool DecodeNextUtf8Codepoint(const unsigned char *&cursor,
+                             const unsigned char *end, uint32_t &codepoint) {
+    if(cursor >= end)
+        return false;
+
+    const unsigned char first = *cursor++;
+    if(first < 0x80) {
+        codepoint = first;
+        return true;
+    }
+
+    int extra = 0;
+    uint32_t value = 0;
+    if((first & 0xe0) == 0xc0) {
+        extra = 1;
+        value = first & 0x1f;
+    } else if((first & 0xf0) == 0xe0) {
+        extra = 2;
+        value = first & 0x0f;
+    } else if((first & 0xf8) == 0xf0) {
+        extra = 3;
+        value = first & 0x07;
+    } else {
+        codepoint = 0xfffd;
+        return true;
+    }
+
+    if(end - cursor < extra) {
+        cursor = end;
+        codepoint = 0xfffd;
+        return true;
+    }
+
+    for(int index = 0; index < extra; ++index) {
+        const unsigned char next = *cursor;
+        if((next & 0xc0) != 0x80) {
+            codepoint = 0xfffd;
+            return true;
+        }
+        cursor++;
+        value = (value << 6) | (next & 0x3f);
+    }
+
+    if((extra == 1 && value < 0x80) || (extra == 2 && value < 0x800) ||
+       (extra == 3 && value < 0x10000) || value > 0x10ffff ||
+       (value >= 0xd800 && value <= 0xdfff)) {
+        codepoint = 0xfffd;
+        return true;
+    }
+
+    codepoint = value;
+    return true;
+}
+
+std::vector<tjs_char> DecodeUtf8ToTJSChars(const char *text) {
+    std::vector<tjs_char> chars;
+    if(!text || !*text)
+        return chars;
+
+    const auto *cursor = reinterpret_cast<const unsigned char *>(text);
+    const auto *end = cursor + std::strlen(text);
+    while(cursor < end) {
+        uint32_t codepoint = 0;
+        if(!DecodeNextUtf8Codepoint(cursor, end, codepoint))
+            break;
+        if(codepoint == 0)
+            continue;
+        if(codepoint <= 0xffff) {
+            chars.push_back(static_cast<tjs_char>(codepoint));
+            continue;
+        }
+        codepoint -= 0x10000;
+        chars.push_back(static_cast<tjs_char>(0xd800 + (codepoint >> 10)));
+        chars.push_back(static_cast<tjs_char>(0xdc00 + (codepoint & 0x3ff)));
+    }
+    return chars;
+}
+
+bool PostSDLDirectKeyDown(tTJSNI_Window *window, tjs_uint key) {
+    if(!window)
+        return false;
+    TVPPostInputEvent(new tTVPOnKeyDownInputEvent(window, key, 0));
+    return true;
+}
+
+bool PostSDLDirectKeyUp(tTJSNI_Window *window, tjs_uint key) {
+    if(!window)
+        return false;
+    TVPPostInputEvent(new tTVPOnKeyUpInputEvent(window, key, 0));
+    return true;
+}
+
+bool PostSDLDirectKeyPress(tTJSNI_Window *window, tjs_char key) {
+    if(!window || key == 0)
+        return false;
+    TVPPostInputEvent(new tTVPOnKeyPressInputEvent(window, key));
+    return true;
+}
+
+bool PostSDLDirectMouseWheel(tTJSNI_Window *window, float x, float y,
+                             float scroll) {
+    if(!window || scroll == 0.0f)
+        return false;
+    const tjs_int ix = RoundInputCoord(x);
+    const tjs_int iy = RoundInputCoord(y);
+    UpdateWindowCursor(window, ix, iy);
+    const tjs_int delta = scroll > 0.0f ? -120 : 120;
+    TVPPostInputEvent(
+        new tTVPOnMouseWheelInputEvent(window, 0, delta, ix, iy));
+    return true;
+}
+
+bool MapAndroidKeyCodeToTVPKey(int keyCode, tjs_uint &key) {
+    switch(keyCode) {
+        case kAndroidKeyBack:
+            key = VK_ESCAPE;
+            return true;
+        case kAndroidKeyDpadUp:
+            key = VK_UP;
+            return true;
+        case kAndroidKeyDpadDown:
+            key = VK_DOWN;
+            return true;
+        case kAndroidKeyDpadLeft:
+            key = VK_LEFT;
+            return true;
+        case kAndroidKeyDpadRight:
+            key = VK_RIGHT;
+            return true;
+        case kAndroidKeyEnter:
+        case kAndroidKeyDpadCenter:
+            key = VK_RETURN;
+            return true;
+        case kAndroidKeyDel:
+            key = VK_BACK;
+            return true;
+        case kAndroidKeyMenu:
+        case kAndroidKeyPlay:
+        default:
+            key = 0;
+            return false;
+    }
+}
+
+void MapAndroidViewCoordToPresentedSurface(float &x, float &y) {
+    int surfaceWidth = 0;
+    int surfaceHeight = 0;
+    TVPSDLAndroidFlutterPresenterGetPresentedSurfaceSize(&surfaceWidth,
+                                                         &surfaceHeight);
+    int frameWidth = 0;
+    int frameHeight = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        frameWidth = gSDLScreenPresenterState.frameWidth;
+        frameHeight = gSDLScreenPresenterState.frameHeight;
+    }
+    if(surfaceWidth <= 0 || surfaceHeight <= 0) {
+        std::lock_guard<std::mutex> lock(gSDLSurfaceMirrorMutex);
+        surfaceWidth = gSDLSurfaceMirrorState.width;
+        surfaceHeight = gSDLSurfaceMirrorState.height;
+    }
+#if defined(__ANDROID__)
+    if(surfaceWidth <= 0 || surfaceHeight <= 0)
+        TVPAndroidGetFlutterGameSurfaceSize(&surfaceWidth, &surfaceHeight);
+#endif
+    if(frameWidth > 0 && frameHeight > 0 && surfaceWidth > 0 &&
+       surfaceHeight > 0) {
+        x = x * static_cast<float>(surfaceWidth) /
+            static_cast<float>(frameWidth);
+        y = y * static_cast<float>(surfaceHeight) /
+            static_cast<float>(frameHeight);
+    }
+    x = ClampInputCoord(x, surfaceWidth);
+    y = ClampInputCoord(y, surfaceHeight);
+}
+
+void ResetSDLDirectTouch() {
+    gSDLDirectTouchState = {};
+    gSDLDirectTouchState.pointerId = -1;
+}
+
+void CancelSDLDirectTouchForPointer(int pointerId) {
+    if(gSDLDirectTouchState.active &&
+       (pointerId < 0 || gSDLDirectTouchState.pointerId == pointerId)) {
+        ResetSDLDirectTouch();
+    }
+}
+
+void DropQueuedAndroidInputEvents(const char *reason) {
+    ResetSDLDirectTouch();
+    if(!gSDLInputQueueReady.load(std::memory_order_acquire))
+        return;
+
+    uint64_t droppedInBatch = 0;
+    SDL_Event event;
+    std::lock_guard<std::mutex> lock(gSDLInputQueueMutex);
+    while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
+                         gSDLInputQueueEventType) == 1) {
+        auto *queued =
+            static_cast<TVPSDLQueuedInputEvent *>(event.user.data1);
+        delete queued;
+        droppedInBatch++;
+    }
+
+    if(droppedInBatch == 0)
+        return;
+
+    const uint64_t dropped =
+        gSDLInputDropped.fetch_add(droppedInBatch,
+                                   std::memory_order_relaxed) +
+        droppedInBatch;
+    const uint64_t backlog = CalculateBacklog(
+        gSDLInputQueued.load(std::memory_order_relaxed),
+        gSDLInputDrained.load(std::memory_order_relaxed), dropped,
+        gSDLInputCoalesced.load(std::memory_order_relaxed));
+    char message[320];
+    std::snprintf(message, sizeof(message),
+                  "lifecycle-drop reason=%s items=%llu dropped=%llu "
+                  "backlog=%llu",
+                  reason ? reason : "",
+                  static_cast<unsigned long long>(droppedInBatch),
+                  static_cast<unsigned long long>(dropped),
+                  static_cast<unsigned long long>(backlog));
+    LogSDLInputQueue(message);
+}
+
+void DispatchSDLDirectTouchEvent(const TVPSDLQueuedInputEvent &queued) {
+    if(!queued.dispatchToTVP)
+        return;
+
+    auto *window = TVPMainWindow;
+    if(!window)
+        return;
+
+    constexpr float moveThreshold = 24.0f;
+    constexpr float moveThresholdSq = moveThreshold * moveThreshold;
+    constexpr Uint64 holdToDragMs = 150;
+    const Uint64 nowTicks = SDL_GetTicks();
+
+    if(queued.eventName == "touch-begin") {
+        gSDLDirectTouchState.active = true;
+        gSDLDirectTouchState.moved = false;
+        gSDLDirectTouchState.mouseDownSent = false;
+        gSDLDirectTouchState.pointerId = queued.code;
+        gSDLDirectTouchState.startX = queued.x;
+        gSDLDirectTouchState.startY = queued.y;
+        gSDLDirectTouchState.lastX = queued.x;
+        gSDLDirectTouchState.lastY = queued.y;
+        gSDLDirectTouchState.downTicks = nowTicks;
+        return;
+    }
+
+    if(queued.eventName == "touch-cancel" ||
+       queued.eventName == "touch-cancel-empty") {
+        if(gSDLDirectTouchState.active &&
+           (queued.code < 0 || gSDLDirectTouchState.pointerId == queued.code)) {
+            if(gSDLDirectTouchState.mouseDownSent) {
+                PostSDLDirectMouseUp(window, gSDLDirectTouchState.lastX,
+                                     gSDLDirectTouchState.lastY);
+            }
+            ResetSDLDirectTouch();
+        }
+        return;
+    }
+
+    if(!gSDLDirectTouchState.active ||
+       gSDLDirectTouchState.pointerId != queued.code)
+        return;
+
+    if(queued.eventName == "touch-move") {
+        gSDLDirectTouchState.lastX = queued.x;
+        gSDLDirectTouchState.lastY = queued.y;
+
+        const float dx = queued.x - gSDLDirectTouchState.startX;
+        const float dy = queued.y - gSDLDirectTouchState.startY;
+        const bool shouldStartDrag =
+            gSDLDirectTouchState.mouseDownSent ||
+            (dx * dx + dy * dy > moveThresholdSq) ||
+            (nowTicks - gSDLDirectTouchState.downTicks > holdToDragMs);
+
+        if(!shouldStartDrag)
+            return;
+
+        if(!gSDLDirectTouchState.mouseDownSent) {
+            PostSDLDirectMouseMove(window, gSDLDirectTouchState.startX,
+                                   gSDLDirectTouchState.startY, 0, false);
+            PostSDLDirectMouseDown(window, gSDLDirectTouchState.startX,
+                                   gSDLDirectTouchState.startY);
+            gSDLDirectTouchState.mouseDownSent = true;
+        }
+
+        gSDLDirectTouchState.moved = true;
+        PostSDLDirectMouseMove(window, queued.x, queued.y, TVP_SS_LEFT, true);
+        return;
+    }
+
+    if(queued.eventName == "touch-end") {
+        if(gSDLDirectTouchState.mouseDownSent) {
+            PostSDLDirectMouseUp(window, queued.x, queued.y);
+        } else {
+            PostSDLDirectMouseMove(window, queued.x, queued.y, 0, false);
+            PostSDLDirectMouseDown(window, gSDLDirectTouchState.startX,
+                                   gSDLDirectTouchState.startY);
+            PostSDLDirectClick(window, queued.x, queued.y);
+            PostSDLDirectMouseUp(window, queued.x, queued.y);
+        }
+        ResetSDLDirectTouch();
+        return;
+    }
+}
+
+bool IsQueuedDirectTouchMove(const TVPSDLQueuedInputEvent *queued, int code) {
+    return queued &&
+        IsSDLDirectTouchMoveInput(queued->eventName.c_str(),
+                                  queued->dispatchToTVP) &&
+        queued->code == code;
+}
+
+TVPSDLQueuedInputEvent *CoalescePendingDirectTouchMoves(
+    TVPSDLQueuedInputEvent *queued,
+    std::deque<TVPSDLQueuedInputEvent *> &pending,
+    uint64_t &coalescedInBatch) {
+    if(!IsQueuedDirectTouchMove(queued, queued ? queued->code : -1))
+        return queued;
+
+    while(!pending.empty()) {
+        auto *nextQueued = pending.front();
+        if(!IsQueuedDirectTouchMove(nextQueued, queued->code))
+            return queued;
+
+        pending.pop_front();
+        delete queued;
+        queued = nextQueued;
+        coalescedInBatch++;
+    }
+
+    return queued;
+}
+
+} // namespace
+
+bool TVPSDLInitializeRuntime() {
+    std::call_once(gSDLRuntimeInitOnce, []() {
+        TVPRegisterSDLRuntimePresenter();
+        SDL_SetMainReady();
+#if defined(SDL_HINT_TOUCH_MOUSE_EVENTS)
+        SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "1");
+#endif
+#if defined(SDL_HINT_MOUSE_TOUCH_EVENTS)
+        SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
+#endif
+        if(SDL_InitSubSystem(SDL_INIT_EVENTS)) {
+            gSDLRuntimeInitialized = true;
+        } else {
+            gSDLRuntimeInitialized = false;
+            gSDLRuntimeError = SafeSDLString(SDL_GetError());
+        }
+    });
+    return gSDLRuntimeInitialized;
+}
+
+TVPSDLRuntimeInfo TVPSDLGetRuntimeInfo() {
+    TVPSDLRuntimeInfo info;
+
+    info.compiledVersion = FormatVersion(SDL_VERSION);
+    info.linkedVersion = FormatVersion(SDL_GetVersion());
+    info.revision = SafeSDLString(SDL_GetRevision());
+    info.platform = SafeSDLString(SDL_GetPlatform());
+    info.videoDriver = SafeSDLString(SDL_GetCurrentVideoDriver());
+    info.audioDriver = SafeSDLString(SDL_GetCurrentAudioDriver());
+
+    const Uint32 initialized = SDL_WasInit(0);
+    info.eventsReady = (initialized & SDL_INIT_EVENTS) != 0;
+    info.videoReady = (initialized & SDL_INIT_VIDEO) != 0;
+    info.audioReady = (initialized & SDL_INIT_AUDIO) != 0;
+    return info;
+}
+
+void TVPSDLRecordAndroidLifecycle(const char *eventName, const char *detail) {
+    if(IsAndroidLifecycleResumeEvent(eventName)) {
+        const bool wasPaused =
+            gSDLInputPaused.exchange(false, std::memory_order_acq_rel);
+        if(wasPaused)
+            LogSDLInputQueue("lifecycle-resume input enabled");
+    } else if(IsAndroidLifecyclePauseEvent(eventName)) {
+        gSDLInputPaused.store(true, std::memory_order_release);
+        DropQueuedAndroidInputEvents(eventName);
+    }
+
+    const uint64_t sequence =
+        gSDLLifecycleEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const Uint32 initialized = SDL_WasInit(0);
+
+    char message[384];
+    std::snprintf(
+        message, sizeof(message),
+        "#%llu event=%s detail=%s events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(sequence),
+        eventName ? eventName : "", detail ? detail : "",
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-lifecycle", message);
+}
+
+void TVPSDLRecordAndroidInput(const char *eventName, int itemCount, float x,
+                              float y, int code, bool state) {
+    TVPSDLInitializeRuntime();
+    if(!gSDLInputPaused.load(std::memory_order_acquire) &&
+       IsSDLUITouchInput(eventName)) {
+        TVPSDLUIRecordAndroidTouch(eventName, x, y,
+                                   itemCount > 0 ? code : -1, state);
+    }
+    QueueAndroidInputEvent(eventName, itemCount, x, y, code, state, false);
+    const uint64_t sequence =
+        gSDLInputEventSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    if(!ShouldLogInputEvent(sequence, eventName))
+        return;
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[256];
+    std::snprintf(
+        message, sizeof(message),
+        "#%llu event=%s count=%d x=%.2f y=%.2f code=%d state=%d events=%d ticks=%u",
+        static_cast<unsigned long long>(sequence),
+        eventName ? eventName : "", itemCount, x, y, code, state ? 1 : 0,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-input", message);
+}
+
+void TVPSDLQueueFlutterTouchBegin(int id, float x, float y) {
+    TVPSDLInitializeRuntime();
+    ClampFlutterTouchToPresentedSurface(x, y);
+    QueueAndroidInputEvent("touch-begin", 1, x, y, id, true, true);
+}
+
+void TVPSDLQueueFlutterTouchEnd(int id, float x, float y) {
+    TVPSDLInitializeRuntime();
+    ClampFlutterTouchToPresentedSurface(x, y);
+    QueueAndroidInputEvent("touch-end", 1, x, y, id, false, true);
+}
+
+void TVPSDLQueueFlutterTouchMove(int count, const int *ids, const float *xs,
+                                 const float *ys) {
+    TVPSDLInitializeRuntime();
+    if(count <= 0 || !ids || !xs || !ys) {
+        QueueAndroidInputEvent("touch-move-empty", 0, 0.0f, 0.0f, -1,
+                               false, false);
+        return;
+    }
+    float x = xs[0];
+    float y = ys[0];
+    ClampFlutterTouchToPresentedSurface(x, y);
+    QueueAndroidInputEvent("touch-move", count, x, y, ids[0], true, true);
+}
+
+void TVPSDLQueueFlutterTouchCancel(int count, const int *ids, const float *xs,
+                                   const float *ys) {
+    TVPSDLInitializeRuntime();
+    if(count <= 0 || !ids || !xs || !ys) {
+        QueueAndroidInputEvent("touch-cancel-empty", 0, 0.0f, 0.0f, -1,
+                               false, true);
+        return;
+    }
+    float x = xs[0];
+    float y = ys[0];
+    ClampFlutterTouchToPresentedSurface(x, y);
+    QueueAndroidInputEvent("touch-cancel", count, x, y, ids[0], false, true);
+}
+
+bool TVPSDLDispatchCharInput(int keyCode) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    return PostSDLDirectKeyPress(TVPMainWindow, static_cast<tjs_char>(keyCode));
+}
+
+bool TVPSDLDispatchTextInput(const char *text) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+
+    const std::vector<tjs_char> chars = DecodeUtf8ToTJSChars(text);
+    if(chars.empty())
+        return false;
+
+    for(const tjs_char key : chars)
+        PostSDLDirectKeyPress(TVPMainWindow, key);
+    return true;
+}
+
+bool TVPSDLDispatchDeleteBackward() {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    const bool down = PostSDLDirectKeyDown(TVPMainWindow, VK_BACK);
+    const bool up = PostSDLDirectKeyUp(TVPMainWindow, VK_BACK);
+    return down && up;
+}
+
+bool TVPSDLDispatchAndroidKeyAction(int keyCode, bool isPress) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+
+    tjs_uint key = 0;
+    if(!MapAndroidKeyCodeToTVPKey(keyCode, key))
+        return false;
+    return isPress ? PostSDLDirectKeyDown(TVPMainWindow, key)
+                   : PostSDLDirectKeyUp(TVPMainWindow, key);
+}
+
+bool TVPSDLDispatchAndroidHoverMove(float x, float y) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    MapAndroidViewCoordToPresentedSurface(x, y);
+    PostSDLDirectMouseMove(TVPMainWindow, x, y, 0, true);
+    return true;
+}
+
+bool TVPSDLDispatchAndroidMouseScroll(float x, float y, float scroll) {
+    TVPSDLInitializeRuntime();
+    if(!CanDispatchDirectTVPInput())
+        return false;
+    MapAndroidViewCoordToPresentedSurface(x, y);
+    return PostSDLDirectMouseWheel(TVPMainWindow, x, y, scroll);
+}
+
+void TVPSDLProcessAndroidInputQueue() {
+    if(!gSDLInputQueueReady.load(std::memory_order_acquire))
+        return;
+
+    std::lock_guard<std::mutex> lock(gSDLInputQueueMutex);
+    uint64_t drainedInBatch = 0;
+    uint64_t droppedInBatch = 0;
+    uint64_t coalescedInBatch = 0;
+    uint64_t maxAgeInBatch = 0;
+    uint64_t lastSequence = 0;
+    std::string lastEventName;
+    std::deque<TVPSDLQueuedInputEvent *> pending;
+
+    SDL_Event event;
+    while(SDL_PeepEvents(&event, 1, SDL_GETEVENT, gSDLInputQueueEventType,
+                         gSDLInputQueueEventType) == 1) {
+        auto *queued =
+            static_cast<TVPSDLQueuedInputEvent *>(event.user.data1);
+        if(!queued) {
+            droppedInBatch++;
+            continue;
+        }
+        pending.push_back(queued);
+    }
+
+    while(!pending.empty()) {
+        auto *queued = pending.front();
+        pending.pop_front();
+        queued = CoalescePendingDirectTouchMoves(queued, pending,
+                                                 coalescedInBatch);
+
+        const uint64_t age = SDL_GetTicks() - queued->ticks;
+        if(age > maxAgeInBatch)
+            maxAgeInBatch = age;
+        lastEventName = queued->eventName;
+        lastSequence = queued->sequence;
+        const bool directMove = IsSDLDirectTouchMoveInput(
+            queued->eventName.c_str(), queued->dispatchToTVP);
+        const bool dropDirectTouch =
+            directMove &&
+            (!TVPSDLHasScreenPresenterPresented() ||
+             age > kSDLStaleDirectTouchAgeMs);
+        if(dropDirectTouch) {
+            CancelSDLDirectTouchForPointer(queued->code);
+            delete queued;
+            droppedInBatch++;
+            continue;
+        }
+        DispatchSDLDirectTouchEvent(*queued);
+        delete queued;
+        drainedInBatch++;
+    }
+
+    if(drainedInBatch == 0 && droppedInBatch == 0)
+        return;
+
+    const uint64_t drained =
+        gSDLInputDrained.fetch_add(drainedInBatch,
+                                   std::memory_order_relaxed) +
+        drainedInBatch;
+    const uint64_t dropped =
+        gSDLInputDropped.fetch_add(droppedInBatch,
+                                   std::memory_order_relaxed) +
+        droppedInBatch;
+    const uint64_t coalesced =
+        gSDLInputCoalesced.fetch_add(coalescedInBatch,
+                                     std::memory_order_relaxed) +
+        coalescedInBatch;
+    const uint64_t batch =
+        gSDLInputBatches.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t backlog = CalculateBacklog(
+        gSDLInputQueued.load(std::memory_order_relaxed), drained, dropped,
+        coalesced);
+    UpdateAtomicMax(gSDLInputMaxBacklog, backlog);
+    UpdateAtomicMax(gSDLInputMaxAgeMs, maxAgeInBatch);
+
+    if(ShouldLogInputQueueSequence(batch) || droppedInBatch > 0 ||
+       coalescedInBatch > 0 || maxAgeInBatch > 50) {
+        char message[384];
+        std::snprintf(
+            message, sizeof(message),
+            "batch=%llu items=%llu drained=%llu dropped=%llu "
+            "coalesced=%llu backlog=%llu maxAgeMs=%llu maxBacklog=%llu "
+            "maxSeenAgeMs=%llu lastSeq=%llu last=%s",
+            static_cast<unsigned long long>(batch),
+            static_cast<unsigned long long>(drainedInBatch),
+            static_cast<unsigned long long>(drained),
+            static_cast<unsigned long long>(dropped),
+            static_cast<unsigned long long>(coalesced),
+            static_cast<unsigned long long>(backlog),
+            static_cast<unsigned long long>(maxAgeInBatch),
+            static_cast<unsigned long long>(
+                gSDLInputMaxBacklog.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(
+                gSDLInputMaxAgeMs.load(std::memory_order_relaxed)),
+            static_cast<unsigned long long>(lastSequence),
+            lastEventName.c_str());
+        LogSDLInputQueue(message);
+    }
+}
+
+void TVPSDLRecordRenderFrame(int layerWidth, int layerHeight,
+                             int internalWidth, int internalHeight,
+                             bool textureChanged, const void *sourceTexture,
+                             const void *currentTexture,
+                             const void *newTexture) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
+    TVPSDLInitializeRuntime();
+    const uint64_t frame =
+        gSDLRenderFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+    const uint64_t changes = textureChanged
+        ? gSDLRenderTextureChanges.fetch_add(1, std::memory_order_relaxed) + 1
+        : gSDLRenderTextureChanges.load(std::memory_order_relaxed);
+
+    if(frame > 6 && !textureChanged && (frame % 256) != 0)
+        return;
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(
+        message, sizeof(message),
+        "frame=%llu changed=%d changes=%llu layer=%dx%d internal=%dx%d "
+        "src=%p current=%p next=%p events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(frame), textureChanged ? 1 : 0,
+        static_cast<unsigned long long>(changes), layerWidth, layerHeight,
+        internalWidth, internalHeight, sourceTexture, currentTexture,
+        newTexture, (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-renderprobe", message);
+}
+
+void TVPSDLRecordPresenterFrame(iTVPTexture2D *texture, const char *stage,
+                                int layerWidth, int layerHeight) {
+    if(!IsSDLRenderDiagnosticsActive())
+        return;
+
+    TVPSDLInitializeRuntime();
+    const uint64_t frame =
+        gSDLPresenterFrameSequence.fetch_add(1, std::memory_order_relaxed) + 1;
+
+    if(!texture) {
+        if(ShouldLogPresenterFrame(frame)) {
+            char message[192];
+            std::snprintf(message, sizeof(message),
+                          "frame=%llu stage=%s texture=null layer=%dx%d",
+                          static_cast<unsigned long long>(frame),
+                          stage ? stage : "", layerWidth, layerHeight);
+            TVPNativeLogInfo("sdl-presenter", message);
+        }
+        return;
+    }
+
+    bool metadataOk = true;
+    int width = 0;
+    int height = 0;
+    int internalWidth = 0;
+    int internalHeight = 0;
+    int pitch = 0;
+    unsigned int glTexture = 0;
+    TVPTextureFormat::e format = TVPTextureFormat::None;
+
+    try {
+        width = static_cast<int>(texture->GetWidth());
+        height = static_cast<int>(texture->GetHeight());
+        internalWidth = static_cast<int>(texture->GetInternalWidth());
+        internalHeight = static_cast<int>(texture->GetInternalHeight());
+        format = texture->GetFormat();
+        pitch = static_cast<int>(texture->GetPitch());
+        glTexture = texture->GetNativeGLTextureId();
+    } catch(...) {
+        metadataOk = false;
+    }
+
+    bool textureChanged = false;
+    {
+        std::lock_guard<std::mutex> lock(gSDLPresenterProbeMutex);
+        textureChanged =
+            gSDLPresenterProbeState.texture != texture ||
+            gSDLPresenterProbeState.width != width ||
+            gSDLPresenterProbeState.height != height ||
+            gSDLPresenterProbeState.internalWidth != internalWidth ||
+            gSDLPresenterProbeState.internalHeight != internalHeight ||
+            gSDLPresenterProbeState.format != static_cast<int>(format) ||
+            gSDLPresenterProbeState.pitch != pitch ||
+            gSDLPresenterProbeState.glTexture != glTexture;
+        if(textureChanged) {
+            gSDLPresenterProbeState.texture = texture;
+            gSDLPresenterProbeState.width = width;
+            gSDLPresenterProbeState.height = height;
+            gSDLPresenterProbeState.internalWidth = internalWidth;
+            gSDLPresenterProbeState.internalHeight = internalHeight;
+            gSDLPresenterProbeState.format = static_cast<int>(format);
+            gSDLPresenterProbeState.pitch = pitch;
+            gSDLPresenterProbeState.glTexture = glTexture;
+        }
+    }
+
+    const uint64_t changes = textureChanged
+        ? gSDLPresenterTextureChanges.fetch_add(1,
+                                                std::memory_order_relaxed) +
+              1
+        : gSDLPresenterTextureChanges.load(std::memory_order_relaxed);
+
+    if(!ShouldLogPresenterFrame(frame) && !textureChanged && metadataOk)
+        return;
+
+    const bool glBacked = glTexture != 0;
+    bool cpuProbeAttempted = false;
+    bool cpuAccessible = false;
+    bool cpuProbeFailed = false;
+    const void *line0 = nullptr;
+
+    if(metadataOk && !glBacked && height > 0 &&
+       IsDirectCpuProbeFormat(format)) {
+        cpuProbeAttempted = true;
+        gSDLPresenterCpuProbeAttempts.fetch_add(1, std::memory_order_relaxed);
+        try {
+            line0 = texture->GetScanLineForRead(0);
+            cpuAccessible = line0 != nullptr;
+            if(cpuAccessible) {
+                gSDLPresenterCpuAccessible.fetch_add(
+                    1, std::memory_order_relaxed);
+            }
+        } catch(...) {
+            cpuProbeFailed = true;
+        }
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[640];
+    std::snprintf(
+        message, sizeof(message),
+        "frame=%llu stage=%s changed=%d changes=%llu tex=%p layer=%dx%d "
+        "size=%dx%d internal=%dx%d format=%s(%d) pitch=%d gl=%u "
+        "cpuAttempt=%d cpuOk=%d cpuFail=%d cpuAttempts=%llu cpuOkTotal=%llu "
+        "line0=%p metadataOk=%d events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(frame), stage ? stage : "",
+        textureChanged ? 1 : 0, static_cast<unsigned long long>(changes),
+        static_cast<void *>(texture), layerWidth, layerHeight, width, height,
+        internalWidth, internalHeight, TextureFormatName(format),
+        static_cast<int>(format), pitch, glTexture, cpuProbeAttempted ? 1 : 0,
+        cpuAccessible ? 1 : 0, cpuProbeFailed ? 1 : 0,
+        static_cast<unsigned long long>(
+            gSDLPresenterCpuProbeAttempts.load(std::memory_order_relaxed)),
+        static_cast<unsigned long long>(
+            gSDLPresenterCpuAccessible.load(std::memory_order_relaxed)),
+        line0, metadataOk ? 1 : 0,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-presenter", message);
+}
+
+void TVPSDLRecordBitmapCompletionStart(iTVPLayerManager *manager,
+                                       int sourceWidth, int sourceHeight,
+                                       int destWidth, int destHeight) {
+    const bool diagnostics = IsSDLRenderDiagnosticsActive();
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    if(!diagnostics && !surfaceMirrorWanted)
+        return;
+
+    TVPSDLInitializeRuntime();
+    const uint64_t batch =
+        gSDLBitmapCompletionBatchSequence.fetch_add(
+            1, std::memory_order_relaxed) +
+        1;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        gSDLBitmapCompletionState.active = true;
+        gSDLBitmapCompletionState.batch = batch;
+        gSDLBitmapCompletionState.regions = 0;
+        gSDLBitmapCompletionState.copyReady = 0;
+        gSDLBitmapCompletionState.surfaceCopied = 0;
+        gSDLBitmapCompletionState.surfaceSkipped = 0;
+        gSDLBitmapCompletionState.glBacked = 0;
+        gSDLBitmapCompletionState.outOfBounds = 0;
+        gSDLBitmapCompletionState.manager = manager;
+        gSDLBitmapCompletionState.sourceWidth = sourceWidth;
+        gSDLBitmapCompletionState.sourceHeight = sourceHeight;
+        gSDLBitmapCompletionState.destWidth = destWidth;
+        gSDLBitmapCompletionState.destHeight = destHeight;
+        gSDLBitmapCompletionState.hasUnion = false;
+        gSDLBitmapCompletionState.unionRect.clear();
+    }
+
+    if(diagnostics && ShouldLogBitmapCompletionBatch(batch)) {
+        const Uint32 initialized = SDL_WasInit(0);
+        char message[256];
+        std::snprintf(
+            message, sizeof(message),
+            "start batch=%llu manager=%p src=%dx%d dest=%dx%d events=%d "
+            "video=%d audio=%d ticks=%u",
+            static_cast<unsigned long long>(batch),
+            static_cast<void *>(manager), sourceWidth, sourceHeight, destWidth,
+            destHeight,
+            (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+            (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+            (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+            static_cast<unsigned>(SDL_GetTicks()));
+        TVPNativeLogInfo("sdl-bitmap", message);
+    }
+}
+
+void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
+                                        int y, tTVPBaseTexture *bitmap,
+                                        const tTVPRect &clipRect, int type,
+                                        int opacity, int sourceWidth,
+                                        int sourceHeight) {
+    const bool diagnostics = IsSDLRenderDiagnosticsActive();
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    if(!diagnostics && !surfaceMirrorWanted)
+        return;
+
+    TVPSDLInitializeRuntime();
+    const uint64_t globalRegion =
+        gSDLBitmapCompletionRegionSequence.fetch_add(
+            1, std::memory_order_relaxed) +
+        1;
+
+    int bitmapWidth = 0;
+    int bitmapHeight = 0;
+    int textureWidth = 0;
+    int textureHeight = 0;
+    int internalWidth = 0;
+    int internalHeight = 0;
+    int pitch = 0;
+    unsigned int glTexture = 0;
+    TVPTextureFormat::e format = TVPTextureFormat::None;
+    iTVPTexture2D *texture = nullptr;
+    bool metadataOk = true;
+
+    if(bitmap) {
+        try {
+            bitmapWidth = static_cast<int>(bitmap->GetWidth());
+            bitmapHeight = static_cast<int>(bitmap->GetHeight());
+            texture = bitmap->GetTexture();
+            if(texture) {
+                textureWidth = static_cast<int>(texture->GetWidth());
+                textureHeight = static_cast<int>(texture->GetHeight());
+                internalWidth =
+                    static_cast<int>(texture->GetInternalWidth());
+                internalHeight =
+                    static_cast<int>(texture->GetInternalHeight());
+                format = texture->GetFormat();
+                pitch = static_cast<int>(texture->GetPitch());
+                glTexture = texture->GetNativeGLTextureId();
+            }
+        } catch(...) {
+            metadataOk = false;
+        }
+    }
+
+    const bool inBounds =
+        metadataOk && bitmap != nullptr &&
+        IsBitmapCompletionInBounds(x, y, clipRect, sourceWidth, sourceHeight,
+                                   bitmapWidth, bitmapHeight);
+    const bool glBacked = glTexture != 0;
+    const bool copyReady =
+        inBounds && texture && !glBacked && IsDirectCpuProbeFormat(format);
+
+    uint64_t batch = 0;
+    uint64_t batchRegion = 0;
+    uint64_t batchCopyReady = 0;
+    uint64_t batchSurfaceCopied = 0;
+    uint64_t batchSurfaceSkipped = 0;
+    uint64_t batchGlBacked = 0;
+    uint64_t batchOutOfBounds = 0;
+    bool shouldLog = false;
+    tTVPRect unionRect;
+    bool hasUnion = false;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        if(!gSDLBitmapCompletionState.active ||
+           gSDLBitmapCompletionState.manager != manager) {
+            gSDLBitmapCompletionState.active = true;
+            gSDLBitmapCompletionState.batch = 0;
+            gSDLBitmapCompletionState.regions = 0;
+            gSDLBitmapCompletionState.copyReady = 0;
+            gSDLBitmapCompletionState.surfaceCopied = 0;
+            gSDLBitmapCompletionState.surfaceSkipped = 0;
+            gSDLBitmapCompletionState.glBacked = 0;
+            gSDLBitmapCompletionState.outOfBounds = 0;
+            gSDLBitmapCompletionState.manager = manager;
+            gSDLBitmapCompletionState.sourceWidth = sourceWidth;
+            gSDLBitmapCompletionState.sourceHeight = sourceHeight;
+            gSDLBitmapCompletionState.destWidth = 0;
+            gSDLBitmapCompletionState.destHeight = 0;
+            gSDLBitmapCompletionState.hasUnion = false;
+            gSDLBitmapCompletionState.unionRect.clear();
+        }
+
+        gSDLBitmapCompletionState.regions++;
+        if(copyReady)
+            gSDLBitmapCompletionState.copyReady++;
+        if(glBacked)
+            gSDLBitmapCompletionState.glBacked++;
+        if(!inBounds)
+            gSDLBitmapCompletionState.outOfBounds++;
+
+        tTVPRect dstRect(x, y, x + clipRect.get_width(),
+                         y + clipRect.get_height());
+        if(!dstRect.is_empty()) {
+            if(gSDLBitmapCompletionState.hasUnion) {
+                gSDLBitmapCompletionState.unionRect.do_union(dstRect);
+            } else {
+                gSDLBitmapCompletionState.unionRect = dstRect;
+                gSDLBitmapCompletionState.hasUnion = true;
+            }
+        }
+
+        batch = gSDLBitmapCompletionState.batch;
+        batchRegion = gSDLBitmapCompletionState.regions;
+        batchCopyReady = gSDLBitmapCompletionState.copyReady;
+        batchSurfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
+        batchSurfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
+        batchGlBacked = gSDLBitmapCompletionState.glBacked;
+        batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
+        unionRect = gSDLBitmapCompletionState.unionRect;
+        hasUnion = gSDLBitmapCompletionState.hasUnion;
+    }
+
+    uint64_t surfaceCopiedTotal = 0;
+    uint64_t surfaceCopiedBytesTotal = 0;
+    uint64_t surfaceSkippedTotal = 0;
+    const bool surfaceCopied = surfaceMirrorWanted && copyReady &&
+        CopyRegionToSDLSurfaceMirror(texture, clipRect, x, y, sourceWidth,
+                                     sourceHeight, format, globalRegion,
+                                     batchRegion, surfaceCopiedTotal,
+                                     surfaceCopiedBytesTotal,
+                                     surfaceSkippedTotal);
+    const bool surfaceSkipped =
+        surfaceMirrorWanted && copyReady && !surfaceCopied;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        if(gSDLBitmapCompletionState.manager == manager) {
+            if(surfaceCopied)
+                gSDLBitmapCompletionState.surfaceCopied++;
+            if(surfaceSkipped)
+                gSDLBitmapCompletionState.surfaceSkipped++;
+
+            batchSurfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
+            batchSurfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
+            batchCopyReady = gSDLBitmapCompletionState.copyReady;
+            batchGlBacked = gSDLBitmapCompletionState.glBacked;
+            batchOutOfBounds = gSDLBitmapCompletionState.outOfBounds;
+            unionRect = gSDLBitmapCompletionState.unionRect;
+            hasUnion = gSDLBitmapCompletionState.hasUnion;
+        }
+        shouldLog = diagnostics &&
+            (ShouldLogBitmapCompletionRegion(globalRegion, batchRegion) ||
+             !inBounds || surfaceSkipped);
+    }
+
+    if(!shouldLog)
+        return;
+
+    char message[768];
+    std::snprintf(
+        message, sizeof(message),
+        "region global=%llu batch=%llu batchRegion=%llu manager=%p dst=%d,%d "
+        "clip=%d,%d,%dx%d src=%dx%d bmp=%p bmpSize=%dx%d tex=%p "
+        "texSize=%dx%d internal=%dx%d format=%s(%d) pitch=%d gl=%u "
+        "type=%d opacity=%d inBounds=%d copyReady=%d surfaceCopied=%d "
+        "copyReadyBatch=%llu surfaceBatch=%llu "
+        "surfaceSkipBatch=%llu "
+        "surfaceTotal=%llu surfaceBytes=%llu glBatch=%llu outBatch=%llu "
+        "union=%d,%d,%dx%d metadataOk=%d",
+        static_cast<unsigned long long>(globalRegion),
+        static_cast<unsigned long long>(batch),
+        static_cast<unsigned long long>(batchRegion),
+        static_cast<void *>(manager), x, y, clipRect.left, clipRect.top,
+        clipRect.get_width(), clipRect.get_height(), sourceWidth,
+        sourceHeight, static_cast<void *>(bitmap), bitmapWidth, bitmapHeight,
+        static_cast<void *>(texture), textureWidth, textureHeight,
+        internalWidth, internalHeight, TextureFormatName(format),
+        static_cast<int>(format), pitch, glTexture, type, opacity,
+        inBounds ? 1 : 0,
+        copyReady ? 1 : 0,
+        surfaceCopied ? 1 : 0,
+        static_cast<unsigned long long>(batchCopyReady),
+        static_cast<unsigned long long>(batchSurfaceCopied),
+        static_cast<unsigned long long>(batchSurfaceSkipped),
+        static_cast<unsigned long long>(surfaceCopiedTotal),
+        static_cast<unsigned long long>(surfaceCopiedBytesTotal),
+        static_cast<unsigned long long>(batchGlBacked),
+        static_cast<unsigned long long>(batchOutOfBounds),
+        hasUnion ? unionRect.left : 0, hasUnion ? unionRect.top : 0,
+        hasUnion ? unionRect.get_width() : 0,
+        hasUnion ? unionRect.get_height() : 0, metadataOk ? 1 : 0);
+    TVPNativeLogInfo("sdl-bitmap", message);
+}
+
+void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
+                                     int sourceWidth, int sourceHeight) {
+    const bool diagnostics = IsSDLRenderDiagnosticsActive();
+    const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
+    if(!diagnostics && !surfaceMirrorWanted)
+        return;
+
+    TVPSDLInitializeRuntime();
+
+    uint64_t batch = 0;
+    uint64_t regions = 0;
+    uint64_t copyReady = 0;
+    uint64_t surfaceCopied = 0;
+    uint64_t surfaceSkipped = 0;
+    uint64_t glBacked = 0;
+    uint64_t outOfBounds = 0;
+    int startSourceWidth = 0;
+    int startSourceHeight = 0;
+    int destWidth = 0;
+    int destHeight = 0;
+    tTVPRect unionRect;
+    bool hasUnion = false;
+
+    {
+        std::lock_guard<std::mutex> lock(gSDLBitmapCompletionMutex);
+        batch = gSDLBitmapCompletionState.batch;
+        regions = gSDLBitmapCompletionState.regions;
+        copyReady = gSDLBitmapCompletionState.copyReady;
+        surfaceCopied = gSDLBitmapCompletionState.surfaceCopied;
+        surfaceSkipped = gSDLBitmapCompletionState.surfaceSkipped;
+        glBacked = gSDLBitmapCompletionState.glBacked;
+        outOfBounds = gSDLBitmapCompletionState.outOfBounds;
+        startSourceWidth = gSDLBitmapCompletionState.sourceWidth;
+        startSourceHeight = gSDLBitmapCompletionState.sourceHeight;
+        destWidth = gSDLBitmapCompletionState.destWidth;
+        destHeight = gSDLBitmapCompletionState.destHeight;
+        unionRect = gSDLBitmapCompletionState.unionRect;
+        hasUnion = gSDLBitmapCompletionState.hasUnion;
+        gSDLBitmapCompletionState.active = false;
+    }
+
+    if(TVPSDLIsScreenTakeoverEnabled()) {
+        TVPSDLPumpScreenPresenter("bitmap-end");
+    }
+
+    if(!diagnostics)
+        return;
+
+    if(!ShouldLogBitmapCompletionBatch(batch) && outOfBounds == 0 &&
+       surfaceSkipped == 0)
+        return;
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[384];
+    std::snprintf(
+        message, sizeof(message),
+        "end batch=%llu manager=%p regions=%llu copyReady=%llu "
+        "surfaceCopied=%llu surfaceSkipped=%llu "
+        "glBacked=%llu "
+        "outOfBounds=%llu src=%dx%d endSrc=%dx%d dest=%dx%d "
+        "union=%d,%d,%dx%d events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(batch), static_cast<void *>(manager),
+        static_cast<unsigned long long>(regions),
+        static_cast<unsigned long long>(copyReady),
+        static_cast<unsigned long long>(surfaceCopied),
+        static_cast<unsigned long long>(surfaceSkipped),
+        static_cast<unsigned long long>(glBacked),
+        static_cast<unsigned long long>(outOfBounds),
+        startSourceWidth, startSourceHeight, sourceWidth, sourceHeight,
+        destWidth, destHeight, hasUnion ? unionRect.left : 0,
+        hasUnion ? unionRect.top : 0,
+        hasUnion ? unionRect.get_width() : 0,
+        hasUnion ? unionRect.get_height() : 0,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-bitmap", message);
+}
+
+void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
+                                    int frameHeight, int sceneWidth,
+                                    int sceneHeight, float scale) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+        gSDLLoadingConsoleState.active = true;
+        gSDLLoadingConsoleState.session++;
+        gSDLLoadingConsoleState.totalLines = 0;
+        gSDLLoadingConsoleState.retainUntilTicks = 0;
+        gSDLLoadingConsoleState.lines.clear();
+        session = gSDLLoadingConsoleState.session;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[512];
+    std::snprintf(
+        message, sizeof(message),
+        "show session=%llu frame=%dx%d scene=%dx%d scale=%.3f path=%s "
+        "events=%d video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(session), frameWidth, frameHeight,
+        sceneWidth, sceneHeight, scale, path ? path : "",
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-loading", message);
+}
+
+void TVPSDLRecordLoadingConsoleLine(const char *message, bool important) {
+    TVPSDLInitializeRuntime();
+    if(!message)
+        message = "";
+
+    uint64_t session = 0;
+    uint64_t totalLines = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+        if(!gSDLLoadingConsoleState.active) {
+            gSDLLoadingConsoleState.active = true;
+            gSDLLoadingConsoleState.session++;
+        }
+        session = gSDLLoadingConsoleState.session;
+        totalLines = ++gSDLLoadingConsoleState.totalLines;
+        if(gSDLLoadingConsoleState.lines.size() >= 64)
+            gSDLLoadingConsoleState.lines.pop_front();
+        gSDLLoadingConsoleState.lines.push_back(
+            TVPSDLLoadingConsoleLine{ message, important });
+    }
+
+    if(totalLines <= 12 || important || (totalLines % 128) == 0) {
+        char logLine[640];
+        std::snprintf(logLine, sizeof(logLine),
+                      "line session=%llu line=%llu color=%s text=%s",
+                      static_cast<unsigned long long>(session),
+                      static_cast<unsigned long long>(totalLines),
+                      important ? "yellow" : "gray", message);
+        TVPNativeLogInfo("sdl-loading", logLine);
+    }
+}
+
+void TVPSDLRecordLoadingConsoleHide(const char *reason) {
+    TVPSDLInitializeRuntime();
+    uint64_t session = 0;
+    uint64_t totalLines = 0;
+    size_t retained = 0;
+    {
+        std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+        session = gSDLLoadingConsoleState.session;
+        totalLines = gSDLLoadingConsoleState.totalLines;
+        retained = gSDLLoadingConsoleState.lines.size();
+        gSDLLoadingConsoleState.active = false;
+        gSDLLoadingConsoleState.retainUntilTicks =
+            static_cast<Uint64>(SDL_GetTicks()) + 2500;
+    }
+
+    const Uint32 initialized = SDL_WasInit(0);
+    char message[256];
+    std::snprintf(
+        message, sizeof(message),
+        "hide session=%llu reason=%s lines=%llu retained=%zu events=%d "
+        "video=%d audio=%d ticks=%u",
+        static_cast<unsigned long long>(session), reason ? reason : "",
+        static_cast<unsigned long long>(totalLines), retained,
+        (initialized & SDL_INIT_EVENTS) ? 1 : 0,
+        (initialized & SDL_INIT_VIDEO) ? 1 : 0,
+        (initialized & SDL_INIT_AUDIO) ? 1 : 0,
+        static_cast<unsigned>(SDL_GetTicks()));
+    TVPNativeLogInfo("sdl-loading", message);
+}
+
+TVPSDLLoadingConsoleSnapshot TVPSDLGetLoadingConsoleSnapshot() {
+    TVPSDLLoadingConsoleSnapshot snapshot;
+    std::lock_guard<std::mutex> lock(gSDLLoadingConsoleMutex);
+    snapshot.active = gSDLLoadingConsoleState.active ||
+        static_cast<Uint64>(SDL_GetTicks()) <=
+            gSDLLoadingConsoleState.retainUntilTicks;
+    snapshot.session = gSDLLoadingConsoleState.session;
+    snapshot.totalLines = gSDLLoadingConsoleState.totalLines;
+    snapshot.lines.reserve(gSDLLoadingConsoleState.lines.size());
+    for(const TVPSDLLoadingConsoleLine &line : gSDLLoadingConsoleState.lines) {
+        snapshot.lines.push_back(
+            TVPSDLLoadingConsoleLineSnapshot{ line.message, line.important });
+    }
+    return snapshot;
+}
+
 void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
     const bool showFps =
         GlobalConfigManager::GetInstance()->GetValue<bool>("showfps", false);
