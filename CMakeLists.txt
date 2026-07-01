@@ -66,7 +66,19 @@ if(ANDROID)
         ${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/cpp/LauncherNativeScanner.cpp
     )
     find_package(unofficial-breakpad CONFIG REQUIRED)
-    target_link_libraries(${PROJECT_NAME} PUBLIC unofficial::breakpad::libbreakpad_client)
+    find_package(SDL3 CONFIG REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        unofficial::breakpad::libbreakpad_client
+        SDL3::SDL3
+        log
+        android
+        EGL
+        GLESv2
+        GLESv3
+        GLESv1_CM
+        vulkan
+        OpenSLES
+    )
 elseif(LINUX)
     add_executable(${PROJECT_NAME} ${CMAKE_CURRENT_SOURCE_DIR}/platforms/linux/main.cpp)
 elseif(WINDOWS)

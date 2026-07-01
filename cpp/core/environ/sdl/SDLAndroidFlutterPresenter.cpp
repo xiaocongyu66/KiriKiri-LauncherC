@@ -22,7 +22,6 @@ extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow();
 extern "C" void TVPAndroidReleaseFlutterGameSurfaceWindow(
     ANativeWindow *window);
 extern "C" void TVPAndroidGetFlutterGameSurfaceSize(int *width, int *height);
-extern void TVPSetRenderTarget(GLuint target);
 #endif
 
 namespace {
@@ -891,7 +890,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         }
 
         if(nativeTexture != 0) {
-            TVPSetRenderTarget(0);
+            TVPGetRenderManager()->PrepareTextureForExternalPresenter(texture);
             const tjs_uint internalWidth = texture->GetInternalWidth();
             const tjs_uint internalHeight = texture->GetInternalHeight();
             if(internalWidth > 0 && internalHeight > 0) {

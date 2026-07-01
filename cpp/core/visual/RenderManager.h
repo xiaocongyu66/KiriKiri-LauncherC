@@ -281,6 +281,10 @@ public:
     virtual void SetRenderTarget(iTVPTexture2D *target) {
     } // for manual rendering
 
+    virtual void PrepareTextureForExternalPresenter(iTVPTexture2D *texture) {
+        (void)texture;
+    }
+
     // interface to access custom parameter
     virtual int EnumParameterID(const char *name) { return -1; }
     virtual void SetParameterUInt(int id, unsigned int Value) {};

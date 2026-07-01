@@ -411,3 +411,84 @@ Next technical target:
   `RenderManager_ogl.cpp::InternalUpdate` style logic.
 - Keep Flutter/Android presenter main path RGBA8888; handle BGRA at texture
   loading/upload compatibility boundaries.
+
+## 2026-07-02 Follow-up Migration Slice
+
+After pushing `0ed019f Restore SDL presenter helpers after EGL split`, the
+next user request was to continue the Flutter + SDL3 migration by:
+
+- explicitly linking `SDL3::SDL3` and Android graphics/system libraries on the
+  top-level Android `krkr2` target.
+- moving the presenter-side `TVPSetRenderTarget(GLuint)` dependency behind a
+  render-manager interface so `SDLAndroidFlutterPresenter.cpp` no longer has a
+  bare GL extern.
+
+Sub-agent findings used for this slice:
+
+- The final Android shared library target is created in root `CMakeLists.txt`
+  as `krkr2`.
+- The build currently gets Android system libraries mostly by transitive links:
+  `krkr2 -> krkr2plugin -> krkr2core -> Android libs`.
+- That works today but is fragile as the plugin/core split changes.
+- The low-risk hardening is to keep existing transitive links and additionally
+  link the top-level Android target directly to:
+  - `SDL3::SDL3`
+  - `log`
+  - `android`
+  - `EGL`
+  - `GLESv2`
+  - `GLESv3`
+  - `GLESv1_CM`
+  - `vulkan`
+  - `OpenSLES`
+- `TVPSetRenderTarget(GLuint)` is an OpenGL render-manager internal FBO/cache
+  operation. It should not be a presenter-level link contract.
+- The public cross-module interface should stay GL-free and use
+  `iTVPTexture2D *`.
+
+Local changes applied:
+
+- `CMakeLists.txt`
+  - In the Android branch after `add_library(${PROJECT_NAME} SHARED ...)`,
+    added `find_package(SDL3 CONFIG REQUIRED)`.
+  - Linked the top-level `krkr2` target directly against SDL3 and Android
+    graphics/system libraries listed above.
+- `cpp/core/visual/RenderManager.h`
+  - Added virtual no-op:
+    `PrepareTextureForExternalPresenter(iTVPTexture2D *texture)`.
+  - The default implementation is GL-free and only consumes the parameter.
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
+  - Made file-local `TVPSetRenderTarget(GLuint)` `static`.
+  - Added `TVPRenderManager_OpenGL::PrepareTextureForExternalPresenter(...)`
+    override that calls `TVPSetRenderTarget(0)`.
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - Removed `extern void TVPSetRenderTarget(GLuint target);`.
+  - Replaced direct call with:
+    `TVPGetRenderManager()->PrepareTextureForExternalPresenter(texture);`
+  - Presenter no longer exposes or links against that GL helper symbol.
+
+Checks after this slice:
+
+```sh
+git -C /root/kiriki-work/KiriKiri-LauncherC diff --check
+python3 -m json.tool /root/kiriki-work/KiriKiri-LauncherC/vcpkg.json >/dev/null
+grep -RIn "extern void TVPSetRenderTarget\\|TVPSetRenderTarget" \
+  /root/kiriki-work/KiriKiri-LauncherC/cpp \
+  /root/kiriki-work/KiriKiri-LauncherC/platforms --exclude-dir=.git
+```
+
+Results:
+
+- `diff --check` passed.
+- `vcpkg.json` parse passed.
+- No `extern void TVPSetRenderTarget` remains.
+- `TVPSetRenderTarget` only remains as a `static` helper and same-file calls in
+  `RenderManager_ogl.cpp`.
+
+CI state while applying this slice:
+
+- `0ed019f` Android build run:
+  - run id: `28546701023`
+  - status at last poll: `in_progress`
+  - URL:
+    `https://github.com/xiaocongyu66/KiriKiri-LauncherC/actions/runs/28546701023`

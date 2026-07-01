@@ -541,7 +541,7 @@ static bool TVPCheckFramebufferComplete(const char *stage, GLuint target) {
     return false;
 }
 
-void TVPSetRenderTarget(GLuint t) {
+static void TVPSetRenderTarget(GLuint t) {
     if(t) {
         if(!_FBO) {
             TVPConsoleLog("OpenGL FBO is not available; render target attach skipped");
@@ -5039,6 +5039,11 @@ public:
 
     void SetRenderTarget(iTVPTexture2D *target) override {
         static_cast<tTVPOGLTexture2D *>(target)->AsTarget();
+    }
+
+    void PrepareTextureForExternalPresenter(iTVPTexture2D *texture) override {
+        (void)texture;
+        TVPSetRenderTarget(0);
     }
 };
 
