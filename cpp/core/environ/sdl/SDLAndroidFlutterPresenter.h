@@ -26,6 +26,7 @@ bool TVPSDLAndroidFlutterPresenterTryPresentTexturePlan(
 void TVPSDLAndroidFlutterPresenterAppendEGLOverlayInfo(
     std::ostream &rendererInfo);
 bool TVPSDLAndroidFlutterPresenterIsEGLHighPerformanceActive();
+bool TVPSDLAndroidFlutterPresenterIsEGLCpuCopyFreeActive();
 void TVPSDLAndroidFlutterPresenterNotifySurfaceChanged(const char *reason);
 bool TVPSDLAndroidFlutterPresenterTryPresentTexture(iTVPTexture2D *texture,
                                                     TVPTextureFormat::e format,

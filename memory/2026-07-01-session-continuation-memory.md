@@ -202,6 +202,145 @@ python3 -m json.tool /root/kiriki-work/KiriKiri-LauncherC/vcpkg.json >/dev/null
 
 Both passed.
 
+## 2026-07-02 Latest 78 Game Render Regression: no-native-gl Fallback
+
+User-provided logs:
+
+- `/root/log/20260702073424068.log`
+- `/root/log/20260702073513622.log`
+- `/root/log/20260702073559297.log`
+- `/root/log/20260702073709998.log`
+- `/root/log/78.log`
+
+User report:
+
+- This game's OpenGL render pipeline feels worse than software rendering.
+- Continue Flutter + SDL3 migration, remove Cocos gradually.
+- Keep implementation complete, high performance, high compatibility.
+- Avoid heavy validation in render hot paths.
+
+Important log finding:
+
+- The early runs use the Android EGL presenter fast path:
+  `present-android-egl ... nativeGL=5 softwareUpload=0`.
+- The later/problematic run falls out of EGL because the final present texture
+  has no native GL id:
+  `android-egl-presenter unavailable ... reason=no-native-gl surface=1920x1080`.
+- Immediately after that, the presenter falls back to the direct Flutter CPU
+  path:
+  `present-flutter-direct ... glBacked=0`
+  and
+  `present-texture-direct ... fullFrame=1`.
+- For 1920x1080 RGBA this direct path writes about 8.3 MiB per full frame via
+  `ANativeWindow_lock`/memcpy. At high frame rates this is hundreds of MiB/s of
+  CPU memory traffic and can easily feel worse than the software renderer.
+
+Root cause:
+
+- `iTVPTexture2D::GetNativeGLTextureId()` returns `0` for software textures.
+- OpenGL textures override it and normally return a GL texture id.
+- `SDLAndroidFlutterPresenter.cpp::TryPresentAndroidEGLSurfaceTexture()` had:
+
+```cpp
+const GLuint nativeTexture = texture->GetNativeGLTextureId();
+const bool softwareUpload =
+    nativeTexture == 0 && IsAndroidEGLSoftwareUploadEnabled();
+if(nativeTexture == 0 && !softwareUpload) {
+    ... reason=no-native-gl ...
+    return false;
+}
+```
+
+- `KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE` existed but was default-off.
+- Therefore a non-GL-backed final texture forced EGL presenter failure and fell
+  into the slower direct Flutter CPU presenter.
+
+Reference-project agreement:
+
+- AetherKiri and krkrsdl3 both keep a persistent GL texture for upload-backed
+  presentation.
+- They use `glTexSubImage2D` when the texture size is unchanged and only use
+  `glTexImage2D` when the size changes.
+- Their upload paths prefer pitch-aware GL upload via `GL_UNPACK_ROW_LENGTH`
+  where supported, with compact-row fallback where needed.
+- Presenter should remain a final-output stage, not mix in KiriKiri layer logic.
+
+Patch applied in this session:
+
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - Added `uploadSourceTexture` to the EGL presenter state so the presenter can
+    know whether the persistent software-upload texture already represents the
+    same source texture.
+  - Changed EGL software upload fallback to default-on for Android.
+    - New explicit opt-out: `KRKR2_DISABLE_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE`.
+    - Existing `KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE=0/1` is still honored
+      if set, for compatibility/diagnostics.
+  - Replaced full-frame-only CPU scratch copy with
+    `CopyTextureRegionToAndroidEGLScratch(...)`.
+    - First frame, source texture change, or size change copies the full frame.
+    - Subsequent frames copy only the dirty rect.
+  - Changed `EnsureAndroidEGLUploadTextureLocked(...)` to upload a rect:
+    - same dimensions: `glTexSubImage2D(... rect.x, rect.y, rect.w, rect.h ...)`;
+    - size change: `glTexImage2D(...)` with a full-frame scratch copy.
+  - Log now includes both the logical dirty rect and actual upload rect:
+    `rect=... upload=... nativeGL=... softwareUpload=...`.
+  - Added `nativePresents` counter so overlay/diagnostics can distinguish
+    native GL zero-copy-ish presents from EGL software-upload presents.
+  - Added `TVPSDLAndroidFlutterPresenterIsEGLCpuCopyFreeActive()`.
+  - `TVPSDLAndroidFlutterPresenterIsEGLCpuCopyFreeActive()` reports whether
+    the last successful EGL present used a native GL texture, not whether every
+    EGL present since process start was native. This keeps diagnostics useful if
+    a game temporarily falls back to software upload and later returns to native
+    GL.
+
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.h`
+  - Declared `TVPSDLAndroidFlutterPresenterIsEGLCpuCopyFreeActive()`.
+
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Overlay still marks EGL presenter as high-performance when EGL is active.
+  - Overlay now marks `cpuCopyFreePresenter` only when all EGL presents so far
+    were native GL presents.
+  - `present-texture-egl/direct` log now includes:
+    `nativeGL=<0/1> cpuCopyFree=<0/1>`.
+
+Expected behavior after this patch:
+
+- If the final texture is native OpenGL-backed, behavior remains the fast path:
+  EGL samples the native texture after
+  `PrepareTextureForExternalPresenter(texture)`.
+- If the final texture is software-backed, EGL no longer immediately returns
+  `reason=no-native-gl` by default. It uploads the software pixels into a
+  persistent GL texture and presents through the Android EGL surface.
+- This is not true zero-copy, but it avoids the worst fallback:
+  `ANativeWindow_lock` full-frame CPU writes to the Flutter surface.
+- Logs should show:
+  `present-android-egl ... nativeGL=0 softwareUpload=1 upload=...`
+  instead of:
+  `android-egl-presenter unavailable ... reason=no-native-gl`
+  followed by `present-flutter-direct ... glBacked=0`.
+
+Renderer preference note:
+
+- Android defaults in `PreferenceDefaults.cpp` set `renderer=opengl`, but only
+  when the preference key is missing.
+- Old per-game/global preference files may still contain `renderer=software`.
+- If `renderer=software` is active, final textures can legitimately be
+  `glBacked=0`; do not expect native GL zero-copy in that mode.
+- Future diagnostics should make the actual render manager/pref source easier
+  to see in logs.
+
+Useful follow-up:
+
+- Add a render-manager API such as
+  `PrepareNativeGLTextureForExternalPresenter(texture, rect)` so presenter does
+  not directly depend on `GetNativeGLTextureId()` semantics, especially for OGL
+  split textures.
+- Add a real pitch-aware upload helper for EGL software upload:
+  pass scanline pointer + pitch + rect into GL upload, use
+  `GL_UNPACK_ROW_LENGTH` when available, and compact rows only when required.
+- Continue migrating Cocos host out of the final present path. Logs still show
+  `runtimeHost=cocos2d`, so the Flutter + SDL3 architecture is not complete.
+
 Local Gradle build was attempted and blocked by missing Java as described
 above.
 

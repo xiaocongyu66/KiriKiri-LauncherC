@@ -59,9 +59,11 @@ struct TVPAndroidEGLSurfacePresenterState {
     GLuint uploadTexture = 0;
     int uploadWidth = 0;
     int uploadHeight = 0;
+    const iTVPTexture2D *uploadSourceTexture = nullptr;
     std::vector<uint8_t> uploadScratch;
     uint64_t attempts = 0;
     uint64_t presented = 0;
+    uint64_t nativePresents = 0;
     uint64_t failures = 0;
     uint64_t unavailable = 0;
     uint64_t recreates = 0;
@@ -69,6 +71,7 @@ struct TVPAndroidEGLSurfacePresenterState {
     uint64_t softwareUploads = 0;
     bool fatal = false;
     bool autoDisabled = false;
+    bool lastPresentNativeGL = false;
     std::string fatalReason;
     std::string autoDisabledReason;
 };
@@ -261,8 +264,16 @@ bool IsAndroidEGLSurfaceFlipYEnabled() {
 
 bool IsAndroidEGLSoftwareUploadEnabled() {
     std::call_once(gSDLAndroidEGLSoftwareUploadFlagOnce, []() {
-        gSDLAndroidEGLSoftwareUploadEnabled =
-            IsTruthyEnv("KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE");
+        const char *legacy =
+            SDL_getenv("KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE");
+        if(IsTruthyEnv("KRKR2_DISABLE_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE")) {
+            gSDLAndroidEGLSoftwareUploadEnabled = false;
+        } else if(legacy) {
+            gSDLAndroidEGLSoftwareUploadEnabled =
+                IsTruthyEnv("KRKR2_ANDROID_EGL_SURFACE_UPLOAD_SOFTWARE");
+        } else {
+            gSDLAndroidEGLSoftwareUploadEnabled = true;
+        }
     });
     return gSDLAndroidEGLSoftwareUploadEnabled;
 }
@@ -491,20 +502,25 @@ bool RestoreAndroidEGLCurrentAndGLStateLocked(
     return false;
 }
 
-bool CopyTextureToAndroidEGLScratch(iTVPTexture2D *texture,
-                                    TVPTextureFormat::e format, int width,
-                                    int height, std::vector<uint8_t> &scratch) {
+bool CopyTextureRegionToAndroidEGLScratch(iTVPTexture2D *texture,
+                                          TVPTextureFormat::e format,
+                                          int width, int height,
+                                          const SDL_Rect &rect,
+                                          std::vector<uint8_t> &scratch) {
     if(!texture || format != TVPTextureFormat::RGBA || width <= 0 ||
-       height <= 0)
+       height <= 0 || rect.x < 0 || rect.y < 0 || rect.w <= 0 ||
+       rect.h <= 0 || rect.x + rect.w > width || rect.y + rect.h > height)
         return false;
-    const size_t pitch = static_cast<size_t>(width) * 4;
-    scratch.resize(pitch * static_cast<size_t>(height));
-    for(int y = 0; y < height; ++y) {
-        const void *line = texture->GetScanLineForRead(y);
+    const size_t rowBytes = static_cast<size_t>(rect.w) * 4;
+    scratch.resize(rowBytes * static_cast<size_t>(rect.h));
+    for(int row = 0; row < rect.h; ++row) {
+        const auto *line = static_cast<const uint8_t *>(
+            texture->GetScanLineForRead(rect.y + row));
         if(!line)
             return false;
-        std::memcpy(scratch.data() + pitch * static_cast<size_t>(y), line,
-                    pitch);
+        line += static_cast<size_t>(rect.x) * 4;
+        std::memcpy(scratch.data() + rowBytes * static_cast<size_t>(row),
+                    line, rowBytes);
     }
     return true;
 }
@@ -742,14 +758,18 @@ void ResetAndroidEGLContextResourcesLocked(const char *reason) {
     state.uploadTexture = 0;
     state.uploadWidth = 0;
     state.uploadHeight = 0;
+    state.uploadSourceTexture = nullptr;
     state.uploadScratch.clear();
 }
 
 bool EnsureAndroidEGLUploadTextureLocked(int width, int height,
+                                         const SDL_Rect &rect,
                                          const uint8_t *pixels,
                                          const char *stage) {
     auto &state = gSDLAndroidEGLPresenterState;
-    if(!pixels || width <= 0 || height <= 0)
+    if(!pixels || width <= 0 || height <= 0 || rect.x < 0 || rect.y < 0 ||
+       rect.w <= 0 || rect.h <= 0 || rect.x + rect.w > width ||
+       rect.y + rect.h > height)
         return false;
     if(!state.uploadTexture) {
         glGenTextures(1, &state.uploadTexture);
@@ -768,8 +788,8 @@ bool EnsureAndroidEGLUploadTextureLocked(int width, int height,
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
     if(state.uploadWidth == width && state.uploadHeight == height) {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RGBA,
-                        GL_UNSIGNED_BYTE, pixels);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h,
+                        GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     } else {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
                      GL_UNSIGNED_BYTE, pixels);
@@ -906,6 +926,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
     bool presented = false;
     bool copiedSoftware = false;
+    SDL_Rect softwareUploadRect = rect;
     uint64_t presentedCount = 0;
     uint64_t softwareUploadCount = 0;
     float uvScaleU = 1.0f;
@@ -925,16 +946,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             return false;
         }
 
-        if(softwareUpload &&
-           !CopyTextureToAndroidEGLScratch(texture, format, surfaceWidth,
-                                           surfaceHeight,
-                                           state.uploadScratch)) {
-            LogAndroidEGLFailureLocked(stage, "software texture copy failed");
-            TVPAndroidReleaseFlutterGameSurfaceWindow(window);
-            return false;
-        }
-
         if(nativeTexture != 0) {
+            state.uploadSourceTexture = nullptr;
             TVPGetRenderManager()->PrepareTextureForExternalPresenter(texture);
             const tjs_uint internalWidth = texture->GetInternalWidth();
             const tjs_uint internalHeight = texture->GetInternalHeight();
@@ -945,6 +958,24 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                 uvScaleV =
                     static_cast<float>(surfaceHeight) /
                     static_cast<float>(internalHeight);
+            }
+        }
+
+        if(softwareUpload) {
+            const bool needsFullUpload =
+                state.uploadSourceTexture != texture ||
+                state.uploadWidth != surfaceWidth ||
+                state.uploadHeight != surfaceHeight;
+            if(needsFullUpload)
+                softwareUploadRect =
+                    FullAndroidSurfaceRect(surfaceWidth, surfaceHeight);
+            if(!CopyTextureRegionToAndroidEGLScratch(
+                   texture, format, surfaceWidth, surfaceHeight,
+                   softwareUploadRect, state.uploadScratch)) {
+                LogAndroidEGLFailureLocked(stage,
+                                           "software texture copy failed");
+                TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+                return false;
             }
         }
 
@@ -975,8 +1006,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         GLuint sourceTexture = nativeTexture;
         if(softwareUpload) {
             if(!EnsureAndroidEGLUploadTextureLocked(
-                   surfaceWidth, surfaceHeight, state.uploadScratch.data(),
-                   stage)) {
+                   surfaceWidth, surfaceHeight, softwareUploadRect,
+                   state.uploadScratch.data(), stage)) {
                 LogAndroidEGLFailureLocked(
                     stage, "software texture upload failed");
                 RestoreAndroidEGLCurrentAndGLStateLocked(
@@ -986,6 +1017,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                 return false;
             }
             sourceTexture = state.uploadTexture;
+            state.uploadSourceTexture = texture;
             copiedSoftware = true;
             softwareUploadCount = state.softwareUploads;
         }
@@ -1053,6 +1085,9 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize(
             surfaceWidth, surfaceHeight);
         presentedCount = ++state.presented;
+        state.lastPresentNativeGL = nativeTexture != 0;
+        if(nativeTexture != 0)
+            ++state.nativePresents;
         presented = true;
     }
 
@@ -1060,11 +1095,14 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         char message[512];
         std::snprintf(message, sizeof(message),
                       "present-android-egl #%llu stage=%s surface=%dx%d "
-                      "rect=%d,%d,%dx%d nativeGL=%u softwareUpload=%d "
+                      "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
+                      "softwareUpload=%d "
                       "softwareUploads=%llu uv=%.4f,%.4f flipY=%d",
                       static_cast<unsigned long long>(presentedCount),
                       stage ? stage : "", surfaceWidth, surfaceHeight, rect.x,
-                      rect.y, rect.w, rect.h, nativeTexture,
+                      rect.y, rect.w, rect.h, softwareUploadRect.x,
+                      softwareUploadRect.y, softwareUploadRect.w,
+                      softwareUploadRect.h, nativeTexture,
                       copiedSoftware ? 1 : 0,
                       static_cast<unsigned long long>(softwareUploadCount),
                       uvScaleU, uvScaleV, flipY ? 1 : 0);
@@ -1207,6 +1245,8 @@ void TVPSDLAndroidFlutterPresenterAppendEGLOverlayInfo(
         rendererInfo << "pending";
     if(state.softwareUploads > 0)
         rendererInfo << " uploads=" << state.softwareUploads;
+    if(state.nativePresents > 0)
+        rendererInfo << " native=" << state.nativePresents;
     if(state.failures > 0)
         rendererInfo << " failures=" << state.failures;
     if(state.unavailable > 0 && state.presented == 0)
@@ -1224,6 +1264,17 @@ bool TVPSDLAndroidFlutterPresenterIsEGLHighPerformanceActive() {
     const auto &eglState = gSDLAndroidEGLPresenterState;
     return eglState.presented > 0 && !eglState.autoDisabled &&
         !eglState.fatal;
+#else
+    return false;
+#endif
+}
+
+bool TVPSDLAndroidFlutterPresenterIsEGLCpuCopyFreeActive() {
+#if defined(__ANDROID__)
+    std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
+    const auto &eglState = gSDLAndroidEGLPresenterState;
+    return eglState.presented > 0 && eglState.lastPresentNativeGL &&
+        !eglState.autoDisabled && !eglState.fatal;
 #else
     return false;
 #endif

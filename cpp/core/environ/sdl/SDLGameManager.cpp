@@ -2741,7 +2741,8 @@ void TVPSDLRecordRenderOverlayFrame(float deltaSeconds) {
 #if defined(__ANDROID__)
     if(TVPSDLAndroidFlutterPresenterIsEGLHighPerformanceActive()) {
         renderSnapshot.highPerformancePresenter = true;
-        renderSnapshot.cpuCopyFreePresenter = true;
+        renderSnapshot.cpuCopyFreePresenter =
+            TVPSDLAndroidFlutterPresenterIsEGLCpuCopyFreeActive();
     }
 #endif
     renderSnapshot.modules.push_back(TVPRuntimeRenderModuleInfo{
@@ -3091,7 +3092,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                     message, sizeof(message),
                     "present-texture-%s #%llu stage=%s tex=%p size=%ux%u "
                     "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                    "takeover=1 fullFrame=%d",
+                    "takeover=1 fullFrame=%d nativeGL=%d cpuCopyFree=%d",
                     TVPSDLAndroidFlutterPresenterPresentPathLogName(
                         androidResult.path),
                     static_cast<unsigned long long>(presentSequence),
@@ -3100,7 +3101,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                     androidResult.sourceRect.x, androidResult.sourceRect.y,
                     androidResult.sourceRect.w, androidResult.sourceRect.h,
                     static_cast<unsigned long long>(gpuUploadBytes),
-                    gpuConverted ? 1 : 0, androidResult.fullFrame ? 1 : 0);
+                    gpuConverted ? 1 : 0, androidResult.fullFrame ? 1 : 0,
+                    androidResult.nativeGL ? 1 : 0,
+                    androidResult.cpuCopyFree ? 1 : 0);
                 LogSDLGpuPresenter(message);
             }
             return true;
