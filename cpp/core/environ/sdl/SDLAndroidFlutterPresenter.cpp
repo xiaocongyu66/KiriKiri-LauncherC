@@ -17,6 +17,19 @@
 #include <android/native_window.h>
 #endif
 
+#if defined(__ANDROID__) && !defined(EGL_SWAP_BEHAVIOR_PRESERVED_BIT)
+#define EGL_SWAP_BEHAVIOR_PRESERVED_BIT 0x0400
+#endif
+#if defined(__ANDROID__) && !defined(EGL_SWAP_BEHAVIOR)
+#define EGL_SWAP_BEHAVIOR 0x3093
+#endif
+#if defined(__ANDROID__) && !defined(EGL_BUFFER_PRESERVED)
+#define EGL_BUFFER_PRESERVED 0x3094
+#endif
+#if defined(__ANDROID__) && !defined(EGL_BUFFER_DESTROYED)
+#define EGL_BUFFER_DESTROYED 0x3095
+#endif
+
 #if defined(__ANDROID__)
 extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow();
 extern "C" void TVPAndroidReleaseFlutterGameSurfaceWindow(
@@ -72,6 +85,8 @@ struct TVPAndroidEGLSurfacePresenterState {
     bool fatal = false;
     bool autoDisabled = false;
     bool lastPresentNativeGL = false;
+    bool preserveSwapBehavior = false;
+    bool surfaceHasContent = false;
     std::string fatalReason;
     std::string autoDisabledReason;
 };
@@ -706,6 +721,20 @@ bool CanDeleteAndroidEGLGLResourcesLocked() {
         eglGetCurrentContext() == state.context;
 }
 
+bool AndroidEGLConfigSupportsPreservedSwap(EGLDisplay display,
+                                           EGLConfig config) {
+    if(display == EGL_NO_DISPLAY || !config)
+        return false;
+    EGLint surfaceType = 0;
+    return eglGetConfigAttrib(display, config, EGL_SURFACE_TYPE,
+                              &surfaceType) == EGL_TRUE &&
+        (surfaceType & EGL_SWAP_BEHAVIOR_PRESERVED_BIT) != 0;
+}
+
+bool IsFullAndroidSurfaceRect(const SDL_Rect &rect, int width, int height) {
+    return rect.x <= 0 && rect.y <= 0 && rect.w >= width && rect.h >= height;
+}
+
 void DestroyAndroidEGLWindowSurfaceLocked(const char *reason) {
     auto &state = gSDLAndroidEGLPresenterState;
     if(state.surface != EGL_NO_SURFACE && state.display != EGL_NO_DISPLAY) {
@@ -726,6 +755,8 @@ void DestroyAndroidEGLWindowSurfaceLocked(const char *reason) {
     }
     state.width = 0;
     state.height = 0;
+    state.preserveSwapBehavior = false;
+    state.surfaceHasContent = false;
     if(reason && *reason) {
         char message[192];
         std::snprintf(message, sizeof(message), "surface dropped reason=%s",
@@ -855,12 +886,25 @@ bool EnsureAndroidEGLSurfacePresenterLocked(ANativeWindow *window, int width,
                 AndroidEGLFormatError("eglCreateWindowSurface", eglGetError()));
             return false;
         }
+        state.preserveSwapBehavior = false;
+        state.surfaceHasContent = false;
+        if(AndroidEGLConfigSupportsPreservedSwap(display, state.config) &&
+           eglSurfaceAttrib(display, state.surface, EGL_SWAP_BEHAVIOR,
+                            EGL_BUFFER_PRESERVED) == EGL_TRUE) {
+            EGLint swapBehavior = EGL_BUFFER_DESTROYED;
+            if(eglQuerySurface(display, state.surface, EGL_SWAP_BEHAVIOR,
+                               &swapBehavior) == EGL_TRUE) {
+                state.preserveSwapBehavior =
+                    swapBehavior == EGL_BUFFER_PRESERVED;
+            }
+        }
         char message[256];
         std::snprintf(message, sizeof(message),
-                      "surface ready #%llu stage=%s window=%p size=%dx%d",
+                      "surface ready #%llu stage=%s window=%p size=%dx%d "
+                      "preserve=%d",
                       static_cast<unsigned long long>(state.recreates),
-                      stage ? stage : "", static_cast<void *>(window), width,
-                      height);
+                      stage ? stage : "", static_cast<void *>(window),
+                      width, height, state.preserveSwapBehavior ? 1 : 0);
         LogSDLAndroidEGLPresenter(message);
     }
 
@@ -874,7 +918,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                                         TVPTextureFormat::e format,
                                         int surfaceWidth, int surfaceHeight,
                                         const SDL_Rect &rect,
-                                        const char *stage) {
+                                        const char *stage,
+                                        bool *usedFullFrame) {
     if(!IsAndroidEGLSurfacePresenterEnabled())
         return false;
     if(!texture || surfaceWidth <= 0 || surfaceHeight <= 0 ||
@@ -926,6 +971,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
     bool presented = false;
     bool copiedSoftware = false;
+    bool fullFramePresent = true;
     SDL_Rect softwareUploadRect = rect;
     uint64_t presentedCount = 0;
     uint64_t softwareUploadCount = 0;
@@ -1022,12 +1068,27 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             softwareUploadCount = state.softwareUploads;
         }
 
+        const bool canPartialPresent =
+            state.preserveSwapBehavior && state.surfaceHasContent &&
+            !IsFullAndroidSurfaceRect(rect, surfaceWidth, surfaceHeight);
+        fullFramePresent = !canPartialPresent;
+        SDL_Rect presentRect = fullFramePresent
+            ? FullAndroidSurfaceRect(surfaceWidth, surfaceHeight)
+            : rect;
+
         glViewport(0, 0, surfaceWidth, surfaceHeight);
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
-        glDisable(GL_SCISSOR_TEST);
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
+        if(fullFramePresent) {
+            glDisable(GL_SCISSOR_TEST);
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+        } else {
+            glEnable(GL_SCISSOR_TEST);
+            glScissor(presentRect.x,
+                      surfaceHeight - presentRect.y - presentRect.h,
+                      presentRect.w, presentRect.h);
+        }
         glUseProgram(state.program);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
@@ -1088,8 +1149,12 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         state.lastPresentNativeGL = nativeTexture != 0;
         if(nativeTexture != 0)
             ++state.nativePresents;
+        state.surfaceHasContent = true;
         presented = true;
     }
+
+    if(usedFullFrame)
+        *usedFullFrame = fullFramePresent;
 
     if(presented && ShouldLogScreenPresenter(presentedCount)) {
         char message[512];
@@ -1097,7 +1162,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                       "present-android-egl #%llu stage=%s surface=%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
-                      "softwareUploads=%llu uv=%.4f,%.4f flipY=%d",
+                      "softwareUploads=%llu uv=%.4f,%.4f flipY=%d "
+                      "fullFrame=%d",
                       static_cast<unsigned long long>(presentedCount),
                       stage ? stage : "", surfaceWidth, surfaceHeight, rect.x,
                       rect.y, rect.w, rect.h, softwareUploadRect.x,
@@ -1105,7 +1171,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                       softwareUploadRect.h, nativeTexture,
                       copiedSoftware ? 1 : 0,
                       static_cast<unsigned long long>(softwareUploadCount),
-                      uvScaleU, uvScaleV, flipY ? 1 : 0);
+                      uvScaleU, uvScaleV, flipY ? 1 : 0,
+                      fullFramePresent ? 1 : 0);
         LogSDLAndroidEGLPresenter(message);
     }
     return presented;
@@ -1135,13 +1202,15 @@ bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
         return false;
 
     const SDL_Rect dirtyRect = ToSDLRect(plan.dirtyRect);
+    bool eglFullFrame = true;
     if(TryPresentAndroidEGLSurfaceTexture(texture, format, plan.textureWidth,
-                                          plan.textureHeight, dirtyRect,
-                                          stage)) {
+                                          plan.textureHeight, dirtyRect, stage,
+                                          &eglFullFrame)) {
         result.path = TVPSDLPresentPath::AndroidEGL;
-        result.sourceRect =
-            FullPresentRect(plan.textureWidth, plan.textureHeight);
-        result.fullFrame = true;
+        result.sourceRect = eglFullFrame
+            ? FullPresentRect(plan.textureWidth, plan.textureHeight)
+            : plan.dirtyRect;
+        result.fullFrame = eglFullFrame;
         result.nativeGL = texture->GetNativeGLTextureId() != 0;
         result.cpuCopyFree = result.nativeGL;
         return true;

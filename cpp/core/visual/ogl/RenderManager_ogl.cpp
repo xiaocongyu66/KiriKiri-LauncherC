@@ -1967,7 +1967,6 @@ public:
     void AsTarget() override {
         SyncPixel();
         TVPSetRenderTarget(texture);
-        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
     }
 };
 
@@ -4532,6 +4531,11 @@ public:
             GL::glCopyImageSubData(src->texture, GL_TEXTURE_2D, 0, rc.left,
                                    rc.top, 0, dst->texture, GL_TEXTURE_2D, 0, 0,
                                    0, 0, rc.get_width(), rc.get_height(), 1);
+            const tjs_int dirtyW = static_cast<tjs_int>(
+                std::ceil(rc.get_width() / dst->_scaleW));
+            const tjs_int dirtyH = static_cast<tjs_int>(
+                std::ceil(rc.get_height() / dst->_scaleH));
+            dst->MarkDirtyRect(tTVPRect(0, 0, dirtyW, dirtyH));
             CHECK_GL_ERROR_DEBUG();
             // #ifdef _DEBUG
             //             static bool check = false;
@@ -4583,6 +4587,8 @@ public:
                               0, &vtx.vtx.front());
         glDrawArrays(GL_TRIANGLES, 0, 6);
         method->onFinish();
+        dst->MarkDirtyRect(tTVPRect(0, 0, rcsrc.get_width(),
+                                    rcsrc.get_height()));
         CHECK_GL_ERROR_DEBUG();
         // #ifdef _DEBUG
         //         static bool check = false;
@@ -4634,6 +4640,7 @@ public:
         if(method->CustomProc &&
            method->CustomProc(method, tar, (tTVPOGLTexture2D *)reftar, &rctar,
                               textures)) {
+            tar->MarkDirtyRect(rctar);
             return;
         }
 
@@ -4730,6 +4737,7 @@ public:
         glDrawArrays(GL_TRIANGLES, 0, 6);
         //}
         method->onFinish();
+        tar->MarkDirtyRect(rctar);
         CHECK_GL_ERROR_DEBUG();
         // #ifdef _DEBUG
         //         static bool check = false;
@@ -4896,6 +4904,7 @@ public:
         }
         glDrawArrays(GL_TRIANGLES, 0, ptcount);
         method->onFinish();
+        tar->MarkDirtyRect(rcclip);
         CHECK_GL_ERROR_DEBUG();
         // #ifdef _DEBUG
         //         static bool check = false;
@@ -5077,7 +5086,10 @@ public:
     }
 
     void SetRenderTarget(iTVPTexture2D *target) override {
-        static_cast<tTVPOGLTexture2D *>(target)->AsTarget();
+        auto *texture = static_cast<tTVPOGLTexture2D *>(target);
+        texture->AsTarget();
+        texture->MarkDirtyRect(tTVPRect(0, 0, texture->GetWidth(),
+                                        texture->GetHeight()));
     }
 
     void PrepareTextureForExternalPresenter(iTVPTexture2D *texture) override {
