@@ -16,8 +16,11 @@ struct TextureCacheLimits {
 struct TextureCacheStats {
     uint32_t textureCount = 0;
     uint64_t textureBytes = 0;
+    uint64_t gpuResidentBytes = 0;
     uint64_t uploadBytes = 0;
     uint64_t uploads = 0;
+    uint64_t fullUploads = 0;
+    uint64_t partialUploads = 0;
     uint64_t evictions = 0;
 };
 
@@ -61,6 +64,12 @@ private:
         PixelFormat format = PixelFormat::RGBA8;
         uint64_t bytes = 0;
         uint64_t lastUse = 0;
+        bool cpuResident = true;
+        bool gpuResident = false;
+        bool hasCpuDirtyRect = false;
+        tTVPRect cpuDirtyRect;
+        uint64_t fullUploads = 0;
+        uint64_t partialUploads = 0;
     };
 
     bool IsBackendReady(std::string &error) const;

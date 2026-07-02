@@ -101,7 +101,25 @@ TextureCacheResult TextureCache::Upsert(iTVPTexture2D &source,
         result.created = true;
     }
 
-    const tTVPRect *uploadRect = result.created ? nullptr : sourceRect;
+    if(sourceRect) {
+        if(record->hasCpuDirtyRect) {
+            record->cpuDirtyRect.do_union(*sourceRect);
+        } else {
+            record->cpuDirtyRect = *sourceRect;
+            record->hasCpuDirtyRect = true;
+        }
+    } else {
+        record->cpuDirtyRect =
+            tTVPRect(0, 0, static_cast<tjs_int>(desc.width),
+                     static_cast<tjs_int>(desc.height));
+        record->hasCpuDirtyRect = true;
+    }
+
+    const bool fullUpload =
+        result.created || !record->gpuResident || sourceRect == nullptr;
+    const tTVPRect *uploadRect =
+        fullUpload || !record->hasCpuDirtyRect ? nullptr
+                                               : &record->cpuDirtyRect;
     UploadResult upload = UploadTexture2D(*backend_, record->handle, source,
                                           uploadRect);
     if(!upload.uploaded) {
@@ -114,6 +132,20 @@ TextureCacheResult TextureCache::Upsert(iTVPTexture2D &source,
     }
 
     record->lastUse = ++useSequence_;
+    if(!record->gpuResident) {
+        stats_.gpuResidentBytes += record->bytes;
+    }
+    record->gpuResident = true;
+    record->cpuResident = true;
+    record->hasCpuDirtyRect = false;
+    record->cpuDirtyRect.clear();
+    if(fullUpload) {
+        record->fullUploads++;
+        stats_.fullUploads++;
+    } else {
+        record->partialUploads++;
+        stats_.partialUploads++;
+    }
     stats_.uploads++;
     stats_.uploadBytes += upload.uploadBytes;
     result.handle = record->handle;
@@ -201,6 +233,11 @@ void TextureCache::DestroyRecord(Record &record) {
         backend_->DestroyTexture(record.handle);
     if(stats_.textureCount > 0)
         stats_.textureCount--;
+    if(record.gpuResident) {
+        stats_.gpuResidentBytes = stats_.gpuResidentBytes >= record.bytes
+            ? stats_.gpuResidentBytes - record.bytes
+            : 0;
+    }
     stats_.textureBytes =
         stats_.textureBytes >= record.bytes ? stats_.textureBytes - record.bytes
                                             : 0;

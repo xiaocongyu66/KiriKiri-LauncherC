@@ -17,8 +17,20 @@
 #include "TextStream.h"
 
 #if defined(__ANDROID__)
+#include <cstdlib>
 extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
-#define KR2_KAG_LOG(...) KR2RenderProbeWriteF(__VA_ARGS__)
+static bool KR2KAGDiagnosticsEnabled() {
+    static const bool enabled = []() {
+        const char *value = std::getenv("KRKR2_ENABLE_KAG_DIAGNOSTICS");
+        return value && *value && *value != '0';
+    }();
+    return enabled;
+}
+#define KR2_KAG_LOG(...)                                                      \
+    do {                                                                      \
+        if(KR2KAGDiagnosticsEnabled())                                        \
+            KR2RenderProbeWriteF(__VA_ARGS__);                                \
+    } while(false)
 #else
 #define KR2_KAG_LOG(...) ((void)0)
 #endif

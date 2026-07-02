@@ -290,7 +290,12 @@ void LogSDLRuntime(const TVPSDLGameLaunchCallbacks &callbacks) {
 bool IsHighFrequencyInput(const char *eventName) {
     if(!eventName)
         return false;
-    return std::strcmp(eventName, "touch-move") == 0 ||
+    return std::strcmp(eventName, "touch-begin") == 0 ||
+        std::strcmp(eventName, "touch-end") == 0 ||
+        std::strcmp(eventName, "touch-move") == 0 ||
+        std::strcmp(eventName, "touch-cancel") == 0 ||
+        std::strcmp(eventName, "touch-cancel-empty") == 0 ||
+        std::strcmp(eventName, "touch-move-empty") == 0 ||
         std::strcmp(eventName, "hover-move") == 0;
 }
 
@@ -593,8 +598,11 @@ void AppendSDLGpuOverlayInfo(std::ostringstream &rendererInfo) {
     rendererInfo << " sdlgpu=";
     if(gSDLGpuPresenterState.ready) {
         const char *driver = gSDLGpuPresenterState.backend.DriverName();
+        const auto cacheStats = gSDLGpuPresenterState.textureCache.Stats();
         rendererInfo << (driver && *driver ? driver : "ready");
         rendererInfo << " uploads=" << gSDLGpuPresenterState.uploads;
+        rendererInfo << " full=" << cacheStats.fullUploads;
+        rendererInfo << " partial=" << cacheStats.partialUploads;
         if(gSDLGpuPresenterState.skippedDirect > 0)
             rendererInfo << " skippedDirect="
                          << gSDLGpuPresenterState.skippedDirect;
@@ -2081,7 +2089,7 @@ void TVPSDLProcessAndroidInputQueue() {
     UpdateAtomicMax(gSDLInputMaxAgeMs, maxAgeInBatch);
 
     if(ShouldLogInputQueueSequence(batch) || droppedInBatch > 0 ||
-       coalescedInBatch > 0 || maxAgeInBatch > 50) {
+       maxAgeInBatch > 250) {
         char message[384];
         std::snprintf(
             message, sizeof(message),
@@ -2928,7 +2936,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         forceFullFramePresent = hasDirty;
     }
     const bool needsTakeoverFullFrame =
-        takeoverActive && (!presenterAlreadyPresented || glBackedTexture);
+        takeoverActive && !presenterAlreadyPresented;
     if(!hasDirty && needsTakeoverFullFrame) {
         updateRect = fullRect;
         hasDirty = !updateRect.is_empty();
@@ -2951,6 +2959,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     bool gpuConverted = false;
     uint64_t gpuUploadBytes = 0;
     uint64_t gpuUploads = 0;
+    uint64_t gpuFullUploads = 0;
+    uint64_t gpuPartialUploads = 0;
     uint64_t gpuFailures = 0;
     uint64_t gpuAttempts = 0;
     std::string gpuError;
@@ -2995,6 +3005,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                 knownTexture && hasDirty ? &updateRect : nullptr;
             auto result = gSDLGpuPresenterState.textureCache.Upsert(
                 *texture, sourceRect, "tvp-window-presenter");
+            const auto cacheStats = gSDLGpuPresenterState.textureCache.Stats();
+            gpuFullUploads = cacheStats.fullUploads;
+            gpuPartialUploads = cacheStats.partialUploads;
             if(result.uploaded) {
                 gpuUploaded = true;
                 gpuConverted = result.converted;
@@ -3092,7 +3105,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                     message, sizeof(message),
                     "present-texture-%s #%llu stage=%s tex=%p size=%ux%u "
                     "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                    "takeover=1 fullFrame=%d nativeGL=%d cpuCopyFree=%d",
+                    "takeover=1 fullFrame=%d nativeGL=%d cpuCopyFree=%d "
+                    "gpuFull=%llu gpuPartial=%llu",
                     TVPSDLAndroidFlutterPresenterPresentPathLogName(
                         androidResult.path),
                     static_cast<unsigned long long>(presentSequence),
@@ -3103,7 +3117,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                     static_cast<unsigned long long>(gpuUploadBytes),
                     gpuConverted ? 1 : 0, androidResult.fullFrame ? 1 : 0,
                     androidResult.nativeGL ? 1 : 0,
-                    androidResult.cpuCopyFree ? 1 : 0);
+                    androidResult.cpuCopyFree ? 1 : 0,
+                    static_cast<unsigned long long>(gpuFullUploads),
+                    static_cast<unsigned long long>(gpuPartialUploads));
                 LogSDLGpuPresenter(message);
             }
             return true;

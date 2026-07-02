@@ -21,6 +21,14 @@
 
 #if defined(__ANDROID__)
 extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+static bool KR2LayerAllocDiagnosticsEnabled() {
+    static const bool enabled = []() {
+        const char *value =
+            std::getenv("KRKR2_ENABLE_LAYER_ALLOC_DIAGNOSTICS");
+        return value && *value && *value != '0';
+    }();
+    return enabled;
+}
 #endif
 
 #include "tjsArray.h"
@@ -2348,7 +2356,8 @@ void tTJSNI_BaseLayer::AllocateImage() {
         // with no MainImage at all.
         static int s_aiCount = 0;
         ++s_aiCount;
-        if(s_aiCount <= 64 || (s_aiCount & 0x7F) == 0) {
+        if(KR2LayerAllocDiagnosticsEnabled() &&
+           (s_aiCount <= 64 || (s_aiCount & 0x7F) == 0)) {
             iTVPTexture2D *t = MainImage->GetTexture();
             KR2RenderProbeWriteF(
                 "Layer::AllocateImage#%d this=%p img=%p sz=%dx%d "

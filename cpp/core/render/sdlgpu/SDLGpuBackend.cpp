@@ -187,11 +187,38 @@ struct Backend::Impl {
     };
 
     SDL_GPUDevice *device = nullptr;
+    SDL_GPUTransferBuffer *uploadTransferBuffer = nullptr;
+    uint32_t uploadTransferBufferSize = 0;
     std::unordered_map<TextureHandle, TextureRecord> textures;
     TextureHandle nextHandle = 1;
     TextureStats stats;
     std::string driverName;
     std::string lastError;
+
+    bool EnsureUploadTransferBuffer(uint32_t size) {
+        if(uploadTransferBuffer && uploadTransferBufferSize >= size)
+            return true;
+
+        if(uploadTransferBuffer) {
+            SDL_WaitForGPUIdle(device);
+            SDL_ReleaseGPUTransferBuffer(device, uploadTransferBuffer);
+            uploadTransferBuffer = nullptr;
+            uploadTransferBufferSize = 0;
+        }
+
+        SDL_GPUTransferBufferCreateInfo transferInfo;
+        SDL_zero(transferInfo);
+        transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+        transferInfo.size = size;
+        uploadTransferBuffer =
+            SDL_CreateGPUTransferBuffer(device, &transferInfo);
+        if(!uploadTransferBuffer) {
+            lastError = SdlErrorString("SDL_CreateGPUTransferBuffer failed");
+            return false;
+        }
+        uploadTransferBufferSize = size;
+        return true;
+    }
 };
 
 Backend::Backend() : impl_(std::make_unique<Impl>()) {}
@@ -244,6 +271,12 @@ void Backend::Shutdown() {
 
     if(impl_->device) {
         SDL_WaitForGPUIdle(impl_->device);
+        if(impl_->uploadTransferBuffer) {
+            SDL_ReleaseGPUTransferBuffer(impl_->device,
+                                         impl_->uploadTransferBuffer);
+            impl_->uploadTransferBuffer = nullptr;
+            impl_->uploadTransferBufferSize = 0;
+        }
         for(auto &entry : impl_->textures) {
             if(entry.second.texture) {
                 SDL_ReleaseGPUTexture(impl_->device, entry.second.texture);
@@ -256,6 +289,8 @@ void Backend::Shutdown() {
     }
 
     impl_->device = nullptr;
+    impl_->uploadTransferBuffer = nullptr;
+    impl_->uploadTransferBufferSize = 0;
     impl_->driverName.clear();
     impl_->stats = {};
     impl_->nextHandle = 1;
@@ -386,47 +421,47 @@ bool Backend::UploadTexture2D(TextureHandle handle, const void *pixels,
         return false;
     }
 
-    const uint64_t dataBytes64 = static_cast<uint64_t>(rowBytes) * height;
-    if(dataBytes64 > std::numeric_limits<uint32_t>::max()) {
+    const bool pitchCanBeExpressedAsPixels =
+        pitch % bytesPerPixel == 0 &&
+        static_cast<uint64_t>(pitch) <= rowBytes64 * 2;
+    const uint32_t uploadPitch = pitchCanBeExpressedAsPixels ? pitch : rowBytes;
+    const uint32_t pixelsPerRow = pitchCanBeExpressedAsPixels
+        ? pitch / bytesPerPixel
+        : width;
+
+    const uint64_t dataBytes64 =
+        static_cast<uint64_t>(uploadPitch) * height;
+    if(dataBytes64 == 0 || dataBytes64 > std::numeric_limits<uint32_t>::max()) {
         impl_->lastError = "SDL_GPU upload data is too large";
         return false;
     }
     const uint32_t dataBytes = static_cast<uint32_t>(dataBytes64);
 
-    SDL_GPUTransferBufferCreateInfo transferInfo;
-    SDL_zero(transferInfo);
-    transferInfo.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-    transferInfo.size = dataBytes;
-
-    SDL_GPUTransferBuffer *transferBuffer =
-        SDL_CreateGPUTransferBuffer(impl_->device, &transferInfo);
-    if(!transferBuffer) {
-        impl_->lastError = SdlErrorString("SDL_CreateGPUTransferBuffer failed");
+    if(!impl_->EnsureUploadTransferBuffer(dataBytes)) {
         return false;
     }
 
     uint8_t *mapped = static_cast<uint8_t *>(
-        SDL_MapGPUTransferBuffer(impl_->device, transferBuffer, false));
+        SDL_MapGPUTransferBuffer(impl_->device, impl_->uploadTransferBuffer,
+                                 true));
     if(!mapped) {
-        SDL_ReleaseGPUTransferBuffer(impl_->device, transferBuffer);
         impl_->lastError = SdlErrorString("SDL_MapGPUTransferBuffer failed");
         return false;
     }
 
     const uint8_t *source = static_cast<const uint8_t *>(pixels);
-    if(pitch == rowBytes) {
-        std::memcpy(mapped, source, dataBytes);
+    if(pitch == rowBytes && uploadPitch == rowBytes) {
+        std::memcpy(mapped, source, static_cast<size_t>(rowBytes) * height);
     } else {
         for(uint32_t row = 0; row < height; ++row) {
-            std::memcpy(mapped + static_cast<size_t>(row) * rowBytes,
+            std::memcpy(mapped + static_cast<size_t>(row) * uploadPitch,
                         source + static_cast<size_t>(row) * pitch, rowBytes);
         }
     }
-    SDL_UnmapGPUTransferBuffer(impl_->device, transferBuffer);
+    SDL_UnmapGPUTransferBuffer(impl_->device, impl_->uploadTransferBuffer);
 
     SDL_GPUCommandBuffer *commandBuffer = SDL_AcquireGPUCommandBuffer(impl_->device);
     if(!commandBuffer) {
-        SDL_ReleaseGPUTransferBuffer(impl_->device, transferBuffer);
         impl_->lastError = SdlErrorString("SDL_AcquireGPUCommandBuffer failed");
         return false;
     }
@@ -434,16 +469,15 @@ bool Backend::UploadTexture2D(TextureHandle handle, const void *pixels,
     SDL_GPUCopyPass *copyPass = SDL_BeginGPUCopyPass(commandBuffer);
     if(!copyPass) {
         SDL_CancelGPUCommandBuffer(commandBuffer);
-        SDL_ReleaseGPUTransferBuffer(impl_->device, transferBuffer);
         impl_->lastError = SdlErrorString("SDL_BeginGPUCopyPass failed");
         return false;
     }
 
     SDL_GPUTextureTransferInfo sourceInfo;
     SDL_zero(sourceInfo);
-    sourceInfo.transfer_buffer = transferBuffer;
+    sourceInfo.transfer_buffer = impl_->uploadTransferBuffer;
     sourceInfo.rows_per_layer = height;
-    sourceInfo.pixels_per_row = width;
+    sourceInfo.pixels_per_row = pixelsPerRow;
 
     SDL_GPUTextureRegion destination;
     SDL_zero(destination);
@@ -454,11 +488,14 @@ bool Backend::UploadTexture2D(TextureHandle handle, const void *pixels,
     destination.h = height;
     destination.d = 1;
 
-    SDL_UploadToGPUTexture(copyPass, &sourceInfo, &destination, false);
+    const bool canCycleTexture =
+        x == 0 && y == 0 && width == record.desc.width &&
+        height == record.desc.height;
+    SDL_UploadToGPUTexture(copyPass, &sourceInfo, &destination,
+                           canCycleTexture);
     SDL_EndGPUCopyPass(copyPass);
 
     const bool submitted = SDL_SubmitGPUCommandBuffer(commandBuffer);
-    SDL_ReleaseGPUTransferBuffer(impl_->device, transferBuffer);
     if(!submitted) {
         impl_->lastError = SdlErrorString("SDL_SubmitGPUCommandBuffer failed");
         return false;

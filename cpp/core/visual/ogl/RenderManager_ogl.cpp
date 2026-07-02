@@ -952,6 +952,8 @@ protected:
     unsigned char *PixelData = nullptr; // read only
     int PixelDataCounter = 0;
     float _scaleW = 1, _scaleH = 1;
+    bool TextureDirty = false;
+    tTVPRect TextureDirtyRect;
 
     tTVPOGLTexture2D(unsigned int w, unsigned int h, TVPTextureFormat::e format,
                      GLint mode = GL_LINEAR) :
@@ -1036,6 +1038,7 @@ protected:
         internalW = intw;
         internalH = inth;
         _totalVMemSize += internalW * internalH * getPixelSize();
+        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
         CHECK_GL_ERROR_DEBUG();
     }
 
@@ -1082,6 +1085,7 @@ protected:
             glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
         if(rearranged)
             delete[] src;
+        MarkDirtyRect(tTVPRect(x, y, x + w, y + h));
         CHECK_GL_ERROR_DEBUG();
     }
 
@@ -1152,6 +1156,35 @@ public:
     }
 
     unsigned int GetNativeGLTextureId() const override { return texture; }
+
+    void MarkDirtyRect(const tTVPRect &rect) override {
+        tTVPRect dirty = rect;
+        dirty.clip(tTVPRect(0, 0, Width, Height));
+        if(dirty.is_empty())
+            return;
+        if(TextureDirty) {
+            TextureDirtyRect.do_union(dirty);
+        } else {
+            TextureDirtyRect = dirty;
+            TextureDirty = true;
+        }
+    }
+
+    bool PeekDirtyRect(tTVPRect &rect) const override {
+        if(!TextureDirty)
+            return false;
+        rect = TextureDirtyRect;
+        return true;
+    }
+
+    bool ConsumeDirtyRect(tTVPRect &rect) override {
+        if(!TextureDirty)
+            return false;
+        rect = TextureDirtyRect;
+        TextureDirty = false;
+        TextureDirtyRect.clear();
+        return true;
+    }
 
     void InvalidatePixelCache() override {
         if(PixelData) {
@@ -1720,6 +1753,7 @@ public:
         internalW = width;
         internalH = height;
         _totalVMemSize += internalW * internalH * getPixelSize() /*len*/;
+        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
         CHECK_GL_ERROR_DEBUG();
     }
 
@@ -1751,6 +1785,7 @@ public:
         internalW = intw;
         internalH = inth;
         _totalVMemSize += internalW * internalH * getPixelSize();
+        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
         CHECK_GL_ERROR_DEBUG();
     }
 
@@ -1776,6 +1811,7 @@ public:
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, 1, 1, GL_RGBA,
                             GL_UNSIGNED_BYTE, &clr);
+            MarkDirtyRect(tTVPRect(x, y, x + 1, y + 1));
         }
     }
 
@@ -1909,6 +1945,7 @@ public:
             glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
             glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, 1, 1, GL_RGBA,
                             GL_UNSIGNED_BYTE, &clr);
+            MarkDirtyRect(tTVPRect(x, y, x + 1, y + 1));
         }
     }
 
@@ -1922,6 +1959,7 @@ public:
         }
         Width = w;
         Height = h;
+        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
     }
 
     bool IsStatic() override { return false; }
@@ -1929,6 +1967,7 @@ public:
     void AsTarget() override {
         SyncPixel();
         TVPSetRenderTarget(texture);
+        MarkDirtyRect(tTVPRect(0, 0, Width, Height));
     }
 };
 
