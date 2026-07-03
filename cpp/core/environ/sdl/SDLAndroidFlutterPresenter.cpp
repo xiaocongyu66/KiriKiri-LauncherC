@@ -1217,7 +1217,7 @@ bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
         return true;
     }
 
-    if(TVPSDLAndroidFlutterPresenterTryPresentTexture(
+    if(plan.allowFallback && TVPSDLAndroidFlutterPresenterTryPresentTexture(
            texture, format, plan.textureWidth, plan.textureHeight,
            ToSDLRect(plan.fallbackRect), stage)) {
         result.path = TVPSDLPresentPath::AndroidFlutterDirect;

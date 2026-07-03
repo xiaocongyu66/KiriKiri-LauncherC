@@ -27,6 +27,7 @@ struct TVPSDLTexturePresentPlan {
     TVPSDLPresentRect fallbackRect;
     bool forceFullFrame = false;
     bool directPartialAllowed = false;
+    bool allowFallback = true;
 };
 
 struct TVPSDLTexturePresentResult {

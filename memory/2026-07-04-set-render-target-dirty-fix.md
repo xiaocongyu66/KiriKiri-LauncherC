@@ -166,3 +166,40 @@ Both returned and confirmed the current direction:
 - `KRKR2_ENABLE_MOTION_SOURCE_DIAGNOSTICS=1`
   - Re-enables `SourceCache direct PSB bitmap` lines.
   - Use only when debugging PSB/motion bitmap source resolution.
+
+## Follow-up after user reported worse behavior
+
+User then reported `78.log` behavior became more serious and FPS remained low. The important interpretation:
+
+- Removing full dirty from `SetRenderTarget()` is still correct for the SDL2/SDL3-style architecture.
+- However, current hybrid architecture still has external GL/native render paths and Cocos-era presentation assumptions.
+- Some GL-backed frames can reach `TVPSDLTryPresentTexture()` without a CPU-upload dirty rect. If the presenter has already shown at least one frame, the old code returned success without presenting anything. This can make visible output stale even though the engine advanced.
+- The fix should not restore bind-time full dirty, because that destroys dirty rect performance. The fix is to separate final GL presentation from CPU/GPU upload dirty.
+
+Patch direction applied after this report:
+
+- `cpp/core/environ/sdl/SDLPresentTypes.h`
+  - Added `TVPSDLTexturePresentPlan::allowFallback`.
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Added `nativePresentOnly` path:
+    - only for takeover-active, already-presented, GL-backed textures with no dirty rect.
+    - uses a full frame rect only for final Android EGL presentation.
+    - does not invalidate CPU pixel cache.
+    - does not run SDL_GPU shadow upload.
+    - does not consume texture dirty.
+    - does not fall back to software/direct Flutter full copy if EGL is unavailable.
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - Honors `plan.allowFallback`; present-only frames can use EGL but cannot silently degrade into CPU-copy fallback.
+
+Why this matches SDL2/SDL3 reference direction:
+
+- SDL2 `TVPSDLBitmapCompletion` collects real dirty rectangles at bitmap completion and copies only those regions into an SDL surface.
+- SDL3 `SDL_GL_UpdateTexture` uses pitch-aware texture upload (`GL_UNPACK_ROW_LENGTH`) and keeps upload semantics separate from final render.
+- Our new `nativePresentOnly` path keeps that separation: no upload dirty is invented, but the final EGL surface can still be redrawn from an existing native GL texture when current hybrid layers did not produce dirty metadata.
+
+Next migration steps:
+
+- Keep moving window presentation out of Cocos `WindowLayer::UpdateDrawBuffer`.
+- Prefer SDL runtime presenter ownership for the game surface.
+- Continue reducing full-frame CPU readback paths.
+- If new logs are needed, ask user to run with `KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS=1` so `present-texture-*` and `present-android-egl` lines show dirty/full/nativeGL/present-only behavior.

@@ -2943,6 +2943,17 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         hasDirty = !updateRect.is_empty();
         forceFullFramePresent = hasDirty;
     }
+    // GL-backed frames can change through external render paths without a
+    // CPU-upload dirty rect. Re-present them through EGL without marking an
+    // upload region or falling back to software copies.
+    const bool nativePresentOnly =
+        !hasDirty && takeoverActive && presenterAlreadyPresented &&
+        glBackedTexture;
+    if(nativePresentOnly) {
+        updateRect = fullRect;
+        hasDirty = !updateRect.is_empty();
+        forceFullFramePresent = hasDirty;
+    }
 
     if(!hasDirty)
         return takeoverActive && presenterAlreadyPresented;
@@ -2953,7 +2964,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     if(copyFormat == TVPTextureFormat::None)
         copyFormat = texture->GetFormat();
 
-    if(forceFullFramePresent && glBackedTexture)
+    if(forceFullFramePresent && glBackedTexture && !nativePresentOnly)
         texture->InvalidatePixelCache();
 
     bool gpuUploaded = false;
@@ -2968,7 +2979,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     bool gpuFailureLogged = false;
     bool gpuUnavailable = false;
 
-    if(sdlGpuRequested && !shadowUpload) {
+    if(sdlGpuRequested && !shadowUpload && !nativePresentOnly) {
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         if(gSDLGpuPresenterState.unavailable) {
             gpuUnavailable = true;
@@ -2990,7 +3001,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         }
     }
 
-    if(shadowUpload) {
+    if(shadowUpload && !nativePresentOnly) {
         bool knownTexture = false;
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         if(gSDLGpuPresenterState.unavailable) {
@@ -3025,7 +3036,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         }
     }
 
-    if(shadowUpload && !gpuUploaded && takeoverActive && !gpuUnavailable) {
+    if(shadowUpload && !nativePresentOnly && !gpuUploaded &&
+       takeoverActive && !gpuUnavailable) {
         gpuFailureLogged = true;
         if(ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];
@@ -3056,6 +3068,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         androidPlan.forceFullFrame = forceFullFramePresent;
         androidPlan.directPartialAllowed =
             TVPSDLAndroidFlutterPresenterIsDirectPartialPresentEnabled();
+        androidPlan.allowFallback = !nativePresentOnly;
         SDL_Rect directRect = ToSDLRect(androidPlan.dirtyRect);
         if(directRect.x < 0) {
             directRect.w += directRect.x;
@@ -3097,8 +3110,10 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             frameInfo.nativeGL = androidResult.nativeGL;
             frameInfo.cpuCopyFree = androidResult.cpuCopyFree;
             TVPRuntimeRecordPresentFrame(frameInfo);
-            tTVPRect consumed;
-            texture->ConsumeDirtyRect(consumed);
+            if(!nativePresentOnly) {
+                tTVPRect consumed;
+                texture->ConsumeDirtyRect(consumed);
+            }
             const uint64_t presentSequence =
                 gpuUploads > 0 ? gpuUploads : presented;
             if(IsSDLRenderDiagnosticsActive() &&
@@ -3129,6 +3144,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         }
     }
 #endif
+
+    if(nativePresentOnly)
+        return takeoverActive && presenterAlreadyPresented;
 
     if(shadowUpload && !gpuUploaded) {
         if(!gpuUnavailable && !gpuFailureLogged &&
