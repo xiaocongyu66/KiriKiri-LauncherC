@@ -540,6 +540,40 @@ bool CopyTextureRegionToAndroidEGLScratch(iTVPTexture2D *texture,
     return true;
 }
 
+bool GetTextureRegionUploadPointer(iTVPTexture2D *texture,
+                                   TVPTextureFormat::e format, int width,
+                                   int height, const SDL_Rect &rect,
+                                   const uint8_t *&pixels, int &pitch) {
+    pixels = nullptr;
+    pitch = 0;
+    if(!texture || format != TVPTextureFormat::RGBA || width <= 0 ||
+       height <= 0 || rect.x < 0 || rect.y < 0 || rect.w <= 0 ||
+       rect.h <= 0 || rect.x + rect.w > width || rect.y + rect.h > height)
+        return false;
+
+    const int sourcePitch = texture->GetPitch();
+    const int rowBytes = rect.w * 4;
+    if(sourcePitch < width * 4 || sourcePitch < rowBytes)
+        return false;
+
+    if(sourcePitch != rowBytes) {
+#if defined(GL_UNPACK_ROW_LENGTH)
+        if(!IsAndroidGLUnpackRowLengthSupported() || (sourcePitch % 4) != 0)
+            return false;
+#else
+        return false;
+#endif
+    }
+
+    const auto *line = static_cast<const uint8_t *>(
+        texture->GetScanLineForRead(rect.y));
+    if(!line)
+        return false;
+    pixels = line + static_cast<size_t>(rect.x) * 4;
+    pitch = sourcePitch;
+    return true;
+}
+
 GLuint CompileAndroidEGLShaderLocked(GLenum type, const char *source,
                                      const char *stage) {
     GLuint shader = glCreateShader(type);
@@ -796,11 +830,15 @@ void ResetAndroidEGLContextResourcesLocked(const char *reason) {
 bool EnsureAndroidEGLUploadTextureLocked(int width, int height,
                                          const SDL_Rect &rect,
                                          const uint8_t *pixels,
+                                         int pitch,
                                          const char *stage) {
     auto &state = gSDLAndroidEGLPresenterState;
     if(!pixels || width <= 0 || height <= 0 || rect.x < 0 || rect.y < 0 ||
        rect.w <= 0 || rect.h <= 0 || rect.x + rect.w > width ||
        rect.y + rect.h > height)
+        return false;
+    const int rowBytes = rect.w * 4;
+    if(pitch < rowBytes)
         return false;
     if(!state.uploadTexture) {
         glGenTextures(1, &state.uploadTexture);
@@ -818,15 +856,28 @@ bool EnsureAndroidEGLUploadTextureLocked(int width, int height,
     }
 
     glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
-    if(state.uploadWidth == width && state.uploadHeight == height) {
-        glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h,
-                        GL_RGBA, GL_UNSIGNED_BYTE, pixels);
-    } else {
+#if defined(GL_UNPACK_ROW_LENGTH)
+    const bool useRowLength =
+        pitch != rowBytes && IsAndroidGLUnpackRowLengthSupported();
+    if(useRowLength)
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, pitch / 4);
+#else
+    const bool useRowLength = false;
+#endif
+    if(state.uploadWidth != width || state.uploadHeight != height) {
         glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA,
-                     GL_UNSIGNED_BYTE, pixels);
+                     GL_UNSIGNED_BYTE, nullptr);
         state.uploadWidth = width;
         state.uploadHeight = height;
     }
+    glTexSubImage2D(GL_TEXTURE_2D, 0, rect.x, rect.y, rect.w, rect.h,
+                    GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+#if defined(GL_UNPACK_ROW_LENGTH)
+    if(useRowLength)
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+#else
+    (void)useRowLength;
+#endif
     ++state.softwareUploads;
     return glGetError() == GL_NO_ERROR;
 }
@@ -978,6 +1029,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     float uvScaleU = 1.0f;
     float uvScaleV = 1.0f;
     bool flipY = false;
+    const uint8_t *softwareUploadPixels = nullptr;
+    int softwareUploadPitch = 0;
     {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
         auto &state = gSDLAndroidEGLPresenterState;
@@ -1015,14 +1068,6 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             if(needsFullUpload)
                 softwareUploadRect =
                     FullAndroidSurfaceRect(surfaceWidth, surfaceHeight);
-            if(!CopyTextureRegionToAndroidEGLScratch(
-                   texture, format, surfaceWidth, surfaceHeight,
-                   softwareUploadRect, state.uploadScratch)) {
-                LogAndroidEGLFailureLocked(stage,
-                                           "software texture copy failed");
-                TVPAndroidReleaseFlutterGameSurfaceWindow(window);
-                return false;
-            }
         }
 
         const EGLDisplay previousDisplay = eglGetCurrentDisplay();
@@ -1051,9 +1096,27 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
         GLuint sourceTexture = nativeTexture;
         if(softwareUpload) {
+            if(!GetTextureRegionUploadPointer(
+                   texture, format, surfaceWidth, surfaceHeight,
+                   softwareUploadRect, softwareUploadPixels,
+                   softwareUploadPitch)) {
+                if(!CopyTextureRegionToAndroidEGLScratch(
+                       texture, format, surfaceWidth, surfaceHeight,
+                       softwareUploadRect, state.uploadScratch)) {
+                    LogAndroidEGLFailureLocked(
+                        stage, "software texture copy failed");
+                    RestoreAndroidEGLCurrentAndGLStateLocked(
+                        previousDisplay, previousDraw, previousRead,
+                        previousContext, glState, stage);
+                    TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+                    return false;
+                }
+                softwareUploadPixels = state.uploadScratch.data();
+                softwareUploadPitch = softwareUploadRect.w * 4;
+            }
             if(!EnsureAndroidEGLUploadTextureLocked(
                    surfaceWidth, surfaceHeight, softwareUploadRect,
-                   state.uploadScratch.data(), stage)) {
+                   softwareUploadPixels, softwareUploadPitch, stage)) {
                 LogAndroidEGLFailureLocked(
                     stage, "software texture upload failed");
                 RestoreAndroidEGLCurrentAndGLStateLocked(

@@ -203,3 +203,36 @@ Next migration steps:
 - Prefer SDL runtime presenter ownership for the game surface.
 - Continue reducing full-frame CPU readback paths.
 - If new logs are needed, ask user to run with `KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS=1` so `present-texture-*` and `present-android-egl` lines show dirty/full/nativeGL/present-only behavior.
+
+## Follow-up for low FPS and SDL3/2 pitch-aware upload
+
+User then emphasized FPS is still low and asked to continue migration while referencing SDL3/2 implementation. Applied next local direction:
+
+- Reference:
+  - `/root/kiriki-work/krkrsdl3-main/cpp/krkrsdl_gl.cpp`
+  - `SDL_GL_UpdateTexture()` binds texture, sets `GL_UNPACK_ROW_LENGTH = pitch / 4`, sets `GL_UNPACK_ALIGNMENT = 1`, then calls `glTexSubImage2D`.
+- Current project already has pitch-aware SDL_GPU upload:
+  - `cpp/core/render/sdlgpu/SDLGpuTvpAdapter.cpp`
+  - `cpp/core/render/sdlgpu/SDLGpuBackend.cpp`
+  - These use `source.GetPitch()` and copy rows into SDL_GPU transfer buffers correctly.
+- Gap found in Android EGL software upload:
+  - `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - Before the new patch, software upload copied every dirty row into `state.uploadScratch`, then uploaded the scratch buffer with tightly packed rows.
+  - This adds one CPU memcpy pass for every dirty upload and hurts software path FPS.
+
+Patch direction:
+
+- Added `GetTextureRegionUploadPointer()` in `SDLAndroidFlutterPresenter.cpp`.
+  - It validates RGBA, rect bounds, source pitch, row bytes, and `GL_UNPACK_ROW_LENGTH` availability when pitch is wider than dirty row bytes.
+  - It returns a direct pointer to `texture->GetScanLineForRead(rect.y) + rect.x * 4` plus source pitch.
+- Changed `EnsureAndroidEGLUploadTextureLocked()` to accept `pitch`.
+  - On existing upload texture, calls `glTexSubImage2D` using direct source pointer and `GL_UNPACK_ROW_LENGTH` when needed.
+  - On first/resize upload, allocates with `glTexImage2D(..., nullptr)` then uploads rect with `glTexSubImage2D`.
+  - Restores `GL_UNPACK_ROW_LENGTH` to 0 after use; wider GL state restore still exists around presenter draw.
+- Existing scratch-copy path remains as fallback when pitch/direct pointer is unavailable.
+
+Expected effect:
+
+- Software-upload EGL path avoids one row-copy pass for common CPU-backed RGBA textures.
+- Dirty rect upload remains intact.
+- This follows krkrsdl3's proven pitch-aware upload style and does not add hot-path graphical validation.
