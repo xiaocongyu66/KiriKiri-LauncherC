@@ -1281,7 +1281,8 @@ void QueueAndroidInputEvent(const char *eventName, int itemCount, float x,
             gSDLInputQueued.fetch_add(1, std::memory_order_relaxed) + 1;
         const uint64_t dropped =
             gSDLInputDropped.fetch_add(1, std::memory_order_relaxed) + 1;
-        if(ShouldLogInputQueueEvent(queuedCount, eventName)) {
+        if(IsSDLRenderDiagnosticsActive() &&
+           ShouldLogInputQueueEvent(queuedCount, eventName)) {
             char message[320];
             std::snprintf(
                 message, sizeof(message),
@@ -2974,7 +2975,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             gpuError = gSDLGpuPresenterState.unavailableReason;
         } else if(EnsureSDLGpuPresenterLocked(stage)) {
             const uint64_t skipped = ++gSDLGpuPresenterState.skippedDirect;
-            if(ShouldLogScreenPresenter(skipped)) {
+            if(IsSDLRenderDiagnosticsActive() &&
+               ShouldLogScreenPresenter(skipped)) {
                 char message[384];
                 std::snprintf(
                     message, sizeof(message),
@@ -3099,7 +3101,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
             texture->ConsumeDirtyRect(consumed);
             const uint64_t presentSequence =
                 gpuUploads > 0 ? gpuUploads : presented;
-            if(ShouldLogScreenPresenter(presentSequence)) {
+            if(IsSDLRenderDiagnosticsActive() &&
+               ShouldLogScreenPresenter(presentSequence)) {
                 char message[512];
                 std::snprintf(
                     message, sizeof(message),
@@ -3147,7 +3150,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     }
 
     if(!takeoverActive) {
-        if(ShouldLogScreenPresenter(gpuUploads)) {
+        if(IsSDLRenderDiagnosticsActive() &&
+           ShouldLogScreenPresenter(gpuUploads)) {
             char message[512];
             std::snprintf(message, sizeof(message),
                           "shadow-upload #%llu stage=%s tex=%p size=%ux%u "
@@ -3187,7 +3191,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
 
     const uint64_t presentSequence =
         gpuUploads > 0 ? gpuUploads : surfaceCopiedTotal;
-    if(ShouldLogScreenPresenter(presentSequence)) {
+    if(IsSDLRenderDiagnosticsActive() &&
+       ShouldLogScreenPresenter(presentSequence)) {
         char message[512];
         std::snprintf(message, sizeof(message),
                       "present-texture #%llu stage=%s tex=%p size=%ux%u "

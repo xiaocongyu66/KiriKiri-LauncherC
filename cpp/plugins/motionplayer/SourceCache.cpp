@@ -1,6 +1,7 @@
 #include "SourceCache.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <optional>
 #include <unordered_set>
@@ -53,6 +54,15 @@ namespace {
     bool packedColorsAreOpaqueWhite(std::uint32_t c0, std::uint32_t c1,
                                     std::uint32_t c2, std::uint32_t c3) {
         return (c0 & c1 & c2 & c3) == 0xFFFFFFFFu;
+    }
+
+    bool motionSourceDiagnosticsEnabled() {
+        static const bool enabled = [] {
+            const char *value =
+                std::getenv("KRKR2_ENABLE_MOTION_SOURCE_DIAGNOSTICS");
+            return value && value[0] != '\0' && value[0] != '0';
+        }();
+        return enabled;
     }
 
     std::array<int, 4> unpackPackedRgba(std::uint32_t packedColor) {
@@ -783,7 +793,8 @@ namespace motion {
             if(preferEmbeddedRaw) {
                 baseBitmap = loadPsbBitmap(*_runtime->activeMotion, key);
             }
-            if(baseBitmap && preferEmbeddedRaw) {
+            if(baseBitmap && preferEmbeddedRaw &&
+               motionSourceDiagnosticsEnabled()) {
                 if(auto logger = spdlog::get("plugin")) {
                     const auto &motionPath = _runtime->activeMotion->path;
                     if(motionPath.find(".mtn") != std::string::npos) {

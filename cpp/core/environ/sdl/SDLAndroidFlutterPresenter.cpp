@@ -1156,7 +1156,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     if(usedFullFrame)
         *usedFullFrame = fullFramePresent;
 
-    if(presented && ShouldLogScreenPresenter(presentedCount)) {
+    if(presented && IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
+       ShouldLogScreenPresenter(presentedCount)) {
         char message[512];
         std::snprintf(message, sizeof(message),
                       "present-android-egl #%llu stage=%s surface=%dx%d "

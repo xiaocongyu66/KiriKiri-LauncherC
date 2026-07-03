@@ -5088,8 +5088,6 @@ public:
     void SetRenderTarget(iTVPTexture2D *target) override {
         auto *texture = static_cast<tTVPOGLTexture2D *>(target);
         texture->AsTarget();
-        texture->MarkDirtyRect(tTVPRect(0, 0, texture->GetWidth(),
-                                        texture->GetHeight()));
     }
 
     void PrepareTextureForExternalPresenter(iTVPTexture2D *texture) override {
