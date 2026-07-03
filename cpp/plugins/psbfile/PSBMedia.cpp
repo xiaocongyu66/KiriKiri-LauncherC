@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <cstring>
 #include <spdlog/spdlog.h>
 
@@ -20,6 +21,17 @@
 
 namespace PSB {
 #define LOGGER spdlog::get("plugin")
+
+namespace {
+    bool IsPSBMediaDiagnosticsEnabled() {
+        const char *value = std::getenv("KRKR2_ENABLE_PSB_MEDIA_DIAGNOSTICS");
+        return value && *value && std::strcmp(value, "0") != 0 &&
+            std::strcmp(value, "false") != 0 &&
+            std::strcmp(value, "FALSE") != 0 &&
+            std::strcmp(value, "off") != 0 &&
+            std::strcmp(value, "OFF") != 0;
+    }
+}
 
     namespace {
         size_t CalcEntryFootprint(const PSBMedia::CacheEntry &entry) {
@@ -880,7 +892,7 @@ namespace PSB {
 
         void RegisterPSBResourcesIntoMedia(
             PSBMedia &media, PSBFile &psb, const std::string &archiveKey) {
-            auto logger = LOGGER;
+            auto logger = IsPSBMediaDiagnosticsEnabled() ? LOGGER : nullptr;
             size_t logged = 0;
             const auto objs = psb.getObjects();
             if(objs) {
@@ -1384,8 +1396,8 @@ namespace PSB {
                 LOGGER->debug("PSB lazy-load failed: {}", archiveKey);
                 return false;
             }
-            LOGGER->info("PSB {} archive: {}",
-                         forceReload ? "reload" : "lazy-load", archiveKey);
+            LOGGER->debug("PSB {} archive: {}",
+                          forceReload ? "reload" : "lazy-load", archiveKey);
             RegisterPSBResourcesIntoMedia(*this, psb, archiveKey);
             if(!protectedKey.empty()) {
                 std::lock_guard<std::mutex> lock(Mutex());

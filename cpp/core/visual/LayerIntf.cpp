@@ -7444,7 +7444,9 @@ void tTJSNI_BaseLayer::InternalComplete(tTVPComplexRect &updateregion,
     InCompletion = true;
 
     if(IsGPU()) {
-        InternalComplete2_GPU(updateregion.GetBound(), drawable);
+        if(updateregion.GetCount() > 0)
+            InternalComplete2_GPU(updateregion.GetBound(), drawable);
+        updateregion.Clear();
     } else {
         InternalComplete2(updateregion, drawable);
     }
@@ -7466,7 +7468,17 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
         Manager->GetLayerTreeOwner()->StartBitmapCompletion(Manager);
     try {
         if(IsGPU()) {
-            InternalComplete2_GPU(Rect, drawable);
+            if(Manager) {
+                tTVPComplexRect &updateRegion =
+                    Manager->GetUpdateRegionForCompletion();
+                if(updateRegion.GetCount() > 0)
+                    InternalComplete2_GPU(updateRegion.GetBound(), drawable);
+                else if(!Manager->GetDrawBuffer())
+                    InternalComplete2_GPU(Rect, drawable);
+                updateRegion.Clear();
+            } else {
+                InternalComplete2_GPU(Rect, drawable);
+            }
         } else {
             InternalComplete2(Manager->GetUpdateRegionForCompletion(),
                               drawable);

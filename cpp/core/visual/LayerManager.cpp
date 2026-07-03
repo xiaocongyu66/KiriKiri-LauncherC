@@ -199,8 +199,18 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
     TVPSDLRecordBitmapCompletionRegion(this, destrect.left, destrect.top, bmp,
                                        cliprect, static_cast<int>(type),
                                        static_cast<int>(opacity), w, h);
-    DrawBuffer->Blt(destrect.left, destrect.top, bmp, cliprect, type, opacity,
-                    HoldAlpha);
+    if(DrawBuffer->Blt(destrect.left, destrect.top, bmp, cliprect, type,
+                       opacity, HoldAlpha)) {
+        tTVPRect dirty(destrect.left, destrect.top,
+                       destrect.left + cliprect.get_width(),
+                       destrect.top + cliprect.get_height());
+        dirty.clip(tTVPRect(0, 0, DrawBuffer->GetWidth(),
+                            DrawBuffer->GetHeight()));
+        if(!dirty.is_empty()) {
+            if(iTVPTexture2D *texture = DrawBuffer->GetTexture())
+                texture->MarkDirtyRect(dirty);
+        }
+    }
 #endif
 }
 
@@ -1108,6 +1118,7 @@ void tTVPLayerManager::AddUpdateRegion(const tTVPRect &rect) {
 //---------------------------------------------------------------------------
 void tTVPLayerManager::UpdateToDrawDevice() {
 #if defined(__ANDROID__)
+    if(TVPSDLIsRenderDiagnosticsEnabled()) {
     static int s_count = 0;
     static int s_noprimary = 0;
     static int s_lastHasImage = -1;
@@ -1227,6 +1238,7 @@ void tTVPLayerManager::UpdateToDrawDevice() {
                              Primary ? (unsigned)Primary->GetWidth() : 0,
                              Primary ? (unsigned)Primary->GetHeight() : 0,
                              Primary ? (Primary->GetHasImage() ? 1 : 0) : -1);
+    }
     }
 #endif
     // drawdevice -> layer

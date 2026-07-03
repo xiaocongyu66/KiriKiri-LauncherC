@@ -33,7 +33,7 @@ motion::ResourceManager::ResourceManager() :
 motion::ResourceManager::ResourceManager(iTJSDispatch2 *kag,
                                          tjs_int cacheSize) :
     _state(std::make_shared<State>()) {
-    LOGGER->info("kag: {}, cacheSize: {}", static_cast<void *>(kag), cacheSize);
+    LOGGER->debug("kag: {}, cacheSize: {}", static_cast<void *>(kag), cacheSize);
 
     // Pre-define ShortCutInitialPadKeyMap on the KAG window if not already set.
     // The encrypted keybinder.tjs accesses .ShortCutInitialPadKeyMap on the
@@ -74,7 +74,7 @@ tjs_error motion::ResourceManager::setEmotePSBDecryptSeed(tTJSVariant *,
         return TJS_E_INVALIDPARAM;
     }
     _decryptSeed = static_cast<tjs_int>(*p[0]);
-    LOGGER->info("setEmotePSBDecryptSeed: {}", _decryptSeed);
+    LOGGER->debug("setEmotePSBDecryptSeed: {}", _decryptSeed);
     return TJS_S_OK;
 }
 
@@ -89,9 +89,8 @@ tjs_error motion::ResourceManager::setEmotePSBDecryptFunc(tTJSVariant *r,
 tTJSVariant motion::ResourceManager::load(ttstr path) const {
     const auto rawPath = path.AsStdString();
     const auto loweredPath = lowercase(rawPath);
-    if(loweredPath.find(".mtn") != std::string::npos) {
-        LOGGER->warn("Motion resource manager load: {}", rawPath);
-    }
+    if(loweredPath.find(".mtn") != std::string::npos)
+        LOGGER->debug("Motion resource manager load: {}", rawPath);
     const auto loaded = detail::loadPSBVariant(path, _decryptSeed);
     if(loaded.Type() != tvtVoid && _state) {
         const auto key = rawPath;

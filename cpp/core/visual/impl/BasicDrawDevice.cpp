@@ -12,11 +12,15 @@
 #include "EventImpl.h"
 #include "WindowImpl.h"
 #include "NativeLog.h"
+#include "RenderManager.h"
 #include "SDLGameManager.h"
 
 #if defined(__ANDROID__)
 #define KR2_RLOG(fmt_, ...)                                                    \
-    KR2RenderProbeWriteF(fmt_, ##__VA_ARGS__)
+    do {                                                                       \
+        if(TVPSDLIsRenderDiagnosticsEnabled())                                 \
+            KR2RenderProbeWriteF(fmt_, ##__VA_ARGS__);                         \
+    } while(false)
 #else
 #define KR2_RLOG(...) ((void)0)
 #endif
@@ -57,6 +61,8 @@ tTVPBasicDrawDevice::tTVPBasicDrawDevice() {
     TargetWindow = nullptr;
     DrawUpdateRectangle = false;
     BackBufferDirty = true;
+    CompletionDirty = false;
+    CompletionDirtyRect.clear();
 
     Direct3D = nullptr;
     Direct3DDevice = nullptr;
@@ -693,6 +699,8 @@ void tTVPBasicDrawDevice::StartBitmapCompletion(iTVPLayerManager *manager) {
     tjs_int w = 0;
     tjs_int h = 0;
     GetSrcSize(w, h);
+    CompletionDirty = false;
+    CompletionDirtyRect.clear();
     TVPSDLRecordBitmapCompletionStart(manager, w, h, DestRect.get_width(),
                                       DestRect.get_height());
 #if 0
@@ -733,6 +741,17 @@ void tTVPBasicDrawDevice::NotifyBitmapCompleted(
     TVPSDLRecordBitmapCompletionRegion(manager, x, y, bmp, cliprect,
                                        static_cast<int>(type),
                                        static_cast<int>(opacity), w, h);
+    tTVPRect dirty(x, y, x + cliprect.get_width(),
+                   y + cliprect.get_height());
+    dirty.clip(tTVPRect(0, 0, w, h));
+    if(!dirty.is_empty()) {
+        if(CompletionDirty)
+            CompletionDirtyRect.do_union(dirty);
+        else {
+            CompletionDirtyRect = dirty;
+            CompletionDirty = true;
+        }
+    }
 #if 0
 	if( TextureBuffer && TargetWindow &&
 		!(x < 0 || y < 0 ||
@@ -782,6 +801,14 @@ void tTVPBasicDrawDevice::EndBitmapCompletion(iTVPLayerManager *manager) {
     tjs_int h = 0;
     GetSrcSize(w, h);
     TVPSDLRecordBitmapCompletionEnd(manager, w, h);
+    if(CompletionDirty && manager) {
+        if(iTVPBaseBitmap *buf = manager->GetDrawBuffer()) {
+            if(iTVPTexture2D *texture = buf->GetTexture())
+                texture->MarkDirtyRect(CompletionDirtyRect);
+        }
+    }
+    CompletionDirty = false;
+    CompletionDirtyRect.clear();
     if(!TargetWindow)
         return;
 #if 0
