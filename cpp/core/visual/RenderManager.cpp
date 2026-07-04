@@ -328,13 +328,15 @@ public:
     tjs_int Pitch;
     TVPTextureFormat::e Format;
     tjs_uint8 *BmpData; // pointer to bitmap bits
-    tTVPComplexRect AdapterDirtyRegion;
+    bool AdapterDirty = false;
+    tTVPRect AdapterDirtyRect;
 
     tTVPSoftwareTexture2D_static(const void *pixel, int pitch, unsigned int w,
                                  unsigned int h, TVPTextureFormat::e format) :
         iTVPSoftwareTexture2D(w, h), Format(format),
         BmpData((tjs_uint8 *)pixel), Pitch(pitch) {
-        AdapterDirtyRegion.Or(tTVPRect(0, 0, Width, Height));
+        AdapterDirtyRect = tTVPRect(0, 0, Width, Height);
+        AdapterDirty = !AdapterDirtyRect.is_empty();
     }
     ~tTVPSoftwareTexture2D_static() override {}
     void Update(const void *pixel, TVPTextureFormat::e format, int pitch,
@@ -371,40 +373,45 @@ public:
         dirty.clip(bounds);
         if(dirty.is_empty())
             return;
-        AdapterDirtyRegion.Or(dirty);
-        if(AdapterDirtyRegion.GetCount() > TVP_TEXTURE_DIRTY_UNITE_LIMIT)
-            AdapterDirtyRegion.Unite();
+        if(AdapterDirty) {
+            AdapterDirtyRect.do_union(dirty);
+        } else {
+            AdapterDirtyRect = dirty;
+            AdapterDirty = true;
+        }
     }
 
     bool ConsumeDirtyRect(tTVPRect &rect) override {
-        if(AdapterDirtyRegion.GetCount() == 0)
+        if(!AdapterDirty)
             return false;
-        rect = AdapterDirtyRegion.GetBound();
-        AdapterDirtyRegion.Clear();
+        rect = AdapterDirtyRect;
+        AdapterDirty = false;
+        AdapterDirtyRect.clear();
         return true;
     }
 
     bool PeekDirtyRect(tTVPRect &rect) const override {
-        if(AdapterDirtyRegion.GetCount() == 0)
+        if(!AdapterDirty)
             return false;
-        rect = AdapterDirtyRegion.GetBound();
+        rect = AdapterDirtyRect;
         return true;
     }
 
     bool PeekDirtyRegion(tTVPComplexRect &region) const override {
-        if(AdapterDirtyRegion.GetCount() == 0)
+        if(!AdapterDirty)
             return false;
         region.Clear();
-        region.Or(AdapterDirtyRegion);
+        region.Or(AdapterDirtyRect);
         return true;
     }
 
     bool ConsumeDirtyRegion(tTVPComplexRect &region) override {
-        if(AdapterDirtyRegion.GetCount() == 0)
+        if(!AdapterDirty)
             return false;
         region.Clear();
-        region.Or(AdapterDirtyRegion);
-        AdapterDirtyRegion.Clear();
+        region.Or(AdapterDirtyRect);
+        AdapterDirty = false;
+        AdapterDirtyRect.clear();
         return true;
     }
 
@@ -415,7 +422,8 @@ protected:
     }
 
     void ClearAdapterDirtyRect() {
-        AdapterDirtyRegion.Clear();
+        AdapterDirty = false;
+        AdapterDirtyRect.clear();
     }
 
     bool UploadAdapterDirtyRect(krkr::Texture2D *texture,
@@ -473,9 +481,9 @@ public:
                                   krkr::Size::ZERO);
             ClearAdapterDirtyRect();
         } else {
-            tTVPComplexRect dirty;
-            if(ConsumeDirtyRegion(dirty)) {
-                if(!UploadAdapterDirtyRegion(origTex, dirty)) {
+            tTVPRect dirty;
+            if(ConsumeDirtyRect(dirty)) {
+                if(!UploadAdapterDirtyRect(origTex, dirty)) {
                     origTex->updateWithData(BmpData, 0, 0, Pitch / 4, Height);
                 }
             }
@@ -591,10 +599,10 @@ public:
                                   krkr::Size::ZERO);
             ClearAdapterDirtyRect();
         } else {
-            tTVPComplexRect dirty;
-            if(ConsumeDirtyRegion(dirty)) {
+            tTVPRect dirty;
+            if(ConsumeDirtyRect(dirty)) {
                 GetPixelData();
-                if(!UploadAdapterDirtyRegion(origTex, dirty)) {
+                if(!UploadAdapterDirtyRect(origTex, dirty)) {
                     origTex->updateWithData(BmpData, 0, 0, Width, Height);
                 }
             }
