@@ -1946,6 +1946,7 @@ public:
 
     void *GetScanLineForWrite(tjs_uint l) override {
         IsTextureDirty = true;
+        MarkDirtyRect(tTVPRect(0, l, Width, l + 1));
         return (void *)GetScanLineForRead(l);
     }
 

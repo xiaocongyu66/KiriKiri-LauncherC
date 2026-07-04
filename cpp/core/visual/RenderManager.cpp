@@ -447,8 +447,8 @@ protected:
             return true;
         }
 
-        std::vector<tjs_uint8> packed(
-            static_cast<size_t>(rowBytes) * uploadHeight);
+        std::vector<tjs_uint8> packed(static_cast<size_t>(rowBytes) *
+                                      uploadHeight);
         for(int y = 0; y < uploadHeight; ++y) {
             std::memcpy(packed.data() + static_cast<size_t>(y) * rowBytes,
                         firstRow + static_cast<size_t>(y) * Pitch, rowBytes);
@@ -469,8 +469,7 @@ protected:
     }
 
 public:
-    krkr::Texture2D *
-    GetAdapterTexture(krkr::Texture2D *origTex) override {
+    krkr::Texture2D *GetAdapterTexture(krkr::Texture2D *origTex) override {
         const int textureWidth = GetAdapterTextureWidth();
         if(!origTex || origTex->getPixelsWide() != textureWidth ||
            origTex->getPixelsHigh() != Height) {
@@ -586,8 +585,7 @@ public:
         assert(0);
     }
 
-    krkr::Texture2D *
-    GetAdapterTexture(krkr::Texture2D *origTex) override {
+    krkr::Texture2D *GetAdapterTexture(krkr::Texture2D *origTex) override {
         const int textureWidth = GetAdapterTextureWidth();
         if(!origTex || origTex->getPixelsWide() != textureWidth ||
            origTex->getPixelsHigh() != Height) {
@@ -685,8 +683,7 @@ public:
         return 1;
     }
 
-    krkr::Texture2D *
-    GetAdapterTexture(krkr::Texture2D *origTex) override {
+    krkr::Texture2D *GetAdapterTexture(krkr::Texture2D *origTex) override {
         if(!origTex || origTex->getPixelsWide() != Width ||
            origTex->getPixelsHigh() != _scanline.size()) {
             origTex = new krkr::Texture2D;
@@ -1097,9 +1094,13 @@ public:
     }
     bool IsStatic() override { return false; }
     bool IsOpaque() override { return Bitmap->IsOpaque; }
-    void *GetScanLineForWrite(tjs_uint l) override {
+    void *GetScanLineForWriteNoDirty(tjs_uint l) override {
         Bitmap->IsOpaque = false;
         return (void *)GetScanLineForRead(l);
+    }
+    void *GetScanLineForWrite(tjs_uint l) override {
+        MarkDirtyRect(tTVPRect(0, l, Width, l + 1));
+        return GetScanLineForWriteNoDirty(l);
     }
 };
 
@@ -1149,7 +1150,7 @@ public:
         if(opa == 255) {
             for(tjs_int y = 0; y < h; ++y) {
                 FuncWithoutOpa(
-                    (TDst *)_dst->GetScanLineForWrite(rcdst.top + y) +
+                    (TDst *)_dst->GetScanLineForWriteNoDirty(rcdst.top + y) +
                         rcdst.left,
                     (const TSrc *)_src->GetScanLineForRead(rcsrc.top + y) +
                         rcsrc.left,
@@ -1158,7 +1159,7 @@ public:
         } else {
             for(tjs_int y = 0; y < h; ++y) {
                 FuncWithOpa(
-                    (TDst *)_dst->GetScanLineForWrite(rcdst.top + y) +
+                    (TDst *)_dst->GetScanLineForWriteNoDirty(rcdst.top + y) +
                         rcdst.left,
                     (const TSrc *)_src->GetScanLineForRead(rcsrc.top + y) +
                         rcsrc.left,
@@ -1192,7 +1193,8 @@ public:
                     (tjs_uint8 *)_src->GetScanLineForRead(rcsrc.top + y) +
                     rcsrc.left;
                 tjs_uint32 *dst =
-                    (tjs_uint32 *)_dst->GetScanLineForWrite(rcdst.top + y) +
+                    (tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(rcdst.top +
+                                                                   y) +
                     rcdst.left;
                 TVPRemoveOpacity(dst, src, w);
             }
@@ -1202,7 +1204,8 @@ public:
                     (tjs_uint8 *)_src->GetScanLineForRead(rcsrc.top + y) +
                     rcsrc.left;
                 tjs_uint32 *dst =
-                    (tjs_uint32 *)_dst->GetScanLineForWrite(rcdst.top + y) +
+                    (tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(rcdst.top +
+                                                                   y) +
                     rcdst.left;
                 TVPRemoveOpacity_o(dst, src, w, opa);
             }
@@ -1242,7 +1245,8 @@ public:
                   iTVPTexture2D *rule, const tTVPRect &rcrule) override {
         tjs_int pitch = _tar->GetPitch();
         bool is32bpp = _tar->GetFormat() == TVPTextureFormat::RGBA;
-        tjs_uint8 *dest = (tjs_uint8 *)_tar->GetScanLineForWrite(rect.top) +
+        tjs_uint8 *dest =
+            (tjs_uint8 *)_tar->GetScanLineForWriteNoDirty(rect.top) +
             rect.left * (is32bpp ? 4 : 1);
         tjs_int h = rect.bottom - rect.top;
         tjs_int w = rect.right - rect.left;
@@ -1313,7 +1317,8 @@ public:
                   iTVPTexture2D *_src, const tTVPRect &rcsrc,
                   iTVPTexture2D *rule, const tTVPRect &rcrule) override {
         tjs_int pitch = _tar->GetPitch();
-        tjs_uint8 *dest = (tjs_uint8 *)_tar->GetScanLineForWrite(rect.top) +
+        tjs_uint8 *dest =
+            (tjs_uint8 *)_tar->GetScanLineForWriteNoDirty(rect.top) +
             rect.left * sizeof(TDst);
         tjs_int h = rect.bottom - rect.top;
         tjs_int w = rect.right - rect.left;
@@ -1403,7 +1408,8 @@ public:
                   iTVPTexture2D *_src, const tTVPRect &rcsrc,
                   iTVPTexture2D *rule, const tTVPRect &rcrule) override {
         tjs_int pitch = _tar->GetPitch();
-        tjs_uint8 *dest = (tjs_uint8 *)_tar->GetScanLineForWrite(rect.top) +
+        tjs_uint8 *dest =
+            (tjs_uint8 *)_tar->GetScanLineForWriteNoDirty(rect.top) +
             rect.left * sizeof(TDst);
         tjs_int h = rect.bottom - rect.top;
         tjs_int w = rect.right - rect.left;
@@ -1475,12 +1481,12 @@ public:
         // 32bpp
         if(backwardCopy) {
             for(tjs_int y = h - 1; y >= 0; --y) {
-                Func(((TDst *)dst->GetScanLineForWrite(dy + y)) + dx,
+                Func(((TDst *)dst->GetScanLineForWriteNoDirty(dy + y)) + dx,
                      ((const TSrc *)src->GetScanLineForRead(sy + y)) + sx, w);
             }
         } else {
             for(tjs_int y = 0; y < h; ++y) {
-                Func(((TDst *)dst->GetScanLineForWrite(dy + y)) + dx,
+                Func(((TDst *)dst->GetScanLineForWriteNoDirty(dy + y)) + dx,
                      ((const TSrc *)src->GetScanLineForRead(sy + y)) + sx, w);
             }
         }
@@ -1528,23 +1534,23 @@ public:
             tjs_int wbytes = w * pixelsize;
             if(pixelsize == 1) { // 8bit
                 for(int y = 0; y < h; ++y) {
-                    memcpy(
-                        (tjs_uint8 *)_dst->GetScanLineForWrite(rctar.top + y) +
-                            rctar.left,
-                        (const tjs_uint8 *)_src->GetScanLineForRead(rcsrc.top -
-                                                                    y - 1) +
-                            rcsrc.left,
-                        wbytes);
+                    memcpy((tjs_uint8 *)_dst->GetScanLineForWriteNoDirty(
+                               rctar.top + y) +
+                               rctar.left,
+                           (const tjs_uint8 *)_src->GetScanLineForRead(
+                               rcsrc.top - y - 1) +
+                               rcsrc.left,
+                           wbytes);
                 }
             } else { // 32bit
                 for(int y = 0; y < h; ++y) {
-                    memcpy(
-                        (tjs_uint32 *)_dst->GetScanLineForWrite(rctar.top + y) +
-                            rctar.left,
-                        (const tjs_uint32 *)_src->GetScanLineForRead(rcsrc.top -
-                                                                     y - 1) +
-                            rcsrc.left,
-                        wbytes);
+                    memcpy((tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(
+                               rctar.top + y) +
+                               rctar.left,
+                           (const tjs_uint32 *)_src->GetScanLineForRead(
+                               rcsrc.top - y - 1) +
+                               rcsrc.left,
+                           wbytes);
                 }
             }
         } else if(rcsrc.left > rcsrc.right) {
@@ -1562,7 +1568,8 @@ public:
             if(pixelsize == 4) { // 32bpp
                 for(int y = 0; y < h; ++y) {
                     tjs_uint32 *dst =
-                        (tjs_uint32 *)_dst->GetScanLineForWrite(rctar.top + y) +
+                        (tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(
+                            rctar.top + y) +
                         rctar.left;
                     const tjs_uint32 *src =
                         (const tjs_uint32 *)_src->GetScanLineForRead(rcsrc.top +
@@ -1580,7 +1587,8 @@ public:
             } else { // 8bpp
                 for(int y = 0; y < h; ++y) {
                     tjs_uint8 *dst =
-                        (tjs_uint8 *)_dst->GetScanLineForWrite(rctar.top + y) +
+                        (tjs_uint8 *)_dst->GetScanLineForWriteNoDirty(
+                            rctar.top + y) +
                         rctar.left;
                     const tjs_uint8 *src =
                         (const tjs_uint8 *)_src->GetScanLineForRead(rcsrc.top +
@@ -1607,11 +1615,11 @@ public:
             // 				src =
             // (tjs_uint8*)_src->GetScanLineForRead(rcsrc.bottom - 1)
             // + rcsrc.left * pixelsize; 				dest =
-            // (tjs_uint8*)_tar->GetScanLineForWrite(rcsrc.bottom - 1)
+            // (tjs_uint8*)_tar->GetScanLineForWriteNoDirty(rcsrc.bottom - 1)
             // + rcsrc.left * pixelsize; 			} else { src =
             // (tjs_uint8*)_src->GetScanLineForRead(rcsrc.top) +
             // rcsrc.left * pixelsize; 				dest =
-            // (tjs_uint8*)_tar->GetScanLineForWrite(rctar.top) +
+            // (tjs_uint8*)_tar->GetScanLineForWriteNoDirty(rctar.top) +
             // rctar.left * pixelsize;
             // 			}
 
@@ -1634,17 +1642,19 @@ public:
         w *= sizeof(tjs_uint32);
         if(backwardCopy) {
             for(tjs_int y = h - 1; y >= 0; --y) {
-                memmove(((tjs_uint32 *)dst->GetScanLineForWrite(dy + y)) + dx,
-                        ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) +
-                            sx,
-                        w);
+                memmove(
+                    ((tjs_uint32 *)dst->GetScanLineForWriteNoDirty(dy + y)) +
+                        dx,
+                    ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
+                    w);
             }
         } else {
             for(tjs_int y = 0; y < h; ++y) {
-                memmove(((tjs_uint32 *)dst->GetScanLineForWrite(dy + y)) + dx,
-                        ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) +
-                            sx,
-                        w);
+                memmove(
+                    ((tjs_uint32 *)dst->GetScanLineForWriteNoDirty(dy + y)) +
+                        dx,
+                    ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
+                    w);
             }
         }
         // 		tjs_int spitch = p->spitch, dpitch = p->dpitch;
@@ -1671,7 +1681,8 @@ public:
         tTVPRenderMethod_DirectCopy::DoRender(_tar, rctar, _dst, rcdst, _src,
                                               rcsrc, rule, rcrule);
         tjs_int pitch = _tar->GetPitch();
-        tjs_uint8 *line = (tjs_uint8 *)_tar->GetScanLineForWrite(rctar.top) +
+        tjs_uint8 *line =
+            (tjs_uint8 *)_tar->GetScanLineForWriteNoDirty(rctar.top) +
             rctar.left * sizeof(tjs_uint32);
         tjs_int h = rctar.bottom - rctar.top;
         tjs_int w = rctar.right - rctar.left;
@@ -1722,7 +1733,7 @@ class tTVPRenderMethod_Blt
                      tjs_int sy, tjs_int dx, tjs_int dy, tjs_int w,
                      tjs_int h) override {
         for(tjs_int y = 0; y < h; ++y) {
-            Func(((tjs_uint32 *)dst->GetScanLineForWrite(dy + y)) + dx,
+            Func(((tjs_uint32 *)dst->GetScanLineForWriteNoDirty(dy + y)) + dx,
                  ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx, w);
         }
         // 		tjs_uint8 *dst = p->dest, *src = p->src;
@@ -1765,7 +1776,7 @@ public:
         // + rcsrc.left * sizeof(tjs_uint32); 		dest =
         // (tjs_uint8*)_dst->GetScanLineForRead(rcdst.top) +
         // rcdst.left * sizeof(tjs_uint32); 		tar =
-        // (tjs_uint8*)_tar->GetScanLineForWrite(rctar.top) +
+        // (tjs_uint8*)_tar->GetScanLineForWriteNoDirty(rctar.top) +
         // rctar.left * sizeof(tjs_uint32);
 
         tjs_int taskNum = GetAdaptiveThreadNum(w * h, THREAD_FACTOR);
@@ -1790,7 +1801,7 @@ public:
                              iTVPTexture2D *dst, tjs_int dx, tjs_int dy,
                              tjs_int w, tjs_int h) {
         for(tjs_int y = 0; y < h; ++y) {
-            Func(((tjs_uint32 *)tar->GetScanLineForWrite(ty + y)) + tx,
+            Func(((tjs_uint32 *)tar->GetScanLineForWriteNoDirty(ty + y)) + tx,
                  ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
                  ((const tjs_uint32 *)dst->GetScanLineForRead(dy + y)) + dx, w,
                  opa);
@@ -1839,7 +1850,7 @@ public:
         // + rcsrc.left * sizeof(tjs_uint32); 		dest =
         // (tjs_uint8*)_dst->GetScanLineForRead(rcdst.top) +
         // rcdst.left * sizeof(tjs_uint32); 		tar =
-        // (tjs_uint8*)_tar->GetScanLineForWrite(rctar.top) +
+        // (tjs_uint8*)_tar->GetScanLineForWriteNoDirty(rctar.top) +
         // rctar.left * sizeof(tjs_uint32); 		rule =
         // (tjs_uint8*)_rule->GetScanLineForRead(rcrule.top) +
         // rcrule.left * sizeof(tjs_uint8);
@@ -1887,7 +1898,8 @@ public:
 
         if(vague >= 512) {
             for(tjs_int y = 0; y < h; ++y) {
-                Func(((tjs_uint32 *)tar->GetScanLineForWrite(ty + y)) + tx,
+                Func(((tjs_uint32 *)tar->GetScanLineForWriteNoDirty(ty + y)) +
+                         tx,
                      ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
                      ((const tjs_uint32 *)dst->GetScanLineForRead(dy + y)) + dx,
                      ((const tjs_uint8 *)rule->GetScanLineForRead(ry + y)) + rx,
@@ -1906,7 +1918,8 @@ public:
             tjs_int src2lv = phase - vague;
             for(tjs_int y = 0; y < h; ++y) {
                 FuncSwitch(
-                    ((tjs_uint32 *)tar->GetScanLineForWrite(ty + y)) + tx,
+                    ((tjs_uint32 *)tar->GetScanLineForWriteNoDirty(ty + y)) +
+                        tx,
                     ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
                     ((const tjs_uint32 *)dst->GetScanLineForRead(dy + y)) + dx,
                     ((const tjs_uint8 *)rule->GetScanLineForRead(ry + y)) + rx,
@@ -1946,7 +1959,8 @@ public:
         if(opa == 255) {
             for(tjs_int y = 0; y < h; ++y) {
                 tjs_uint32 *dst =
-                    ((tjs_uint32 *)_dst->GetScanLineForWrite(dy + y)) + dx;
+                    ((tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(dy + y)) +
+                    dx;
                 Func(dst,
                      ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
                      w);
@@ -1954,7 +1968,8 @@ public:
         } else {
             for(tjs_int y = 0; y < h; ++y) {
                 tjs_uint32 *dst =
-                    ((tjs_uint32 *)_dst->GetScanLineForWrite(dy + y)) + dx;
+                    ((tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(dy + y)) +
+                    dx;
                 FuncWithOpa(
                     dst,
                     ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
@@ -1985,7 +2000,7 @@ public:
                      tjs_int h) override {
         for(tjs_int y = 0; y < h; ++y) {
             tjs_uint32 *dst =
-                ((tjs_uint32 *)_dst->GetScanLineForWrite(dy + y)) + dx;
+                ((tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(dy + y)) + dx;
             FuncWithOpa(
                 dst, ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) + sx,
                 w, opa);
@@ -2013,7 +2028,7 @@ public:
                      tjs_int h) override {
         for(tjs_int y = 0; y < h; ++y) {
             tjs_uint32 *dst =
-                ((tjs_uint32 *)_dst->GetScanLineForWrite(dy + y)) + dx;
+                ((tjs_uint32 *)_dst->GetScanLineForWriteNoDirty(dy + y)) + dx;
             FuncWithOpa(dst, dst,
                         ((const tjs_uint32 *)src->GetScanLineForRead(sy + y)) +
                             sx,
@@ -2048,7 +2063,8 @@ public:
 			rule, rcrule);
 #endif
         tjs_uint8 *line =
-            (tjs_uint8 *)_tar->GetScanLineForWrite(rctar.top) + rctar.left * 4;
+            (tjs_uint8 *)_tar->GetScanLineForWriteNoDirty(rctar.top) +
+            rctar.left * 4;
         tjs_int h = rcsrc.bottom - rcsrc.top;
         tjs_int w = rcsrc.right - rcsrc.left;
         assert(rctar.get_width() == w && rctar.get_height() == h);
@@ -2072,7 +2088,8 @@ public:
                                               rcsrc, rule, rcrule);
 
         tjs_uint8 *line =
-            (tjs_uint8 *)_tar->GetScanLineForWrite(rctar.top) + rctar.left * 4;
+            (tjs_uint8 *)_tar->GetScanLineForWriteNoDirty(rctar.top) +
+            rctar.left * 4;
         tjs_int h = rcsrc.bottom - rcsrc.top;
         tjs_int w = rcsrc.right - rcsrc.left;
         assert(rctar.get_width() == w && rctar.get_height() == h);
@@ -2464,8 +2481,8 @@ public:
         int spitch = src->GetPitch();
         const uint8_t *sdata = (const uint8_t *)src->GetPixelData() +
             (rcsrc.top * spitch + rcsrc.left * 4);
-        uint8_t *ddata =
-            (uint8_t *)tar->GetScanLineForWrite(rcdst.top) + rcdst.left * 4;
+        uint8_t *ddata = (uint8_t *)tar->GetScanLineForWriteNoDirty(rcdst.top) +
+            rcdst.left * 4;
         int dpitch = tar->GetPitch();
 
         cv::Mat src_img(sh, sw, CV_8UC4, (void *)sdata, spitch);
@@ -3214,7 +3231,7 @@ public:
                 (rcsrc.top * spitch + rcsrc.left * 4);
 
             iTVPTexture2D *tmp = getTempTexture(dw, dh + 1);
-            uint8_t *ddata = (uint8_t *)tmp->GetScanLineForWrite(0);
+            uint8_t *ddata = (uint8_t *)tmp->GetScanLineForWriteNoDirty(0);
             int dpitch = tmp->GetPitch();
 // #ifdef _DEBUG
 // 			printf("resize (%d, %d) -> (%d, %d)\n", sw, sh, dw, dh);
@@ -3731,10 +3748,10 @@ public:
                 // cr.get_height(); 				if
                 // (target->GetWidth()
                 // == clipW) {
-                // memset(target->GetScanLineForWrite(cr.top), 0,
+                // memset(target->GetScanLineForWriteNoDirty(cr.top), 0,
                 // target->GetPitch() * clipH); 				} else
                 // { for (int i = cr.top; i < cr.bottom; ++i) {
-                // memset((tjs_uint8*)target->GetScanLineForWrite(i) +
+                // memset((tjs_uint8*)target->GetScanLineForWriteNoDirty(i) +
                 // cr.left, 0, clipW * 4);
                 // 					}
                 // 				}
@@ -3865,7 +3882,7 @@ public:
             // draw mode")); 			iTVPTexture2D *tmp = new
             // tTVPSoftwareTexture2D(nullptr, 0, rcclip.get_width(),
             // rcclip.get_height(), TVPTextureFormat::RGBA);
-            // 			memset(tmp->GetScanLineForWrite(0), 0,
+            // 			memset(tmp->GetScanLineForWriteNoDirty(0), 0,
             // tmp->GetPitch() * rcclip.get_height());
             TAffuncFunc affineloop = GetStretchFunction(
                 static_cast<tTVPRenderMethod_Software *>(method));
@@ -4541,7 +4558,7 @@ public:
 
         tjs_int destpitch = dst->GetPitch();
         tjs_int srcpitch = _src->GetPitch();
-        tjs_uint8 *dest = (tjs_uint8 *)dst->GetScanLineForWrite(yc);
+        tjs_uint8 *dest = (tjs_uint8 *)dst->GetScanLineForWriteNoDirty(yc);
         const tjs_uint8 *src = (const tjs_uint8 *)_src->GetScanLineForRead(0);
 
         tTVPBBStretchType mode = /*param->mode*/ StretchType;
@@ -5018,13 +5035,14 @@ void TVPRegisterRenderManager(const char *name, iTVPRenderManager *(*func)()) {
 
 class tTVPVulkanRenderManager : public tTVPSoftwareRenderManager {
 public:
-    tTVPVulkanRenderManager() :
-        RuntimeReady(false) {
+    tTVPVulkanRenderManager() : RuntimeReady(false) {
         RuntimeReady = Runtime.Initialize(RuntimeSummary);
         if(RuntimeReady) {
-            TVPAddLog(TJS_W("[renderer] Native Vulkan runtime initialized: ") +
-                      ttstr(RuntimeSummary.c_str()) +
-                      TJS_W("; compositing currently uses the software render path."));
+            TVPAddLog(
+                TJS_W("[renderer] Native Vulkan runtime initialized: ") +
+                ttstr(RuntimeSummary.c_str()) +
+                TJS_W(
+                    "; compositing currently uses the software render path."));
         } else {
             TVPAddLog(TJS_W("[renderer] Native Vulkan runtime unavailable: ") +
                       ttstr(RuntimeSummary.c_str()) +
@@ -5048,12 +5066,12 @@ iTVPRenderManager *TVPCreateOpenGLRenderManager();
 
 static bool TVPIsTruthyEnvValue(const char *value) {
     return value && std::strcmp(value, "0") != 0 &&
-        std::strcmp(value, "false") != 0 &&
-        std::strcmp(value, "FALSE") != 0;
+        std::strcmp(value, "false") != 0 && std::strcmp(value, "FALSE") != 0;
 }
 
 static bool TVPUseLegacyRenderManagerPreference() {
-    return TVPIsTruthyEnvValue(std::getenv("KRKR2_FORCE_LEGACY_RENDER_MANAGER"));
+    return TVPIsTruthyEnvValue(
+        std::getenv("KRKR2_FORCE_LEGACY_RENDER_MANAGER"));
 }
 
 static ttstr TVPReadPreferredRenderPipeline() {
@@ -5062,8 +5080,9 @@ static ttstr TVPReadPreferredRenderPipeline() {
     if(TVPGetCommandLine(TJS_W("renderer"), &val))
         renderer = val;
     if(renderer.IsEmpty()) {
-        renderer = IndividualConfigManager::GetInstance()
-                       ->GetValue<std::string>("renderer", "software");
+        renderer =
+            IndividualConfigManager::GetInstance()->GetValue<std::string>(
+                "renderer", "software");
     }
     return renderer;
 }

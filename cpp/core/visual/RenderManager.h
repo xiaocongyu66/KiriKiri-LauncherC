@@ -97,13 +97,13 @@ struct TVPTextureFormat {
 };
 
 namespace cocos2d {
-class Texture2D;
+    class Texture2D;
 }
 
 #ifndef KRKR_TEXTURE2D_ALIAS_DECLARED
 #define KRKR_TEXTURE2D_ALIAS_DECLARED 1
 namespace krkr {
-using Texture2D = cocos2d::Texture2D;
+    using Texture2D = cocos2d::Texture2D;
 }
 #endif
 
@@ -138,6 +138,9 @@ public:
     virtual void *GetScanLineForWrite(tjs_uint l) {
         return (void *)GetScanLineForRead(l);
     }
+    virtual void *GetScanLineForWriteNoDirty(tjs_uint l) {
+        return GetScanLineForWrite(l);
+    }
     virtual tjs_int GetPitch() const { return 0x100000; }
     bool IsIndependent() const { return RefCount == 1; }
 
@@ -149,8 +152,7 @@ public:
     virtual bool IsStatic() = 0; // aka. is readonly
     virtual bool IsOpaque() = 0;
     // virtual void RefreshBitmap() = 0;
-    virtual krkr::Texture2D *
-    GetAdapterTexture(krkr::Texture2D *origTex) = 0;
+    virtual krkr::Texture2D *GetAdapterTexture(krkr::Texture2D *origTex) = 0;
     virtual bool GetScale(float &x, float &y) {
         x = 1.f;
         y = 1.f;

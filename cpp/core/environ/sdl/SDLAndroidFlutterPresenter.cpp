@@ -87,6 +87,7 @@ struct TVPAndroidEGLSurfacePresenterState {
     bool lastPresentNativeGL = false;
     bool preserveSwapBehavior = false;
     bool surfaceHasContent = false;
+    bool swapIntervalZeroSet = false;
     std::string fatalReason;
     std::string autoDisabledReason;
 };
@@ -99,6 +100,8 @@ std::once_flag gSDLAndroidEGLFlipYFlagOnce;
 bool gSDLAndroidEGLFlipY = false;
 std::once_flag gSDLAndroidEGLSoftwareUploadFlagOnce;
 bool gSDLAndroidEGLSoftwareUploadEnabled = false;
+std::once_flag gSDLAndroidEGLSaveGLStateFlagOnce;
+bool gSDLAndroidEGLSaveGLState = false;
 #endif
 
 bool ShouldLogScreenPresenter(uint64_t sequence) {
@@ -291,6 +294,14 @@ bool IsAndroidEGLSoftwareUploadEnabled() {
         }
     });
     return gSDLAndroidEGLSoftwareUploadEnabled;
+}
+
+bool IsAndroidEGLSaveGLStateEnabled() {
+    std::call_once(gSDLAndroidEGLSaveGLStateFlagOnce, []() {
+        gSDLAndroidEGLSaveGLState =
+            IsTruthyEnv("KRKR2_ANDROID_EGL_SAVE_GL_STATE");
+    });
+    return gSDLAndroidEGLSaveGLState;
 }
 
 #if defined(GL_UNPACK_ROW_LENGTH)
@@ -792,6 +803,7 @@ void DestroyAndroidEGLWindowSurfaceLocked(const char *reason) {
     state.height = 0;
     state.preserveSwapBehavior = false;
     state.surfaceHasContent = false;
+    state.swapIntervalZeroSet = false;
     if(reason && *reason) {
         char message[192];
         std::snprintf(message, sizeof(message), "surface dropped reason=%s",
@@ -825,6 +837,7 @@ void ResetAndroidEGLContextResourcesLocked(const char *reason) {
     state.uploadWidth = 0;
     state.uploadHeight = 0;
     state.uploadSourceTexture = nullptr;
+    state.swapIntervalZeroSet = false;
     state.uploadScratch.clear();
 }
 
@@ -880,7 +893,9 @@ bool EnsureAndroidEGLUploadTextureLocked(int width, int height,
     (void)useRowLength;
 #endif
     ++state.softwareUploads;
-    return glGetError() == GL_NO_ERROR;
+    if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS"))
+        return glGetError() == GL_NO_ERROR;
+    return true;
 }
 
 bool EnsureAndroidEGLSurfacePresenterLocked(ANativeWindow *window, int width,
@@ -1085,8 +1100,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         const bool samePresenterContext =
             previousContext != EGL_NO_CONTEXT &&
             previousContext == state.context;
+        const bool savePresenterGLState =
+            samePresenterContext && IsAndroidEGLSaveGLStateEnabled();
         TVPAndroidGLStateSnapshot glState;
-        if(samePresenterContext)
+        if(savePresenterGLState)
             glState =
                 SaveAndroidGLState(state.positionAttrib, state.texCoordAttrib);
 
@@ -1094,12 +1111,15 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                            state.context)) {
             LogAndroidEGLFailureLocked(
                 stage, AndroidEGLFormatError("eglMakeCurrent", eglGetError()));
-            if(samePresenterContext)
+            if(savePresenterGLState)
                 RestoreAndroidGLState(glState);
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
         }
-        eglSwapInterval(state.display, 0);
+        if(!state.swapIntervalZeroSet) {
+            eglSwapInterval(state.display, 0);
+            state.swapIntervalZeroSet = true;
+        }
 
         GLuint sourceTexture = nativeTexture;
         if(softwareUpload) {
@@ -1115,7 +1135,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                     RestoreAndroidEGLCurrentLocked(
                         previousDisplay, previousDraw, previousRead,
                         previousContext,
-                        samePresenterContext ? &glState : nullptr, stage);
+                        savePresenterGLState ? &glState : nullptr, stage);
                     TVPAndroidReleaseFlutterGameSurfaceWindow(window);
                     return false;
                 }
@@ -1130,7 +1150,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                 RestoreAndroidEGLCurrentLocked(
                     previousDisplay, previousDraw, previousRead,
                     previousContext,
-                    samePresenterContext ? &glState : nullptr, stage);
+                    savePresenterGLState ? &glState : nullptr, stage);
                 TVPAndroidReleaseFlutterGameSurfaceWindow(window);
                 return false;
             }
@@ -1164,12 +1184,6 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         glUseProgram(state.program);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
-        if(copiedSoftware) {
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        }
         glUniform1i(state.textureUniform, 0);
         glUniform2f(state.uvScaleUniform, uvScaleU, uvScaleV);
         flipY = IsAndroidEGLSurfaceFlipYEnabled();
@@ -1199,7 +1213,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
         const bool restored = RestoreAndroidEGLCurrentLocked(
             previousDisplay, previousDraw, previousRead, previousContext,
-            samePresenterContext ? &glState : nullptr, stage);
+            savePresenterGLState ? &glState : nullptr, stage);
         TVPAndroidReleaseFlutterGameSurfaceWindow(window);
 
         if(!restored)

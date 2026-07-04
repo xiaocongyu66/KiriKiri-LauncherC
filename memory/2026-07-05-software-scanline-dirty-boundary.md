@@ -55,29 +55,48 @@ This is expensive and redundant:
 - The user specifically asked to remove excessive render validation/dirty
   bookkeeping from hot paths and follow reference-style update boundaries.
 
-The intended model after this change:
+The intended model after the follow-up correction:
 
-- scanline write access is just pixel access
-- dirty ownership sits at stable operation/frame boundaries
+- public raw-buffer/plugin scanline writes keep the old dirty semantics
+- internal software render-loop scanline writes use a no-dirty helper
+- dirty ownership for render methods sits at stable operation/frame boundaries
 - `Update()` and `SetPoint()` still explicitly mark their exact dirty area
 - presenter/upload code consumes the resulting dirty rect at present time
 
 ## Patch applied
 
-File changed:
+Files changed:
 
+- `cpp/core/visual/RenderManager.h`
 - `cpp/core/visual/RenderManager.cpp`
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
 
 Details:
 
-1. Removed per-row dirty marking from:
+1. Added a new texture interface helper:
 
-   - `tTVPSoftwareTexture2D::GetScanLineForWrite(tjs_uint l)`
+   - `iTVPTexture2D::GetScanLineForWriteNoDirty(tjs_uint l)`
 
-   It now only clears the opacity flag and returns the writable scanline.
-   This avoids row-by-row dirty union work during hot render loops.
+   Default implementation falls back to `GetScanLineForWrite(l)`, so existing
+   texture implementations keep their current behavior unless they explicitly
+   opt in.
 
-2. Added explicit operation-boundary dirty marks to software triangle and
+2. `tTVPSoftwareTexture2D` now has two write paths:
+
+   - public `GetScanLineForWrite(l)` still marks
+     `tTVPRect(0, l, Width, l + 1)`;
+   - internal `GetScanLineForWriteNoDirty(l)` only clears opacity and returns
+     the writable scanline.
+
+   This preserves raw-buffer/plugin compatibility while removing dirty union
+   work from software render methods.
+
+3. Software render methods in `RenderManager.cpp` now use
+   `GetScanLineForWriteNoDirty()` for their internal row writes. These writes
+   are covered by the outer operation dirty marks.
+
+4. Added explicit operation-boundary dirty marks to software triangle and
    perspective paths that previously depended on scanline side effects:
 
    - `tTVPSoftwareRenderManager::OperateTriangles(...)`
@@ -87,15 +106,54 @@ Details:
    - `tTVPSoftwareRenderManager::OperatePerspective(...)`
      - non-rect OpenCV perspective path now marks `rcclip` after `DoRender()`.
 
-3. Existing rectangle path remains unchanged:
+5. Existing rectangle path remains unchanged:
 
    - `tTVPSoftwareRenderManager::OperateRect(...)` still marks `rctar` once
      after the render method completes.
 
-4. Existing point/update paths remain unchanged:
+6. Existing point/update paths remain unchanged:
 
    - `tTVPSoftwareTexture2D::Update(...)` marks the update rect.
    - `tTVPSoftwareTexture2D::SetPoint(...)` marks the single pixel.
+
+7. Follow-up OpenGL compatibility fix:
+
+   - `tTVPOGLTexture2D_mutatble::GetScanLineForWrite(l)` now also marks
+     `tTVPRect(0, l, Width, l + 1)`.
+   - This keeps public/raw scanline write semantics consistent between the
+     software and OpenGL texture implementations.
+   - OpenGL render-manager internal GPU operations are unaffected because they
+     already mark dirty at operation boundaries (`OperateRect`,
+     `OperateTriangles`, etc.) and do not use this public scanline path for
+     hot GPU draws.
+
+8. Android Flutter EGL presenter hot-path cleanup:
+
+   - Added optional `KRKR2_ANDROID_EGL_SAVE_GL_STATE`.
+   - By default, the presenter no longer snapshots/restores GL state when it is
+     presenting through the same EGL context. That snapshot was a pile of
+     `glGet*` calls on the present path. It can be re-enabled for compatibility
+     testing with `KRKR2_ANDROID_EGL_SAVE_GL_STATE=1`.
+   - `eglSwapInterval(display, 0)` is now issued once per EGL window surface
+     instead of on every frame. The flag is reset when the presenter surface or
+     context resources are dropped.
+   - Software upload texture parameters are now set when the private upload
+     texture is created. The per-frame `glTexParameteri` block after binding
+     `state.uploadTexture` was removed.
+   - The software upload `glGetError()` check now only runs when
+     `KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS` is truthy. This keeps default runtime
+     closer to the reference projects: upload, draw, swap, and only diagnose
+     when explicitly requested.
+
+   Compatibility note:
+
+   - The EGL presenter still restores the previous EGL draw/read surface and
+     context every frame.
+   - Only the optional GL object/state snapshot is skipped by default.
+   - If a device or the remaining Cocos GL path depends on exact prior program,
+     buffer, viewport, blend/scissor, or unpack state, use
+     `KRKR2_ANDROID_EGL_SAVE_GL_STATE=1` as the fallback while the remaining
+     Cocos host path is being removed.
 
 ## Why this is low risk
 
@@ -104,14 +162,24 @@ Details:
 - The only software render-manager paths that could rely on scanline dirty
   side effects were the non-rect triangle/perspective paths; this patch adds
   explicit marks for them.
-- External `GetScanLineForWrite()` calls found by `rg` are mostly bitmap
-  interfaces (`iTVPBaseBitmap`, transition providers, plugin bitmaps), not
-  `iTVPTexture2D`.
+- Public `tTVPSoftwareTexture2D::GetScanLineForWrite()` was intentionally kept
+  dirty-marking because raw-buffer/plugin paths can still reach texture
+  scanlines indirectly.
+- Public `tTVPOGLTexture2D_mutatble::GetScanLineForWrite()` now also marks the
+  written row dirty. This avoids stale/no-op presents for compatibility paths
+  that write OpenGL-backed mutable texture CPU storage directly.
+- A subagent specifically warned that raw-buffer paths such as
+  `Layer.mainImageBufferForWrite`, `Bitmap.pixelBufferForWrite`, transition
+  scanline providers, resample helpers, and motionplayer bitmap writes should
+  not lose their existing public scanline dirty semantics.
 - `cpp/core/visual/gl/ResampleImage.cpp` uses `iTVPBaseBitmap`, not the
   software texture class changed here.
 - `Update()` and `SetPoint()` still mark dirty directly, so direct small writes
   remain covered.
 - No mutex or complex validation was added to the hot path.
+- The Android EGL presenter now avoids default hot-path `glGet*`, upload
+  `glGetError`, repeated `eglSwapInterval`, and repeated upload texture
+  parameter calls.
 
 ## Expected effect
 
@@ -121,12 +189,17 @@ Expected performance improvement:
 - Less parallel contention/race exposure on `AdapterDirtyRect` union state.
 - Dirty state is now updated once per render operation rather than once per
   writable scanline.
+- Less GLES/EGL driver overhead on the Flutter EGL present path, especially on
+  devices where state queries and redundant texture parameter calls serialize
+  the driver.
 
 Expected correctness:
 
 - Software `OperateRect()` dirty propagation remains the same from the
   presenter's point of view.
 - Non-rect triangle/perspective paths still dirty the affected clip region.
+- External/raw-buffer write paths still call public `GetScanLineForWrite()`
+  and therefore still mark dirty per row as before.
 - Presenter paths using `PeekDirtyRect()` / `ConsumeDirtyRect()` continue to
   receive a bounded dirty area.
 
@@ -141,10 +214,17 @@ What this does not solve by itself:
 ## Verification performed locally
 
 - `git diff --check` passed.
+- `clang-format-18` was installed locally and run on:
+  - `cpp/core/visual/RenderManager.cpp`
+  - `cpp/core/visual/RenderManager.h`
+  - `cpp/core/visual/ogl/RenderManager_ogl.cpp` was manually kept to a
+    one-line functional diff after checking the format pass would otherwise
+    touch unrelated existing formatting.
+- `SDLAndroidFlutterPresenter.cpp` was intentionally kept as a minimal manual
+  diff. A broad `clang-format-18` pass was tested and then discarded because it
+  reformatted almost the entire file.
 - Local Android Gradle build still cannot be run in this environment because
   Java is not installed.
-- Local `clang-format` is not available; CI format check remains the source of
-  formatting verification.
 
 ## CI state before this patch
 
@@ -177,4 +257,7 @@ GitHub Actions result checked on 2026-07-05:
    - `cpp/core/environ/sdl/SDLGameManager.cpp`
 5. Do not reintroduce per-scanline `tTVPComplexRect` or mutex-heavy dirty
    tracking. Dirty regions should be collected at operation or frame
-   boundaries.
+   boundaries, while public raw scanline APIs preserve compatibility.
+6. If Android EGL rendering shows Cocos-state regressions while Cocos is still
+   in the host path, first test `KRKR2_ANDROID_EGL_SAVE_GL_STATE=1`; do not add
+   unconditional `glGet*` state validation back to the default frame path.
