@@ -715,6 +715,14 @@ bool IsSDLRenderDiagnosticsActive() {
     return IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS");
 }
 
+bool AllowAndroidGLCpuFallback() {
+#if defined(__ANDROID__)
+    return IsTruthyEnv("KRKR2_ANDROID_ALLOW_GL_CPU_FALLBACK");
+#else
+    return true;
+#endif
+}
+
 bool ShouldUseSDLSurfaceMirrorForTakeover() {
 #if defined(__ANDROID__)
     return IsTruthyEnv("KRKR2_ENABLE_ANDROID_SDL_SURFACE_MIRROR");
@@ -3135,7 +3143,9 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         androidPlan.forceFullFrame = forceFullFramePresent;
         androidPlan.directPartialAllowed =
             TVPSDLAndroidFlutterPresenterIsDirectPartialPresentEnabled();
-        androidPlan.allowFallback = !nativePresentOnly;
+        androidPlan.allowFallback =
+            !nativePresentOnly &&
+            (!glBackedTexture || AllowAndroidGLCpuFallback());
         SDL_Rect directRect = ToSDLRect(androidPlan.dirtyRect);
         if(directRect.x < 0) {
             directRect.w += directRect.x;
@@ -3214,6 +3224,11 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
 
     if(nativePresentOnly)
         return takeoverActive && presenterAlreadyPresented;
+
+#if defined(__ANDROID__)
+    if(glBackedTexture && !AllowAndroidGLCpuFallback())
+        return false;
+#endif
 
     if(shadowUpload && !skipShadowUploadForNativeAndroid && !gpuUploaded) {
         if(!gpuUnavailable && !gpuFailureLogged &&

@@ -92,9 +92,10 @@ Key behavior:
 
 ## Patch applied in KiriKiri-LauncherC
 
-Changed file:
+Changed files:
 
 - `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
 
 Behavior change:
 
@@ -132,6 +133,18 @@ The new default separates responsibilities:
 - Native GL-backed textures remain fast because full-frame present is a single
   GPU quad and no CPU copy.
 
+Follow-up CPU fallback gate:
+
+- Android GL-backed textures no longer fall back to the CPU Android direct
+  presenter or SDL surface mirror by default when EGL presentation fails.
+- New optional override:
+  - `KRKR2_ANDROID_ALLOW_GL_CPU_FALLBACK=1`
+- This avoids the worst fallback path for OpenGL textures:
+  `GetScanLineForRead()` can force `glReadPixels` / full texture readback,
+  which is not used by the reference full-frame GPU presenter design and can
+  destroy performance or amplify stale-frame issues.
+- Software-backed textures can still use CPU fallback normally.
+
 This follows the reference projects more closely than the previous partial EGL
 present experiment.
 
@@ -141,6 +154,10 @@ present experiment.
   faster, test it explicitly with `KRKR2_ANDROID_EGL_PARTIAL_PRESENT=1`.
 - Do not make partial EGL present the default again unless there is strong
   evidence across Android versions, ANGLE/Vulkan, GLES, and device vendors.
+- If EGL presentation fails for a GL-backed frame, the default behavior now
+  returns to the caller so the legacy form path can decide what to do instead
+  of silently forcing a GPU-to-CPU readback. Use
+  `KRKR2_ANDROID_ALLOW_GL_CPU_FALLBACK=1` only for diagnosis.
 - The remaining Cocos GLThread is still present. The long-term fix remains
   Flutter + SDL3 runtime ownership with Cocos removed from the main frame loop.
 - Keep `KRKR2_ANDROID_EGL_SAVE_GL_STATE=1` as the compatibility switch if
