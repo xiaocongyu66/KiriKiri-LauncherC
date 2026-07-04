@@ -14,6 +14,7 @@
 #include "NativeLog.h"
 #include "RenderManager.h"
 #include "SDLGameManager.h"
+#include "runtime/RuntimePresenter.h"
 
 #if defined(__ANDROID__)
 #define KR2_RLOG(fmt_, ...)                                                    \
@@ -587,6 +588,29 @@ void tTVPBasicDrawDevice::Show() {
                     TVPSDLRecordPresenterFrame(tex, "basic-show",
                                                DestRect.get_width(),
                                                DestRect.get_height());
+                    TVPRuntimeTexturePresentRequest presentRequest;
+                    presentRequest.texture = tex;
+                    presentRequest.stage = "BasicDrawDevice::Show";
+                    presentRequest.layerWidth = DestRect.get_width();
+                    presentRequest.layerHeight = DestRect.get_height();
+                    tTVPRect dirty;
+                    if(tex->PeekDirtyRect(dirty)) {
+                        const tTVPRect fullRect(
+                            0, 0, static_cast<tjs_int>(tex->GetWidth()),
+                            static_cast<tjs_int>(tex->GetHeight()));
+                        dirty.clip(fullRect);
+                        if(!dirty.is_empty()) {
+                            presentRequest.hasDirtyRect = true;
+                            presentRequest.dirtyRect = {
+                                dirty.left, dirty.top, dirty.get_width(),
+                                dirty.get_height()
+                            };
+                        }
+                    }
+                    if(TVPRuntimePresentHostWindowTexture(
+                           static_cast<tTJSNI_BaseWindow *>(Window),
+                           presentRequest))
+                        return;
                     form->UpdateDrawBuffer(tex);
                 } else {
                     ++s_nullTex;

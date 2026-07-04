@@ -60,6 +60,13 @@ runtime presenter interface.
   - passes the dirty rectangle through the runtime presenter request
   - falls back to the existing Cocos sprite upload only when runtime presenter
     cannot present
+- `tTVPBasicDrawDevice::Show()` now also tries the runtime presenter directly
+  after obtaining the draw-buffer texture:
+  - success path returns before entering Cocos `WindowLayer::UpdateDrawBuffer()`
+  - fallback still calls the Cocos window layer when presenter cannot present
+  - this is an incremental step toward
+    `BasicDrawDevice::Show -> RuntimePresenter -> SDLAndroidFlutterPresenter`
+    as the main Android game-picture path
 - `SDLRuntimePresenter` now forwards the complete request to SDL instead of
   unpacking only the old four fields.
 - `SDLGameManager` now has request-based overloads:
@@ -74,6 +81,8 @@ runtime presenter interface.
   the plan.
 - SDL still consumes the texture dirty rect after a successful present.
 - The hot path does not add logging or pixel validation.
+- The runtime presenter can now bypass Cocos `WindowLayer::UpdateDrawBuffer()`
+  on successful presents while keeping Cocos as a fallback.
 - This is a boundary refactor toward a Flutter + SDL3 runtime host, not a new
   renderer branch.
 
