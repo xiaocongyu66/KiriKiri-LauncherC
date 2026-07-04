@@ -261,3 +261,30 @@ GitHub Actions result checked on 2026-07-05:
 6. If Android EGL rendering shows Cocos-state regressions while Cocos is still
    in the host path, first test `KRKR2_ANDROID_EGL_SAVE_GL_STATE=1`; do not add
    unconditional `glGet*` state validation back to the default frame path.
+
+## Follow-up: SDL_GPU texture cache budget
+
+After commit `a7d43c6`, the next local patch continued the GPU residency work:
+
+- `cpp/core/render/sdlgpu/SDLGpuTextureCache.h`
+  - Raised the default per-texture budget from 10 MiB to 64 MiB.
+  - Rationale: 10 MiB is tight for high-resolution RGBA surfaces and can reject
+    larger compatibility cases before eviction/budget logic has a chance to be
+    useful. The total budget remains 256 MiB by default.
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Added environment overrides:
+    - `KRKR2_SDL_GPU_MAX_SINGLE_TEXTURE_MB`
+    - `KRKR2_SDL_GPU_TEXTURE_CACHE_MB`
+  - These are parsed once when the SDL_GPU presenter backend becomes ready and
+    applied through `TextureCache::SetLimits()`.
+  - The SDL render overlay now shows `cache=current/limitMB` when SDL_GPU
+    shadow upload is enabled, so runtime budget behavior can be checked without
+    noisy per-frame logs.
+
+This is still aligned with the hard target:
+
+- keep dirty-rect / pitch-aware upload / CPU-GPU residency as the core design;
+- avoid per-frame validation;
+- make large texture handling configurable without changing reference projects;
+- continue using Cocos only as fallback while moving presentation ownership into
+  Flutter + SDL3.

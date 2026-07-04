@@ -9,7 +9,7 @@
 namespace krkr::render::sdlgpu::tvp {
 
 struct TextureCacheLimits {
-    uint64_t maxSingleTextureBytes = 10ull * 1024ull * 1024ull;
+    uint64_t maxSingleTextureBytes = 64ull * 1024ull * 1024ull;
     uint64_t maxTotalTextureBytes = 256ull * 1024ull * 1024ull;
 };
 

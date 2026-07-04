@@ -26,9 +26,11 @@
 #include <spdlog/spdlog.h>
 
 #include <atomic>
+#include <cerrno>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -378,11 +380,26 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
 void LogSDLScreenPresenter(const char *message);
 bool IsSDLGpuShadowUploadEnabled();
 
+uint64_t MiB(uint64_t value) { return value * 1024ull * 1024ull; }
+
 bool IsTruthyEnv(const char *name) {
     const char *value = SDL_getenv(name);
     return value && std::strcmp(value, "0") != 0 &&
         std::strcmp(value, "false") != 0 &&
         std::strcmp(value, "FALSE") != 0;
+}
+
+uint64_t ReadEnvMiB(const char *name, uint64_t fallbackBytes) {
+    const char *value = SDL_getenv(name);
+    if(!value || !*value)
+        return fallbackBytes;
+
+    errno = 0;
+    char *end = nullptr;
+    const unsigned long long parsed = std::strtoull(value, &end, 10);
+    if(errno != 0 || end == value || parsed == 0)
+        return fallbackBytes;
+    return MiB(static_cast<uint64_t>(parsed));
 }
 
 bool IsSDLScreenPresenterDisabled() {
@@ -476,6 +493,17 @@ std::string PreferredSDLGpuDriver() {
     if(forced && *forced)
         return forced;
     return std::string();
+}
+
+krkr::render::sdlgpu::tvp::TextureCacheLimits ReadSDLGpuTextureCacheLimits() {
+    krkr::render::sdlgpu::tvp::TextureCacheLimits limits;
+    limits.maxSingleTextureBytes = ReadEnvMiB(
+        "KRKR2_SDL_GPU_MAX_SINGLE_TEXTURE_MB",
+        limits.maxSingleTextureBytes);
+    limits.maxTotalTextureBytes =
+        ReadEnvMiB("KRKR2_SDL_GPU_TEXTURE_CACHE_MB",
+                   limits.maxTotalTextureBytes);
+    return limits;
 }
 
 std::string ClipOverlayString(std::string value, size_t limit) {
@@ -575,6 +603,8 @@ bool EnsureSDLGpuPresenterLocked(const char *stage) {
         return false;
     }
 
+    const auto cacheLimits = ReadSDLGpuTextureCacheLimits();
+    gSDLGpuPresenterState.textureCache.SetLimits(cacheLimits);
     gSDLGpuPresenterState.textureCache.SetBackend(
         &gSDLGpuPresenterState.backend);
     gSDLGpuPresenterState.ready = true;
@@ -582,10 +612,14 @@ bool EnsureSDLGpuPresenterLocked(const char *stage) {
     gSDLGpuPresenterState.unavailableReason.clear();
 
     char message[256];
-    std::snprintf(message, sizeof(message),
-                  "backend ready stage=%s driver=%s",
-                  stage ? stage : "",
-                  gSDLGpuPresenterState.backend.DriverName());
+    std::snprintf(
+        message, sizeof(message),
+        "backend ready stage=%s driver=%s cacheMB=%llu singleMB=%llu",
+        stage ? stage : "", gSDLGpuPresenterState.backend.DriverName(),
+        static_cast<unsigned long long>(cacheLimits.maxTotalTextureBytes /
+                                        MiB(1)),
+        static_cast<unsigned long long>(cacheLimits.maxSingleTextureBytes /
+                                        MiB(1)));
     LogSDLGpuPresenter(message);
     return true;
 }
@@ -599,10 +633,14 @@ void AppendSDLGpuOverlayInfo(std::ostringstream &rendererInfo) {
     if(gSDLGpuPresenterState.ready) {
         const char *driver = gSDLGpuPresenterState.backend.DriverName();
         const auto cacheStats = gSDLGpuPresenterState.textureCache.Stats();
+        const auto cacheLimits = gSDLGpuPresenterState.textureCache.Limits();
         rendererInfo << (driver && *driver ? driver : "ready");
         rendererInfo << " uploads=" << gSDLGpuPresenterState.uploads;
         rendererInfo << " full=" << cacheStats.fullUploads;
         rendererInfo << " partial=" << cacheStats.partialUploads;
+        rendererInfo << " cache=" << (cacheStats.textureBytes / MiB(1))
+                     << "/" << (cacheLimits.maxTotalTextureBytes / MiB(1))
+                     << "MB";
         if(gSDLGpuPresenterState.skippedDirect > 0)
             rendererInfo << " skippedDirect="
                          << gSDLGpuPresenterState.skippedDirect;
