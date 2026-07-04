@@ -102,6 +102,8 @@ std::once_flag gSDLAndroidEGLSoftwareUploadFlagOnce;
 bool gSDLAndroidEGLSoftwareUploadEnabled = false;
 std::once_flag gSDLAndroidEGLSaveGLStateFlagOnce;
 bool gSDLAndroidEGLSaveGLState = false;
+std::once_flag gSDLAndroidEGLPartialPresentFlagOnce;
+bool gSDLAndroidEGLPartialPresent = false;
 #endif
 
 bool ShouldLogScreenPresenter(uint64_t sequence) {
@@ -302,6 +304,14 @@ bool IsAndroidEGLSaveGLStateEnabled() {
             IsTruthyEnv("KRKR2_ANDROID_EGL_SAVE_GL_STATE");
     });
     return gSDLAndroidEGLSaveGLState;
+}
+
+bool IsAndroidEGLPartialPresentEnabled() {
+    std::call_once(gSDLAndroidEGLPartialPresentFlagOnce, []() {
+        gSDLAndroidEGLPartialPresent =
+            IsTruthyEnv("KRKR2_ANDROID_EGL_PARTIAL_PRESENT");
+    });
+    return gSDLAndroidEGLPartialPresent;
 }
 
 #if defined(GL_UNPACK_ROW_LENGTH)
@@ -955,7 +965,8 @@ bool EnsureAndroidEGLSurfacePresenterLocked(ANativeWindow *window, int width,
         }
         state.preserveSwapBehavior = false;
         state.surfaceHasContent = false;
-        if(AndroidEGLConfigSupportsPreservedSwap(display, state.config) &&
+        if(IsAndroidEGLPartialPresentEnabled() &&
+           AndroidEGLConfigSupportsPreservedSwap(display, state.config) &&
            eglSurfaceAttrib(display, state.surface, EGL_SWAP_BEHAVIOR,
                             EGL_BUFFER_PRESERVED) == EGL_TRUE) {
             EGLint swapBehavior = EGL_BUFFER_DESTROYED;
@@ -1161,6 +1172,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         }
 
         const bool canPartialPresent =
+            IsAndroidEGLPartialPresentEnabled() &&
             state.preserveSwapBehavior && state.surfaceHasContent &&
             !IsFullAndroidSurfaceRect(rect, surfaceWidth, surfaceHeight);
         fullFramePresent = !canPartialPresent;
