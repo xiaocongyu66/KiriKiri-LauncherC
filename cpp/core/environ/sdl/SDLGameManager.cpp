@@ -2513,12 +2513,12 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
     TVPNativeLogInfo("sdl-bitmap", message);
 }
 
-void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
+bool TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
                                      int sourceWidth, int sourceHeight) {
     const bool diagnostics = IsSDLRenderDiagnosticsActive();
     const bool surfaceMirrorWanted = IsSDLSurfaceMirrorConsumerActive();
     if(!diagnostics && !surfaceMirrorWanted)
-        return;
+        return false;
 
     TVPSDLInitializeRuntime();
 
@@ -2554,16 +2554,19 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         gSDLBitmapCompletionState.active = false;
     }
 
-    if(TVPSDLIsScreenTakeoverEnabled()) {
-        TVPSDLPumpScreenPresenter("bitmap-end");
+    bool surfaceMirrorPresented = false;
+    if(surfaceMirrorWanted && TVPSDLIsScreenTakeoverEnabled()) {
+        surfaceMirrorPresented = TVPSDLPumpScreenPresenter("bitmap-end") &&
+            regions > 0 && surfaceCopied == regions && surfaceSkipped == 0 &&
+            glBacked == 0 && outOfBounds == 0;
     }
 
     if(!diagnostics)
-        return;
+        return surfaceMirrorPresented;
 
     if(!ShouldLogBitmapCompletionBatch(batch) && outOfBounds == 0 &&
        surfaceSkipped == 0)
-        return;
+        return surfaceMirrorPresented;
 
     const Uint32 initialized = SDL_WasInit(0);
     char message[384];
@@ -2591,6 +2594,7 @@ void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
         (initialized & SDL_INIT_AUDIO) ? 1 : 0,
         static_cast<unsigned>(SDL_GetTicks()));
     TVPNativeLogInfo("sdl-bitmap", message);
+    return surfaceMirrorPresented;
 }
 
 void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
@@ -2926,6 +2930,12 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                             static_cast<tjs_int>(texture->GetHeight()));
     const bool presenterAlreadyPresented = TVPSDLHasScreenPresenterPresented();
     const bool glBackedTexture = texture->GetNativeGLTextureId() != 0;
+#if defined(__ANDROID__)
+    const bool skipShadowUploadForNativeAndroid =
+        takeoverActive && glBackedTexture;
+#else
+    const bool skipShadowUploadForNativeAndroid = false;
+#endif
     bool hasDirty = texture->PeekDirtyRect(updateRect);
     if(hasDirty)
         updateRect.clip(fullRect);
@@ -2979,7 +2989,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     bool gpuFailureLogged = false;
     bool gpuUnavailable = false;
 
-    if(sdlGpuRequested && !shadowUpload && !nativePresentOnly) {
+    if(sdlGpuRequested && !shadowUpload && !nativePresentOnly &&
+       !skipShadowUploadForNativeAndroid) {
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         if(gSDLGpuPresenterState.unavailable) {
             gpuUnavailable = true;
@@ -3001,7 +3012,8 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         }
     }
 
-    if(shadowUpload && !nativePresentOnly) {
+    if(shadowUpload && !nativePresentOnly &&
+       !skipShadowUploadForNativeAndroid) {
         bool knownTexture = false;
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         if(gSDLGpuPresenterState.unavailable) {
@@ -3036,8 +3048,9 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
         }
     }
 
-    if(shadowUpload && !nativePresentOnly && !gpuUploaded &&
-       takeoverActive && !gpuUnavailable) {
+    if(shadowUpload && !nativePresentOnly &&
+       !skipShadowUploadForNativeAndroid && !gpuUploaded && takeoverActive &&
+       !gpuUnavailable) {
         gpuFailureLogged = true;
         if(ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];
@@ -3148,7 +3161,7 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     if(nativePresentOnly)
         return takeoverActive && presenterAlreadyPresented;
 
-    if(shadowUpload && !gpuUploaded) {
+    if(shadowUpload && !skipShadowUploadForNativeAndroid && !gpuUploaded) {
         if(!gpuUnavailable && !gpuFailureLogged &&
            ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];

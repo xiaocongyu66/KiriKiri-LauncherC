@@ -5091,8 +5091,11 @@ public:
     }
 
     void PrepareTextureForExternalPresenter(iTVPTexture2D *texture) override {
-        (void)texture;
-        TVPSetRenderTarget(0);
+        const GLuint nativeTexture =
+            texture ? static_cast<GLuint>(texture->GetNativeGLTextureId()) : 0;
+        if(_CurrentFBOValid ||
+           (nativeTexture != 0 && _CurrentRenderTarget == nativeTexture))
+            TVPSetRenderTarget(0);
     }
 };
 

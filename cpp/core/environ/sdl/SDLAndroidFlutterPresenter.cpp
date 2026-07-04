@@ -501,12 +501,13 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
                snapshot.viewport[3]);
 }
 
-bool RestoreAndroidEGLCurrentAndGLStateLocked(
+bool RestoreAndroidEGLCurrentLocked(
     EGLDisplay display, EGLSurface drawSurface, EGLSurface readSurface,
-    EGLContext context, const TVPAndroidGLStateSnapshot &glState,
+    EGLContext context, const TVPAndroidGLStateSnapshot *glState,
     const char *stage) {
     if(eglMakeCurrent(display, drawSurface, readSurface, context) == EGL_TRUE) {
-        RestoreAndroidGLState(glState);
+        if(glState)
+            RestoreAndroidGLState(*glState);
         return true;
     }
     const std::string reason =
@@ -1081,14 +1082,20 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             return false;
         }
 
-        TVPAndroidGLStateSnapshot glState =
-            SaveAndroidGLState(state.positionAttrib, state.texCoordAttrib);
+        const bool samePresenterContext =
+            previousContext != EGL_NO_CONTEXT &&
+            previousContext == state.context;
+        TVPAndroidGLStateSnapshot glState;
+        if(samePresenterContext)
+            glState =
+                SaveAndroidGLState(state.positionAttrib, state.texCoordAttrib);
 
         if(!eglMakeCurrent(state.display, state.surface, state.surface,
                            state.context)) {
             LogAndroidEGLFailureLocked(
                 stage, AndroidEGLFormatError("eglMakeCurrent", eglGetError()));
-            RestoreAndroidGLState(glState);
+            if(samePresenterContext)
+                RestoreAndroidGLState(glState);
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
         }
@@ -1105,9 +1112,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                        softwareUploadRect, state.uploadScratch)) {
                     LogAndroidEGLFailureLocked(
                         stage, "software texture copy failed");
-                    RestoreAndroidEGLCurrentAndGLStateLocked(
+                    RestoreAndroidEGLCurrentLocked(
                         previousDisplay, previousDraw, previousRead,
-                        previousContext, glState, stage);
+                        previousContext,
+                        samePresenterContext ? &glState : nullptr, stage);
                     TVPAndroidReleaseFlutterGameSurfaceWindow(window);
                     return false;
                 }
@@ -1119,9 +1127,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                    softwareUploadPixels, softwareUploadPitch, stage)) {
                 LogAndroidEGLFailureLocked(
                     stage, "software texture upload failed");
-                RestoreAndroidEGLCurrentAndGLStateLocked(
+                RestoreAndroidEGLCurrentLocked(
                     previousDisplay, previousDraw, previousRead,
-                    previousContext, glState, stage);
+                    previousContext,
+                    samePresenterContext ? &glState : nullptr, stage);
                 TVPAndroidReleaseFlutterGameSurfaceWindow(window);
                 return false;
             }
@@ -1176,18 +1185,21 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             4 * sizeof(GLfloat),
             reinterpret_cast<void *>(2 * sizeof(GLfloat)));
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glFlush();
 
-        const GLenum glError = glGetError();
+        GLenum glError = GL_NO_ERROR;
+        if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS")) {
+            glFlush();
+            glError = glGetError();
+        }
         const EGLBoolean swapped = glError == GL_NO_ERROR
             ? eglSwapBuffers(state.display, state.surface)
             : EGL_FALSE;
         const EGLint swapError =
             swapped == EGL_TRUE ? EGL_SUCCESS : eglGetError();
 
-        const bool restored = RestoreAndroidEGLCurrentAndGLStateLocked(
+        const bool restored = RestoreAndroidEGLCurrentLocked(
             previousDisplay, previousDraw, previousRead, previousContext,
-            glState, stage);
+            samePresenterContext ? &glState : nullptr, stage);
         TVPAndroidReleaseFlutterGameSurfaceWindow(window);
 
         if(!restored)

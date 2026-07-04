@@ -97,7 +97,7 @@ void TVPSDLRecordBitmapCompletionRegion(iTVPLayerManager *manager, int x,
                                         const tTVPRect &clipRect, int type,
                                         int opacity, int sourceWidth,
                                         int sourceHeight);
-void TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
+bool TVPSDLRecordBitmapCompletionEnd(iTVPLayerManager *manager,
                                      int sourceWidth, int sourceHeight);
 void TVPSDLRecordLoadingConsoleShow(const char *path, int frameWidth,
                                     int frameHeight, int sceneWidth,

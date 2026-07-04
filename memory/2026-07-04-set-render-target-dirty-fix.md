@@ -236,3 +236,99 @@ Expected effect:
 - Software-upload EGL path avoids one row-copy pass for common CPU-backed RGBA textures.
 - Dirty rect upload remains intact.
 - This follows krkrsdl3's proven pitch-aware upload style and does not add hot-path graphical validation.
+
+## 2026-07-04 continuation: Android EGL hot-path and duplicate upload reduction
+
+User then asked to continue because FPS was still below expectation, especially while moving toward Flutter + SDL3 and away from Cocos. Three read-only subagents were used:
+
+- Current-project path explorer:
+  - Confirmed the current game frame path still enters through `tTVPBasicDrawDevice::Show()` and `TVPWindowLayer::UpdateDrawBuffer()`.
+  - Confirmed `UpdateDrawBuffer()` already tries `TVPRuntimePresentHostWindowTexture()` first and returns on success, so Cocos sprite upload is mostly fallback for game frames when SDL runtime presenter fails.
+  - Confirmed Cocos still owns the outer host/lifecycle and fallback path through `CocosRuntimeHost`, `TVPMainScene`, `DrawSprite`, and `GetAdapterTexture()`.
+- Reference-project explorer:
+  - Reconfirmed krkrsdl3-style pitch-aware upload with `GL_UNPACK_ROW_LENGTH`.
+  - Reconfirmed AetherKiri-style separation between “frame dirty” and final `eglSwapBuffers`.
+- SDL/runtime hot-path explorer:
+  - Identified that Android takeover + GL-backed texture can still run SDL_GPU shadow upload before EGL native texture present.
+  - That path can cause `TextureCache.Upsert()` to call `GetScanLineForRead()` on an OGL texture, which triggers `glReadPixels()` in `RenderManager_ogl.cpp`.
+  - The same frame is then presented by Android EGL using the native GL texture, so the SDL_GPU shadow upload is redundant and expensive.
+
+Local patch set after this continuation:
+
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - Added `skipShadowUploadForNativeAndroid`:
+    - true only on Android when takeover is active and the texture has a native GL id.
+    - Skips SDL_GPU shadow upload and shadow-upload failure logging for that native Android presenter case.
+    - Keeps software textures and non-Android SDL_GPU shadow residency unchanged.
+  - Rationale:
+    - Android EGL native texture present is already CPU-copy-free.
+    - Running SDL_GPU shadow upload first can force GPU->CPU readback for GL-backed textures and does not feed the EGL presenter.
+    - This matches the reference-project preference for simple direct GL present instead of duplicating upload paths.
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - Renamed restore helper to `RestoreAndroidEGLCurrentLocked(...)` and allowed an optional GL-state snapshot pointer.
+  - Kept same-context GL-state restore when needed.
+  - Moved per-frame `glFlush()` and `glGetError()` behind `KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS`.
+  - Normal path now goes straight from `glDrawArrays()` to `eglSwapBuffers()`.
+  - Rationale:
+    - `eglSwapBuffers()` submits the frame for the WindowSurface path.
+    - Per-frame `glFlush()` + `glGetError()` is extra synchronization/driver work that reference projects generally avoid outside diagnostics/failure paths.
+    - Failure logging for `eglSwapBuffers()` remains.
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
+  - `PrepareTextureForExternalPresenter()` no longer calls `TVPSetRenderTarget(0)` unconditionally.
+  - It detaches only when the OGL FBO is currently valid or the requested native texture is still the current render target.
+  - Rationale:
+    - Avoid redundant FBO binds on every native presenter frame.
+    - Preserve the safety goal: external presenter must not sample a texture while it is still attached as the active render target.
+- `cpp/core/environ/sdl/SDLGameManager.h`
+  - `TVPSDLRecordBitmapCompletionEnd(...)` now returns `bool`.
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+  - `TVPSDLRecordBitmapCompletionEnd(...)` returns true only when surface mirror is active, takeover is enabled, `TVPSDLPumpScreenPresenter("bitmap-end")` succeeds, and the batch was fully copied:
+    - `regions > 0`
+    - `surfaceCopied == regions`
+    - `surfaceSkipped == 0`
+    - `glBacked == 0`
+    - `outOfBounds == 0`
+  - Rationale:
+    - Avoid marking the same completion dirty again when surface mirror already copied and presented every updated region.
+    - Be conservative: mixed/incomplete/gl-backed/out-of-bounds batches still mark texture dirty as before.
+- `cpp/core/visual/impl/BasicDrawDevice.cpp`
+  - `EndBitmapCompletion()` now skips `texture->MarkDirtyRect(CompletionDirtyRect)` only when `TVPSDLRecordBitmapCompletionEnd()` reports a complete surface mirror present.
+  - Rationale:
+    - Avoid double CPU copy for surface-mirror completion updates.
+    - Preserve correctness for default Android EGL path and for incomplete surface mirror batches.
+
+Important nuance:
+
+- The Android EGL presenter still uses the current EGL context from the presenter thread. The patch does not introduce a separate EGL context.
+- Because the same context may be shared with the engine/Cocos host, GL state protection is still kept when the previous context equals the presenter context.
+- The main default-path win in `SDLAndroidFlutterPresenter.cpp` is removing `glFlush()` and `glGetError()` from every normal frame, not removing all GL state restore.
+
+Verification after this continuation:
+
+- `git diff --check` passed.
+- No local C++ build was run because the environment has no local `clang-format` and prior build-tool checks found native build tools unavailable.
+- CI/GitHub Actions should be used for compile verification after commit/push.
+
+Expected runtime impact:
+
+- Android OpenGL/nativeGL takeover should no longer pay the SDL_GPU shadow-upload/readback cost before EGL native present.
+- Native EGL present should do less per-frame synchronization work by default.
+- Surface-mirror text/image completion, when explicitly enabled and fully copied, should avoid a second texture dirty/present pass for the same regions.
+
+If logs are needed:
+
+- Use `KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS=1`.
+- Without that switch, success samples like `present-android-egl` are intentionally quiet by default.
+- With the switch, compare:
+  - whether `present-texture-egl` still reports full dirty on small text updates.
+  - whether `nativeGL=1 cpuCopyFree=1` stays on the fast path.
+  - whether surface mirror batches show complete `surfaceCopied == regions` when that path is intentionally enabled.
+
+Current uncommitted files after this continuation:
+
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+- `cpp/core/environ/sdl/SDLGameManager.cpp`
+- `cpp/core/environ/sdl/SDLGameManager.h`
+- `cpp/core/visual/impl/BasicDrawDevice.cpp`
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
+- `memory/2026-07-04-set-render-target-dirty-fix.md`

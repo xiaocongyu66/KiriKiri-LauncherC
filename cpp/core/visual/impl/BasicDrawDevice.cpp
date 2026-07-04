@@ -800,8 +800,9 @@ void tTVPBasicDrawDevice::EndBitmapCompletion(iTVPLayerManager *manager) {
     tjs_int w = 0;
     tjs_int h = 0;
     GetSrcSize(w, h);
-    TVPSDLRecordBitmapCompletionEnd(manager, w, h);
-    if(CompletionDirty && manager) {
+    const bool completionPresented =
+        TVPSDLRecordBitmapCompletionEnd(manager, w, h);
+    if(CompletionDirty && manager && !completionPresented) {
         if(iTVPBaseBitmap *buf = manager->GetDrawBuffer()) {
             if(iTVPTexture2D *texture = buf->GetTexture())
                 texture->MarkDirtyRect(CompletionDirtyRect);
