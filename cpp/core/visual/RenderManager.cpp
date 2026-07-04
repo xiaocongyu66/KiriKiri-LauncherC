@@ -1099,7 +1099,6 @@ public:
     bool IsOpaque() override { return Bitmap->IsOpaque; }
     void *GetScanLineForWrite(tjs_uint l) override {
         Bitmap->IsOpaque = false;
-        MarkDirtyRect(tTVPRect(0, l, Width, l + 1));
         return (void *)GetScanLineForRead(l);
     }
 };
@@ -3858,6 +3857,7 @@ public:
             ((tTVPRenderMethod_Software *)method)
                 ->DoRender(target, rcclip, target, rcclip, tmp, rc, nullptr,
                            rc);
+            target->MarkDirtyRect(rcclip);
             tmp->Release();
         } else {
             // TVPThrowExceptionMessage(TJS_W("OperateTriangles:
@@ -3896,6 +3896,7 @@ public:
                                       !nrot, affineloop);
                 }
             });
+            target->MarkDirtyRect(rcclip);
         }
     }
 
@@ -4995,6 +4996,7 @@ public:
                 ((tTVPRenderMethod_Software *)method)
                     ->DoRender(target, rcclip, target, rcclip, tmp, rc, nullptr,
                                rc);
+                target->MarkDirtyRect(rcclip);
                 tmp->Release();
             }
 
