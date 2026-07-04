@@ -324,11 +324,10 @@ If logs are needed:
   - whether `nativeGL=1 cpuCopyFree=1` stays on the fast path.
   - whether surface mirror batches show complete `surfaceCopied == regions` when that path is intentionally enabled.
 
-Current uncommitted files after this continuation:
+Commit/push state after this continuation:
 
-- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
-- `cpp/core/environ/sdl/SDLGameManager.cpp`
-- `cpp/core/environ/sdl/SDLGameManager.h`
-- `cpp/core/visual/impl/BasicDrawDevice.cpp`
-- `cpp/core/visual/ogl/RenderManager_ogl.cpp`
-- `memory/2026-07-04-set-render-target-dirty-fix.md`
+- Committed and pushed as `10341a3 Reduce Android native present overhead`.
+- GitHub Actions for head
+  `10341a3967d92f6905bcaa050d9d297aee926cfa` completed successfully:
+  - `Build Flutter Android`: success.
+  - `Code Format Check`: success.

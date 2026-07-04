@@ -9,6 +9,7 @@ class iTVPTexture2D;
 class iTVPLayerManager;
 class tTVPBaseTexture;
 class tTJSNI_BaseWindow;
+struct TVPRuntimeTexturePresentRequest;
 struct tTVPRect;
 
 struct TVPSDLRuntimeInfo {
@@ -119,8 +120,11 @@ extern "C" void
 TVPSDLNotifyAndroidFlutterGameSurfaceChanged(const char *reason);
 #endif
 bool TVPSDLIsRenderDiagnosticsEnabled();
+bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request);
 bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
                              int layerWidth, int layerHeight);
+bool TVPSDLPresentHostWindowTexture(
+    tTJSNI_BaseWindow *window, const TVPRuntimeTexturePresentRequest &request);
 bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
                                     iTVPTexture2D *texture, const char *stage,
                                     int layerWidth, int layerHeight);

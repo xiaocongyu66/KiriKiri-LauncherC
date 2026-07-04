@@ -34,17 +34,13 @@ public:
 
     bool PresentTexture(
         const TVPRuntimeTexturePresentRequest &request) override {
-        return TVPSDLTryPresentTexture(request.texture, request.stage,
-                                       request.layerWidth,
-                                       request.layerHeight);
+        return TVPSDLTryPresentTexture(request);
     }
 
     bool PresentHostWindowTexture(
         tTJSNI_BaseWindow *window,
         const TVPRuntimeTexturePresentRequest &request) override {
-        return TVPSDLPresentHostWindowTexture(
-            window, request.texture, request.stage, request.layerWidth,
-            request.layerHeight);
+        return TVPSDLPresentHostWindowTexture(window, request);
     }
 
     void RecordOverlayFrame(float deltaSeconds) override {

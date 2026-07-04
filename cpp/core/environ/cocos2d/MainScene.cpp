@@ -1205,10 +1205,24 @@ public:
         // 			mgr->OperateRect(method, DrawTexture, nullptr,
         // rctar, src_tex); 			tex = DrawTexture;
         // 		}
-        if(TVPRuntimePresentHostWindowTexture(
-               TJSNativeInstance,
-               { tex, "WindowLayer::UpdateDrawBuffer", LayerWidth,
-                 LayerHeight }))
+        TVPRuntimeTexturePresentRequest presentRequest;
+        presentRequest.texture = tex;
+        presentRequest.stage = "WindowLayer::UpdateDrawBuffer";
+        presentRequest.layerWidth = LayerWidth;
+        presentRequest.layerHeight = LayerHeight;
+        tTVPRect dirty;
+        if(tex->PeekDirtyRect(dirty)) {
+            const tTVPRect fullRect(0, 0, static_cast<tjs_int>(tex->GetWidth()),
+                                    static_cast<tjs_int>(tex->GetHeight()));
+            dirty.clip(fullRect);
+            if(!dirty.is_empty()) {
+                presentRequest.hasDirtyRect = true;
+                presentRequest.dirtyRect = { dirty.left, dirty.top,
+                                             dirty.get_width(),
+                                             dirty.get_height() };
+            }
+        }
+        if(TVPRuntimePresentHostWindowTexture(TJSNativeInstance, presentRequest))
             return;
 
         Texture2D *tex2d = DrawSprite->getTexture();

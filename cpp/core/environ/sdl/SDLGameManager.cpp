@@ -2910,8 +2910,19 @@ bool TVPSDLIsRenderDiagnosticsEnabled() {
     return IsSDLRenderDiagnosticsActive();
 }
 
-bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
-                             int layerWidth, int layerHeight) {
+namespace {
+
+tTVPRect ToTVPRect(const TVPRuntimePresentRect &rect) {
+    return tTVPRect(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+}
+
+} // namespace
+
+bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
+    iTVPTexture2D *texture = request.texture;
+    const char *stage = request.stage;
+    const int layerWidth = request.layerWidth;
+    const int layerHeight = request.layerHeight;
     if(!texture)
         return false;
 
@@ -2936,10 +2947,21 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
 #else
     const bool skipShadowUploadForNativeAndroid = false;
 #endif
-    bool hasDirty = texture->PeekDirtyRect(updateRect);
+    bool hasDirty = false;
+    if(request.hasDirtyRect) {
+        updateRect = ToTVPRect(request.dirtyRect);
+        hasDirty = true;
+    } else {
+        hasDirty = texture->PeekDirtyRect(updateRect);
+    }
     if(hasDirty)
         updateRect.clip(fullRect);
     bool forceFullFramePresent = false;
+    if(request.forceFullFrame) {
+        updateRect = fullRect;
+        hasDirty = !updateRect.is_empty();
+        forceFullFramePresent = hasDirty;
+    }
     if(takeoverActive &&
        TVPSDLAndroidFlutterPresenterConsumeForceFullFramePresent()) {
         updateRect = fullRect;
@@ -3245,10 +3267,21 @@ bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
     return true;
 }
 
+bool TVPSDLTryPresentTexture(iTVPTexture2D *texture, const char *stage,
+                             int layerWidth, int layerHeight) {
+    TVPRuntimeTexturePresentRequest request;
+    request.texture = texture;
+    request.stage = stage;
+    request.layerWidth = layerWidth;
+    request.layerHeight = layerHeight;
+    return TVPSDLTryPresentTexture(request);
+}
+
 bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
-                                    iTVPTexture2D *texture, const char *stage,
-                                    int layerWidth, int layerHeight) {
-    if(!TVPSDLTryPresentTexture(texture, stage, layerWidth, layerHeight))
+                                    const TVPRuntimeTexturePresentRequest
+                                        &request) {
+    iTVPTexture2D *texture = request.texture;
+    if(!TVPSDLTryPresentTexture(request))
         return false;
 
     if(!window || !texture)
@@ -3273,6 +3306,17 @@ bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
     drawDevice->SetClipRectangle(dest);
     drawDevice->SetWindowSize(surfaceWidth, surfaceHeight);
     return true;
+}
+
+bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
+                                    iTVPTexture2D *texture, const char *stage,
+                                    int layerWidth, int layerHeight) {
+    TVPRuntimeTexturePresentRequest request;
+    request.texture = texture;
+    request.stage = stage;
+    request.layerWidth = layerWidth;
+    request.layerHeight = layerHeight;
+    return TVPSDLPresentHostWindowTexture(window, request);
 }
 
 bool TVPSDLPumpScreenPresenter(const char *stage) {
