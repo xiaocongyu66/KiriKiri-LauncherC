@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <string>
 
+#ifndef TVP_TEXTURE_DIRTY_UNITE_LIMIT
+#define TVP_TEXTURE_DIRTY_UNITE_LIMIT 300
+#endif
+
 #ifndef GL_ZERO
 #define GL_ZERO 0
 #define GL_ONE 1
@@ -155,12 +159,25 @@ public:
     virtual unsigned int GetNativeGLTextureId() const { return 0; }
     virtual void InvalidatePixelCache() {}
     virtual void MarkDirtyRect(const tTVPRect &rect) { (void)rect; }
+    virtual void MarkDirtyRegion(const tTVPComplexRect &region) {
+        tTVPComplexRect::tIterator it = region.GetIterator();
+        while(it.Step())
+            MarkDirtyRect(*it);
+    }
     virtual bool PeekDirtyRect(tTVPRect &rect) const {
         (void)rect;
         return false;
     }
+    virtual bool PeekDirtyRegion(tTVPComplexRect &region) const {
+        (void)region;
+        return false;
+    }
     virtual bool ConsumeDirtyRect(tTVPRect &rect) {
         (void)rect;
+        return false;
+    }
+    virtual bool ConsumeDirtyRegion(tTVPComplexRect &region) {
+        (void)region;
         return false;
     }
 

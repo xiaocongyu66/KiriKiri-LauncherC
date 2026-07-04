@@ -2975,17 +2975,11 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         hasDirty = !updateRect.is_empty();
         forceFullFramePresent = hasDirty;
     }
-    // GL-backed frames can change through external render paths without a
-    // CPU-upload dirty rect. Re-present them through EGL without marking an
-    // upload region or falling back to software copies.
     const bool nativePresentOnly =
         !hasDirty && takeoverActive && presenterAlreadyPresented &&
         glBackedTexture;
-    if(nativePresentOnly) {
-        updateRect = fullRect;
-        hasDirty = !updateRect.is_empty();
-        forceFullFramePresent = hasDirty;
-    }
+    if(nativePresentOnly)
+        return true;
 
     if(!hasDirty)
         return takeoverActive && presenterAlreadyPresented;

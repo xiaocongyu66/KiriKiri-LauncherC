@@ -171,3 +171,67 @@ Avoid in hot paths:
 - SDL_GPU shadow upload while Android Flutter direct presenter is active.
 - per-frame `glGetError()` outside diagnostics or resource creation/failure
   paths.
+
+## 2026-07-04 10:51 log and continuation
+
+Log inspected:
+
+- `/root/log/20260704105124483.log`
+
+Findings:
+
+- No native crash stack was present in this log.
+- Runtime is still launched through Cocos:
+  - `runtimeHost=cocos2d StartGame(...) returned 1`
+  - This confirms the hard migration target is still unfinished. Cocos is still
+    the runtime host even though the game picture can be handed to SDL/Flutter.
+- Android EGL presenter lifecycle:
+  - Flutter surface starts at `1x1`, then resizes to `2780x1264`, then the game
+    surface is recreated at `1920x1080`.
+  - EGL presenter logs `surface dropped reason=context-change`, `recreate`,
+    and later `surface ready #1/#2`.
+  - `surface ready ... preserve=0`, so this device/session cannot safely rely
+    on preserved backbuffer contents for partial swap.
+- Consequence for presenter design:
+  - Dirty rects should currently control whether a frame needs present/swap and
+    should reduce CPU/GPU upload work.
+  - Do not claim or depend on partial EGL swap while `preserve=0`.
+  - When present is needed under `preserve=0`, submit a complete composed frame.
+  - When GL-backed texture has no dirty region, the runtime presenter should
+    return handled and skip the EGL swap, rather than forcing a full-frame
+    `nativePresentOnly` draw every `Show()`.
+- Input queue still shows pressure during script/render work:
+  - `maxAgeMs=317`, `maxBacklog=15`, `dropped=1`, `coalesced=79`.
+  - Reducing repeated no-change presents is still relevant to input latency.
+
+Code continuation from this log:
+
+- `iTVPTexture2D` gained optional complex dirty-region APIs:
+  - `MarkDirtyRegion`
+  - `PeekDirtyRegion`
+  - `ConsumeDirtyRegion`
+- Software static textures now store dirty state as `tTVPComplexRect` and keep
+  `PeekDirtyRect`/`ConsumeDirtyRect` as bounding-rect compatibility wrappers.
+- OpenGL textures now store dirty state as `tTVPComplexRect` with the same
+  compatibility wrappers.
+- The Cocos fallback adapter upload can consume a dirty region and call the
+  existing pitch-aware rectangle uploader for each rect.
+- `TVPSDLTryPresentTexture()` now treats no-dirty GL-backed frames under
+  Android takeover as handled/no-op after the first presented frame, instead of
+  converting them into full-frame EGL swaps. Surface recreate and explicit
+  `forceFullFrame` still force full-frame present before this no-op gate.
+
+Reference constraint from AetherKiri/krkrsdl2/krkrsdl3:
+
+- AetherKiri validates frame-dirty-gated swap (`MarkFrameDirty` /
+  `ConsumeFrameDirty`), not unconditional swap.
+- krkrsdl2 validates `needsGraphicUpdate` present gating and pitch-aware CPU
+  staging copies, but its dirty rect is only a union rect.
+- krkrsdl3 validates SDL3 + GL + pitch-aware texture upload, but its main loop
+  swaps every frame and should not be copied for Flutter/SDL3 embedding.
+- Therefore LauncherC should continue with:
+  - dirty-region tracking,
+  - pitch-aware uploads,
+  - full composed present when the Android surface is not preserved,
+  - no-op present when no frame is dirty,
+  - no hot-path graphical integrity validation.

@@ -952,8 +952,7 @@ protected:
     unsigned char *PixelData = nullptr; // read only
     int PixelDataCounter = 0;
     float _scaleW = 1, _scaleH = 1;
-    bool TextureDirty = false;
-    tTVPRect TextureDirtyRect;
+    tTVPComplexRect TextureDirtyRegion;
 
     tTVPOGLTexture2D(unsigned int w, unsigned int h, TVPTextureFormat::e format,
                      GLint mode = GL_LINEAR) :
@@ -1162,27 +1161,40 @@ public:
         dirty.clip(tTVPRect(0, 0, Width, Height));
         if(dirty.is_empty())
             return;
-        if(TextureDirty) {
-            TextureDirtyRect.do_union(dirty);
-        } else {
-            TextureDirtyRect = dirty;
-            TextureDirty = true;
-        }
+        TextureDirtyRegion.Or(dirty);
+        if(TextureDirtyRegion.GetCount() > TVP_TEXTURE_DIRTY_UNITE_LIMIT)
+            TextureDirtyRegion.Unite();
     }
 
     bool PeekDirtyRect(tTVPRect &rect) const override {
-        if(!TextureDirty)
+        if(TextureDirtyRegion.GetCount() == 0)
             return false;
-        rect = TextureDirtyRect;
+        rect = TextureDirtyRegion.GetBound();
         return true;
     }
 
     bool ConsumeDirtyRect(tTVPRect &rect) override {
-        if(!TextureDirty)
+        if(TextureDirtyRegion.GetCount() == 0)
             return false;
-        rect = TextureDirtyRect;
-        TextureDirty = false;
-        TextureDirtyRect.clear();
+        rect = TextureDirtyRegion.GetBound();
+        TextureDirtyRegion.Clear();
+        return true;
+    }
+
+    bool PeekDirtyRegion(tTVPComplexRect &region) const override {
+        if(TextureDirtyRegion.GetCount() == 0)
+            return false;
+        region.Clear();
+        region.Or(TextureDirtyRegion);
+        return true;
+    }
+
+    bool ConsumeDirtyRegion(tTVPComplexRect &region) override {
+        if(TextureDirtyRegion.GetCount() == 0)
+            return false;
+        region.Clear();
+        region.Or(TextureDirtyRegion);
+        TextureDirtyRegion.Clear();
         return true;
     }
 
