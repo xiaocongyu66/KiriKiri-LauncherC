@@ -89,6 +89,8 @@ std::once_flag gSDLAndroidEGLSoftwareUploadFlagOnce;
 bool gSDLAndroidEGLSoftwareUploadEnabled = false;
 std::once_flag gSDLAndroidEGLSaveGLStateFlagOnce;
 bool gSDLAndroidEGLSaveGLState = false;
+std::once_flag gSDLAndroidEGLSwapIntervalZeroFlagOnce;
+bool gSDLAndroidEGLSwapIntervalZero = false;
 #endif
 
 bool ShouldLogScreenPresenter(uint64_t sequence) {
@@ -436,6 +438,14 @@ bool IsAndroidEGLSaveGLStateEnabled() {
             IsTruthyEnv("KRKR2_ANDROID_EGL_SAVE_GL_STATE");
     });
     return gSDLAndroidEGLSaveGLState;
+}
+
+bool IsAndroidEGLSwapIntervalZeroEnabled() {
+    std::call_once(gSDLAndroidEGLSwapIntervalZeroFlagOnce, []() {
+        gSDLAndroidEGLSwapIntervalZero =
+            IsTruthyEnv("KRKR2_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+    });
+    return gSDLAndroidEGLSwapIntervalZero;
 }
 
 #if defined(GL_UNPACK_ROW_LENGTH)
@@ -1250,7 +1260,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
         }
-        if(!state.swapIntervalZeroSet) {
+        if(!state.swapIntervalZeroSet &&
+           IsAndroidEGLSwapIntervalZeroEnabled()) {
             eglSwapInterval(state.display, 0);
             state.swapIntervalZeroSet = true;
         }
@@ -1327,8 +1338,13 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS"))
             glError = glGetError();
 
-        if(glError == GL_NO_ERROR)
-            glFlush();
+        EGLBoolean swapped = EGL_FALSE;
+        EGLint swapError = EGL_SUCCESS;
+        if(glError == GL_NO_ERROR) {
+            swapped = eglSwapBuffers(state.display, state.surface);
+            if(swapped != EGL_TRUE)
+                swapError = eglGetError();
+        }
 
         const bool restored = RestoreAndroidEGLCurrentLocked(
             previousDisplay, previousDraw, previousRead, previousContext,
@@ -1342,27 +1358,42 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             LogAndroidEGLFailureLocked(stage, reason);
             return false;
         }
+        if(swapped != EGL_TRUE) {
+            LogAndroidEGLFailureLocked(
+                stage, AndroidEGLFormatError("eglSwapBuffers", swapError));
+            DestroyAndroidEGLWindowSurfaceLocked("present-swap-failed");
+            return false;
+        }
 
-        state.frameDirty = true;
-        state.pendingNativeGL = nativeTexture != 0;
-        state.pendingWidth = outputWidth;
-        state.pendingHeight = outputHeight;
-        state.pendingDirtyTexture = texture;
-        presentedCount = state.presented + 1;
+        state.frameDirty = false;
+        state.pendingNativeGL = false;
+        state.pendingWidth = 0;
+        state.pendingHeight = 0;
+        state.pendingDirtyTexture = nullptr;
+        presentedCount = ++state.presented;
+        state.lastPresentNativeGL = nativeTexture != 0;
+        if(nativeTexture != 0)
+            ++state.nativePresents;
+        state.surfaceHasContent = true;
         if(!restored)
             LogAndroidEGLFailureLocked(
-                stage, "external present queued but EGL restore failed");
+                stage, "external present posted but EGL restore failed");
         presented = true;
     }
 
     if(usedFullFrame)
         *usedFullFrame = fullFramePresent;
+    if(presented) {
+        TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize(
+            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight);
+        MarkExternalPresenterPostedFrame();
+    }
 
     if(presented && IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
        ShouldLogScreenPresenter(presentedCount)) {
         char message[512];
         std::snprintf(message, sizeof(message),
-                      "queue-android-egl #%llu stage=%s texture=%dx%d "
+                      "present-android-egl #%llu stage=%s texture=%dx%d "
                       "output=%dx%d viewport=%d,%d,%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
@@ -1527,7 +1558,7 @@ bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
         result.fullFrame = eglFullFrame;
         result.nativeGL = texture->GetNativeGLTextureId() != 0;
         result.cpuCopyFree = result.nativeGL;
-        result.deferredSwap = true;
+        result.deferredSwap = false;
         return true;
     }
 

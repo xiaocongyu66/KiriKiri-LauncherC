@@ -13,6 +13,7 @@ import android.view.Surface
 import android.view.WindowManager
 import android.widget.FrameLayout
 import java.lang.ref.WeakReference
+import java.lang.reflect.Proxy
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -55,9 +56,18 @@ class MainActivity : KR2Activity() {
     private var overlayView: FlutterView? = null
     private var overlayParams: FrameLayout.LayoutParams? = null
     private var overlayChannel: MethodChannel? = null
-    private val gameSurfaceTextures = mutableMapOf<Long, TextureRegistry.SurfaceTextureEntry>()
-    private val gameSurfaces = mutableMapOf<Long, Surface>()
+    private val gameSurfaceTargets = mutableMapOf<Long, GameSurfaceTarget>()
     private var activeGameSurfaceTextureId: Long? = null
+
+    private class GameSurfaceTarget(
+        val textureId: Long,
+        val mode: String,
+        val producer: Any? = null,
+        val legacyEntry: TextureRegistry.SurfaceTextureEntry? = null,
+        var surface: Surface? = null,
+        val ownsSurface: Boolean = false,
+        var producerCallback: Any? = null,
+    )
 
     private external fun nativeSetGameSurface(surface: Surface?, width: Int, height: Int)
     private external fun nativeResizeGameSurface(width: Int, height: Int)
@@ -356,6 +366,193 @@ class MainActivity : KR2Activity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
+    private fun isFlutterSurfaceProducerDisabled(): Boolean {
+        val value = System.getenv("KRKR2_DISABLE_FLUTTER_SURFACE_PRODUCER") ?: return false
+        return value != "0" && !value.equals("false", ignoreCase = true)
+    }
+
+    private fun invokeProducerNoArg(producer: Any, name: String): Any? {
+        return producer.javaClass.getMethod(name).invoke(producer)
+    }
+
+    private fun invokeProducerSetSize(producer: Any, width: Int, height: Int) {
+        producer.javaClass
+            .getMethod("setSize", java.lang.Integer.TYPE, java.lang.Integer.TYPE)
+            .invoke(producer, width, height)
+    }
+
+    private fun invokeProducerSetCallback(producer: Any, callback: Any?) {
+        val callbackClass = Class.forName("io.flutter.view.TextureRegistry\$SurfaceProducer\$Callback")
+        producer.javaClass.getMethod("setCallback", callbackClass).invoke(producer, callback)
+    }
+
+    private fun createFlutterSurfaceProducer(engine: FlutterEngine): Any? {
+        val renderer = engine.renderer
+        var noArgFailure: Throwable? = null
+        try {
+            return renderer.javaClass.getMethod("createSurfaceProducer").invoke(renderer)
+        } catch (error: Throwable) {
+            noArgFailure = error
+        }
+
+        return try {
+            val lifecycleClass = Class.forName("io.flutter.view.TextureRegistry\$SurfaceLifecycle")
+            val manualLifecycle = lifecycleClass.getField("manual").get(null)
+            renderer.javaClass
+                .getMethod("createSurfaceProducer", lifecycleClass)
+                .invoke(renderer, manualLifecycle)
+        } catch (error: Throwable) {
+            noArgFailure?.addSuppressed(error)
+            throw noArgFailure ?: error
+        }
+    }
+
+    private fun createSurfaceProducerTarget(
+        engine: FlutterEngine,
+        width: Int,
+        height: Int,
+    ): GameSurfaceTarget? {
+        if (isFlutterSurfaceProducerDisabled()) return null
+        var createdProducer: Any? = null
+        return try {
+            val producer = createFlutterSurfaceProducer(engine) ?: return null
+            createdProducer = producer
+            invokeProducerSetSize(producer, width, height)
+            val textureId = (invokeProducerNoArg(producer, "id") as Number).toLong()
+            val surface = invokeProducerNoArg(producer, "getSurface") as? Surface
+                ?: error("SurfaceProducer returned null surface")
+            val callbackClass = Class.forName("io.flutter.view.TextureRegistry\$SurfaceProducer\$Callback")
+            val callback = Proxy.newProxyInstance(
+                callbackClass.classLoader,
+                arrayOf(callbackClass),
+            ) { proxy, method, args ->
+                when (method.name) {
+                    "toString" -> "KrkrGameSurfaceProducerCallback($textureId)"
+                    "hashCode" -> textureId.hashCode()
+                    "equals" -> proxy === args?.getOrNull(0)
+                    "onSurfaceAvailable",
+                    "onSurfaceCreated" -> onGameSurfaceProducerAvailable(textureId)
+                    "onSurfaceCleanup",
+                    "onSurfaceDestroyed" -> onGameSurfaceProducerCleanup(textureId)
+                    else -> null
+                }
+            }
+            invokeProducerSetCallback(producer, callback)
+            GameSurfaceTarget(
+                textureId = textureId,
+                mode = "surface-producer",
+                producer = producer,
+                surface = surface,
+                producerCallback = callback,
+            )
+        } catch (error: Throwable) {
+            createdProducer?.let {
+                try {
+                    invokeProducerNoArg(it, "release")
+                } catch (_: Throwable) {
+                }
+            }
+            LauncherPrefs.writeLauncherLog(
+                this,
+                "MainActivity.createSurfaceProducerTarget unavailable reason=${error.javaClass.simpleName}: ${error.message}",
+            )
+            null
+        }
+    }
+
+    private fun createLegacySurfaceTextureTarget(
+        engine: FlutterEngine,
+        width: Int,
+        height: Int,
+    ): GameSurfaceTarget {
+        val entry = engine.renderer.createSurfaceTexture()
+        val textureId = entry.id()
+        val surfaceTexture = entry.surfaceTexture()
+        surfaceTexture.setDefaultBufferSize(width, height)
+        return GameSurfaceTarget(
+            textureId = textureId,
+            mode = "surface-texture",
+            legacyEntry = entry,
+            surface = Surface(surfaceTexture),
+            ownsSurface = true,
+        )
+    }
+
+    private fun createGameSurfaceTarget(
+        engine: FlutterEngine,
+        width: Int,
+        height: Int,
+    ): GameSurfaceTarget {
+        return createSurfaceProducerTarget(engine, width, height)
+            ?: createLegacySurfaceTextureTarget(engine, width, height)
+    }
+
+    private fun setActiveGameSurface(
+        target: GameSurfaceTarget,
+        width: Int,
+        height: Int,
+        reason: String,
+    ): Boolean {
+        val surface = target.surface ?: return false
+        activeGameSurfaceTextureId = target.textureId
+        nativeSetGameSurface(surface, width, height)
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "MainActivity.$reason id=${target.textureId} mode=${target.mode} size=${width}x$height",
+        )
+        return true
+    }
+
+    private fun onGameSurfaceProducerAvailable(textureId: Long) {
+        val target = gameSurfaceTargets[textureId] ?: return
+        val producer = target.producer ?: return
+        val surface = try {
+            invokeProducerNoArg(producer, "getSurface") as? Surface
+        } catch (error: Throwable) {
+            LauncherPrefs.writeLauncherLog(
+                this,
+                "MainActivity.surfaceProducerAvailable failed id=$textureId reason=${error.javaClass.simpleName}: ${error.message}",
+            )
+            null
+        } ?: return
+        target.surface = surface
+        setActiveGameSurface(target, GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT, "surfaceProducerAvailable")
+    }
+
+    private fun onGameSurfaceProducerCleanup(textureId: Long) {
+        val target = gameSurfaceTargets[textureId] ?: return
+        target.surface = null
+        if (activeGameSurfaceTextureId == textureId) {
+            nativeDetachGameSurface()
+            activeGameSurfaceTextureId = null
+            LauncherPrefs.writeLauncherLog(this, "MainActivity.surfaceProducerCleanup id=$textureId")
+        }
+    }
+
+    private fun releaseGameSurfaceTarget(target: GameSurfaceTarget) {
+        if (target.producer != null) {
+            try {
+                invokeProducerSetCallback(target.producer, null)
+            } catch (_: Throwable) {
+            }
+            try {
+                invokeProducerNoArg(target.producer, "release")
+            } catch (error: Throwable) {
+                LauncherPrefs.writeLauncherLog(
+                    this,
+                    "MainActivity.releaseSurfaceProducer failed id=${target.textureId} reason=${error.javaClass.simpleName}: ${error.message}",
+                )
+            }
+        } else {
+            if (target.ownsSurface) {
+                target.surface?.release()
+            }
+            target.legacyEntry?.release()
+        }
+        target.surface = null
+        target.producerCallback = null
+    }
+
     private fun createGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
         val engine = overlayEngine
         if (engine == null) {
@@ -366,22 +563,27 @@ class MainActivity : KR2Activity() {
         val requestedHeight = call.argument<Int>("height") ?: GAME_SURFACE_HEIGHT
         val width = GAME_SURFACE_WIDTH
         val height = GAME_SURFACE_HEIGHT
-        val entry = try {
-            engine.renderer.createSurfaceTexture()
+        val target = try {
+            createGameSurfaceTarget(engine, width, height)
         } catch (error: RuntimeException) {
-            result.error("texture_unavailable", "Unable to create SurfaceTexture: ${error.message}", null)
+            result.error("texture_unavailable", "Unable to create game surface: ${error.message}", null)
             return
         }
-        val textureId = entry.id()
-        val surfaceTexture = entry.surfaceTexture()
-        surfaceTexture.setDefaultBufferSize(width, height)
-        val surface = Surface(surfaceTexture)
-        gameSurfaceTextures[textureId] = entry
-        gameSurfaces[textureId] = surface
-        activeGameSurfaceTextureId = textureId
-        nativeSetGameSurface(surface, width, height)
-        LauncherPrefs.writeLauncherLog(this, "MainActivity.createGameSurfaceTexture id=$textureId size=${width}x$height requested=${requestedWidth}x$requestedHeight")
-        result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
+        if (gameSurfaceTargets.isNotEmpty()) {
+            nativeDetachGameSurface()
+            activeGameSurfaceTextureId = null
+            gameSurfaceTargets.values.forEach { releaseGameSurfaceTarget(it) }
+            gameSurfaceTargets.clear()
+        }
+        gameSurfaceTargets[target.textureId] = target
+        if (!setActiveGameSurface(target, width, height, "createGameSurfaceTexture")) {
+            gameSurfaceTargets.remove(target.textureId)
+            releaseGameSurfaceTarget(target)
+            result.error("surface_unavailable", "Unable to acquire game surface", null)
+            return
+        }
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.createGameSurfaceTexture id=${target.textureId} mode=${target.mode} size=${width}x$height requested=${requestedWidth}x$requestedHeight")
+        result.success(mapOf("textureId" to target.textureId, "width" to width, "height" to height, "surfaceMode" to target.mode))
     }
 
     private fun resizeGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
@@ -390,20 +592,34 @@ class MainActivity : KR2Activity() {
             result.error("invalid_args", "textureId is required", null)
             return
         }
-        val entry = gameSurfaceTextures[textureId]
-        if (entry == null) {
-            result.error("not_found", "SurfaceTexture $textureId not found", null)
+        val target = gameSurfaceTargets[textureId]
+        if (target == null) {
+            result.error("not_found", "Game surface $textureId not found", null)
             return
         }
         val requestedWidth = call.argument<Int>("width") ?: GAME_SURFACE_WIDTH
         val requestedHeight = call.argument<Int>("height") ?: GAME_SURFACE_HEIGHT
         val width = GAME_SURFACE_WIDTH
         val height = GAME_SURFACE_HEIGHT
-        entry.surfaceTexture().setDefaultBufferSize(width, height)
-        activeGameSurfaceTextureId = textureId
-        nativeResizeGameSurface(width, height)
-        LauncherPrefs.writeLauncherLog(this, "MainActivity.resizeGameSurfaceTexture id=$textureId size=${width}x$height requested=${requestedWidth}x$requestedHeight")
-        result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
+        if (target.producer != null) {
+            try {
+                invokeProducerSetSize(target.producer, width, height)
+                target.surface = invokeProducerNoArg(target.producer, "getSurface") as? Surface
+            } catch (error: Throwable) {
+                result.error("resize_failed", "Unable to resize SurfaceProducer: ${error.message}", null)
+                return
+            }
+            if (!setActiveGameSurface(target, width, height, "resizeGameSurfaceTexture")) {
+                result.error("surface_unavailable", "Unable to reacquire game surface", null)
+                return
+            }
+        } else {
+            target.legacyEntry?.surfaceTexture()?.setDefaultBufferSize(width, height)
+            activeGameSurfaceTextureId = textureId
+            nativeResizeGameSurface(width, height)
+        }
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.resizeGameSurfaceTexture id=$textureId mode=${target.mode} size=${width}x$height requested=${requestedWidth}x$requestedHeight")
+        result.success(mapOf("textureId" to textureId, "width" to width, "height" to height, "surfaceMode" to target.mode))
     }
 
     private fun disposeGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
@@ -416,8 +632,7 @@ class MainActivity : KR2Activity() {
             nativeDetachGameSurface()
             activeGameSurfaceTextureId = null
         }
-        gameSurfaces.remove(textureId)?.release()
-        gameSurfaceTextures.remove(textureId)?.release()
+        gameSurfaceTargets.remove(textureId)?.let { releaseGameSurfaceTarget(it) }
         LauncherPrefs.writeLauncherLog(this, "MainActivity.disposeGameSurfaceTexture id=$textureId")
         result.success(null)
     }
@@ -425,10 +640,8 @@ class MainActivity : KR2Activity() {
     private fun disposeGameSurfaceTextures() {
         nativeDetachGameSurface()
         activeGameSurfaceTextureId = null
-        gameSurfaces.values.forEach { it.release() }
-        gameSurfaceTextures.values.forEach { it.release() }
-        gameSurfaces.clear()
-        gameSurfaceTextures.clear()
+        gameSurfaceTargets.values.forEach { releaseGameSurfaceTarget(it) }
+        gameSurfaceTargets.clear()
     }
 
     private fun recordSessionTime() {

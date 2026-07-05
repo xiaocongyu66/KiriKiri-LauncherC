@@ -33,6 +33,19 @@
 -keep class org.github.krkr2.** { *; }
 -keepnames class org.github.krkr2.**
 
+# Flutter game surface reflection — MainActivity prefers the modern
+# SurfaceProducer API when present, but calls it reflectively so older
+# embeddings can still fall back to SurfaceTextureEntry.
+-keep class io.flutter.embedding.engine.renderer.FlutterRenderer { *; }
+-keep interface io.flutter.view.TextureRegistry { *; }
+-keep enum io.flutter.view.TextureRegistry$SurfaceLifecycle { *; }
+-keep interface io.flutter.view.TextureRegistry$SurfaceProducer { *; }
+-keep interface io.flutter.view.TextureRegistry$SurfaceProducer$Callback { *; }
+-dontwarn io.flutter.view.TextureRegistry
+-dontwarn io.flutter.view.TextureRegistry$SurfaceLifecycle
+-dontwarn io.flutter.view.TextureRegistry$SurfaceProducer
+-dontwarn io.flutter.view.TextureRegistry$SurfaceProducer$Callback
+
 # Generic: keep every native method and the class that declares it
 -keepclasseswithmembernames,includedescriptorclasses class * {
     native <methods>;
