@@ -3,6 +3,7 @@
 #include "tjsDictionary.h"
 #include "MsgIntf.h"
 #include "ogl/etcpak.h"
+#include "ogl/PVRTDecompress.h"
 #include "ogl/pvr.h"
 #include "UtilStreams.h"
 #include "RenderManager.h"

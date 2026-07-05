@@ -50,6 +50,7 @@ set(VISUAL_SOURCE_FILES
     ${VISUAL_PATH}/ogl/etcpak.cpp
     ${VISUAL_PATH}/ogl/imagepacker.cpp
     ${VISUAL_PATH}/ogl/krkr_gl.cpp
+    ${VISUAL_PATH}/ogl/PVRTDecompress.cpp
     ${VISUAL_PATH}/ogl/pvrtc.cpp
     ${VISUAL_PATH}/ogl/RenderManager_ogl.cpp
 
