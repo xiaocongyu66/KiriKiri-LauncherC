@@ -55,6 +55,7 @@ static bool KR2LayerAllocDiagnosticsEnabled() {
 #include "ConfigManager/IndividualConfigManager.h"
 #include "vkdefine.h"
 #include "RenderManager.h"
+#include "runtime/RuntimePresenter.h"
 #include <cstdlib>
 #include "FontImpl.h"
 
@@ -84,6 +85,28 @@ static bool IsGPU() {
         !IndividualConfigManager::GetInstance()->GetValue<bool>(
             "ogl_accurate_render", false);
     return isGPU;
+}
+
+static bool TVPShouldUseFullFrameGPUCompletion() {
+#if defined(__ANDROID__)
+    // Android's Flutter SurfaceTexture presenter samples the native GL texture
+    // as a whole. Partial GPU completion can leave stale pixels outside the
+    // dirty union when non-accurate OpenGL rendering is selected.
+    return TVPRuntimeIsScreenTakeoverEnabled() &&
+        TVPRuntimeIsScreenTakeoverSupported();
+#else
+    return false;
+#endif
+}
+
+static tTVPRect TVPMakeLayerLocalFullRect(const tTVPRect &rect) {
+    return tTVPRect(0, 0, rect.get_width(), rect.get_height());
+}
+
+static tTVPRect TVPMakeFullGPUCompletionRect(const tTVPRect &rect) {
+    return TVPShouldUseFullFrameGPUCompletion()
+        ? TVPMakeLayerLocalFullRect(rect)
+        : rect;
 }
 
 //---------------------------------------------------------------------------
@@ -7444,8 +7467,13 @@ void tTJSNI_BaseLayer::InternalComplete(tTVPComplexRect &updateregion,
     InCompletion = true;
 
     if(IsGPU()) {
-        if(updateregion.GetCount() > 0)
-            InternalComplete2_GPU(updateregion.GetBound(), drawable);
+        if(updateregion.GetCount() > 0) {
+            const tTVPRect completionRect =
+                TVPShouldUseFullFrameGPUCompletion()
+                    ? TVPMakeLayerLocalFullRect(Rect)
+                    : updateregion.GetBound();
+            InternalComplete2_GPU(completionRect, drawable);
+        }
         updateregion.Clear();
     } else {
         InternalComplete2(updateregion, drawable);
@@ -7471,13 +7499,19 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
             if(Manager) {
                 tTVPComplexRect &updateRegion =
                     Manager->GetUpdateRegionForCompletion();
-                if(updateRegion.GetCount() > 0)
-                    InternalComplete2_GPU(updateRegion.GetBound(), drawable);
-                else if(!Manager->GetDrawBuffer())
-                    InternalComplete2_GPU(Rect, drawable);
+                if(updateRegion.GetCount() > 0) {
+                    const tTVPRect completionRect =
+                        TVPShouldUseFullFrameGPUCompletion()
+                            ? TVPMakeLayerLocalFullRect(Rect)
+                            : updateRegion.GetBound();
+                    InternalComplete2_GPU(completionRect, drawable);
+                } else if(!Manager->GetDrawBuffer())
+                    InternalComplete2_GPU(TVPMakeFullGPUCompletionRect(Rect),
+                                          drawable);
                 updateRegion.Clear();
             } else {
-                InternalComplete2_GPU(Rect, drawable);
+                InternalComplete2_GPU(TVPMakeFullGPUCompletionRect(Rect),
+                                      drawable);
             }
         } else {
             InternalComplete2(Manager->GetUpdateRegionForCompletion(),

@@ -3159,6 +3159,18 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         forceFullFramePresent = hasDirty;
         nativeProducedFramePresent = hasDirty;
     }
+#if defined(__ANDROID__)
+    // Native GL writes to the shared texture directly; the Flutter-side
+    // SurfaceTexture handoff must be treated as a complete frame.
+    if(hasDirty && takeoverActive && glBackedTexture &&
+       (updateRect.left != fullRect.left || updateRect.top != fullRect.top ||
+        updateRect.right != fullRect.right ||
+        updateRect.bottom != fullRect.bottom)) {
+        updateRect = fullRect;
+        hasDirty = !updateRect.is_empty();
+        forceFullFramePresent = hasDirty;
+    }
+#endif
     if(!hasDirty) {
         if(IsSDLRenderDiagnosticsActive()) {
             uint64_t noDirty = 0;
