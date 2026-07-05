@@ -34,6 +34,7 @@
 #include <cstring>
 #include <cstdio>
 #include <algorithm>
+#include <atomic>
 #include <condition_variable>
 #include <mutex>
 #include <string>
@@ -88,7 +89,6 @@ static bool DumpFilter(void *data) {
     return !TVPSystemUninitCalled;
 }
 
-#if !KRKR2_ENABLE_COCOS_HOST
 class TVPAndroidSDLRuntimeHost final : public iTVPRuntimeHost {
 public:
     const char *GetHostName() const override { return "android-sdl3"; }
@@ -122,52 +122,84 @@ static void TVPRegisterAndroidSDLRuntimeHost() {
     TVPRegisterSDLRuntimePresenter();
     TVPNativeLogInfo("runtime-host", "android-sdl3 runtime host registered");
 }
-#endif
 
-[[maybe_unused]] void cocos_android_app_init(JNIEnv *env) { // for cocos3.10+
+std::once_flag gAndroidBaseInitOnce;
+std::once_flag gAndroidCocosHostInitOnce;
+std::atomic_bool gAndroidBaseInitDone{false};
 
-    TVPInitializeNativeLogging();
-    TVPAppendNativeFatalBreadcrumb("jni", "cocos_android_app_init enter");
+void TVPAndroidInitializeBase(JNIEnv *env, const char *source) {
+    if(!env)
+        return;
+
+    std::call_once(gAndroidBaseInitOnce, [env, source]() {
+        TVPInitializeNativeLogging();
+        TVPAppendNativeFatalBreadcrumb("jni", "android native init enter");
+        if(source && *source)
+            TVPNativeLogInfo("jni", (std::string("native init source=") +
+                                     source).c_str());
 
 #if defined(ANDROID) && defined(KRKR2_ENABLE_TJS_DOBBY_HOOK)
-    TJS::TVPInstallKrkrHook();
-    try {
-        spdlog::info("[hook] install requested, installed={}",
-                     TJS::TVPIsKrkrHookInstalled() ? 1 : 0);
-    } catch(...) {
-    }
+        TJS::TVPInstallKrkrHook();
+        try {
+            spdlog::info("[hook] install requested, installed={}",
+                         TJS::TVPIsKrkrHookInstalled() ? 1 : 0);
+        } catch(...) {
+        }
 #endif
 
-    JavaVM *vm{};
-    env->GetJavaVM(&vm);
-    gAndroidJavaVM = vm;
-    krkr::JniHelper::setJavaVM(vm);
-    void *handle = dlopen("libSDL3.so", RTLD_LAZY);
-    if(handle) {
-        typedef jint (*JNI_OnLoad)(JavaVM *, void *);
-        void *sdl3Init = dlsym(handle, "JNI_OnLoad");
-        if(!sdl3Init ||
-           ((JNI_OnLoad)sdl3Init)(vm, nullptr) != JNI_VERSION_1_4) {
-            spdlog::critical("invoke libSDL3.so JNI_OnLoad method failed");
-            TVPAppendNativeFatalBreadcrumb("jni",
-                                           "libSDL3.so JNI_OnLoad failed");
+        JavaVM *vm{};
+        env->GetJavaVM(&vm);
+        gAndroidJavaVM = vm;
+        krkr::JniHelper::setJavaVM(vm);
+        void *handle = dlopen("libSDL3.so", RTLD_LAZY);
+        if(handle) {
+            typedef jint (*JNI_OnLoad)(JavaVM *, void *);
+            void *sdl3Init = dlsym(handle, "JNI_OnLoad");
+            if(!sdl3Init ||
+               ((JNI_OnLoad)sdl3Init)(vm, nullptr) != JNI_VERSION_1_4) {
+                spdlog::critical("invoke libSDL3.so JNI_OnLoad method failed");
+                TVPAppendNativeFatalBreadcrumb(
+                    "jni", "libSDL3.so JNI_OnLoad failed");
+            } else {
+                TVPAppendNativeFatalBreadcrumb("jni",
+                                               "libSDL3.so JNI_OnLoad ok");
+            }
         } else {
-            TVPAppendNativeFatalBreadcrumb("jni",
-                                           "libSDL3.so JNI_OnLoad ok");
+            spdlog::critical("load libSDL3.so failed");
+            TVPAppendNativeFatalBreadcrumb("jni", "dlopen libSDL3.so failed");
         }
-    } else {
-        spdlog::critical("load libSDL3.so failed");
-        TVPAppendNativeFatalBreadcrumb("jni", "dlopen libSDL3.so failed");
-    }
+
+        gAndroidBaseInitDone.store(true, std::memory_order_release);
+    });
+}
+
+void TVPAndroidInitializeLegacyHost(JNIEnv *env, const char *source) {
+    TVPAndroidInitializeBase(env, source);
+    if(!gAndroidBaseInitDone.load(std::memory_order_acquire))
+        return;
 
 #if KRKR2_ENABLE_COCOS_HOST
-    static std::unique_ptr<TVPAppDelegate> pAppDelegate =
-        std::make_unique<TVPAppDelegate>();
-    TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
+    std::call_once(gAndroidCocosHostInitOnce, []() {
+        static std::unique_ptr<TVPAppDelegate> pAppDelegate =
+            std::make_unique<TVPAppDelegate>();
+        (void)pAppDelegate;
+        TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
+    });
 #else
     TVPRegisterAndroidSDLRuntimeHost();
     TVPAppendNativeFatalBreadcrumb("jni", "no-cocos host init");
 #endif
+}
+
+void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
+    TVPAndroidInitializeBase(env, source);
+    if(!gAndroidBaseInitDone.load(std::memory_order_acquire))
+        return;
+    TVPRegisterAndroidSDLRuntimeHost();
+}
+
+[[maybe_unused]] void cocos_android_app_init(JNIEnv *env) { // for cocos3.10+
+    TVPAndroidInitializeLegacyHost(env, "cocos_android_app_init");
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -318,6 +350,48 @@ static jobjectArray MakeJavaStringArray(
 }
 
 extern "C" {
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_KR2Activity_nativeInitRuntime(JNIEnv *env, jclass) {
+    TVPAndroidInitializeLegacyHost(env, "KR2Activity.nativeInitRuntime");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeInitRuntime(JNIEnv *env,
+                                                             jclass) {
+    TVPAndroidInitializeSDLHost(env,
+                                "AndroidRuntimeBridge.nativeInitRuntime");
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeStartGame(
+    JNIEnv *env, jclass, jstring gamePath, jstring preferenceRoot) {
+    TVPAndroidInitializeSDLHost(env, "AndroidRuntimeBridge.nativeStartGame");
+    TVPRuntimeHostLaunchRequest request;
+    request.gamePath = JStringToStdString(env, gamePath);
+    request.preferenceRoot = JStringToStdString(env, preferenceRoot);
+    return TVPStartGameOnRuntimeHost(request, "android-runtime-bridge")
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeRunFrame(JNIEnv *, jclass,
+                                                          jfloat deltaSeconds) {
+    if(iTVPRuntimeHost *host = TVPGetRuntimeHost())
+        host->RunFrame(static_cast<float>(deltaSeconds));
+    else {
+        TVPRuntimeRunApplicationFrame(static_cast<float>(deltaSeconds));
+        TVPRuntimeRecycleFrameResources();
+    }
+}
+
+JNIEXPORT jboolean JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativePumpPresenter(JNIEnv *,
+                                                               jclass) {
+    return TVPRuntimePumpScreenPresenter("android-runtime-bridge") ? JNI_TRUE
+                                                                   : JNI_FALSE;
+}
+
 void Java_org_tvp_kirikiri2_KR2Activity_initDump(JNIEnv *env, jclass cls,
                                                  jstring path) {
     const char *pszPath = env->GetStringUTFChars(path, nullptr);

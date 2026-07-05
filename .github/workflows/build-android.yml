@@ -200,6 +200,7 @@ jobs:
           cp -R platforms/android/app/java/org/tvp/kirikiri2 flutter_launcher/android/app/src/main/java/org/tvp/
           mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
           cp platforms/android/app/java/org/github/krkr2/MainActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/AndroidRuntimeBridge.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/KR2Application.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/LauncherPrefs.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/LauncherSettingsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/

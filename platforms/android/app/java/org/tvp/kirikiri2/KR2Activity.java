@@ -158,6 +158,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         super.onCreate(savedInstanceState);
         writeLifecycleLog("onCreate#after-super");
         sInstance = this;
+        nativeInitRuntime();
+        writeLifecycleLog("onCreate#native-runtime-init");
         initDump(this.getFilesDir().getAbsolutePath() + "/dump");
         ensureSDLJavaReady();
         sNativeLifecycleReady = true;
@@ -202,6 +204,8 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     static native void onMessageBoxText(String text);
 
     static private native void initDump(String path);
+
+    static private native void nativeInitRuntime();
 
     static private native void nativeOnLowMemory();
 
