@@ -201,6 +201,7 @@ jobs:
           mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
           cp platforms/android/app/java/org/github/krkr2/MainActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/AndroidRuntimeBridge.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/SdlRuntimeActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/KR2Application.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/LauncherPrefs.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/LauncherSettingsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
@@ -258,6 +259,14 @@ jobs:
                       android:exported="false"
                       android:screenOrientation="userLandscape"
                       android:launchMode="singleTask"
+                      android:theme="@style/Theme.KR2"
+                      android:windowSoftInputMode="adjustPan" />
+
+                  <activity
+                      android:name=".SdlRuntimeActivity"
+                      android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
+                      android:exported="false"
+                      android:screenOrientation="userLandscape"
                       android:theme="@style/Theme.KR2"
                       android:windowSoftInputMode="adjustPan" />
               </application>

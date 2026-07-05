@@ -73,6 +73,14 @@
             android:theme="@style/Theme.KR2.Launcher" />
 
         <activity
+            android:name=".SdlRuntimeActivity"
+            android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
+            android:exported="false"
+            android:screenOrientation="userLandscape"
+            android:theme="@style/Theme.KR2"
+            android:windowSoftInputMode="adjustPan" />
+
+        <activity
             android:name=".MainActivity"
             android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
             android:exported="true"

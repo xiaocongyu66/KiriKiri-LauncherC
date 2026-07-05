@@ -21,6 +21,7 @@ object LauncherPrefs {
     private const val KEY_FILE_LOG_AUTO_CLEANUP = "file_log_auto_cleanup"
     private const val KEY_FILE_LOG_RETENTION_DAYS = "file_log_retention_days"
     private const val KEY_ACTIVE_LOG_FILE = "active_log_file"
+    private const val KEY_USE_SDL_RUNTIME_ACTIVITY = "use_sdl_runtime_activity"
     const val ENGINE_KEY_FFMPEG_IMAGE_DECODER = "ffmpeg_image_decoder"
     const val ENGINE_KEY_FFMPEG_DECODE_MODE = "ffmpeg_decode_mode"
     const val FFMPEG_DECODE_MODE_SOFTWARE = "software"
@@ -69,6 +70,14 @@ object LauncherPrefs {
 
     fun setForceLandscape(context: Context, enabled: Boolean) {
         LauncherSettingsDb.setBoolean(context, KEY_FORCE_LANDSCAPE, enabled)
+    }
+
+    fun getUseSdlRuntimeActivity(context: Context): Boolean =
+        LauncherSettingsDb.getBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, false)
+
+    fun setUseSdlRuntimeActivity(context: Context, enabled: Boolean) {
+        LauncherSettingsDb.setBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, enabled)
+        writeLauncherLog(context, "SDL runtime activity enabled=$enabled")
     }
 
     fun getUseFfmpegImageDecoder(context: Context): Boolean =

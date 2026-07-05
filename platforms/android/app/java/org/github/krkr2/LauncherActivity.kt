@@ -128,31 +128,40 @@ class LauncherActivity : AppCompatActivity() {
 
     private fun startGame(gameDir: String, title: String) {
         LauncherPrefs.applyGameEngineOverrides(this, gameDir)
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = createGameIntent()
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        intent.putExtra(MainActivity.EXTRA_GAME_DIR, gameDir)
-        intent.putExtra(MainActivity.EXTRA_GAME_TITLE, title)
+        intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_DIR, gameDir)
+        intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_TITLE, title)
         LauncherPrefs.getCustomLaunchFile(this, gameDir)
             ?.takeIf { it.isNotBlank() }
             ?.let { path ->
                 val f = File(path)
-                if (f.isFile && f.canRead()) intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
+                if (f.isFile && f.canRead()) intent.putExtra(SdlRuntimeActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
             }
         startActivity(intent)
     }
 
     private fun startOriginal() {
-        val intent = Intent(this, MainActivity::class.java)
+        val intent = createGameIntent()
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val root = LauncherPrefs.getGameRoot(this)
-        intent.putExtra(MainActivity.EXTRA_GAME_DIR, root)
+        intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_DIR, root)
         LauncherPrefs.getCustomLaunchFile(this, root)
             ?.takeIf { it.isNotBlank() }
             ?.let { path ->
                 val f = File(path)
-                if (f.isFile && f.canRead()) intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
+                if (f.isFile && f.canRead()) intent.putExtra(SdlRuntimeActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
             }
         startActivity(intent)
+    }
+
+    private fun createGameIntent(): Intent {
+        val target = if (LauncherPrefs.getUseSdlRuntimeActivity(this)) {
+            SdlRuntimeActivity::class.java
+        } else {
+            MainActivity::class.java
+        }
+        return Intent(this, target)
     }
 
     private fun requestStoragePermission() {

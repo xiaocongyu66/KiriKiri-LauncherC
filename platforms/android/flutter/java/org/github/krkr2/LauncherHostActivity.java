@@ -146,15 +146,20 @@ public class LauncherHostActivity extends FlutterActivity {
     }
 
     private void launchGame(String gameDir, String launchFile, String title) {
-        if(gameDir != null && !gameDir.trim().isEmpty()) {
-            LauncherPrefs.INSTANCE.applyGameEngineOverrides(this, gameDir.trim());
+        String normalizedGameDir = gameDir == null ? "" : gameDir.trim();
+        if(!normalizedGameDir.isEmpty()) {
+            LauncherPrefs.INSTANCE.applyGameEngineOverrides(this, normalizedGameDir);
         }
-        Intent intent = new Intent(this, MainActivity.class);
+        Class<?> target = !normalizedGameDir.isEmpty() &&
+            LauncherPrefs.INSTANCE.getUseSdlRuntimeActivity(this)
+            ? SdlRuntimeActivity.class
+            : MainActivity.class;
+        Intent intent = new Intent(this, target);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
-        intent.putExtra(MainActivity.EXTRA_GAME_DIR, gameDir == null ? "" : gameDir);
-        intent.putExtra(MainActivity.EXTRA_GAME_TITLE, title == null ? "" : title);
+        intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_DIR, normalizedGameDir);
+        intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_TITLE, title == null ? "" : title);
         if(launchFile != null && !launchFile.trim().isEmpty()) {
-            intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, launchFile.trim());
+            intent.putExtra(SdlRuntimeActivity.EXTRA_LAUNCH_FILE, launchFile.trim());
         }
         startActivity(intent);
     }
@@ -251,6 +256,8 @@ public class LauncherHostActivity extends FlutterActivity {
         settings.put("forceLandscape", LauncherPrefs.INSTANCE.getForceLandscape(this));
         settings.put("useFfmpegImageDecoder",
                      LauncherPrefs.INSTANCE.getUseFfmpegImageDecoder(this));
+        settings.put("useSdlRuntimeActivity",
+                     LauncherPrefs.INSTANCE.getUseSdlRuntimeActivity(this));
         settings.put("ffmpegDecodeMode", LauncherPrefs.INSTANCE.getFfmpegDecodeMode(this));
         settings.put("fileLogEnabled", LauncherPrefs.INSTANCE.getFileLogEnabled(this));
         settings.put("fileLogAutoCleanup", LauncherPrefs.INSTANCE.getFileLogAutoCleanup(this));
@@ -346,6 +353,9 @@ public class LauncherHostActivity extends FlutterActivity {
                 break;
             case "useFfmpegImageDecoder":
                 LauncherPrefs.INSTANCE.setUseFfmpegImageDecoder(this, Boolean.TRUE.equals(value));
+                break;
+            case "useSdlRuntimeActivity":
+                LauncherPrefs.INSTANCE.setUseSdlRuntimeActivity(this, Boolean.TRUE.equals(value));
                 break;
             case "ffmpegDecodeMode":
                 LauncherPrefs.INSTANCE.setFfmpegDecodeMode(this,

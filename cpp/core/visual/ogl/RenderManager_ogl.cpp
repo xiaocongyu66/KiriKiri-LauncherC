@@ -5109,6 +5109,8 @@ public:
         if(_CurrentFBOValid ||
            (nativeTexture != 0 && _CurrentRenderTarget == nativeTexture))
             TVPSetRenderTarget(0);
+        if(nativeTexture != 0)
+            glFlush();
     }
 };
 

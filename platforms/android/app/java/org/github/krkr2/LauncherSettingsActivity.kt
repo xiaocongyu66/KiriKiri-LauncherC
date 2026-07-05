@@ -100,15 +100,20 @@ class LauncherSettingsActivity : AppCompatActivity() {
                     onOpenRenderSettings = { startActivity(Intent(this, RenderSettingsActivity::class.java)) },
                     onOpenDiagnostics = { startActivity(Intent(this, DiagnosticsActivity::class.java)) },
                     onLaunchOriginal = {
-                        val intent = Intent(this, MainActivity::class.java)
+                        val target = if (LauncherPrefs.getUseSdlRuntimeActivity(this)) {
+                            SdlRuntimeActivity::class.java
+                        } else {
+                            MainActivity::class.java
+                        }
+                        val intent = Intent(this, target)
                         intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                         val root = LauncherPrefs.getGameRoot(this)
-                        intent.putExtra(MainActivity.EXTRA_GAME_DIR, root)
+                        intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_DIR, root)
                         LauncherPrefs.getCustomLaunchFile(this, root)
                             ?.takeIf { it.isNotBlank() }
                             ?.let { path ->
                                 val f = File(path)
-                                if (f.isFile && f.canRead()) intent.putExtra(MainActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
+                                if (f.isFile && f.canRead()) intent.putExtra(SdlRuntimeActivity.EXTRA_LAUNCH_FILE, f.absolutePath)
                             }
                         startActivity(intent)
                         finish()
@@ -152,6 +157,7 @@ private fun SettingsScreen(
     var scanDepth by remember { mutableStateOf(LauncherPrefs.getScanDepth(context)) }
     var useFfmpegImageDecoder by remember { mutableStateOf(LauncherPrefs.getUseFfmpegImageDecoder(context)) }
     var ffmpegDecodeMode by remember { mutableStateOf(LauncherPrefs.getFfmpegDecodeMode(context)) }
+    var useSdlRuntimeActivity by remember { mutableStateOf(LauncherPrefs.getUseSdlRuntimeActivity(context)) }
     var fileLogEnabled by remember { mutableStateOf(LauncherPrefs.getFileLogEnabled(context)) }
     var fileLogAutoCleanup by remember { mutableStateOf(LauncherPrefs.getFileLogAutoCleanup(context)) }
     var fileLogRetentionDays by remember { mutableStateOf(LauncherPrefs.getFileLogRetentionDays(context)) }
@@ -218,6 +224,11 @@ private fun SettingsScreen(
                         ffmpegDecodeMode = mode
                         LauncherPrefs.setFfmpegDecodeMode(context, mode)
                     },
+                    useSdlRuntimeActivity = useSdlRuntimeActivity,
+                    onUseSdlRuntimeActivityChange = { enabled ->
+                        useSdlRuntimeActivity = enabled
+                        LauncherPrefs.setUseSdlRuntimeActivity(context, enabled)
+                    },
                     onOpenDiagnostics = onOpenDiagnostics,
                     onLaunchOriginal = onLaunchOriginal,
                     onExportBackup = {
@@ -273,6 +284,11 @@ private fun SettingsScreen(
                     onFfmpegDecodeModeChange = { mode ->
                         ffmpegDecodeMode = mode
                         LauncherPrefs.setFfmpegDecodeMode(context, mode)
+                    },
+                    useSdlRuntimeActivity = useSdlRuntimeActivity,
+                    onUseSdlRuntimeActivityChange = { enabled ->
+                        useSdlRuntimeActivity = enabled
+                        LauncherPrefs.setUseSdlRuntimeActivity(context, enabled)
                     },
                     onOpenDiagnostics = onOpenDiagnostics,
                     onLaunchOriginal = onLaunchOriginal,
@@ -411,6 +427,8 @@ private fun SettingsContent(
     onUseFfmpegImageDecoderChange: (Boolean) -> Unit,
     ffmpegDecodeMode: String,
     onFfmpegDecodeModeChange: (String) -> Unit,
+    useSdlRuntimeActivity: Boolean,
+    onUseSdlRuntimeActivityChange: (Boolean) -> Unit,
     onOpenDiagnostics: () -> Unit,
     onLaunchOriginal: () -> Unit,
     onExportBackup: () -> Unit,
@@ -435,6 +453,8 @@ private fun SettingsContent(
                 onUseFfmpegImageDecoderChange,
                 ffmpegDecodeMode,
                 onFfmpegDecodeModeChange,
+                useSdlRuntimeActivity,
+                onUseSdlRuntimeActivityChange,
             )
             SettingsDest.Tools -> ToolsSettings(
                 text,
@@ -542,9 +562,25 @@ private fun EngineSettings(
     onUseFfmpegImageDecoderChange: (Boolean) -> Unit,
     ffmpegDecodeMode: String,
     onFfmpegDecodeModeChange: (String) -> Unit,
+    useSdlRuntimeActivity: Boolean,
+    onUseSdlRuntimeActivityChange: (Boolean) -> Unit,
 ) {
     SettingsPanel(text.settingsEngine, Icons.Default.Tune, compact) {
         RowSetting(Icons.Default.Tune, text.renderSettings, text.renderSettingsHint, onClick = onOpenRenderSettings)
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        RowSetting(
+            Icons.Default.Settings,
+            "SDL3 runtime host",
+            "Launch games through the no-Cocos SDL3 frame pump.",
+            onClick = { onUseSdlRuntimeActivityChange(!useSdlRuntimeActivity) },
+            trailing = {
+                Switch(
+                    checked = useSdlRuntimeActivity,
+                    onCheckedChange = onUseSdlRuntimeActivityChange,
+                )
+            },
+            showChevron = false,
+        )
         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
         RowSetting(
             Icons.Default.Settings,

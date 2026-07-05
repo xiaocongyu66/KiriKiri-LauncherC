@@ -4,6 +4,8 @@
 #include <dlfcn.h>
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
+#include <EGL/egl.h>
+#include <GLES2/gl2.h>
 
 #ifndef KRKR2_ENABLE_COCOS_HOST
 #define KRKR2_ENABLE_COCOS_HOST 0
@@ -36,6 +38,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <cstdint>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -56,6 +59,8 @@ namespace {
 JavaVM *gAndroidJavaVM = nullptr;
 jobject gAndroidApplicationContext = nullptr;
 std::mutex gAndroidApplicationContextLock;
+
+bool TVPAndroidEnsureSDLRenderContextCurrent(const char *stage);
 }
 
 jobject krkr_GetApplicationContext() {
@@ -94,11 +99,14 @@ public:
     const char *GetHostName() const override { return "android-sdl3"; }
 
     bool StartGame(const TVPRuntimeHostLaunchRequest &request) override {
-        return TVPRuntimeConfigureGameLaunch(request) &&
-            TVPRuntimeStartApplication(request.gamePath);
+        if(!TVPRuntimeConfigureGameLaunch(request))
+            return false;
+        TVPAndroidEnsureSDLRenderContextCurrent("android-sdl3-start-game");
+        return TVPRuntimeStartApplication(request.gamePath);
     }
 
     void RunFrame(float deltaSeconds) override {
+        TVPAndroidEnsureSDLRenderContextCurrent("android-sdl3-run-frame");
         TVPRuntimeRunApplicationFrame(deltaSeconds);
         TVPRuntimeRecycleFrameResources();
         TVPRuntimePumpScreenPresenter("android-sdl3");
@@ -204,8 +212,7 @@ void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_org_cocos2dx_lib_Cocos2dxRenderer_nativeFrameEnd(JNIEnv *, jclass) {
-    if(TVPSDLAndroidSwapExternalPresenterIfDirty())
-        TVPSDLRecordExternalPresenterPostedFrame();
+    (void)TVPRuntimePumpScreenPresenter("cocos-frame-end");
 }
 
 namespace kr2android {
@@ -223,6 +230,20 @@ std::mutex gFlutterGameSurfaceLock;
 ANativeWindow *gFlutterGameSurfaceWindow = nullptr;
 int gFlutterGameSurfaceWidth = 0;
 int gFlutterGameSurfaceHeight = 0;
+
+struct TVPAndroidSDLRenderContextState {
+    EGLDisplay display = EGL_NO_DISPLAY;
+    EGLConfig config = nullptr;
+    EGLContext context = EGL_NO_CONTEXT;
+    EGLSurface pbuffer = EGL_NO_SURFACE;
+    bool tried = false;
+    bool ready = false;
+    uint64_t makeCurrentCalls = 0;
+    uint64_t failures = 0;
+};
+
+std::mutex gAndroidSDLRenderContextLock;
+TVPAndroidSDLRenderContextState gAndroidSDLRenderContext;
 
 bool ShouldRouteLegacyInputToCocos() {
 #if KRKR2_ENABLE_COCOS_HOST
@@ -260,6 +281,162 @@ bool ShowFlutterGameMainMenu(JNIEnv *env) {
 
     env->DeleteLocalRef(cls);
     return shown;
+}
+
+std::string FormatAndroidEGLError(const char *operation, EGLint error) {
+    char message[128];
+    std::snprintf(message, sizeof(message), "%s failed egl=0x%04x",
+                  operation ? operation : "egl", static_cast<unsigned>(error));
+    return message;
+}
+
+bool ChooseAndroidSDLRenderConfig(EGLDisplay display, EGLConfig *config) {
+    if(!config)
+        return false;
+    const EGLint attrs[] = {
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_RED_SIZE, 8,
+        EGL_GREEN_SIZE, 8,
+        EGL_BLUE_SIZE, 8,
+        EGL_ALPHA_SIZE, 8,
+        EGL_NONE,
+    };
+    EGLint count = 0;
+    if(eglChooseConfig(display, attrs, config, 1, &count) == EGL_TRUE &&
+       count > 0 && *config)
+        return true;
+
+    const EGLint fallbackAttrs[] = {
+        EGL_SURFACE_TYPE, EGL_WINDOW_BIT | EGL_PBUFFER_BIT,
+        EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
+        EGL_RED_SIZE, 5,
+        EGL_GREEN_SIZE, 6,
+        EGL_BLUE_SIZE, 5,
+        EGL_NONE,
+    };
+    return eglChooseConfig(display, fallbackAttrs, config, 1, &count) ==
+        EGL_TRUE && count > 0 && *config;
+}
+
+bool CreateAndroidSDLRenderContextLocked(const char *stage) {
+    auto &state = gAndroidSDLRenderContext;
+    if(state.ready)
+        return true;
+    if(state.tried)
+        return false;
+    state.tried = true;
+
+    state.display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    if(state.display == EGL_NO_DISPLAY) {
+        ++state.failures;
+        TVPNativeLogInfo("runtime-host",
+                         FormatAndroidEGLError("eglGetDisplay", eglGetError())
+                             .c_str());
+        return false;
+    }
+
+    EGLint major = 0;
+    EGLint minor = 0;
+    if(eglInitialize(state.display, &major, &minor) != EGL_TRUE) {
+        ++state.failures;
+        TVPNativeLogInfo("runtime-host",
+                         FormatAndroidEGLError("eglInitialize", eglGetError())
+                             .c_str());
+        return false;
+    }
+    eglBindAPI(EGL_OPENGL_ES_API);
+
+    if(!ChooseAndroidSDLRenderConfig(state.display, &state.config)) {
+        ++state.failures;
+        TVPNativeLogInfo("runtime-host",
+                         FormatAndroidEGLError("eglChooseConfig", eglGetError())
+                             .c_str());
+        return false;
+    }
+
+    const EGLint context3Attrs[] = {
+        EGL_CONTEXT_CLIENT_VERSION, 3,
+        EGL_NONE,
+    };
+    state.context =
+        eglCreateContext(state.display, state.config, EGL_NO_CONTEXT,
+                         context3Attrs);
+    int contextVersion = 3;
+    if(state.context == EGL_NO_CONTEXT) {
+        const EGLint context2Attrs[] = {
+            EGL_CONTEXT_CLIENT_VERSION, 2,
+            EGL_NONE,
+        };
+        state.context =
+            eglCreateContext(state.display, state.config, EGL_NO_CONTEXT,
+                             context2Attrs);
+        contextVersion = 2;
+    }
+    if(state.context == EGL_NO_CONTEXT) {
+        ++state.failures;
+        TVPNativeLogInfo("runtime-host",
+                         FormatAndroidEGLError("eglCreateContext", eglGetError())
+                             .c_str());
+        return false;
+    }
+
+    const EGLint pbufferAttrs[] = {
+        EGL_WIDTH, 1,
+        EGL_HEIGHT, 1,
+        EGL_NONE,
+    };
+    state.pbuffer =
+        eglCreatePbufferSurface(state.display, state.config, pbufferAttrs);
+    if(state.pbuffer == EGL_NO_SURFACE) {
+        ++state.failures;
+        TVPNativeLogInfo(
+            "runtime-host",
+            FormatAndroidEGLError("eglCreatePbufferSurface", eglGetError())
+                .c_str());
+        return false;
+    }
+
+    state.ready = true;
+    char message[256];
+    std::snprintf(message, sizeof(message),
+                  "android-sdl3 EGL render context ready stage=%s "
+                  "version=%d egl=%d.%d",
+                  stage ? stage : "", contextVersion, major, minor);
+    TVPNativeLogInfo("runtime-host", message);
+    return true;
+}
+
+bool TVPAndroidEnsureSDLRenderContextCurrent(const char *stage) {
+    std::lock_guard<std::mutex> lock(gAndroidSDLRenderContextLock);
+    auto &state = gAndroidSDLRenderContext;
+    if(!CreateAndroidSDLRenderContextLocked(stage))
+        return false;
+
+    if(eglGetCurrentDisplay() == state.display &&
+       eglGetCurrentContext() == state.context &&
+       eglGetCurrentSurface(EGL_DRAW) == state.pbuffer &&
+       eglGetCurrentSurface(EGL_READ) == state.pbuffer)
+        return true;
+
+    if(eglMakeCurrent(state.display, state.pbuffer, state.pbuffer,
+                      state.context) != EGL_TRUE) {
+        ++state.failures;
+        TVPNativeLogInfo("runtime-host",
+                         FormatAndroidEGLError("eglMakeCurrent", eglGetError())
+                             .c_str());
+        return false;
+    }
+    const uint64_t calls = ++state.makeCurrentCalls;
+    if(calls <= 4 || calls == 8 || calls == 16 || (calls % 256) == 0) {
+        char message[256];
+        std::snprintf(message, sizeof(message),
+                      "android-sdl3 EGL current #%llu stage=%s",
+                      static_cast<unsigned long long>(calls),
+                      stage ? stage : "");
+        TVPNativeLogInfo("runtime-host", message);
+    }
+    return true;
 }
 } // namespace
 
@@ -862,12 +1039,8 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeOnLowMemory(JNIEnv *env, jclass cls) {
     });
 }
 
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
-                                                        jobject,
-                                                        jobject surface,
-                                                        jint width,
-                                                        jint height) {
+static void TVPAndroidSetGameSurface(JNIEnv *env, jobject surface, jint width,
+                                     jint height, const char *source) {
     {
         std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
         if(gFlutterGameSurfaceWindow) {
@@ -888,7 +1061,9 @@ Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
                                                  WINDOW_FORMAT_RGBA_8888);
                 char message[192];
                 std::snprintf(message, sizeof(message),
-                              "set game surface window=%p size=%dx%d requested=%dx%d",
+                              "%s set game surface window=%p size=%dx%d "
+                              "requested=%dx%d",
+                              source ? source : "unknown",
                               static_cast<void *>(gFlutterGameSurfaceWindow),
                               gFlutterGameSurfaceWidth,
                               gFlutterGameSurfaceHeight, width, height);
@@ -905,10 +1080,8 @@ Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
     TVPSDLNotifyAndroidFlutterGameSurfaceChanged("set");
 }
 
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
-                                                           jint width,
-                                                           jint height) {
+static void TVPAndroidResizeGameSurface(jint width, jint height,
+                                        const char *source) {
     {
         std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
         gFlutterGameSurfaceWidth = kTVPSDLFixedGameSurfaceWidth;
@@ -921,16 +1094,15 @@ Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
         }
         char message[160];
         std::snprintf(message, sizeof(message),
-                      "resize game surface size=%dx%d requested=%dx%d",
-                      gFlutterGameSurfaceWidth, gFlutterGameSurfaceHeight,
-                      width, height);
+                      "%s resize game surface size=%dx%d requested=%dx%d",
+                      source ? source : "unknown", gFlutterGameSurfaceWidth,
+                      gFlutterGameSurfaceHeight, width, height);
         TVPNativeLogInfo("flutter-surface", message);
     }
     TVPSDLNotifyAndroidFlutterGameSurfaceChanged("resize");
 }
 
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
+static void TVPAndroidDetachGameSurface(const char *source) {
     {
         std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
         if(gFlutterGameSurfaceWindow) {
@@ -939,9 +1111,52 @@ Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
         }
         gFlutterGameSurfaceWidth = 0;
         gFlutterGameSurfaceHeight = 0;
-        TVPNativeLogInfo("flutter-surface", "detach game surface");
+        char message[96];
+        std::snprintf(message, sizeof(message), "%s detach game surface",
+                      source ? source : "unknown");
+        TVPNativeLogInfo("flutter-surface", message);
     }
     TVPSDLNotifyAndroidFlutterGameSurfaceChanged("detach");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
+                                                        jobject,
+                                                        jobject surface,
+                                                        jint width,
+                                                        jint height) {
+    TVPAndroidSetGameSurface(env, surface, width, height, "MainActivity");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
+                                                           jint width,
+                                                           jint height) {
+    TVPAndroidResizeGameSurface(width, height, "MainActivity");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
+    TVPAndroidDetachGameSurface("MainActivity");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeSetGameSurface(
+    JNIEnv *env, jclass, jobject surface, jint width, jint height) {
+    TVPAndroidSetGameSurface(env, surface, width, height,
+                             "AndroidRuntimeBridge");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeResizeGameSurface(
+    JNIEnv *, jclass, jint width, jint height) {
+    TVPAndroidResizeGameSurface(width, height, "AndroidRuntimeBridge");
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeDetachGameSurface(JNIEnv *,
+                                                                   jclass) {
+    TVPAndroidDetachGameSurface("AndroidRuntimeBridge");
 }
 
 JNIEXPORT void JNICALL
@@ -952,9 +1167,15 @@ Java_org_github_krkr2_flutter_1engine_1bridge_FlutterEngineBridgePlugin_nativeSe
                                                 : "clear application context");
 }
 
-JNIEXPORT jintArray JNICALL
-Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
-                                                               jobject) {
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeSetApplicationContext(
+    JNIEnv *env, jclass, jobject context) {
+    krkr_SetApplicationContext(env, context);
+    TVPNativeLogInfo("flutter-context", context ? "bridge set application context"
+                                                : "bridge clear application context");
+}
+
+static jintArray TVPAndroidGetGameSurfaceMetrics(JNIEnv *env) {
     int presentedWidth = 0;
     int presentedHeight = 0;
     TVPSDLGetPresentedSurfaceSize(&presentedWidth, &presentedHeight);
@@ -994,6 +1215,18 @@ Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
     if(result)
         env->SetIntArrayRegion(result, 0, 10, values);
     return result;
+}
+
+JNIEXPORT jintArray JNICALL
+Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
+                                                               jobject) {
+    return TVPAndroidGetGameSurfaceMetrics(env);
+}
+
+JNIEXPORT jintArray JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeGetGameSurfaceMetrics(
+    JNIEnv *env, jclass) {
+    return TVPAndroidGetGameSurfaceMetrics(env);
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -1053,10 +1286,24 @@ Java_org_github_krkr2_MainActivity_nativeFlutterTouchesBegin(JNIEnv *env,
 }
 
 JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesBegin(
+    JNIEnv *env, jclass, jint id, jfloat x, jfloat y) {
+    (void)env;
+    TVPSDLQueueFlutterTouchBegin(id, x, y);
+}
+
+JNIEXPORT void JNICALL
 Java_org_github_krkr2_MainActivity_nativeFlutterTouchesEnd(JNIEnv *env,
                                                            jobject, jint id,
                                                            jfloat x,
                                                            jfloat y) {
+    (void)env;
+    TVPSDLQueueFlutterTouchEnd(id, x, y);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesEnd(
+    JNIEnv *env, jclass, jint id, jfloat x, jfloat y) {
     (void)env;
     TVPSDLQueueFlutterTouchEnd(id, x, y);
 }
@@ -1088,11 +1335,57 @@ Java_org_github_krkr2_MainActivity_nativeFlutterTouchesMove(JNIEnv *env,
 }
 
 JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesMove(
+    JNIEnv *env, jclass, jintArray ids, jfloatArray xs, jfloatArray ys) {
+    if(!ids || !xs || !ys) {
+        TVPSDLQueueFlutterTouchMove(0, nullptr, nullptr, nullptr);
+        return;
+    }
+    const jsize count =
+        std::min(env->GetArrayLength(ids),
+                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
+    std::vector<jint> idValues(static_cast<size_t>(count));
+    std::vector<jfloat> xValues(static_cast<size_t>(count));
+    std::vector<jfloat> yValues(static_cast<size_t>(count));
+    if(count > 0) {
+        env->GetIntArrayRegion(ids, 0, count, idValues.data());
+        env->GetFloatArrayRegion(xs, 0, count, xValues.data());
+        env->GetFloatArrayRegion(ys, 0, count, yValues.data());
+    }
+    TVPSDLQueueFlutterTouchMove(
+        static_cast<int>(count), idValues.data(), xValues.data(),
+        yValues.data());
+}
+
+JNIEXPORT void JNICALL
 Java_org_github_krkr2_MainActivity_nativeFlutterTouchesCancel(JNIEnv *env,
                                                               jobject,
                                                               jintArray ids,
                                                               jfloatArray xs,
                                                               jfloatArray ys) {
+    if(!ids || !xs || !ys) {
+        TVPSDLQueueFlutterTouchCancel(0, nullptr, nullptr, nullptr);
+        return;
+    }
+    const jsize count =
+        std::min(env->GetArrayLength(ids),
+                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
+    std::vector<jint> idValues(static_cast<size_t>(count));
+    std::vector<jfloat> xValues(static_cast<size_t>(count));
+    std::vector<jfloat> yValues(static_cast<size_t>(count));
+    if(count > 0) {
+        env->GetIntArrayRegion(ids, 0, count, idValues.data());
+        env->GetFloatArrayRegion(xs, 0, count, xValues.data());
+        env->GetFloatArrayRegion(ys, 0, count, yValues.data());
+    }
+    TVPSDLQueueFlutterTouchCancel(
+        static_cast<int>(count), idValues.data(), xValues.data(),
+        yValues.data());
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesCancel(
+    JNIEnv *env, jclass, jintArray ids, jfloatArray xs, jfloatArray ys) {
     if(!ids || !xs || !ys) {
         TVPSDLQueueFlutterTouchCancel(0, nullptr, nullptr, nullptr);
         return;
