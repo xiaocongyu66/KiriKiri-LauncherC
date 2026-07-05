@@ -42,6 +42,7 @@ struct TVPSDLTexturePresentResult {
     bool fullFrame = false;
     bool nativeGL = false;
     bool cpuCopyFree = false;
+    bool deferredSwap = false;
 
     bool Presented() const { return path != TVPSDLPresentPath::None; }
 };

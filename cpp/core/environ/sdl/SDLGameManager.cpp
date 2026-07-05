@@ -3274,8 +3274,10 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                 frameInfo.sequence = presented;
             }
             TVPRuntimeRecordPresentFrame(frameInfo);
-            tTVPRect consumed;
-            texture->ConsumeDirtyRect(consumed);
+            if(!androidResult.deferredSwap) {
+                tTVPRect consumed;
+                texture->ConsumeDirtyRect(consumed);
+            }
             const uint64_t presentSequence =
                 gpuUploads > 0 ? gpuUploads : presented;
             if(IsSDLRenderDiagnosticsActive() &&
@@ -3419,6 +3421,11 @@ bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
 
     if(!window || !texture)
         return true;
+
+#if defined(__ANDROID__)
+    if(TVPSDLIsScreenTakeoverEnabled())
+        return true;
+#endif
 
     int surfaceWidth = 0;
     int surfaceHeight = 0;

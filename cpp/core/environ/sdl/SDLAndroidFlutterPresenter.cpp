@@ -1250,6 +1250,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
         }
+        if(!state.swapIntervalZeroSet) {
+            eglSwapInterval(state.display, 0);
+            state.swapIntervalZeroSet = true;
+        }
         GLuint sourceTexture = nativeTexture;
         if(softwareUpload) {
             if(!GetTextureRegionUploadPointer(
@@ -1323,13 +1327,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS"))
             glError = glGetError();
 
-        EGLBoolean swapped = EGL_FALSE;
-        EGLint swapError = EGL_SUCCESS;
-        if(glError == GL_NO_ERROR) {
-            swapped = eglSwapBuffers(state.display, state.surface);
-            if(swapped != EGL_TRUE)
-                swapError = eglGetError();
-        }
+        if(glError == GL_NO_ERROR)
+            glFlush();
 
         const bool restored = RestoreAndroidEGLCurrentLocked(
             previousDisplay, previousDraw, previousRead, previousContext,
@@ -1343,42 +1342,27 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             LogAndroidEGLFailureLocked(stage, reason);
             return false;
         }
-        if(swapped != EGL_TRUE) {
-            LogAndroidEGLFailureLocked(
-                stage, AndroidEGLFormatError("eglSwapBuffers", swapError));
-            DestroyAndroidEGLWindowSurfaceLocked("present-swap-failed");
-            return false;
-        }
 
-        state.frameDirty = false;
-        state.pendingNativeGL = false;
-        state.pendingWidth = 0;
-        state.pendingHeight = 0;
-        state.pendingDirtyTexture = nullptr;
-        presentedCount = ++state.presented;
-        state.lastPresentNativeGL = nativeTexture != 0;
-        if(nativeTexture != 0)
-            ++state.nativePresents;
-        state.surfaceHasContent = true;
+        state.frameDirty = true;
+        state.pendingNativeGL = nativeTexture != 0;
+        state.pendingWidth = outputWidth;
+        state.pendingHeight = outputHeight;
+        state.pendingDirtyTexture = texture;
+        presentedCount = state.presented + 1;
         if(!restored)
             LogAndroidEGLFailureLocked(
-                stage, "external present posted but EGL restore failed");
+                stage, "external present queued but EGL restore failed");
         presented = true;
     }
 
     if(usedFullFrame)
         *usedFullFrame = fullFramePresent;
-    if(presented) {
-        TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize(
-            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight);
-        MarkExternalPresenterPostedFrame();
-    }
 
     if(presented && IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
        ShouldLogScreenPresenter(presentedCount)) {
         char message[512];
         std::snprintf(message, sizeof(message),
-                      "present-android-egl #%llu stage=%s texture=%dx%d "
+                      "queue-android-egl #%llu stage=%s texture=%dx%d "
                       "output=%dx%d viewport=%d,%d,%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
@@ -1543,6 +1527,7 @@ bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
         result.fullFrame = eglFullFrame;
         result.nativeGL = texture->GetNativeGLTextureId() != 0;
         result.cpuCopyFree = result.nativeGL;
+        result.deferredSwap = true;
         return true;
     }
 
