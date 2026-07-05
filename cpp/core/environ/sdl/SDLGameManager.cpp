@@ -3264,23 +3264,18 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
             frameInfo.nativeGL = androidResult.nativeGL;
             frameInfo.cpuCopyFree = androidResult.cpuCopyFree;
             uint64_t presented = 0;
-            if(androidResult.path == TVPSDLPresentPath::AndroidEGL) {
-                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-                presented = gSDLScreenPresenterState.presentedFrames + 1;
-                gSDLScreenPresenterState.pendingExternalFrameInfo = frameInfo;
-                gSDLScreenPresenterState.hasPendingExternalFrameInfo = true;
-            } else {
+            {
                 std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
                 presented = ++gSDLScreenPresenterState.presentedFrames;
+                gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
+                gSDLScreenPresenterState.pendingExternalFrameInfo =
+                    TVPRuntimePresentFrameInfo{};
                 frameInfo.valid = true;
                 frameInfo.sequence = presented;
             }
-            if(androidResult.path != TVPSDLPresentPath::AndroidEGL)
-                TVPRuntimeRecordPresentFrame(frameInfo);
-            if(androidResult.path != TVPSDLPresentPath::AndroidEGL) {
-                tTVPRect consumed;
-                texture->ConsumeDirtyRect(consumed);
-            }
+            TVPRuntimeRecordPresentFrame(frameInfo);
+            tTVPRect consumed;
+            texture->ConsumeDirtyRect(consumed);
             const uint64_t presentSequence =
                 gpuUploads > 0 ? gpuUploads : presented;
             if(IsSDLRenderDiagnosticsActive() &&
