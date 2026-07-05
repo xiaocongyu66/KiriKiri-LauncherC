@@ -1287,7 +1287,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         }
 
         if(softwareUpload) {
+            // The EGL path blits the source texture as a complete frame; keep
+            // the software upload texture complete too.
             const bool needsFullUpload =
+                fullFramePresent ||
                 state.uploadSourceTexture != texture ||
                 state.uploadWidth != surfaceWidth ||
                 state.uploadHeight != surfaceHeight;

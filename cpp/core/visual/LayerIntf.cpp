@@ -55,7 +55,6 @@ static bool KR2LayerAllocDiagnosticsEnabled() {
 #include "ConfigManager/IndividualConfigManager.h"
 #include "vkdefine.h"
 #include "RenderManager.h"
-#include "runtime/RuntimePresenter.h"
 #include <cstdlib>
 #include "FontImpl.h"
 
@@ -89,11 +88,10 @@ static bool IsGPU() {
 
 static bool TVPShouldUseFullFrameGPUCompletion() {
 #if defined(__ANDROID__)
-    // Android's Flutter SurfaceTexture presenter samples the native GL texture
-    // as a whole. Partial GPU completion can leave stale pixels outside the
-    // dirty union when non-accurate OpenGL rendering is selected.
-    return TVPRuntimeIsScreenTakeoverEnabled() &&
-        TVPRuntimeIsScreenTakeoverSupported();
+    // Non-accurate Android OpenGL completion is eventually sampled as a whole
+    // texture by the Flutter/SDL presenter. Do not depend on takeover timing:
+    // early startup and surface rebuild frames must be complete too.
+    return true;
 #else
     return false;
 #endif

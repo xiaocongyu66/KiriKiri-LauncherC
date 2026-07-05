@@ -12,6 +12,11 @@ Change made in `KiriKiri-LauncherC` only:
   - Rationale: the Flutter SurfaceTexture presenter samples the native GL
     texture as a complete frame. Partial GPU completion can leave stale pixels in
     regions outside the dirty union, which matches the screenshot artifact.
+  - Follow-up: the full-frame completion guard no longer depends on takeover
+    already being enabled. On Android, every non-accurate GPU completion now
+    completes a full local layer rect, so startup and surface-rebuild frames
+    cannot seed the shared GL texture with partial/stale contents before SDL
+    takeover is active.
 
 - `cpp/core/environ/sdl/SDLGameManager.cpp`
   - When Android screen takeover presents a GL-backed texture, partial dirty
@@ -19,11 +24,21 @@ Change made in `KiriKiri-LauncherC` only:
   - This keeps native GL handoff semantics aligned with the EGL presenter, which
     blits the whole texture to the SurfaceTexture each frame.
 
+- `cpp/core/environ/sdl/SDLAndroidFlutterPresenter.cpp`
+  - The EGL software-upload fallback now uploads the full source texture whenever
+    the EGL presenter is submitting a full frame.
+  - Rationale: logs from the 04:33 run showed `softwareUpload=1` with partial
+    upload rects such as `0,817,1920x263` while the presenter still reported
+    `fullFrame=1`. Keeping upload and present granularity aligned avoids stale
+    cached pixels in fallback mode.
+
 Expected log change:
 
 - `queue-android-egl ... rect=0,0,1920x1080 ... fullFrame=1`
   should be seen for native GL takeover frames instead of partial menu/strip
   dirty rectangles.
+- For EGL software fallback frames, `upload=0,0,1920x1080` should accompany
+  `fullFrame=1` even if the original dirty `rect` was partial.
 
 Validation status:
 
