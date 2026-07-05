@@ -99,6 +99,17 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         return sInstance;
     }
 
+    static public KR2Activity requireActivityContext() {
+        if (sInstance == null) {
+            throw new IllegalStateException("KR2Activity is not attached");
+        }
+        return sInstance;
+    }
+
+    static public Context requireApplicationContext() {
+        return requireActivityContext().getApplicationContext();
+    }
+
     private void writeLifecycleLog(String message) {
         String detail = "thread=" + Thread.currentThread().getName();
         try {

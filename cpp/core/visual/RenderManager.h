@@ -4,6 +4,10 @@
 #include <stdint.h>
 #include <string>
 
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 0
+#endif
+
 #ifndef TVP_TEXTURE_DIRTY_UNITE_LIMIT
 #define TVP_TEXTURE_DIRTY_UNITE_LIMIT 300
 #endif
@@ -96,15 +100,18 @@ struct TVPTextureFormat {
     };
 };
 
+#if KRKR2_ENABLE_COCOS_HOST
+#ifndef KRKR_TEXTURE2D_ALIAS_DECLARED
+#define KRKR_TEXTURE2D_ALIAS_DECLARED 1
 namespace cocos2d {
     class Texture2D;
 }
-
-#ifndef KRKR_TEXTURE2D_ALIAS_DECLARED
-#define KRKR_TEXTURE2D_ALIAS_DECLARED 1
 namespace krkr {
     using Texture2D = cocos2d::Texture2D;
 }
+#endif
+#else
+#include "ogl/krkr_texture2d.h"
 #endif
 
 class iTVPTexture2D {

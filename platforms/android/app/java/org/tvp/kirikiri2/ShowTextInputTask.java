@@ -7,8 +7,6 @@ import android.view.View;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.FrameLayout;
 
-import org.cocos2dx.lib.Cocos2dxActivity;
-
 public class ShowTextInputTask implements Runnable {
     /*
      * This is used to regulate the pan&scan method to have some offset from
@@ -27,14 +25,15 @@ public class ShowTextInputTask implements Runnable {
 
     @Override
     public void run() {
+        KR2Activity activity = KR2Activity.requireActivityContext();
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(w, h + HEIGHT_PADDING);
         params.leftMargin = x;
         params.topMargin = y;
 
         if (mTextEdit == null) {
-            mTextEdit = new DummyEdit(Cocos2dxActivity.getContext());
+            mTextEdit = new DummyEdit(activity);
 
-            KR2Activity.sInstance.mFrameLayout.addView(mTextEdit, params);
+            activity.mFrameLayout.addView(mTextEdit, params);
         } else {
             mTextEdit.setLayoutParams(params);
         }
@@ -42,7 +41,8 @@ public class ShowTextInputTask implements Runnable {
         mTextEdit.setVisibility(View.VISIBLE);
         mTextEdit.requestFocus();
 
-        InputMethodManager imm = (InputMethodManager) Cocos2dxActivity.getContext().getSystemService(Context.INPUT_METHOD_SERVICE);
+        InputMethodManager imm = (InputMethodManager) KR2Activity.requireApplicationContext()
+                .getSystemService(Context.INPUT_METHOD_SERVICE);
         imm.showSoftInput(mTextEdit, 0);
     }
 }

@@ -26,7 +26,7 @@
 #include <queue>
 
 #ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 1
+#define KRKR2_ENABLE_COCOS_HOST 0
 #endif
 
 #if KRKR2_ENABLE_COCOS_HOST
@@ -868,12 +868,16 @@ static void _processEvents(float) {
 }
 
 void Android_PushEvents(const std::function<void()> &func) {
+#if KRKR2_ENABLE_COCOS_HOST
     _eventQueueNode *node = new _eventQueueNode;
     node->func = func;
     node->next = nullptr;
     node->prev = nullptr;
     while(!_lastQueuedEvents.compare_exchange_weak(node->prev, node)) {
     }
+#else
+    func();
+#endif
 }
 
 std::string Android_GetLaunchGamePath() {

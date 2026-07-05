@@ -5,8 +5,14 @@
 #include <android/native_window.h>
 #include <android/native_window_jni.h>
 
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 0
+#endif
+
+#if KRKR2_ENABLE_COCOS_HOST
 #include "environ/cocos2d/AppDelegate.h"
 #include "environ/cocos2d/MainScene.h"
+#endif
 #include "environ/ConfigManager/GlobalConfigManager.h"
 #include "environ/Application.h"
 #include "environ/NativeLog.h"
@@ -15,6 +21,9 @@
 #include "environ/sdl/SDLGameManager.h"
 #include "environ/sdl/SDLAndroidFlutterPresenter.h"
 #include "environ/sdl/SDLPresentTypes.h"
+#include "environ/sdl/SDLRuntimePresenter.h"
+#include "environ/runtime/RuntimeEngineLoop.h"
+#include "environ/runtime/RuntimeHost.h"
 #include "environ/runtime/RuntimePresenter.h"
 #include "common/FFmpegDecodeConfig.h"
 #include "vkdefine.h"
@@ -79,6 +88,42 @@ static bool DumpFilter(void *data) {
     return !TVPSystemUninitCalled;
 }
 
+#if !KRKR2_ENABLE_COCOS_HOST
+class TVPAndroidSDLRuntimeHost final : public iTVPRuntimeHost {
+public:
+    const char *GetHostName() const override { return "android-sdl3"; }
+
+    bool StartGame(const TVPRuntimeHostLaunchRequest &request) override {
+        return TVPRuntimeConfigureGameLaunch(request) &&
+            TVPRuntimeStartApplication(request.gamePath);
+    }
+
+    void RunFrame(float deltaSeconds) override {
+        TVPRuntimeRunApplicationFrame(deltaSeconds);
+        TVPRuntimeRecycleFrameResources();
+        TVPRuntimePumpScreenPresenter("android-sdl3");
+    }
+
+    TVPRuntimeHostFrameMetrics GetFrameMetrics() override {
+        TVPRuntimeHostFrameMetrics metrics;
+        metrics.frameWidth = kTVPSDLFixedGameSurfaceWidth;
+        metrics.frameHeight = kTVPSDLFixedGameSurfaceHeight;
+        metrics.sceneWidth = kTVPSDLFixedGameSurfaceWidth;
+        metrics.sceneHeight = kTVPSDLFixedGameSurfaceHeight;
+        metrics.scale = 1.0f;
+        return metrics;
+    }
+};
+
+static TVPAndroidSDLRuntimeHost gAndroidSDLRuntimeHost;
+
+static void TVPRegisterAndroidSDLRuntimeHost() {
+    TVPSetRuntimeHost(&gAndroidSDLRuntimeHost);
+    TVPRegisterSDLRuntimePresenter();
+    TVPNativeLogInfo("runtime-host", "android-sdl3 runtime host registered");
+}
+#endif
+
 [[maybe_unused]] void cocos_android_app_init(JNIEnv *env) { // for cocos3.10+
 
     TVPInitializeNativeLogging();
@@ -115,9 +160,14 @@ static bool DumpFilter(void *data) {
         TVPAppendNativeFatalBreadcrumb("jni", "dlopen libSDL3.so failed");
     }
 
+#if KRKR2_ENABLE_COCOS_HOST
     static std::unique_ptr<TVPAppDelegate> pAppDelegate =
         std::make_unique<TVPAppDelegate>();
     TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
+#else
+    TVPRegisterAndroidSDLRuntimeHost();
+    TVPAppendNativeFatalBreadcrumb("jni", "no-cocos host init");
+#endif
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -143,8 +193,12 @@ int gFlutterGameSurfaceWidth = 0;
 int gFlutterGameSurfaceHeight = 0;
 
 bool ShouldRouteLegacyInputToCocos() {
+#if KRKR2_ENABLE_COCOS_HOST
     return !TVPSDLIsScreenTakeoverEnabled() ||
         !TVPSDLHasScreenPresenterPresented();
+#else
+    return false;
+#endif
 }
 
 bool ShowFlutterGameMainMenu(JNIEnv *env) {
@@ -361,11 +415,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(
     TVPSDLRecordAndroidInput("touch-begin", 1, x, y, id, true);
     if(!ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     intptr_t idlong = id;
     Android_PushEvents([idlong, x, y]() {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesBegin(
             1, (intptr_t *)&idlong, (float *)&x, (float *)&y);
     });
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesEnd(
@@ -373,11 +429,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesEnd(
     TVPSDLRecordAndroidInput("touch-end", 1, x, y, id, false);
     if(!ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     intptr_t idlong = id;
     Android_PushEvents([idlong, x, y]() {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesEnd(
             1, (intptr_t *)&idlong, (float *)&x, (float *)&y);
     });
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(
@@ -399,22 +457,24 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(
         TVPSDLRecordAndroidInput("touch-move", 1, x, y, id, true);
         if(!ShouldRouteLegacyInputToCocos())
             return;
+#if KRKR2_ENABLE_COCOS_HOST
         Android_PushEvents([idlong, x, y]() {
             cocos2d::Director::getInstance()
                 ->getOpenGLView()
                 ->handleTouchesMove(1, (intptr_t *)&idlong, (float *)&x,
                                     (float *)&y);
         });
+#endif
         return;
     }
 
-    jint id[size];
+    std::vector<jint> id(size);
     std::vector<jfloat> x;
     x.resize(size);
     std::vector<jfloat> y;
     y.resize(size);
 
-    env->GetIntArrayRegion(ids, 0, size, id);
+    env->GetIntArrayRegion(ids, 0, size, id.data());
     env->GetFloatArrayRegion(xs, 0, size, &x[0]);
     env->GetFloatArrayRegion(ys, 0, size, &y[0]);
 
@@ -426,16 +486,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(
     TVPSDLRecordAndroidInput("touch-move", size, x[0], y[0], id[0], true);
     if(!ShouldRouteLegacyInputToCocos())
         return;
-    Android_PushEvents([idlong, x, y]() {
+#if KRKR2_ENABLE_COCOS_HOST
+    Android_PushEvents([idlong, x, y]() mutable {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesMove(
-            idlong.
-
-            size(),
-            (intptr_t
-
-                 *)&idlong[0],
-            (float *)&x[0], (float *)&y[0]);
+            static_cast<int>(idlong.size()), idlong.data(), x.data(),
+            y.data());
     });
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
@@ -457,22 +514,24 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
         TVPSDLRecordAndroidInput("touch-cancel", 1, x, y, id, false);
         if(!ShouldRouteLegacyInputToCocos())
             return;
+#if KRKR2_ENABLE_COCOS_HOST
         Android_PushEvents([idlong, x, y]() {
             cocos2d::Director::getInstance()
                 ->getOpenGLView()
                 ->handleTouchesCancel(1, (intptr_t *)&idlong, (float *)&x,
                                       (float *)&y);
         });
+#endif
         return;
     }
 
-    jint id[size];
+    std::vector<jint> id(size);
     std::vector<jfloat> x;
     x.resize(size);
     std::vector<jfloat> y;
     y.resize(size);
 
-    env->GetIntArrayRegion(ids, 0, size, id);
+    env->GetIntArrayRegion(ids, 0, size, id.data());
     env->GetFloatArrayRegion(xs, 0, size, &x[0]);
     env->GetFloatArrayRegion(ys, 0, size, &y[0]);
 
@@ -484,16 +543,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
     TVPSDLRecordAndroidInput("touch-cancel", size, x[0], y[0], id[0], false);
     if(!ShouldRouteLegacyInputToCocos())
         return;
-    Android_PushEvents([idlong, x, y]() {
+#if KRKR2_ENABLE_COCOS_HOST
+    Android_PushEvents([idlong, x, y]() mutable {
         cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesCancel(
-            idlong.
-
-            size(),
-            (intptr_t
-
-                 *)&idlong[0],
-            (float *)&x[0], (float *)&y[0]);
+            static_cast<int>(idlong.size()), idlong.data(), x.data(),
+            y.data());
     });
+#endif
 }
 
 #define KEYCODE_BACK 0x04
@@ -528,6 +584,7 @@ JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
         return JNI_TRUE;
     }
 
+#if KRKR2_ENABLE_COCOS_HOST
     cocos2d::EventKeyboard::KeyCode pKeyCode;
     switch(keyCode) {
         case KEYCODE_BACK:
@@ -573,6 +630,9 @@ JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
             &event);
     });
     return JNI_TRUE;
+#else
+    return JNI_TRUE;
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(
@@ -591,19 +651,12 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(
             env->ReleaseStringUTFChars(text, pszText);
             return;
         }
+#if KRKR2_ENABLE_COCOS_HOST
         Android_PushEvents([str]() {
             cocos2d::IMEDispatcher::sharedDispatcher()->dispatchInsertText(
-                str.
-
-                c_str(),
-                str
-
-                    .
-
-                length()
-
-            );
+                str.c_str(), str.length());
         });
+#endif
     }
     env->ReleaseStringUTFChars(text, pszText);
 }
@@ -613,11 +666,11 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeDeleteBackward(
     TVPSDLRecordAndroidInput("text-delete", 0, 0.0f, 0.0f, VK_BACK, false);
     if(TVPSDLDispatchDeleteBackward() || !ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     Android_PushEvents([capture0 = cocos2d::IMEDispatcher::sharedDispatcher()] {
-        capture0->
-
-            dispatchDeleteBackward();
+        capture0->dispatchDeleteBackward();
     });
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCharInput(
@@ -625,11 +678,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCharInput(
     TVPSDLRecordAndroidInput("char-input", 0, 0.0f, 0.0f, keyCode, true);
     if(TVPSDLDispatchCharInput(keyCode) || !ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     TVPMainScene *pScene = TVPMainScene::GetInstance();
     if(!pScene)
         return;
     pScene->getScheduler()->performFunctionInCocosThread(
         [keyCode] { TVPMainScene::onCharInput(keyCode); });
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
@@ -649,11 +704,13 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
                              static_cast<int>(str.length()), true);
     if(TVPSDLDispatchTextInput(str.c_str()) || !ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     TVPMainScene *pScene = TVPMainScene::GetInstance();
     if(!pScene)
         return;
     pScene->getScheduler()->performFunctionInCocosThread(
         [str] { TVPMainScene::onTextInput(str); });
+#endif
 }
 
 JNIEXPORT jboolean JNICALL
@@ -672,6 +729,7 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeHoverMoved(
     TVPSDLRecordAndroidInput("hover-move", 1, x, y, 0, true);
     if(TVPSDLDispatchAndroidHoverMove(x, y) || !ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     Android_PushEvents([x, y]() {
         cocos2d::GLView *glview =
             cocos2d::Director::getInstance()->getOpenGLView();
@@ -690,6 +748,7 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeHoverMoved(
         cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(
             &event);
     });
+#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
@@ -698,6 +757,7 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
     if(TVPSDLDispatchAndroidMouseScroll(_mouseX, _mouseY, v) ||
        !ShouldRouteLegacyInputToCocos())
         return;
+#if KRKR2_ENABLE_COCOS_HOST
     Android_PushEvents([v]() {
         cocos2d::GLView *glview =
             cocos2d::Director::getInstance()->getOpenGLView();
@@ -717,15 +777,14 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
         cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(
             &event);
     });
+#endif
 }
 
 JNIEXPORT void JNICALL
 Java_org_tvp_kirikiri2_KR2Activity_nativeOnLowMemory(JNIEnv *env, jclass cls) {
     TVPAppendNativeFatalBreadcrumb("memory", "nativeOnLowMemory");
     Android_PushEvents([]() {
-        ::Application->
-
-            OnLowMemory();
+        ::Application->OnLowMemory();
     });
 }
 

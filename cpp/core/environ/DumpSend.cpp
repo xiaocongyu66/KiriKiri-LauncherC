@@ -1,15 +1,23 @@
 #include <minizip/unzip/ioapi.h>
 #include <minizip/zip.h>
-#include <cocos/base/base64.h>
 #include <sstream>
 #include <iomanip>
 #include <condition_variable>
 #include <map>
-#include <cocos/network/HttpRequest.h>
-#include <cocos/network/HttpClient.h>
+#include <thread>
 #include "Platform.h"
 #include "ConfigManager/LocaleConfigManager.h"
 #include "StorageImpl.h"
+
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 0
+#endif
+
+#if KRKR2_ENABLE_COCOS_HOST
+#include <cocos/base/base64.h>
+#include <cocos/network/HttpRequest.h>
+#include <cocos/network/HttpClient.h>
+#endif
 
 static void ClearDumps(const std::string &dumpdir,
                        std::vector<std::string> &allDumps) {
@@ -19,6 +27,7 @@ static void ClearDumps(const std::string &dumpdir,
     // allDumps.clear();
 }
 
+#if KRKR2_ENABLE_COCOS_HOST
 static std::map<std::string, tTVPMemoryStream *> _inmemFiles;
 
 struct zlib_inmem_func64 : public zlib_filefunc64_def {
@@ -225,6 +234,14 @@ static void SendDumps(std::string dumpdir, std::vector<std::string> allDumps,
     }
     // allDumps.clear();
 }
+#else
+static void SendDumps(std::string dumpdir, std::vector<std::string> allDumps,
+                      std::string packageName, std::string versionStr) {
+    (void)packageName;
+    (void)versionStr;
+    ClearDumps(dumpdir, allDumps);
+}
+#endif
 
 void TVPCheckAndSendDumps(const std::string &dumpdir,
                           const std::string &packageName,

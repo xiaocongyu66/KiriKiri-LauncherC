@@ -5,10 +5,15 @@
 #include "krmovie.h"
 #include "ComplexRect.h"
 
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 0
+#endif
+
 struct SwsContext;
 
 class iTVPSoundBuffer;
 
+#if KRKR2_ENABLE_COCOS_HOST
 class TVPYUVSprite;
 
 namespace cocos2d {
@@ -16,6 +21,7 @@ namespace cocos2d {
 
     class Node;
 } // namespace cocos2d
+#endif
 
 NS_KRMOVIE_BEGIN
 #define MAX_BUFFER_COUNT 4
@@ -222,6 +228,7 @@ protected:
     double m_curpts = 0;
 };
 
+#if KRKR2_ENABLE_COCOS_HOST
 class VideoPresentOverlay : public TVPMoviePlayer // cocos2d compatible video
                                                   // display overlay
 {
@@ -282,5 +289,21 @@ public:
 
     static VideoPresentOverlay2 *create();
 };
+#else
+class MoviePlayerOverlay : public TVPMoviePlayer {
+    tTJSNI_VideoOverlay *m_pCallbackWin = nullptr;
+
+    void OnPlayEvent(KRMovieEvent msg, void *p);
+
+public:
+    void BuildGraph(tTJSNI_VideoOverlay *callbackwin, IStream *stream,
+                    const tjs_char *streamname, const tjs_char *type,
+                    uint64_t size);
+
+    int AddVideoPicture(DVDVideoPicture &, int) override {
+        return MAX_BUFFER_COUNT;
+    }
+};
+#endif
 
 NS_KRMOVIE_END

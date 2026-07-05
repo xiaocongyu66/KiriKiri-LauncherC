@@ -4,11 +4,16 @@
 #include <string>
 #include <vector>
 
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 0
+#endif
 
+#if KRKR2_ENABLE_COCOS_HOST
 namespace cocos2d::ui {
     class Text;
     class Button;
 } // namespace cocos2d::ui
+#endif
 
 
 class LocaleConfigManager {
@@ -28,10 +33,12 @@ public:
 
     const std::string &GetText(const std::string &tid); // in utf8
 
+#if KRKR2_ENABLE_COCOS_HOST
     bool initText(cocos2d::ui::Text *ctrl);
     bool initText(cocos2d::ui::Button *ctrl);
     bool initText(cocos2d::ui::Text *ctrl, const std::string &tid);
     bool initText(cocos2d::ui::Button *ctrl, const std::string &tid);
+#endif
 
 private:
     std::string currentLangCode;

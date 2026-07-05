@@ -11,11 +11,11 @@
 #include "Application.h"
 #include "Platform.h"
 #include "ConfigManager/IndividualConfigManager.h"
+#include "ConfigManager/ConfigFileIO.h"
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
 
-#include <cocos/platform/CCFileUtils.h>
 #include "StorageImpl.h"
 #include "BinaryStream.h"
 
@@ -218,21 +218,24 @@ void TVPInitFontNames() {
             break;
 #endif
 
-        { // from internal storage
-            auto data = cocos2d::FileUtils::getInstance()->getDataFromFile(
-                "NotoSansCJK-Regular.ttc");
-            if(data.isNull()) {
+        { // from bundled resources
+            std::string data;
+            if(!TVPLoadBundledConfigText("NotoSansCJK-Regular.ttc", &data) ||
+               data.empty()) {
                 spdlog::critical("can't found internal font file!");
                 exit(-1);
             }
             if(TVPInternalEnumFonts(
-                   data.getBytes(), data.getSize(), "NotoSansCJK-Regular.ttc",
+                   reinterpret_cast<FT_Byte *>(data.data()),
+                   static_cast<int>(data.size()), "NotoSansCJK-Regular.ttc",
                    [](TVPFontNamePathInfo *info) -> tTJSBinaryStream * {
-                       auto data =
-                           cocos2d::FileUtils::getInstance()->getDataFromFile(
-                               info->Path.AsStdString());
+                       std::string data;
+                       if(!TVPLoadBundledConfigText(info->Path.AsStdString(),
+                                                    &data) ||
+                          data.empty())
+                           return nullptr;
                        auto *ret = new tTVPMemoryStream();
-                       ret->WriteBuffer(data.getBytes(), data.getSize());
+                       ret->WriteBuffer(data.data(), data.size());
                        ret->SetPosition(0);
                        return ret;
                    }))

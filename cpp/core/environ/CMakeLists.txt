@@ -15,6 +15,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/NativeLog.cpp
     ${ENVIRON_PATH}/XP3ArchiveRepack.cpp
     ${ENVIRON_PATH}/runtime/RuntimeHost.cpp
+    ${ENVIRON_PATH}/runtime/RuntimeEngineLoop.cpp
     ${ENVIRON_PATH}/runtime/RuntimePresenter.cpp
     ${ENVIRON_PATH}/runtime/RuntimeRenderManager.cpp
 
@@ -39,24 +40,24 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/sdl/SDLUIManager.cpp
     ${ENVIRON_PATH}/sdl/tvpsdl.cpp
 
-    ${ENVIRON_PATH}/ui/BaseForm.cpp
-    ${ENVIRON_PATH}/ui/ConsoleWindow.cpp
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/DebugViewLayerForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/FileSelectorForm.cpp>
+    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:${ENVIRON_PATH}/ui/BaseForm.cpp>
+    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:${ENVIRON_PATH}/ui/ConsoleWindow.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/DebugViewLayerForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/FileSelectorForm.cpp>
     ${ENVIRON_PATH}/ui/FlutterGameMenuBridge.cpp
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/GameMainMenu.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/GlobalPreferenceForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/IndividualPreferenceForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/MainFileSelectorForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/InGameMenuForm.cpp>
-    ${ENVIRON_PATH}/ui/MessageBox.cpp
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/PreferenceForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/SelectListForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/SimpleMediaFilePlayer.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/TipsHelpForm.cpp>
-    $<$<NOT:$<BOOL:${ANDROID}>>:${ENVIRON_PATH}/ui/XP3RepackForm.cpp>
-    ${ENVIRON_PATH}/ui/extension/ActionExtension.cpp
-    ${ENVIRON_PATH}/ui/extension/UIExtension.cpp
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/GameMainMenu.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/GlobalPreferenceForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/IndividualPreferenceForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/MainFileSelectorForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/InGameMenuForm.cpp>
+    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:${ENVIRON_PATH}/ui/MessageBox.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/PreferenceForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/SelectListForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/SimpleMediaFilePlayer.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/TipsHelpForm.cpp>
+    $<$<AND:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>,$<NOT:$<BOOL:${ANDROID}>>>:${ENVIRON_PATH}/ui/XP3RepackForm.cpp>
+    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:${ENVIRON_PATH}/ui/extension/ActionExtension.cpp>
+    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:${ENVIRON_PATH}/ui/extension/UIExtension.cpp>
 
     ${ENVIRON_PATH}/win32/SystemControl.cpp
 #    ${ENVIRON_PATH}/win32/CompatibleNativeFuncs.cpp

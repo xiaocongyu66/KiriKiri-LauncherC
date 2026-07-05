@@ -1,6 +1,5 @@
 package org.tvp.kirikiri2;
 
-import static org.cocos2dx.lib.Cocos2dxActivity.getContext;
 import static org.tvp.kirikiri2.KR2Activity.onMessageBoxOK;
 import static org.tvp.kirikiri2.KR2Activity.onMessageBoxText;
 
@@ -12,8 +11,6 @@ import android.widget.LinearLayout;
 import androidx.appcompat.app.AlertDialog;
 
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-
-import org.github.krkr2.KR2Application;
 
 public class DialogMessage {
     public String Title;
@@ -35,7 +32,7 @@ public class DialogMessage {
     }
 
     public MaterialAlertDialogBuilder CreateBuilder() {
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(getContext()).
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(KR2Activity.requireActivityContext()).
                 setTitle(Title).
                 setMessage(Text).
                 setCancelable(false);
@@ -57,7 +54,7 @@ public class DialogMessage {
 
     public void ShowInputBox(final String text) {
         MaterialAlertDialogBuilder builder = CreateBuilder();
-        TextEditor = new EditText(getContext());
+        TextEditor = new EditText(KR2Activity.requireActivityContext());
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT);
@@ -67,7 +64,7 @@ public class DialogMessage {
         AlertDialog ad = builder.create();
         ad.show();
         TextEditor.requestFocus();
-        InputMethodManager imm = (InputMethodManager) KR2Application.context
+        InputMethodManager imm = (InputMethodManager) KR2Activity.requireApplicationContext()
                 .getSystemService(Context.INPUT_METHOD_SERVICE);
         imm.showSoftInput(TextEditor, 0);
     }

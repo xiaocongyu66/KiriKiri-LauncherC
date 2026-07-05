@@ -1,8 +1,8 @@
 #include "CocosRuntimeHost.h"
 
-#include "Application.h"
 #include "MainScene.h"
 #include "NativeLog.h"
+#include "runtime/RuntimeEngineLoop.h"
 #include "runtime/RuntimeHost.h"
 #include "sdl/SDLRuntimePresenter.h"
 
@@ -25,8 +25,7 @@ public:
     }
 
     void RunFrame(float deltaSeconds) override {
-        (void)deltaSeconds;
-        ::Application->Run();
+        TVPRuntimeRunApplicationFrame(deltaSeconds);
     }
 
     TVPRuntimeHostFrameMetrics GetFrameMetrics() override {

@@ -40,11 +40,10 @@
 #include "ui/UIButton.h"
 #include "ui/csd/CsdUIFactory.h"
 #include "CocosRuntimeHost.h"
+#include "runtime/RuntimeEngineLoop.h"
 #include "runtime/RuntimeHost.h"
 #include "runtime/RuntimePresenter.h"
 #include "sdl/SDLGameManager.h"
-
-#include <filesystem>
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -91,15 +90,6 @@ static bool _startupFirstWindowLayerLogged = false;
 static bool _startupFirstDrawBufferLogged = false;
 static bool _sdlScreenTakeoverLogged = false;
 
-
-static std::string TVPPathParent(const std::string &path) {
-    auto parsedPath = std::filesystem::u8path(path);
-#ifdef _WIN32
-    return parsedPath.parent_path().u8string();
-#else
-    return parsedPath.parent_path().string();
-#endif
-}
 
 #include "CCKeyCodeConv.h"
 
@@ -2307,8 +2297,10 @@ bool TVPMainScene::startupFrom(const std::string &path,
 #if defined(__ANDROID__)
     KR2RenderProbeWriteF("TVPMainScene::startupFrom path=%s", path.c_str());
 #endif
-    // startup from dir
-    if(!TVPCheckStartupPath(path)) {
+    TVPRuntimeHostLaunchRequest launchRequest;
+    launchRequest.gamePath = path;
+    launchRequest.preferenceRoot = gameDirForPreference;
+    if(!TVPRuntimeConfigureGameLaunch(launchRequest)) {
 #if defined(__ANDROID__)
         KR2RenderProbeWriteF("TVPCheckStartupPath FAILED for %s", path.c_str());
 #endif
@@ -2317,9 +2309,6 @@ bool TVPMainScene::startupFrom(const std::string &path,
 
     IndividualConfigManager *pGlobalCfgMgr =
         IndividualConfigManager::GetInstance();
-    pGlobalCfgMgr->UsePreferenceAt(
-        gameDirForPreference.empty() ? TVPPathParent(path)
-                                     : gameDirForPreference);
     if(UINode->getChildrenCount()) {
         popUIForm(nullptr);
     }
@@ -2396,8 +2385,7 @@ void TVPMainScene::doStartup(float dt, std::string path) {
     bool startupOk = false;
     const tjs_uint32 startApplicationTick = TVPGetRoughTickCount32();
     try {
-        ::Application->StartApplication(path);
-        startupOk = true;
+        startupOk = TVPRuntimeStartApplication(path);
     }
     TVP_CATCH_AND_SHOW_SCRIPT_EXCEPTION(TJS_W("startup"))
     if(!startupOk) {

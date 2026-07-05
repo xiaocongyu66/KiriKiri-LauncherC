@@ -1,13 +1,18 @@
 #include "FlutterGameMenuBridge.h"
 
 #include "WindowIntf.h"
-#include "cocos2d/MainScene.h"
 #include "MenuItemIntf.h"
 #include "impl/MenuItemImpl.h"
 #include "Application.h"
 #include "Platform.h"
 #include "sdl/SDLGameManager.h"
 #include "runtime/RuntimeHost.h"
+#ifndef KRKR2_ENABLE_COCOS_HOST
+#define KRKR2_ENABLE_COCOS_HOST 0
+#endif
+#if KRKR2_ENABLE_COCOS_HOST
+#include "cocos2d/MainScene.h"
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -222,11 +227,12 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
     if(!actionNameUtf8 || !*actionNameUtf8)
         return -1;
 
+#if KRKR2_ENABLE_COCOS_HOST
     auto *scene = TVPMainScene::GetInstance();
-    if(!scene)
-        return -2;
 
     if(IsOverlayAction(actionNameUtf8, "window-manager")) {
+        if(!scene)
+            return -2;
         RunOnEngineThread([]() {
             if(auto *scene = TVPMainScene::GetInstance())
                 scene->showWindowManagerOverlay(true);
@@ -235,6 +241,8 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
     }
 
     if(IsOverlayAction(actionNameUtf8, "mouse-mode")) {
+        if(!scene)
+            return -2;
         const bool nextMode = !scene->isVirtualMouseMode();
         RunOnEngineThread([]() {
             if(auto *scene = TVPMainScene::GetInstance())
@@ -242,10 +250,16 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
         });
         return nextMode ? 1 : 0;
     }
+#else
+    if(IsOverlayAction(actionNameUtf8, "window-manager") ||
+       IsOverlayAction(actionNameUtf8, "mouse-mode")) {
+        return -4;
+    }
+#endif
 
     if(IsOverlayAction(actionNameUtf8, "keyboard")) {
         RunOnEngineThread([]() {
-#if CC_TARGET_PLATFORM == CC_PLATFORM_ANDROID
+#if defined(__ANDROID__)
             int width = 0;
             int height = 0;
             TVPSDLGetPresentedSurfaceSize(&width, &height);
@@ -254,7 +268,7 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
             if(height <= 0)
                 height = 1080;
             TVPShowIME(0, 0, width, height);
-#else
+#elif KRKR2_ENABLE_COCOS_HOST
             if(auto *scene = TVPMainScene::GetInstance())
                 scene->attachWithIME();
 #endif

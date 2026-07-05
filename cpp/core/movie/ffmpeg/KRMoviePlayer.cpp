@@ -4,7 +4,6 @@ extern "C" {
 #include "libswscale/swscale.h"
 }
 
-#include <cocos2d.h>
 #include "KRMoviePlayer.h"
 #include "VideoCodec.h"
 #include "CodecUtils.h"
@@ -12,7 +11,11 @@ extern "C" {
 #include "WaveMixer.h"
 #include "WindowImpl.h"
 #include "VideoOvlImpl.h"
+
+#if KRKR2_ENABLE_COCOS_HOST
+#include <cocos2d.h>
 #include "cocos2d/YUVSprite.h"
+#endif
 
 extern std::thread::id TVPMainThreadID;
 
@@ -227,6 +230,7 @@ int TVPMoviePlayer::AddVideoPicture(DVDVideoPicture &pic, int index) {
     // this, std::placeholders::_1), 0, sckey);
 }
 
+#if KRKR2_ENABLE_COCOS_HOST
 VideoPresentOverlay::~VideoPresentOverlay() { ClearNode(); }
 
 void VideoPresentOverlay::ClearNode() {
@@ -326,6 +330,7 @@ void MoviePlayerOverlay::SetWindow(tTJSNI_Window *window) {
         },
         sckey);
 }
+#endif
 
 void MoviePlayerOverlay::BuildGraph(tTJSNI_VideoOverlay *callbackwin,
                                     IStream *stream, const tjs_char *streamname,
@@ -338,6 +343,7 @@ void MoviePlayerOverlay::BuildGraph(tTJSNI_VideoOverlay *callbackwin,
     m_pPlayer->OpenFromStream(stream, streamname, type, size);
 }
 
+#if KRKR2_ENABLE_COCOS_HOST
 const tTVPRect &MoviePlayerOverlay::GetBounds() {
     return m_pCallbackWin->GetBounds();
 }
@@ -348,6 +354,7 @@ void KRMovie::MoviePlayerOverlay::SetVisible(bool b) {
         m_pRootNode->setVisible(b);
     }
 }
+#endif
 
 void MoviePlayerOverlay::OnPlayEvent(KRMovieEvent msg, void *p) {
     if(msg == KRMovieEvent::Ended) {
@@ -358,7 +365,7 @@ void MoviePlayerOverlay::OnPlayEvent(KRMovieEvent msg, void *p) {
     }
 }
 
-void VideoPresentOverlay::BitmapPicture::swap(BitmapPicture &r) {
+void TVPMoviePlayer::BitmapPicture::swap(BitmapPicture &r) {
     std::swap(data, r.data);
     std::swap(width, r.width);
     std::swap(height, r.height);
@@ -370,6 +377,7 @@ void TVPMoviePlayer::BitmapPicture::Clear() {
             TJSAlignedDealloc(data[i]), data[i] = nullptr;
 }
 
+#if KRKR2_ENABLE_COCOS_HOST
 void VideoPresentOverlay2::SetRootNode(cocos2d::Node *node) {
     ClearNode();
     m_pRootNode = node;
@@ -378,5 +386,6 @@ void VideoPresentOverlay2::SetRootNode(cocos2d::Node *node) {
 VideoPresentOverlay2 *VideoPresentOverlay2::create() {
     return new VideoPresentOverlay2;
 }
+#endif
 
 NS_KRMOVIE_END
