@@ -300,9 +300,9 @@ class MainActivity : KR2Activity() {
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
 
         val textureView = FlutterTextureView(this)
-        textureView.setOpaque(false)
+        textureView.setOpaque(true)
         val view = FlutterView(this, textureView)
-        view.setBackgroundColor(Color.TRANSPARENT)
+        view.setBackgroundColor(Color.BLACK)
         view.attachToFlutterEngine(engine)
         val params = FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
@@ -367,8 +367,12 @@ class MainActivity : KR2Activity() {
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun isFlutterSurfaceProducerDisabled(): Boolean {
-        val value = System.getenv("KRKR2_DISABLE_FLUTTER_SURFACE_PRODUCER") ?: return false
-        return value != "0" && !value.equals("false", ignoreCase = true)
+        val disabled = System.getenv("KRKR2_DISABLE_FLUTTER_SURFACE_PRODUCER")
+        if (disabled != null) {
+            return disabled != "0" && !disabled.equals("false", ignoreCase = true)
+        }
+        val enabled = System.getenv("KRKR2_ENABLE_FLUTTER_SURFACE_PRODUCER")
+        return !(enabled != null && enabled != "0" && !enabled.equals("false", ignoreCase = true))
     }
 
     private fun invokeProducerNoArg(producer: Any, name: String): Any? {

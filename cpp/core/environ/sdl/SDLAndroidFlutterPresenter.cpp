@@ -154,6 +154,18 @@ SDL_Rect ComputeAndroidAspectViewport(int contentWidth, int contentHeight,
                      viewportHeight };
 }
 
+void ForceAndroidBufferRowOpaque(Uint8 *dst, int pixels) {
+    if(!dst || pixels <= 0)
+        return;
+    for(int x = 0; x < pixels; ++x)
+        dst[static_cast<size_t>(x) * 4 + 3] = 0xff;
+}
+
+void CopyAndroidPixelOpaque(Uint8 *dst, const Uint8 *src) {
+    std::memcpy(dst, src, 4);
+    dst[3] = 0xff;
+}
+
 void CopySurfaceToAndroidBuffer(SDL_Surface *surface, int surfaceWidth,
                                 int surfaceHeight, int pitch,
                                 const SDL_Rect &rect,
@@ -171,6 +183,7 @@ void CopySurfaceToAndroidBuffer(SDL_Surface *surface, int surfaceWidth,
                 static_cast<size_t>(rect.y + row) * dstPitch +
                 static_cast<size_t>(rect.x) * 4;
             std::memcpy(dst, src, static_cast<size_t>(rect.w) * 4);
+            ForceAndroidBufferRowOpaque(dst, rect.w);
         }
         return;
     }
@@ -187,8 +200,8 @@ void CopySurfaceToAndroidBuffer(SDL_Surface *surface, int surfaceWidth,
             const int srcX =
                 static_cast<int>((static_cast<int64_t>(x) * surfaceWidth) /
                                  dstWidth);
-            std::memcpy(dst + static_cast<size_t>(x) * 4,
-                        src + static_cast<size_t>(srcX) * 4, 4);
+            CopyAndroidPixelOpaque(dst + static_cast<size_t>(x) * 4,
+                                   src + static_cast<size_t>(srcX) * 4);
         }
     }
 }
@@ -214,6 +227,7 @@ bool CopyTextureToAndroidBuffer(iTVPTexture2D *texture, int surfaceWidth,
                 static_cast<size_t>(rect.y + row) * dstPitch +
                 static_cast<size_t>(rect.x) * 4;
             std::memcpy(dst, src, static_cast<size_t>(rect.w) * 4);
+            ForceAndroidBufferRowOpaque(dst, rect.w);
         }
         return true;
     }
@@ -233,8 +247,8 @@ bool CopyTextureToAndroidBuffer(iTVPTexture2D *texture, int surfaceWidth,
             const int srcX =
                 static_cast<int>((static_cast<int64_t>(x) * surfaceWidth) /
                                  dstWidth);
-            std::memcpy(dst + static_cast<size_t>(x) * 4,
-                        src + static_cast<size_t>(srcX) * 4, 4);
+            CopyAndroidPixelOpaque(dst + static_cast<size_t>(x) * 4,
+                                   src + static_cast<size_t>(srcX) * 4);
         }
     }
     return true;
@@ -250,8 +264,14 @@ void FillAndroidBufferBlack(ANativeWindow_Buffer &buffer) {
     if(dstWidth <= 0 || dstHeight <= 0 || dstPitch <= 0)
         return;
     for(int y = 0; y < dstHeight; ++y) {
-        std::memset(dstBase + static_cast<size_t>(y) * dstPitch, 0,
-                    static_cast<size_t>(dstWidth) * 4);
+        auto *dst = dstBase + static_cast<size_t>(y) * dstPitch;
+        for(int x = 0; x < dstWidth; ++x) {
+            auto *pixel = dst + static_cast<size_t>(x) * 4;
+            pixel[0] = 0;
+            pixel[1] = 0;
+            pixel[2] = 0;
+            pixel[3] = 0xff;
+        }
     }
 }
 
@@ -295,8 +315,8 @@ bool CopyTextureToAndroidBufferViewport(iTVPTexture2D *texture,
             const int srcX =
                 static_cast<int>((static_cast<int64_t>(x) * sourceWidth) /
                                  viewport.w);
-            std::memcpy(dst + static_cast<size_t>(x) * 4,
-                        src + static_cast<size_t>(srcX) * 4, 4);
+            CopyAndroidPixelOpaque(dst + static_cast<size_t>(x) * 4,
+                                   src + static_cast<size_t>(srcX) * 4);
         }
     }
     return true;
@@ -341,8 +361,8 @@ void CopySurfaceToAndroidBufferViewport(SDL_Surface *surface, int sourceWidth,
             const int srcX =
                 static_cast<int>((static_cast<int64_t>(x) * sourceWidth) /
                                  viewport.w);
-            std::memcpy(dst + static_cast<size_t>(x) * 4,
-                        src + static_cast<size_t>(srcX) * 4, 4);
+            CopyAndroidPixelOpaque(dst + static_cast<size_t>(x) * 4,
+                                   src + static_cast<size_t>(srcX) * 4);
         }
     }
 }
@@ -373,6 +393,7 @@ struct TVPAndroidGLStateSnapshot {
     GLint unpackRowLength = 0;
 #endif
     GLfloat clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+    GLboolean colorMask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
     GLboolean blend = GL_FALSE;
     GLboolean depthTest = GL_FALSE;
     GLboolean scissorTest = GL_FALSE;
@@ -442,8 +463,14 @@ bool IsAndroidEGLSaveGLStateEnabled() {
 
 bool IsAndroidEGLSwapIntervalZeroEnabled() {
     std::call_once(gSDLAndroidEGLSwapIntervalZeroFlagOnce, []() {
-        gSDLAndroidEGLSwapIntervalZero =
-            IsTruthyEnv("KRKR2_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+        const char *value = SDL_getenv("KRKR2_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+        if(value) {
+            gSDLAndroidEGLSwapIntervalZero =
+                IsTruthyEnv("KRKR2_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+        } else {
+            gSDLAndroidEGLSwapIntervalZero =
+                !IsTruthyEnv("KRKR2_DISABLE_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+        }
     });
     return gSDLAndroidEGLSwapIntervalZero;
 }
@@ -610,6 +637,7 @@ TVPAndroidGLStateSnapshot SaveAndroidGLState(GLint positionAttrib,
         glGetIntegerv(GL_UNPACK_ROW_LENGTH, &snapshot.unpackRowLength);
 #endif
     glGetFloatv(GL_COLOR_CLEAR_VALUE, snapshot.clearColor);
+    glGetBooleanv(GL_COLOR_WRITEMASK, snapshot.colorMask);
     snapshot.blend = glIsEnabled(GL_BLEND);
     snapshot.depthTest = glIsEnabled(GL_DEPTH_TEST);
     snapshot.scissorTest = glIsEnabled(GL_SCISSOR_TEST);
@@ -638,6 +666,8 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
 #endif
     glClearColor(snapshot.clearColor[0], snapshot.clearColor[1],
                  snapshot.clearColor[2], snapshot.clearColor[3]);
+    glColorMask(snapshot.colorMask[0], snapshot.colorMask[1],
+                snapshot.colorMask[2], snapshot.colorMask[3]);
     if(snapshot.blend)
         glEnable(GL_BLEND);
     else
@@ -776,7 +806,8 @@ bool EnsureAndroidEGLProgramLocked(const char *stage) {
         "varying vec2 vTexCoord;\n"
         "uniform sampler2D uTexture;\n"
         "void main() {\n"
-        "  gl_FragColor = texture2D(uTexture, vTexCoord);\n"
+        "  vec4 color = texture2D(uTexture, vTexCoord);\n"
+        "  gl_FragColor = vec4(color.rgb, 1.0);\n"
         "}\n";
 
     GLuint vertex = CompileAndroidEGLShaderLocked(GL_VERTEX_SHADER,
@@ -1121,6 +1152,16 @@ void CleanupAndroidEGLBlitStateLocked(
     glUseProgram(0);
 }
 
+void MarkAndroidEGLFrameDirtyLocked(TVPAndroidEGLSurfacePresenterState &state,
+                                    iTVPTexture2D *texture, bool nativeGL,
+                                    int width, int height) {
+    state.frameDirty = true;
+    state.pendingNativeGL = nativeGL;
+    state.pendingWidth = width;
+    state.pendingHeight = height;
+    state.pendingDirtyTexture = texture;
+}
+
 bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                                         TVPTextureFormat::e format,
                                         int surfaceWidth, int surfaceHeight,
@@ -1183,7 +1224,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     bool copiedSoftware = false;
     bool fullFramePresent = true;
     SDL_Rect softwareUploadRect = rect;
-    uint64_t presentedCount = 0;
+    uint64_t queuedCount = 0;
     uint64_t softwareUploadCount = 0;
     float uvScaleU = 1.0f;
     float uvScaleV = 1.0f;
@@ -1194,7 +1235,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
         auto &state = gSDLAndroidEGLPresenterState;
-        ++state.attempts;
+        queuedCount = ++state.attempts;
         if(state.autoDisabled) {
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
@@ -1306,6 +1347,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, outputWidth, outputHeight);
+        glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_SCISSOR_TEST);
@@ -1337,14 +1379,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         GLenum glError = GL_NO_ERROR;
         if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS"))
             glError = glGetError();
-
-        EGLBoolean swapped = EGL_FALSE;
-        EGLint swapError = EGL_SUCCESS;
-        if(glError == GL_NO_ERROR) {
-            swapped = eglSwapBuffers(state.display, state.surface);
-            if(swapped != EGL_TRUE)
-                swapError = eglGetError();
-        }
+        if(glError == GL_NO_ERROR)
+            glFlush();
 
         const bool restored = RestoreAndroidEGLCurrentLocked(
             previousDisplay, previousDraw, previousRead, previousContext,
@@ -1358,23 +1394,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             LogAndroidEGLFailureLocked(stage, reason);
             return false;
         }
-        if(swapped != EGL_TRUE) {
-            LogAndroidEGLFailureLocked(
-                stage, AndroidEGLFormatError("eglSwapBuffers", swapError));
-            DestroyAndroidEGLWindowSurfaceLocked("present-swap-failed");
-            return false;
-        }
 
-        state.frameDirty = false;
-        state.pendingNativeGL = false;
-        state.pendingWidth = 0;
-        state.pendingHeight = 0;
-        state.pendingDirtyTexture = nullptr;
-        presentedCount = ++state.presented;
-        state.lastPresentNativeGL = nativeTexture != 0;
-        if(nativeTexture != 0)
-            ++state.nativePresents;
-        state.surfaceHasContent = true;
+        MarkAndroidEGLFrameDirtyLocked(
+            state, texture, nativeTexture != 0,
+            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight);
         if(!restored)
             LogAndroidEGLFailureLocked(
                 stage, "external present posted but EGL restore failed");
@@ -1383,23 +1406,18 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
     if(usedFullFrame)
         *usedFullFrame = fullFramePresent;
-    if(presented) {
-        TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize(
-            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight);
-        MarkExternalPresenterPostedFrame();
-    }
 
     if(presented && IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
-       ShouldLogScreenPresenter(presentedCount)) {
+       ShouldLogScreenPresenter(queuedCount)) {
         char message[512];
         std::snprintf(message, sizeof(message),
-                      "present-android-egl #%llu stage=%s texture=%dx%d "
+                      "queue-android-egl #%llu stage=%s texture=%dx%d "
                       "output=%dx%d viewport=%d,%d,%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
                       "softwareUploads=%llu uv=%.4f,%.4f flipY=%d "
                       "fullFrame=%d",
-                      static_cast<unsigned long long>(presentedCount),
+                      static_cast<unsigned long long>(queuedCount),
                       stage ? stage : "", surfaceWidth, surfaceHeight,
                       outputWidth, outputHeight, viewport.x, viewport.y,
                       viewport.w, viewport.h, rect.x, rect.y, rect.w, rect.h,
@@ -1558,7 +1576,7 @@ bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
         result.fullFrame = eglFullFrame;
         result.nativeGL = texture->GetNativeGLTextureId() != 0;
         result.cpuCopyFree = result.nativeGL;
-        result.deferredSwap = false;
+        result.deferredSwap = true;
         return true;
     }
 

@@ -701,7 +701,11 @@ class _GameSurfaceLayer extends StatelessWidget {
       onPointerCancel: onPointerCancel,
       child: textureId == null
           ? const SizedBox.expand()
-          : Texture(textureId: textureId, filterQuality: FilterQuality.none),
+          : Texture(
+              key: ValueKey<int>(textureId),
+              textureId: textureId,
+              filterQuality: FilterQuality.none,
+            ),
     );
   }
 }

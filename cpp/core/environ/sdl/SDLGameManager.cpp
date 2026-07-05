@@ -3264,16 +3264,26 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
             frameInfo.nativeGL = androidResult.nativeGL;
             frameInfo.cpuCopyFree = androidResult.cpuCopyFree;
             uint64_t presented = 0;
+            bool recordImmediately = false;
             {
                 std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-                presented = ++gSDLScreenPresenterState.presentedFrames;
-                gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
-                gSDLScreenPresenterState.pendingExternalFrameInfo =
-                    TVPRuntimePresentFrameInfo{};
-                frameInfo.valid = true;
-                frameInfo.sequence = presented;
+                if(androidResult.deferredSwap) {
+                    presented = gSDLScreenPresenterState.presentedFrames + 1;
+                    gSDLScreenPresenterState.pendingExternalFrameInfo =
+                        frameInfo;
+                    gSDLScreenPresenterState.hasPendingExternalFrameInfo = true;
+                } else {
+                    presented = ++gSDLScreenPresenterState.presentedFrames;
+                    gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
+                    gSDLScreenPresenterState.pendingExternalFrameInfo =
+                        TVPRuntimePresentFrameInfo{};
+                    frameInfo.valid = true;
+                    frameInfo.sequence = presented;
+                    recordImmediately = true;
+                }
             }
-            TVPRuntimeRecordPresentFrame(frameInfo);
+            if(recordImmediately)
+                TVPRuntimeRecordPresentFrame(frameInfo);
             if(!androidResult.deferredSwap) {
                 tTVPRect consumed;
                 texture->ConsumeDirtyRect(consumed);
@@ -3288,7 +3298,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     "present-texture-%s #%llu stage=%s tex=%p size=%ux%u "
                     "dirty=%d,%d,%dx%d dest=%d,%d,%dx%d output=%dx%d "
                     "gpuBytes=%llu converted=%d takeover=1 fullFrame=%d "
-                    "nativeGL=%d cpuCopyFree=%d gpuFull=%llu "
+                    "nativeGL=%d cpuCopyFree=%d deferred=%d gpuFull=%llu "
                     "gpuPartial=%llu",
                     TVPSDLAndroidFlutterPresenterPresentPathLogName(
                         androidResult.path),
@@ -3304,6 +3314,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     gpuConverted ? 1 : 0, androidResult.fullFrame ? 1 : 0,
                     androidResult.nativeGL ? 1 : 0,
                     androidResult.cpuCopyFree ? 1 : 0,
+                    androidResult.deferredSwap ? 1 : 0,
                     static_cast<unsigned long long>(gpuFullUploads),
                     static_cast<unsigned long long>(gpuPartialUploads));
                 LogSDLGpuPresenter(message);
