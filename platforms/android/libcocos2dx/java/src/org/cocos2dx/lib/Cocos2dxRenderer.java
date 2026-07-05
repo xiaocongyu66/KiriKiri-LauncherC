@@ -89,7 +89,7 @@ public class Cocos2dxRenderer implements GLSurfaceView.Renderer {
          */
 
         if (Cocos2dxRenderer.sAnimationInterval <= 1.0f / 60f * Cocos2dxRenderer.NANOSECONDSPERSECOND) {
-            Cocos2dxRenderer.nativeRender();
+            Cocos2dxRenderer.renderFrame();
         } else {
             final long now = System.nanoTime();
             final long interval = now - this.mLastTickInNanoSeconds;
@@ -104,8 +104,13 @@ public class Cocos2dxRenderer implements GLSurfaceView.Renderer {
              * Render time MUST be counted in, or the FPS will slower than appointed.
             */
             this.mLastTickInNanoSeconds = System.nanoTime();
-            Cocos2dxRenderer.nativeRender();
+            Cocos2dxRenderer.renderFrame();
         }
+    }
+
+    private static void renderFrame() {
+        Cocos2dxRenderer.nativeRender();
+        Cocos2dxRenderer.nativeFrameEnd();
     }
 
     // ===========================================================
@@ -118,6 +123,7 @@ public class Cocos2dxRenderer implements GLSurfaceView.Renderer {
     private static native void nativeTouchesCancel(final int[] ids, final float[] xs, final float[] ys);
     private static native boolean nativeKeyEvent(final int keyCode,boolean isPressed);
     private static native void nativeRender();
+    private static native void nativeFrameEnd();
     private static native void nativeInit(final int width, final int height);
     private static native void nativeOnSurfaceChanged(final int width, final int height);
     private static native void nativeOnPause();

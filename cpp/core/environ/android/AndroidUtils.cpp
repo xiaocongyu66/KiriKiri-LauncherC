@@ -105,8 +105,41 @@ tjs_int TVPGetSelfUsedMemory() {
     return usedMemory;
 }
 
+#if defined(__GNUC__)
+extern "C" bool TVPSDLAndroidConsumeExternalPresenterPostedFrame()
+    __attribute__((weak));
+extern "C" bool TVPSDLAndroidSwapExternalPresenterIfDirty()
+    __attribute__((weak));
+extern "C" bool TVPSDLAndroidIsExternalPresenterActive() __attribute__((weak));
+extern "C" void TVPSDLRecordExternalPresenterPostedFrame()
+    __attribute__((weak));
+#else
+extern "C" bool TVPSDLAndroidConsumeExternalPresenterPostedFrame();
+extern "C" bool TVPSDLAndroidSwapExternalPresenterIfDirty();
+extern "C" bool TVPSDLAndroidIsExternalPresenterActive();
+extern "C" void TVPSDLRecordExternalPresenterPostedFrame();
+#endif
+
 void TVPForceSwapBuffer() {
-    eglSwapBuffers(eglGetCurrentDisplay(), eglGetCurrentSurface(EGL_DRAW));
+    if(TVPSDLAndroidSwapExternalPresenterIfDirty &&
+       TVPSDLAndroidSwapExternalPresenterIfDirty()) {
+        if(TVPSDLRecordExternalPresenterPostedFrame)
+            TVPSDLRecordExternalPresenterPostedFrame();
+        return;
+    }
+    if(TVPSDLAndroidConsumeExternalPresenterPostedFrame &&
+       TVPSDLAndroidConsumeExternalPresenterPostedFrame()) {
+        return;
+    }
+    if(TVPSDLAndroidIsExternalPresenterActive &&
+       TVPSDLAndroidIsExternalPresenterActive()) {
+        return;
+    }
+    const EGLDisplay display = eglGetCurrentDisplay();
+    const EGLSurface surface = eglGetCurrentSurface(EGL_DRAW);
+    if(display == EGL_NO_DISPLAY || surface == EGL_NO_SURFACE)
+        return;
+    eglSwapBuffers(display, surface);
 }
 
 std::string TVPGetDeviceID() {

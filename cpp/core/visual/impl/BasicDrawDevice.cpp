@@ -511,6 +511,8 @@ void tTVPBasicDrawDevice::SetTargetWindow(HWND wnd, bool is_main)
 #endif
 //---------------------------------------------------------------------------
 void tTVPBasicDrawDevice::SetDestRectangle(const tTVPRect &rect) {
+    inherited::SetDestRectangle(rect);
+    BackBufferDirty = true;
 #if 0
 	BackBufferDirty = true;
 	// 位置だけの変更の場合かどうかをチェックする
@@ -593,6 +595,7 @@ void tTVPBasicDrawDevice::Show() {
                     presentRequest.stage = "BasicDrawDevice::Show";
                     presentRequest.layerWidth = DestRect.get_width();
                     presentRequest.layerHeight = DestRect.get_height();
+                    presentRequest.frameProduced = true;
                     tTVPRect dirty;
                     if(tex->PeekDirtyRect(dirty)) {
                         const tTVPRect fullRect(

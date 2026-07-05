@@ -40,3 +40,5 @@ bool TVPSDLAndroidFlutterPresenterTryPresentSurface(SDL_Surface *surface,
                                                     int pitch,
                                                     const SDL_Rect &rect,
                                                     const char *stage);
+
+extern "C" bool TVPSDLAndroidSwapExternalPresenterIfDirty();

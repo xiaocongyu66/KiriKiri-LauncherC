@@ -8,7 +8,7 @@ import 'package:flutter/services.dart';
 
 import '../bridge/launcher_bridge.dart';
 import '../models/game_menu_item.dart';
-import '../widgets/resource_icon.dart';
+import '../widgets/md3_components.dart';
 
 class GameOverlayPage extends StatefulWidget {
   const GameOverlayPage({required this.bridge, super.key});
@@ -21,6 +21,9 @@ class GameOverlayPage extends StatefulWidget {
 
 class _GameOverlayPageState extends State<GameOverlayPage> {
   static const MethodChannel _channel = MethodChannel('org.github.krkr2/game_overlay');
+  static const int _gameBufferWidth = 1920;
+  static const int _gameBufferHeight = 1080;
+  static const double _gameAspectRatio = _gameBufferWidth / _gameBufferHeight;
 
   bool _expanded = false;
   bool _menuMode = false;
@@ -30,9 +33,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   int? _gameTextureId;
   int _gameSurfaceWidth = 0;
   int _gameSurfaceHeight = 0;
-  int _nativeFrameWidth = 0;
-  int _nativeFrameHeight = 0;
-  double _devicePixelRatio = 1.0;
   double _overlayRight = 18;
   double _overlayBottom = 18;
   Size _overlayBounds = Size.zero;
@@ -170,26 +170,17 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       return;
     }
 
-    final presentedWidth = (result['width'] as num?)?.toInt() ?? 0;
-    final presentedHeight = (result['height'] as num?)?.toInt() ?? 0;
     final surfaceWidth = (result['surfaceWidth'] as num?)?.toInt() ?? 0;
     final surfaceHeight = (result['surfaceHeight'] as num?)?.toInt() ?? 0;
-    final width = presentedWidth > 0 ? presentedWidth : surfaceWidth;
-    final height = presentedHeight > 0 ? presentedHeight : surfaceHeight;
-    if (width <= 0 || height <= 0) {
-      return;
-    }
-
-    if (width != _nativeFrameWidth || height != _nativeFrameHeight) {
+    if (surfaceWidth == _gameBufferWidth &&
+        surfaceHeight == _gameBufferHeight &&
+        !_gameSurfaceInFlight &&
+        (_gameSurfaceWidth != _gameBufferWidth ||
+            _gameSurfaceHeight != _gameBufferHeight)) {
       setState(() {
-        _nativeFrameWidth = width;
-        _nativeFrameHeight = height;
+        _gameSurfaceWidth = _gameBufferWidth;
+        _gameSurfaceHeight = _gameBufferHeight;
       });
-    }
-
-    final textureId = _gameTextureId;
-    if (textureId != null && (_gameSurfaceWidth != width || _gameSurfaceHeight != height)) {
-      unawaited(_ensureGameSurface(width, height));
     }
   }
 
@@ -219,22 +210,26 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     }
   }
 
-  void _scheduleGameSurface(int width, int height) {
-    if (_gameSurfaceUnavailable || _gameSurfaceInFlight || width <= 0 || height <= 0) {
+  void _scheduleGameSurface() {
+    if (_gameSurfaceUnavailable || _gameSurfaceInFlight) {
       return;
     }
-    if (_gameTextureId != null && _gameSurfaceWidth == width && _gameSurfaceHeight == height) {
+    if (_gameTextureId != null &&
+        _gameSurfaceWidth == _gameBufferWidth &&
+        _gameSurfaceHeight == _gameBufferHeight) {
       return;
     }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) {
-        unawaited(_ensureGameSurface(width, height));
+        unawaited(_ensureGameSurface());
       }
     });
   }
 
-  Future<void> _ensureGameSurface(int width, int height) async {
-    if (_gameSurfaceUnavailable || _gameSurfaceInFlight || width <= 0 || height <= 0) {
+  Future<void> _ensureGameSurface() async {
+    const width = _gameBufferWidth;
+    const height = _gameBufferHeight;
+    if (_gameSurfaceUnavailable || _gameSurfaceInFlight) {
       return;
     }
     if (_gameTextureId != null && _gameSurfaceWidth == width && _gameSurfaceHeight == height) {
@@ -284,25 +279,28 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   Offset _toSurfacePosition(Offset localPosition) {
     final displayWidth = _gameDisplaySize.width;
     final displayHeight = _gameDisplaySize.height;
-    final surfaceWidth = _nativeFrameWidth > 0
-        ? _nativeFrameWidth.toDouble()
-        : (_gameSurfaceWidth > 0
-            ? _gameSurfaceWidth.toDouble()
-            : displayWidth * _devicePixelRatio);
-    final surfaceHeight = _nativeFrameHeight > 0
-        ? _nativeFrameHeight.toDouble()
-        : (_gameSurfaceHeight > 0
-            ? _gameSurfaceHeight.toDouble()
-            : displayHeight * _devicePixelRatio);
-    if (displayWidth <= 0 || displayHeight <= 0 || surfaceWidth <= 0 || surfaceHeight <= 0) {
-      return Offset(localPosition.dx * _devicePixelRatio, localPosition.dy * _devicePixelRatio);
+    if (displayWidth <= 0 || displayHeight <= 0) {
+      return Offset.zero;
     }
+    final surfaceWidth = _gameBufferWidth.toDouble();
+    final surfaceHeight = _gameBufferHeight.toDouble();
     final maxX = math.max(0.0, surfaceWidth - 1.0);
     final maxY = math.max(0.0, surfaceHeight - 1.0);
     return Offset(
       (localPosition.dx * surfaceWidth / displayWidth).clamp(0.0, maxX),
       (localPosition.dy * surfaceHeight / displayHeight).clamp(0.0, maxY),
     );
+  }
+
+  Size _containedGameDisplaySize(double availableWidth, double availableHeight) {
+    if (availableWidth <= 0 || availableHeight <= 0) {
+      return Size.zero;
+    }
+    final widthFromHeight = availableHeight * _gameAspectRatio;
+    if (widthFromHeight <= availableWidth) {
+      return Size(widthFromHeight, availableHeight);
+    }
+    return Size(availableWidth, availableWidth / _gameAspectRatio);
   }
 
   Future<void> _sendPointer(String method, PointerEvent event) async {
@@ -399,14 +397,11 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
 
   @override
   Widget build(BuildContext context) {
-    _devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
     return Material(
       type: MaterialType.transparency,
       child: LayoutBuilder(
         builder: (context, constraints) {
           _overlayBounds = Size(constraints.maxWidth, constraints.maxHeight);
-          final frameWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : (_gameSurfaceWidth > 0 ? _gameSurfaceWidth : 1);
-          final frameHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : (_gameSurfaceHeight > 0 ? _gameSurfaceHeight : 1);
           final mediaSize = MediaQuery.sizeOf(context);
           final fallbackLogicalWidth = constraints.hasBoundedWidth && constraints.maxWidth.isFinite && constraints.maxWidth > 0
               ? constraints.maxWidth
@@ -414,13 +409,17 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
           final fallbackLogicalHeight = constraints.hasBoundedHeight && constraints.maxHeight.isFinite && constraints.maxHeight > 0
               ? constraints.maxHeight
               : mediaSize.height;
-          final requestedSurfaceWidth = _nativeFrameWidth > 0 ? _nativeFrameWidth : math.max(1, (fallbackLogicalWidth * _devicePixelRatio).round());
-          final requestedSurfaceHeight = _nativeFrameHeight > 0 ? _nativeFrameHeight : math.max(1, (fallbackLogicalHeight * _devicePixelRatio).round());
-          _scheduleGameSurface(requestedSurfaceWidth, requestedSurfaceHeight);
-          _gameDisplaySize = _containSize(
-            Size(frameWidth / _devicePixelRatio, frameHeight / _devicePixelRatio),
-            Size(constraints.maxWidth, constraints.maxHeight),
+          final availableSize = Size(
+            math.max(0.0, fallbackLogicalWidth),
+            math.max(0.0, fallbackLogicalHeight),
           );
+          _gameDisplaySize = _containedGameDisplaySize(
+            availableSize.width,
+            availableSize.height,
+          );
+          if (_gameDisplaySize.width > 0 && _gameDisplaySize.height > 0) {
+            _scheduleGameSurface();
+          }
           _clampOverlayPosition(deferNotify: true);
           final consoleWidth = math.min(
             math.max(300.0, constraints.maxWidth * 0.46),
@@ -432,19 +431,21 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
               Positioned.fill(
                 child: ColoredBox(
                   color: Colors.black,
-                  child: Center(
-                    child: SizedBox(
-                      width: _gameDisplaySize.width,
-                      height: _gameDisplaySize.height,
-                      child: _GameSurfaceLayer(
-                        textureId: _gameTextureId,
-                        onPointerDown: _handlePointerDown,
-                        onPointerMove: _handlePointerMove,
-                        onPointerUp: _handlePointerUp,
-                        onPointerCancel: _handlePointerCancel,
-                      ),
-                    ),
-                  ),
+                  child: _gameDisplaySize.isEmpty
+                      ? const SizedBox.shrink()
+                      : Center(
+                          child: SizedBox(
+                            width: _gameDisplaySize.width,
+                            height: _gameDisplaySize.height,
+                            child: _GameSurfaceLayer(
+                              textureId: _gameTextureId,
+                              onPointerDown: _handlePointerDown,
+                              onPointerMove: _handlePointerMove,
+                              onPointerUp: _handlePointerUp,
+                              onPointerCancel: _handlePointerCancel,
+                            ),
+                          ),
+                        ),
                 ),
               ),
               if (_loadingConsole.active && consoleWidth > 0)
@@ -495,13 +496,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     );
   }
 
-  Size _containSize(Size content, Size bounds) {
-    if (content.width <= 0 || content.height <= 0 || bounds.width <= 0 || bounds.height <= 0) {
-      return Size.zero;
-    }
-    final scale = math.min(bounds.width / content.width, bounds.height / content.height);
-    return Size(content.width * scale, content.height * scale);
-  }
 }
 
 class _LoadingConsoleLine {
@@ -758,6 +752,7 @@ class _FloatingActionTray extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerMove: expanded
@@ -775,11 +770,11 @@ class _FloatingActionTray extends StatelessWidget {
         curve: Curves.easeOutCubic,
         height: 56,
         decoration: BoxDecoration(
-          color: const Color(0xd90b0b0d),
+          color: scheme.surfaceContainerHighest.withOpacity(0.92),
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: Colors.white.withOpacity(0.10)),
-          boxShadow: const [
-            BoxShadow(color: Color(0x66000000), blurRadius: 14, offset: Offset(0, 6)),
+          border: Border.all(color: scheme.outlineVariant.withOpacity(0.72)),
+          boxShadow: [
+            BoxShadow(color: Colors.black.withOpacity(0.24), blurRadius: 14, offset: const Offset(0, 6)),
           ],
         ),
         child: ClipRRect(
@@ -789,12 +784,12 @@ class _FloatingActionTray extends StatelessWidget {
             children: [
               if (expanded) ...[
                 const SizedBox(width: 4),
-                _TrayButton(asset: 'menu_icon.png', label: '菜单', onTap: () => onAction('game-menu')),
-                _TrayButton(asset: 'windows_icon.png', label: '窗口', onTap: () => onAction('window-manager')),
-                _TrayButton(asset: mouseMode ? 'mouse_icon.png' : 'touch_icon.png', label: mouseMode ? '鼠标' : '触摸', onTap: () => onAction('mouse-mode')),
-                _TrayButton(asset: 'exit_icon.png', label: '退出', destructive: true, onTap: () => onAction('exit')),
+                _TrayButton(icon: Icons.menu_rounded, label: '菜单', onTap: () => onAction('game-menu')),
+                _TrayButton(icon: Icons.fit_screen_rounded, label: '窗口', onTap: () => onAction('window-manager')),
+                _TrayButton(icon: mouseMode ? Icons.mouse_rounded : Icons.touch_app_rounded, label: mouseMode ? '鼠标' : '触摸', onTap: () => onAction('mouse-mode')),
+                _TrayButton(icon: Icons.power_settings_new_rounded, label: '退出', destructive: true, onTap: () => onAction('exit')),
                 const SizedBox(width: 2),
-                Container(width: 1, height: 28, color: Colors.white.withOpacity(0.12)),
+                Container(width: 1, height: 28, color: scheme.outlineVariant),
               ],
               _FloatingHandle(onTap: onToggle),
             ],
@@ -812,33 +807,26 @@ class _FloatingHandle extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(28),
-      child: Container(
-        width: 52,
-        height: 56,
-        alignment: Alignment.center,
-        child: const Opacity(
-          opacity: 0.82,
-          child: ResourceIcon('menu_handler.png', size: 40),
-        ),
-      ),
+    return IconButton(
+      onPressed: onTap,
+      tooltip: '展开',
+      icon: const Icon(Icons.drag_indicator_rounded),
     );
   }
 }
 
 class _TrayButton extends StatelessWidget {
-  const _TrayButton({required this.asset, required this.label, required this.onTap, this.destructive = false});
+  const _TrayButton({required this.icon, required this.label, required this.onTap, this.destructive = false});
 
-  final String asset;
+  final IconData icon;
   final String label;
   final VoidCallback onTap;
   final bool destructive;
 
   @override
   Widget build(BuildContext context) {
-    final foreground = destructive ? const Color(0xffffb4ab) : Colors.white.withOpacity(0.82);
+    final scheme = Theme.of(context).colorScheme;
+    final foreground = destructive ? scheme.error : scheme.onSurfaceVariant;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(18),
@@ -848,7 +836,7 @@ class _TrayButton extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ResourceIcon(asset, size: 24),
+            Icon(icon, size: 22, color: foreground),
             const SizedBox(height: 2),
             Text(
               label,
@@ -874,6 +862,7 @@ class _FloatingMenuPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
     final screen = MediaQuery.sizeOf(context);
     final width = math.min(360.0, math.max(260.0, screen.width - 24.0));
     final height = math.min(420.0, math.max(240.0, screen.height - 24.0));
@@ -883,13 +872,15 @@ class _FloatingMenuPanel extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(6),
         child: ClipRRect(
-          borderRadius: BorderRadius.circular(18),
-          child: DecoratedBox(
+          borderRadius: BorderRadius.circular(8),
+          child: Material(
+            color: scheme.surfaceContainerHigh.withOpacity(0.94),
+            clipBehavior: Clip.antiAlias,
+            child: DecoratedBox(
             decoration: BoxDecoration(
-              color: const Color(0xe60b0b0d),
-              border: Border.all(color: Colors.white.withOpacity(0.10)),
-              boxShadow: const [
-                BoxShadow(color: Color(0x66000000), blurRadius: 18, offset: Offset(0, 8)),
+              border: Border.all(color: scheme.outlineVariant.withOpacity(0.72)),
+              boxShadow: [
+                BoxShadow(color: Colors.black.withOpacity(0.24), blurRadius: 18, offset: const Offset(0, 8)),
               ],
             ),
             child: Column(
@@ -901,27 +892,27 @@ class _FloatingMenuPanel extends StatelessWidget {
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         onPressed: onBack,
-                        icon: const Icon(Icons.arrow_back_rounded, color: Colors.white70),
+                        icon: const Icon(Icons.arrow_back_rounded),
                         tooltip: '返回',
                       ),
-                      const ResourceIcon('menu_icon.png', size: 24),
+                      const Icon(Icons.menu_rounded, size: 24),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           '游戏菜单',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(color: Colors.white, fontWeight: FontWeight.w700),
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
                         ),
                       ),
                       IconButton(
                         visualDensity: VisualDensity.compact,
                         onPressed: onClose,
-                        icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                        icon: const Icon(Icons.close_rounded),
                         tooltip: '收起',
                       ),
                     ],
                   ),
                 ),
-                Divider(height: 1, color: Colors.white.withOpacity(0.12)),
+                Divider(height: 1, color: scheme.outlineVariant),
                 Expanded(
                   child: FutureBuilder<List<GameMenuItem>>(
                     future: future,
@@ -931,13 +922,13 @@ class _FloatingMenuPanel extends StatelessWidget {
                         return const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)));
                       }
                       if (items.isEmpty) {
-                        return const Center(child: Text('当前游戏没有菜单', style: TextStyle(color: Colors.white70)));
+                        return const LauncherEmptyState(icon: Icons.menu_open_rounded, message: '当前游戏没有菜单');
                       }
                       return Scrollbar(
                         child: ListView.separated(
                           padding: const EdgeInsets.symmetric(vertical: 4),
                           itemCount: items.length,
-                          separatorBuilder: (_, __) => Divider(height: 1, indent: 48, color: Colors.white.withOpacity(0.08)),
+                          separatorBuilder: (_, __) => Divider(height: 1, indent: 56, color: scheme.outlineVariant),
                           itemBuilder: (context, index) => _FloatingMenuTile(item: items[index], onTap: onActivate),
                         ),
                       );
@@ -947,6 +938,7 @@ class _FloatingMenuPanel extends StatelessWidget {
               ],
             ),
           ),
+        ),
         ),
       ),
     );
@@ -962,33 +954,23 @@ class _FloatingMenuTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasChildren = item.children.isNotEmpty;
-    final enabledColor = item.enabled ? Colors.white.withOpacity(0.84) : Colors.white.withOpacity(0.32);
-    return InkWell(
-      onTap: item.enabled ? () => onTap(item) : null,
-      child: SizedBox(
-        height: 42,
-        child: Row(
-          children: [
-            const SizedBox(width: 12),
-            Icon(
-              hasChildren ? Icons.folder_open_rounded : item.checked ? Icons.check_rounded : Icons.radio_button_unchecked_rounded,
-              color: enabledColor,
-              size: 19,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Text(
-                item.title.isEmpty ? '(未命名)' : item.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: enabledColor),
-              ),
-            ),
-            if (hasChildren) const Icon(Icons.chevron_right_rounded, color: Colors.white70, size: 20),
-            const SizedBox(width: 10),
-          ],
-        ),
+    final scheme = Theme.of(context).colorScheme;
+    final enabledColor = item.enabled ? scheme.onSurface : scheme.onSurface.withOpacity(0.38);
+    return LauncherListItem(
+      dense: true,
+      leading: Icon(
+        hasChildren ? Icons.folder_open_rounded : item.checked ? Icons.check_rounded : Icons.radio_button_unchecked_rounded,
+        color: enabledColor,
+        size: 20,
       ),
+      title: Text(
+        item.title.isEmpty ? '(未命名)' : item.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: enabledColor),
+      ),
+      trailing: hasChildren ? Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant, size: 20) : null,
+      onTap: item.enabled ? () => onTap(item) : null,
     );
   }
 }

@@ -13,6 +13,9 @@
 #include "environ/android/KrkrJniHelper.h"
 #include "environ/android/AndroidUtils.h"
 #include "environ/sdl/SDLGameManager.h"
+#include "environ/sdl/SDLAndroidFlutterPresenter.h"
+#include "environ/sdl/SDLPresentTypes.h"
+#include "environ/runtime/RuntimePresenter.h"
 #include "common/FFmpegDecodeConfig.h"
 #include "vkdefine.h"
 
@@ -117,6 +120,12 @@ static bool DumpFilter(void *data) {
     TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_org_cocos2dx_lib_Cocos2dxRenderer_nativeFrameEnd(JNIEnv *, jclass) {
+    if(TVPSDLAndroidSwapExternalPresenterIfDirty())
+        TVPSDLRecordExternalPresenterPostedFrame();
+}
+
 namespace kr2android {
     extern std::condition_variable MessageBoxCond;
     extern std::mutex MessageBoxLock;
@@ -219,10 +228,12 @@ extern "C" void TVPAndroidReleaseFlutterGameSurfaceWindow(
 extern "C" void TVPAndroidGetFlutterGameSurfaceSize(int *width,
                                                      int *height) {
     std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
+    const bool hasFixedSurface = gFlutterGameSurfaceWindow &&
+        gFlutterGameSurfaceWidth > 0 && gFlutterGameSurfaceHeight > 0;
     if(width)
-        *width = gFlutterGameSurfaceWidth;
+        *width = hasFixedSurface ? kTVPSDLFixedGameSurfaceWidth : 0;
     if(height)
-        *height = gFlutterGameSurfaceHeight;
+        *height = hasFixedSurface ? kTVPSDLFixedGameSurfaceHeight : 0;
 }
 
 static std::string JStringToStdString(JNIEnv *env, jstring value) {
@@ -736,18 +747,18 @@ Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
         if(surface) {
             gFlutterGameSurfaceWindow = ANativeWindow_fromSurface(env, surface);
             if(gFlutterGameSurfaceWindow) {
-                gFlutterGameSurfaceWidth = width > 0 ? width : 0;
-                gFlutterGameSurfaceHeight = height > 0 ? height : 0;
+                gFlutterGameSurfaceWidth = kTVPSDLFixedGameSurfaceWidth;
+                gFlutterGameSurfaceHeight = kTVPSDLFixedGameSurfaceHeight;
                 ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
                                                  gFlutterGameSurfaceWidth,
                                                  gFlutterGameSurfaceHeight,
                                                  WINDOW_FORMAT_RGBA_8888);
                 char message[192];
                 std::snprintf(message, sizeof(message),
-                              "set game surface window=%p size=%dx%d",
+                              "set game surface window=%p size=%dx%d requested=%dx%d",
                               static_cast<void *>(gFlutterGameSurfaceWindow),
                               gFlutterGameSurfaceWidth,
-                              gFlutterGameSurfaceHeight);
+                              gFlutterGameSurfaceHeight, width, height);
                 TVPNativeLogInfo("flutter-surface", message);
             } else {
                 TVPNativeLogInfo("flutter-surface",
@@ -767,8 +778,8 @@ Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
                                                            jint height) {
     {
         std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
-        gFlutterGameSurfaceWidth = width > 0 ? width : 0;
-        gFlutterGameSurfaceHeight = height > 0 ? height : 0;
+        gFlutterGameSurfaceWidth = kTVPSDLFixedGameSurfaceWidth;
+        gFlutterGameSurfaceHeight = kTVPSDLFixedGameSurfaceHeight;
         if(gFlutterGameSurfaceWindow) {
             ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
                                              gFlutterGameSurfaceWidth,
@@ -777,8 +788,9 @@ Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
         }
         char message[160];
         std::snprintf(message, sizeof(message),
-                      "resize game surface size=%dx%d",
-                      gFlutterGameSurfaceWidth, gFlutterGameSurfaceHeight);
+                      "resize game surface size=%dx%d requested=%dx%d",
+                      gFlutterGameSurfaceWidth, gFlutterGameSurfaceHeight,
+                      width, height);
         TVPNativeLogInfo("flutter-surface", message);
     }
     TVPSDLNotifyAndroidFlutterGameSurfaceChanged("resize");
@@ -814,6 +826,19 @@ Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
     int presentedHeight = 0;
     TVPSDLGetPresentedSurfaceSize(&presentedWidth, &presentedHeight);
 
+    const TVPRuntimePresentFrameInfo frameInfo =
+        TVPRuntimeGetPresentFrameInfo();
+    const bool hasPostedFrameInfo = frameInfo.valid && presentedWidth > 0 &&
+        presentedHeight > 0;
+    const int contentWidth =
+        hasPostedFrameInfo && frameInfo.textureWidth > 0
+            ? frameInfo.textureWidth
+            : 0;
+    const int contentHeight =
+        hasPostedFrameInfo && frameInfo.textureHeight > 0
+            ? frameInfo.textureHeight
+            : 0;
+
     int flutterWidth = 0;
     int flutterHeight = 0;
     {
@@ -822,11 +847,19 @@ Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
         flutterHeight = gFlutterGameSurfaceHeight;
     }
 
-    jint values[4] = {presentedWidth, presentedHeight, flutterWidth,
-                      flutterHeight};
-    jintArray result = env->NewIntArray(4);
+    jint values[10] = {presentedWidth,
+                       presentedHeight,
+                       flutterWidth,
+                       flutterHeight,
+                       contentWidth,
+                       contentHeight,
+                       hasPostedFrameInfo ? frameInfo.destRect.x : 0,
+                       hasPostedFrameInfo ? frameInfo.destRect.y : 0,
+                       hasPostedFrameInfo ? frameInfo.destRect.w : 0,
+                       hasPostedFrameInfo ? frameInfo.destRect.h : 0};
+    jintArray result = env->NewIntArray(10);
     if(result)
-        env->SetIntArrayRegion(result, 0, 4, values);
+        env->SetIntArrayRegion(result, 0, 10, values);
     return result;
 }
 

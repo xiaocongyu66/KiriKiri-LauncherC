@@ -40,6 +40,7 @@ struct TVPRuntimeTexturePresentRequest {
     const char *stage = nullptr;
     int layerWidth = 0;
     int layerHeight = 0;
+    bool frameProduced = false;
     bool hasDirtyRect = false;
     TVPRuntimePresentRect dirtyRect;
     bool forceFullFrame = false;

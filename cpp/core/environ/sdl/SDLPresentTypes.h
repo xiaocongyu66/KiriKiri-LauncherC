@@ -1,5 +1,8 @@
 #pragma once
 
+constexpr int kTVPSDLFixedGameSurfaceWidth = 1920;
+constexpr int kTVPSDLFixedGameSurfaceHeight = 1080;
+
 enum class TVPSDLPresentPath {
     None,
     AndroidEGL,
@@ -23,6 +26,8 @@ struct TVPSDLPresentRect {
 struct TVPSDLTexturePresentPlan {
     int textureWidth = 0;
     int textureHeight = 0;
+    int outputWidth = 0;
+    int outputHeight = 0;
     TVPSDLPresentRect dirtyRect;
     TVPSDLPresentRect fallbackRect;
     bool forceFullFrame = false;
@@ -33,6 +38,7 @@ struct TVPSDLTexturePresentPlan {
 struct TVPSDLTexturePresentResult {
     TVPSDLPresentPath path = TVPSDLPresentPath::None;
     TVPSDLPresentRect sourceRect;
+    TVPSDLPresentRect destRect;
     bool fullFrame = false;
     bool nativeGL = false;
     bool cpuCopyFree = false;

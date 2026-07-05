@@ -158,6 +158,8 @@ struct TVPSDLScreenPresenterState {
     uint64_t failedPumps = 0;
     uint64_t noSurfacePumps = 0;
     uint64_t deferredPumps = 0;
+    bool hasPendingExternalFrameInfo = false;
+    TVPRuntimePresentFrameInfo pendingExternalFrameInfo;
 };
 
 std::mutex gSDLScreenPresenterMutex;
@@ -930,9 +932,8 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
             return true;
         }
         SDL_SetRenderVSync(gSDLScreenPresenterState.renderer, 1);
-        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer,
-                                         surfaceWidth, surfaceHeight,
-                                         SDL_LOGICAL_PRESENTATION_STRETCH);
+        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer, 0, 0,
+                                         SDL_LOGICAL_PRESENTATION_DISABLED);
         const char *actualDriver =
             SDL_GetRendererName(gSDLScreenPresenterState.renderer);
         char message[320];
@@ -977,9 +978,8 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
                                 SDL_SCALEMODE_LINEAR);
         SDL_SetTextureBlendMode(gSDLScreenPresenterState.texture,
                                 SDL_BLENDMODE_NONE);
-        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer,
-                                         surfaceWidth, surfaceHeight,
-                                         SDL_LOGICAL_PRESENTATION_STRETCH);
+        SDL_SetRenderLogicalPresentation(gSDLScreenPresenterState.renderer, 0, 0,
+                                         SDL_LOGICAL_PRESENTATION_DISABLED);
         char message[320];
         std::snprintf(message, sizeof(message),
                       "texture created stage=%s texture=%p size=%dx%d",
@@ -2935,6 +2935,26 @@ bool TVPSDLHasScreenPresenterPresented() {
     return gSDLScreenPresenterState.presentedFrames > 0;
 }
 
+extern "C" void TVPSDLRecordExternalPresenterPostedFrame() {
+    TVPRuntimePresentFrameInfo frameInfo;
+    bool hasFrameInfo = false;
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        const uint64_t sequence = ++gSDLScreenPresenterState.presentedFrames;
+        if(gSDLScreenPresenterState.hasPendingExternalFrameInfo) {
+            frameInfo = gSDLScreenPresenterState.pendingExternalFrameInfo;
+            frameInfo.valid = true;
+            frameInfo.sequence = sequence;
+            gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
+            gSDLScreenPresenterState.pendingExternalFrameInfo =
+                TVPRuntimePresentFrameInfo{};
+            hasFrameInfo = true;
+        }
+    }
+    if(hasFrameInfo)
+        TVPRuntimeRecordPresentFrame(frameInfo);
+}
+
 extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height) {
     if(TVPSDLAndroidFlutterPresenterGetPresentedSurfaceSize(width, height))
         return;
@@ -2949,6 +2969,13 @@ extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height) {
 extern "C" void TVPSDLNotifyAndroidFlutterGameSurfaceChanged(
     const char *reason) {
     TVPSDLAndroidFlutterPresenterNotifySurfaceChanged(reason);
+    {
+        std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        gSDLScreenPresenterState.presentedFrames = 0;
+        gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
+        gSDLScreenPresenterState.pendingExternalFrameInfo =
+            TVPRuntimePresentFrameInfo{};
+    }
 }
 #endif
 
@@ -2960,6 +2987,55 @@ namespace {
 
 tTVPRect ToTVPRect(const TVPRuntimePresentRect &rect) {
     return tTVPRect(rect.x, rect.y, rect.x + rect.w, rect.y + rect.h);
+}
+
+tTVPRect ComputeAspectViewport(int contentWidth, int contentHeight,
+                               int outputWidth, int outputHeight) {
+    if(contentWidth <= 0 || contentHeight <= 0 || outputWidth <= 0 ||
+       outputHeight <= 0)
+        return tTVPRect(0, 0, outputWidth > 0 ? outputWidth : 0,
+                        outputHeight > 0 ? outputHeight : 0);
+
+    int viewportWidth = outputWidth;
+    int viewportHeight = outputHeight;
+    if(static_cast<int64_t>(contentWidth) * outputHeight >
+       static_cast<int64_t>(outputWidth) * contentHeight) {
+        viewportHeight = static_cast<int>(
+            (static_cast<int64_t>(outputWidth) * contentHeight) /
+            contentWidth);
+        if(viewportHeight <= 0)
+            viewportHeight = 1;
+    } else if(static_cast<int64_t>(contentWidth) * outputHeight <
+              static_cast<int64_t>(outputWidth) * contentHeight) {
+        viewportWidth = static_cast<int>(
+            (static_cast<int64_t>(outputHeight) * contentWidth) /
+            contentHeight);
+        if(viewportWidth <= 0)
+            viewportWidth = 1;
+    }
+
+    const int viewportX = (outputWidth - viewportWidth) / 2;
+    const int viewportY = (outputHeight - viewportHeight) / 2;
+    return tTVPRect(viewportX, viewportY, viewportX + viewportWidth,
+                    viewportY + viewportHeight);
+}
+
+void ApplyPresentedViewportToDrawDevice(tTJSNI_BaseWindow *window,
+                                        int contentWidth, int contentHeight,
+                                        int outputWidth, int outputHeight) {
+    if(!window || contentWidth <= 0 || contentHeight <= 0 ||
+       outputWidth <= 0 || outputHeight <= 0)
+        return;
+    iTVPDrawDevice *drawDevice = window->GetDrawDevice();
+    if(!drawDevice)
+        return;
+
+    const tTVPRect viewport = ComputeAspectViewport(
+        contentWidth, contentHeight, outputWidth, outputHeight);
+    drawDevice->SetDestRectangle(viewport);
+    drawDevice->SetClipRectangle(viewport);
+    drawDevice->SetViewport(viewport);
+    drawDevice->SetWindowSize(outputWidth, outputHeight);
 }
 
 } // namespace
@@ -3021,14 +3097,17 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         hasDirty = !updateRect.is_empty();
         forceFullFramePresent = hasDirty;
     }
-    const bool nativePresentOnly =
-        !hasDirty && takeoverActive && presenterAlreadyPresented &&
-        glBackedTexture;
-    if(nativePresentOnly)
-        return true;
-
-    if(!hasDirty)
+    bool nativeProducedFramePresent = false;
+    if(!hasDirty && request.frameProduced && takeoverActive &&
+       glBackedTexture && skipShadowUploadForNativeAndroid) {
+        updateRect = fullRect;
+        hasDirty = !updateRect.is_empty();
+        forceFullFramePresent = hasDirty;
+        nativeProducedFramePresent = hasDirty;
+    }
+    if(!hasDirty) {
         return takeoverActive && presenterAlreadyPresented;
+    }
     if(updateRect.is_empty())
         return takeoverActive && presenterAlreadyPresented;
 
@@ -3036,7 +3115,8 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
     if(copyFormat == TVPTextureFormat::None)
         copyFormat = texture->GetFormat();
 
-    if(forceFullFramePresent && glBackedTexture && !nativePresentOnly)
+    if(forceFullFramePresent && glBackedTexture &&
+       !nativeProducedFramePresent)
         texture->InvalidatePixelCache();
 
     bool gpuUploaded = false;
@@ -3051,8 +3131,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
     bool gpuFailureLogged = false;
     bool gpuUnavailable = false;
 
-    if(sdlGpuRequested && !shadowUpload && !nativePresentOnly &&
-       !skipShadowUploadForNativeAndroid) {
+    if(sdlGpuRequested && !shadowUpload && !skipShadowUploadForNativeAndroid) {
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         if(gSDLGpuPresenterState.unavailable) {
             gpuUnavailable = true;
@@ -3074,8 +3153,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         }
     }
 
-    if(shadowUpload && !nativePresentOnly &&
-       !skipShadowUploadForNativeAndroid) {
+    if(shadowUpload && !skipShadowUploadForNativeAndroid) {
         bool knownTexture = false;
         std::lock_guard<std::mutex> lock(gSDLGpuPresenterMutex);
         if(gSDLGpuPresenterState.unavailable) {
@@ -3110,9 +3188,8 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         }
     }
 
-    if(shadowUpload && !nativePresentOnly &&
-       !skipShadowUploadForNativeAndroid && !gpuUploaded && takeoverActive &&
-       !gpuUnavailable) {
+    if(shadowUpload && !skipShadowUploadForNativeAndroid && !gpuUploaded &&
+       takeoverActive && !gpuUnavailable) {
         gpuFailureLogged = true;
         if(ShouldLogScreenPresenter(gpuFailures)) {
             char message[384];
@@ -3133,9 +3210,13 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
     if(takeoverActive) {
         const int directWidth = static_cast<int>(texture->GetWidth());
         const int directHeight = static_cast<int>(texture->GetHeight());
+        const int outputWidth = kTVPSDLFixedGameSurfaceWidth;
+        const int outputHeight = kTVPSDLFixedGameSurfaceHeight;
         TVPSDLTexturePresentPlan androidPlan;
         androidPlan.textureWidth = directWidth;
         androidPlan.textureHeight = directHeight;
+        androidPlan.outputWidth = outputWidth;
+        androidPlan.outputHeight = outputHeight;
         androidPlan.dirtyRect =
             TVPSDLPresentRect{ updateRect.left, updateRect.top,
                                updateRect.get_width(),
@@ -3144,8 +3225,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         androidPlan.directPartialAllowed =
             TVPSDLAndroidFlutterPresenterIsDirectPartialPresentEnabled();
         androidPlan.allowFallback =
-            !nativePresentOnly &&
-            (!glBackedTexture || AllowAndroidGLCpuFallback());
+            !glBackedTexture || AllowAndroidGLCpuFallback();
         SDL_Rect directRect = ToSDLRect(androidPlan.dirtyRect);
         if(directRect.x < 0) {
             directRect.w += directRect.x;
@@ -3167,13 +3247,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         TVPSDLAndroidFlutterPresenterTryPresentTexturePlan(
             texture, copyFormat, stage, androidPlan, androidResult);
         if(androidResult.Presented()) {
-            uint64_t presented = 0;
-            {
-                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-                presented = ++gSDLScreenPresenterState.presentedFrames;
-            }
             TVPRuntimePresentFrameInfo frameInfo;
-            frameInfo.sequence = presented;
             frameInfo.textureWidth = static_cast<int>(texture->GetWidth());
             frameInfo.textureHeight = static_cast<int>(texture->GetHeight());
             frameInfo.layerWidth = layerWidth;
@@ -3182,12 +3256,28 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                                      androidResult.sourceRect.y,
                                      androidResult.sourceRect.w,
                                      androidResult.sourceRect.h };
-            frameInfo.destRect = frameInfo.sourceRect;
+            frameInfo.destRect = { androidResult.destRect.x,
+                                   androidResult.destRect.y,
+                                   androidResult.destRect.w,
+                                   androidResult.destRect.h };
             frameInfo.fullFrame = androidResult.fullFrame;
             frameInfo.nativeGL = androidResult.nativeGL;
             frameInfo.cpuCopyFree = androidResult.cpuCopyFree;
-            TVPRuntimeRecordPresentFrame(frameInfo);
-            if(!nativePresentOnly) {
+            uint64_t presented = 0;
+            if(androidResult.path == TVPSDLPresentPath::AndroidEGL) {
+                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+                presented = gSDLScreenPresenterState.presentedFrames + 1;
+                gSDLScreenPresenterState.pendingExternalFrameInfo = frameInfo;
+                gSDLScreenPresenterState.hasPendingExternalFrameInfo = true;
+            } else {
+                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+                presented = ++gSDLScreenPresenterState.presentedFrames;
+                frameInfo.valid = true;
+                frameInfo.sequence = presented;
+            }
+            if(androidResult.path != TVPSDLPresentPath::AndroidEGL)
+                TVPRuntimeRecordPresentFrame(frameInfo);
+            if(androidResult.path != TVPSDLPresentPath::AndroidEGL) {
                 tTVPRect consumed;
                 texture->ConsumeDirtyRect(consumed);
             }
@@ -3199,9 +3289,10 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                 std::snprintf(
                     message, sizeof(message),
                     "present-texture-%s #%llu stage=%s tex=%p size=%ux%u "
-                    "dirty=%d,%d,%dx%d gpuBytes=%llu converted=%d "
-                    "takeover=1 fullFrame=%d nativeGL=%d cpuCopyFree=%d "
-                    "gpuFull=%llu gpuPartial=%llu",
+                    "dirty=%d,%d,%dx%d dest=%d,%d,%dx%d output=%dx%d "
+                    "gpuBytes=%llu converted=%d takeover=1 fullFrame=%d "
+                    "nativeGL=%d cpuCopyFree=%d gpuFull=%llu "
+                    "gpuPartial=%llu",
                     TVPSDLAndroidFlutterPresenterPresentPathLogName(
                         androidResult.path),
                     static_cast<unsigned long long>(presentSequence),
@@ -3209,6 +3300,9 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     texture->GetWidth(), texture->GetHeight(),
                     androidResult.sourceRect.x, androidResult.sourceRect.y,
                     androidResult.sourceRect.w, androidResult.sourceRect.h,
+                    androidResult.destRect.x, androidResult.destRect.y,
+                    androidResult.destRect.w, androidResult.destRect.h,
+                    outputWidth, outputHeight,
                     static_cast<unsigned long long>(gpuUploadBytes),
                     gpuConverted ? 1 : 0, androidResult.fullFrame ? 1 : 0,
                     androidResult.nativeGL ? 1 : 0,
@@ -3221,9 +3315,6 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         }
     }
 #endif
-
-    if(nativePresentOnly)
-        return takeoverActive && presenterAlreadyPresented;
 
 #if defined(__ANDROID__)
     if(glBackedTexture && !AllowAndroidGLCpuFallback())
@@ -3334,13 +3425,17 @@ bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
     if(!window || !texture)
         return true;
 
-    iTVPDrawDevice *drawDevice = window->GetDrawDevice();
-    if(!drawDevice)
-        return true;
-
     int surfaceWidth = 0;
     int surfaceHeight = 0;
-    TVPSDLGetPresentedSurfaceSize(&surfaceWidth, &surfaceHeight);
+#if defined(__ANDROID__)
+    if(TVPSDLIsScreenTakeoverEnabled()) {
+        TVPAndroidGetFlutterGameSurfaceSize(&surfaceWidth, &surfaceHeight);
+    }
+#endif
+#if defined(__ANDROID__)
+    if(surfaceWidth <= 0 || surfaceHeight <= 0)
+#endif
+        TVPSDLGetPresentedSurfaceSize(&surfaceWidth, &surfaceHeight);
     if(surfaceWidth <= 0)
         surfaceWidth = static_cast<int>(texture->GetWidth());
     if(surfaceHeight <= 0)
@@ -3348,10 +3443,9 @@ bool TVPSDLPresentHostWindowTexture(tTJSNI_BaseWindow *window,
     if(surfaceWidth <= 0 || surfaceHeight <= 0)
         return true;
 
-    const tTVPRect dest(0, 0, surfaceWidth, surfaceHeight);
-    drawDevice->SetDestRectangle(dest);
-    drawDevice->SetClipRectangle(dest);
-    drawDevice->SetWindowSize(surfaceWidth, surfaceHeight);
+    ApplyPresentedViewportToDrawDevice(
+        window, static_cast<int>(texture->GetWidth()),
+        static_cast<int>(texture->GetHeight()), surfaceWidth, surfaceHeight);
     return true;
 }
 
@@ -3511,13 +3605,11 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
     if(!gSDLScreenPresenterState.renderer &&
        gSDLScreenPresenterState.window &&
        gSDLScreenPresenterState.windowSurface) {
-        SDL_Rect dstRect = rect;
+        SDL_Surface *windowSurface = gSDLScreenPresenterState.windowSurface;
         bool updateResult = false;
-        if(gSDLScreenPresenterState.windowSurface->w == surfaceWidth &&
-           gSDLScreenPresenterState.windowSurface->h == surfaceHeight) {
-            if(!SDL_BlitSurface(surface, &rect,
-                                gSDLScreenPresenterState.windowSurface,
-                                &dstRect)) {
+        if(windowSurface->w == surfaceWidth &&
+           windowSurface->h == surfaceHeight) {
+            if(!SDL_BlitSurface(surface, nullptr, windowSurface, nullptr)) {
                 const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
                 char message[384];
                 std::snprintf(message, sizeof(message),
@@ -3529,12 +3621,17 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
                 LogSDLScreenPresenter(message);
                 return false;
             }
-            updateResult = SDL_UpdateWindowSurfaceRects(
-                gSDLScreenPresenterState.window, &dstRect, 1);
+            updateResult = SDL_UpdateWindowSurface(gSDLScreenPresenterState.window);
         } else {
-            if(!SDL_BlitSurfaceScaled(surface, nullptr,
-                                      gSDLScreenPresenterState.windowSurface,
-                                      nullptr, SDL_SCALEMODE_LINEAR)) {
+            const Uint32 black = SDL_MapSurfaceRGB(windowSurface, 0, 0, 0);
+            SDL_FillSurfaceRect(windowSurface, nullptr, black);
+            const tTVPRect viewport =
+                ComputeAspectViewport(surfaceWidth, surfaceHeight,
+                                      windowSurface->w, windowSurface->h);
+            SDL_Rect dstRect{ viewport.left, viewport.top,
+                              viewport.get_width(), viewport.get_height() };
+            if(!SDL_BlitSurfaceScaled(surface, nullptr, windowSurface, &dstRect,
+                                      SDL_SCALEMODE_LINEAR)) {
                 const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
                 char message[384];
                 std::snprintf(message, sizeof(message),
@@ -3542,9 +3639,7 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
                               "stage=%s src=%dx%d dst=%dx%d error=%s",
                               static_cast<unsigned long long>(failed),
                               stage ? stage : "", surfaceWidth, surfaceHeight,
-                              gSDLScreenPresenterState.windowSurface->w,
-                              gSDLScreenPresenterState.windowSurface->h,
-                              SDL_GetError());
+                              windowSurface->w, windowSurface->h, SDL_GetError());
                 LogSDLScreenPresenter(message);
                 return false;
             }
@@ -3569,13 +3664,12 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
             std::snprintf(
                 message, sizeof(message),
                 "present-window-surface #%llu stage=%s surface=%dx%d "
-                "windowSurface=%dx%d pitch=%d rect=%d,%d,%dx%d "
-                "copiedRegions=%llu copiedBytes=%llu",
+                          "windowSurface=%dx%d pitch=%d rect=%d,%d,%dx%d "
+                          "copiedRegions=%llu copiedBytes=%llu",
                 static_cast<unsigned long long>(presented),
                 stage ? stage : "", surfaceWidth, surfaceHeight,
-                gSDLScreenPresenterState.windowSurface->w,
-                gSDLScreenPresenterState.windowSurface->h,
-                gSDLScreenPresenterState.windowSurface->pitch, rect.x, rect.y,
+                windowSurface->w, windowSurface->h,
+                windowSurface->pitch, rect.x, rect.y,
                 rect.w, rect.h,
                 static_cast<unsigned long long>(copiedRegions),
                 static_cast<unsigned long long>(copiedBytes));
@@ -3612,9 +3706,20 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         LogSDLScreenPresenter(message);
         return false;
     }
+    int outputWidth = surfaceWidth;
+    int outputHeight = surfaceHeight;
+    SDL_GetRenderOutputSize(gSDLScreenPresenterState.renderer, &outputWidth,
+                            &outputHeight);
+    const tTVPRect viewport =
+        ComputeAspectViewport(surfaceWidth, surfaceHeight, outputWidth,
+                              outputHeight);
+    SDL_FRect dstRect{ static_cast<float>(viewport.left),
+                       static_cast<float>(viewport.top),
+                       static_cast<float>(viewport.get_width()),
+                       static_cast<float>(viewport.get_height()) };
     if(!SDL_RenderTexture(gSDLScreenPresenterState.renderer,
                           gSDLScreenPresenterState.texture, nullptr,
-                          nullptr)) {
+                          &dstRect)) {
         const uint64_t failed = ++gSDLScreenPresenterState.failedPumps;
         char message[384];
         std::snprintf(message, sizeof(message),
@@ -3635,11 +3740,14 @@ bool TVPSDLPumpScreenPresenter(const char *stage) {
         char message[512];
         std::snprintf(message, sizeof(message),
                       "present #%llu stage=%s surface=%dx%d pitch=%d "
-                      "rect=%d,%d,%dx%d copiedRegions=%llu copiedBytes=%llu "
-                      "renderer=%p texture=%p",
+                      "rect=%d,%d,%dx%d viewport=%d,%d,%dx%d "
+                      "copiedRegions=%llu copiedBytes=%llu renderer=%p "
+                      "texture=%p",
                       static_cast<unsigned long long>(presented),
                       stage ? stage : "", surfaceWidth, surfaceHeight, pitch,
                       rect.x, rect.y, rect.w, rect.h,
+                      viewport.left, viewport.top, viewport.get_width(),
+                      viewport.get_height(),
                       static_cast<unsigned long long>(copiedRegions),
                       static_cast<unsigned long long>(copiedBytes),
                       static_cast<void *>(gSDLScreenPresenterState.renderer),

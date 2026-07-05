@@ -114,6 +114,7 @@ void TVPSDLSetScreenTakeoverEnabled(bool enabled, const char *reason,
 bool TVPSDLIsScreenTakeoverSupported();
 bool TVPSDLIsScreenTakeoverEnabled();
 bool TVPSDLHasScreenPresenterPresented();
+extern "C" void TVPSDLRecordExternalPresenterPostedFrame();
 extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height);
 #if defined(__ANDROID__)
 extern "C" void

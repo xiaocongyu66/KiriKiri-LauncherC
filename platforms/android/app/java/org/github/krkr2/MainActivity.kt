@@ -33,6 +33,8 @@ class MainActivity : KR2Activity() {
         const val EXTRA_GAME_DIR = "extra_game_dir"
         const val EXTRA_GAME_TITLE = "extra_game_title"
         const val EXTRA_LAUNCH_FILE = "extra_launch_file"
+        private const val GAME_SURFACE_WIDTH = 1920
+        private const val GAME_SURFACE_HEIGHT = 1080
 
         private var currentActivity = WeakReference<MainActivity>(null)
 
@@ -224,10 +226,18 @@ class MainActivity : KR2Activity() {
                     val metrics = nativeGetGameSurfaceMetrics()
                     result.success(
                         mapOf(
-                            "width" to metrics.getOrElse(0) { 0 },
-                            "height" to metrics.getOrElse(1) { 0 },
+                            "width" to metrics.getOrElse(4) { 0 },
+                            "height" to metrics.getOrElse(5) { 0 },
+                            "contentWidth" to metrics.getOrElse(4) { 0 },
+                            "contentHeight" to metrics.getOrElse(5) { 0 },
+                            "presentedWidth" to metrics.getOrElse(0) { 0 },
+                            "presentedHeight" to metrics.getOrElse(1) { 0 },
                             "surfaceWidth" to metrics.getOrElse(2) { 0 },
                             "surfaceHeight" to metrics.getOrElse(3) { 0 },
+                            "viewportX" to metrics.getOrElse(6) { 0 },
+                            "viewportY" to metrics.getOrElse(7) { 0 },
+                            "viewportWidth" to metrics.getOrElse(8) { 0 },
+                            "viewportHeight" to metrics.getOrElse(9) { 0 },
                         )
                     )
                 }
@@ -352,8 +362,10 @@ class MainActivity : KR2Activity() {
             result.error("engine_unavailable", "Flutter overlay engine is not attached", null)
             return
         }
-        val width = (call.argument<Int>("width") ?: 1).coerceAtLeast(1)
-        val height = (call.argument<Int>("height") ?: 1).coerceAtLeast(1)
+        val requestedWidth = call.argument<Int>("width") ?: GAME_SURFACE_WIDTH
+        val requestedHeight = call.argument<Int>("height") ?: GAME_SURFACE_HEIGHT
+        val width = GAME_SURFACE_WIDTH
+        val height = GAME_SURFACE_HEIGHT
         val entry = try {
             engine.renderer.createSurfaceTexture()
         } catch (error: RuntimeException) {
@@ -368,7 +380,7 @@ class MainActivity : KR2Activity() {
         gameSurfaces[textureId] = surface
         activeGameSurfaceTextureId = textureId
         nativeSetGameSurface(surface, width, height)
-        LauncherPrefs.writeLauncherLog(this, "MainActivity.createGameSurfaceTexture id=$textureId size=${width}x$height")
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.createGameSurfaceTexture id=$textureId size=${width}x$height requested=${requestedWidth}x$requestedHeight")
         result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
     }
 
@@ -383,12 +395,14 @@ class MainActivity : KR2Activity() {
             result.error("not_found", "SurfaceTexture $textureId not found", null)
             return
         }
-        val width = (call.argument<Int>("width") ?: 1).coerceAtLeast(1)
-        val height = (call.argument<Int>("height") ?: 1).coerceAtLeast(1)
+        val requestedWidth = call.argument<Int>("width") ?: GAME_SURFACE_WIDTH
+        val requestedHeight = call.argument<Int>("height") ?: GAME_SURFACE_HEIGHT
+        val width = GAME_SURFACE_WIDTH
+        val height = GAME_SURFACE_HEIGHT
         entry.surfaceTexture().setDefaultBufferSize(width, height)
         activeGameSurfaceTextureId = textureId
         nativeResizeGameSurface(width, height)
-        LauncherPrefs.writeLauncherLog(this, "MainActivity.resizeGameSurfaceTexture id=$textureId size=${width}x$height")
+        LauncherPrefs.writeLauncherLog(this, "MainActivity.resizeGameSurfaceTexture id=$textureId size=${width}x$height requested=${requestedWidth}x$requestedHeight")
         result.success(mapOf("textureId" to textureId, "width" to width, "height" to height))
     }
 

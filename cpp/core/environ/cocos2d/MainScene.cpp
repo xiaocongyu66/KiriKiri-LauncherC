@@ -1210,6 +1210,7 @@ public:
         presentRequest.stage = "WindowLayer::UpdateDrawBuffer";
         presentRequest.layerWidth = LayerWidth;
         presentRequest.layerHeight = LayerHeight;
+        presentRequest.frameProduced = true;
         tTVPRect dirty;
         if(tex->PeekDirtyRect(dirty)) {
             const tTVPRect fullRect(0, 0, static_cast<tjs_int>(tex->GetWidth()),

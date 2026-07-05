@@ -1,9 +1,11 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import '../bridge/launcher_bridge.dart';
 import '../models/game_entry.dart';
+import '../widgets/md3_components.dart';
 
 String _normalizeRenderPipeline(Object? value, String fallback) {
   final raw = value is String ? value.trim() : '';
@@ -225,7 +227,7 @@ class _LauncherHomePageState extends State<LauncherHomePage> with WidgetsBinding
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text('KiriKiri'),
+                    const Text('KiriKiri Launcher'),
                     Text(
                       _loading ? '扫描中' : '${_games.length} 个游戏',
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
@@ -326,13 +328,46 @@ class _LibraryPage extends StatelessWidget {
               Expanded(flex: 4, child: _GameDetailPane(bridge: bridge, game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch)),
             ],
           )
-        : ListView(
-            padding: const EdgeInsets.all(12),
-            children: [
-              _GameGridPane(loading: loading, games: games, selectedGame: selectedGame, onSelect: onSelect, onLaunch: onLaunch, shrinkWrap: true),
-              const SizedBox(height: 12),
-              _GameDetailPane(bridge: bridge, game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
-            ],
+        : LayoutBuilder(
+            builder: (context, constraints) {
+              final showDetail = selectedGame != null && constraints.maxHeight >= 560;
+              final detailHeight = math.min(380.0, math.max(260.0, constraints.maxHeight * 0.42));
+              void handleSelect(GameEntry game) {
+                onSelect(game);
+                if (constraints.maxHeight >= 560) {
+                  return;
+                }
+                showModalBottomSheet<void>(
+                  context: context,
+                  showDragHandle: true,
+                  useSafeArea: true,
+                  builder: (_) => SizedBox(
+                    height: math.min(520.0, MediaQuery.sizeOf(context).height * 0.86),
+                    child: _GameDetailPane(bridge: bridge, game: game, onUpdate: onUpdate, onLaunch: onLaunch),
+                  ),
+                );
+              }
+              return Column(
+                children: [
+                  Expanded(
+                    child: _GameGridPane(
+                      loading: loading,
+                      games: games,
+                      selectedGame: selectedGame,
+                      onSelect: handleSelect,
+                      onLaunch: onLaunch,
+                    ),
+                  ),
+                  if (showDetail) ...[
+                    const Divider(height: 1),
+                    SizedBox(
+                      height: detailHeight,
+                      child: _GameDetailPane(bridge: bridge, game: selectedGame, onUpdate: onUpdate, onLaunch: onLaunch),
+                    ),
+                  ],
+                ],
+              );
+            },
           );
 
     return Column(
@@ -447,24 +482,19 @@ class _GameGridPane extends StatelessWidget {
       return const _Pane(child: Center(child: CircularProgressIndicator()));
     }
     if (games.isEmpty) {
-      return const _Pane(child: _EmptyState(icon: Icons.search_off_rounded, message: '未找到游戏'));
+      return const _Pane(child: LauncherEmptyState(icon: Icons.search_off_rounded, message: '未找到游戏'));
     }
     return _Pane(
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final columns = constraints.maxWidth >= 900
-              ? 4
-              : constraints.maxWidth >= 620
-                  ? 3
-                  : 2;
           return GridView.builder(
             shrinkWrap: shrinkWrap,
             physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
-            gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: columns,
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 260,
               mainAxisSpacing: 10,
               crossAxisSpacing: 10,
-              childAspectRatio: 0.82,
+              childAspectRatio: 0.78,
             ),
             itemCount: games.length,
             itemBuilder: (context, index) {
@@ -494,42 +524,36 @@ class _GameCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      color: selected ? scheme.primaryContainer.withOpacity(0.55) : scheme.surfaceContainerLow,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(20),
-        side: BorderSide(color: selected ? scheme.primary : scheme.outlineVariant.withOpacity(0.45)),
-      ),
-      child: InkWell(
-        onTap: onSelect,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _GameBanner(game: game, height: 92),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(game.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 4),
-                    Text(game.path, maxLines: 1, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
-                    const Spacer(),
-                    Row(
-                      children: [
-                        TextButton.icon(onPressed: onLaunch, icon: const Icon(Icons.play_arrow_rounded, size: 18), label: const Text('启动')),
-                        const Spacer(),
-                        TextButton.icon(onPressed: onSelect, icon: const Icon(Icons.info_outline_rounded, size: 18), label: const Text('详情')),
-                      ],
-                    ),
-                  ],
-                ),
+    return LauncherCard(
+      selected: selected,
+      onPressed: onSelect,
+      type: selected ? LauncherCardType.filled : LauncherCardType.plain,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _GameBanner(game: game, height: 104),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(game.title, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 6),
+                  Text(game.path, maxLines: 2, overflow: TextOverflow.ellipsis, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                  const Spacer(),
+                  Row(
+                    children: [
+                      FilledButton.tonalIcon(onPressed: onLaunch, icon: const Icon(Icons.play_arrow_rounded, size: 18), label: const Text('启动')),
+                      const Spacer(),
+                      IconButton(onPressed: onSelect, tooltip: '详情', icon: const Icon(Icons.info_outline_rounded)),
+                    ],
+                  ),
+                ],
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -635,7 +659,7 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
   Widget build(BuildContext context) {
     final item = widget.game;
     if (item == null) {
-      return const _Pane(child: _EmptyState(icon: Icons.videogame_asset_outlined, message: '选择一个游戏'));
+      return const _Pane(child: LauncherEmptyState(icon: Icons.videogame_asset_outlined, message: '选择一个游戏'));
     }
     return FutureBuilder<Map<String, Object?>>(
       future: _overrides,
@@ -645,7 +669,7 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
           child: ListView(
             padding: const EdgeInsets.all(12),
             children: [
-              ClipRRect(borderRadius: BorderRadius.circular(18), child: _GameBanner(game: item, height: 126)),
+              ClipRRect(borderRadius: BorderRadius.circular(8), child: _GameBanner(game: item, height: 126)),
               const SizedBox(height: 12),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1037,7 +1061,7 @@ class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> 
               onChanged: (value) => _set('software_compress_tex', value),
             ),
             _DoubleSliderTile(title: '虚拟鼠标缩放', value: _double('vcursor_scale', 0.5).clamp(0.1, 2.0).toDouble(), min: 0.1, max: 2.0, onChanged: (value) => _set('vcursor_scale', value)),
-            _DoubleSliderTile(title: '菜单按钮透明度', value: _double('menu_handler_opa', 0.15).clamp(0.0, 1.0).toDouble(), min: 0.0, max: 1.0, onChanged: (value) => _set('menu_handler_opa', value)),
+            _DoubleSliderTile(title: '悬浮菜单透明度', value: _double('menu_handler_opa', 0.15).clamp(0.0, 1.0).toDouble(), min: 0.0, max: 1.0, onChanged: (value) => _set('menu_handler_opa', value)),
           ],
         );
       },
@@ -1110,7 +1134,7 @@ class _Pane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Material(color: Theme.of(context).colorScheme.surfaceContainerLowest, child: Padding(padding: padding, child: child));
+    return Material(color: Theme.of(context).colorScheme.surface, child: Padding(padding: padding, child: child));
   }
 }
 
@@ -1123,24 +1147,31 @@ class _DetailSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      color: Theme.of(context).colorScheme.surfaceContainerLow,
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            if (subtitle != null) ...[
-              const SizedBox(height: 4),
-              Text(subtitle!, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant)),
-            ],
-            const SizedBox(height: 8),
-            const Divider(height: 1),
-            const SizedBox(height: 8),
-            child,
-          ],
-        ),
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLow,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700, color: scheme.onSurfaceVariant)),
+                if (subtitle != null) ...[
+                  const SizedBox(height: 4),
+                  Text(subtitle!, style: theme.textTheme.bodySmall?.copyWith(color: scheme.onSurfaceVariant)),
+                ],
+              ],
+            ),
+          ),
+          Divider(height: 1, color: scheme.outlineVariant),
+          Padding(padding: const EdgeInsets.all(12), child: child),
+        ],
       ),
     );
   }
@@ -1156,31 +1187,10 @@ class _SettingsGroup extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Material(
-        color: Theme.of(context).colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        clipBehavior: Clip.antiAlias,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 8, 4),
-              child: Row(
-                children: [
-                  Icon(icon, size: 20, color: Theme.of(context).colorScheme.primary),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text(title, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700))),
-                  if (trailing != null) trailing!,
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            ...children,
-          ],
-        ),
-      ),
+    return LauncherSection(
+      info: LauncherInfo(label: title, icon: icon),
+      actions: trailing == null ? const [] : [trailing!],
+      children: children,
     );
   }
 }
@@ -1195,7 +1205,7 @@ class _ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
+    return LauncherListItem(
       dense: true,
       leading: Icon(icon),
       title: Text(title),
@@ -1219,27 +1229,39 @@ class _SelectSetting extends StatelessWidget {
   Widget build(BuildContext context) {
     final selected = choices.containsKey(value) ? value : choices.keys.first;
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: Row(
-        children: [
-          Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)),
-          const SizedBox(width: 12),
-          SizedBox(
-            width: 156,
-            child: DropdownButtonFormField<String>(
-              value: selected,
-              isDense: true,
-              decoration: const InputDecoration(isDense: true),
-              items: choices.entries
-                  .map((entry) => DropdownMenuItem<String>(
-                        value: entry.key,
-                        child: Text(entry.value.isEmpty ? fallback : entry.value, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      ))
-                  .toList(growable: false),
-              onChanged: (next) => onChanged(next ?? ''),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final dropdown = DropdownButtonFormField<String>(
+            value: selected,
+            isDense: true,
+            decoration: const InputDecoration(isDense: true),
+            items: choices.entries
+                .map((entry) => DropdownMenuItem<String>(
+                      value: entry.key,
+                      child: Text(entry.value.isEmpty ? fallback : entry.value, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    ))
+                .toList(growable: false),
+            onChanged: (next) => onChanged(next ?? ''),
+          );
+          if (constraints.maxWidth < 360) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 8),
+                dropdown,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis)),
+              const SizedBox(width: 12),
+              SizedBox(width: 164, child: dropdown),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1255,7 +1277,7 @@ class _SwitchTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SwitchListTile(
+    return LauncherListItem.switchItem(
       dense: true,
       title: Text(title),
       subtitle: Text(subtitle, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -1276,17 +1298,33 @@ class _ChoiceTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Row(
-        children: [
-          Expanded(child: Text(title)),
-          SegmentedButton<String>(
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final control = SegmentedButton<String>(
             segments: choices.entries.map((entry) => ButtonSegment<String>(value: entry.key, label: Text(entry.value))).toList(growable: false),
             selected: {value},
             showSelectedIcon: false,
             onSelectionChanged: (selection) => onChanged(selection.first),
-          ),
-        ],
+          );
+          if (constraints.maxWidth < 420) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title),
+                const SizedBox(height: 8),
+                SingleChildScrollView(scrollDirection: Axis.horizontal, child: control),
+              ],
+            );
+          }
+          return Row(
+            children: [
+              Expanded(child: Text(title)),
+              const SizedBox(width: 12),
+              control,
+            ],
+          );
+        },
       ),
     );
   }
@@ -1304,21 +1342,33 @@ class _SliderTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      child: Row(
-        children: [
-          SizedBox(width: 96, child: Text('$title: $value')),
-          Expanded(
-            child: Slider(
-              value: value.toDouble(),
-              min: min.toDouble(),
-              max: max.toDouble(),
-              divisions: max - min,
-              label: '$value',
-              onChanged: (next) => onChanged(next.round().clamp(min, max).toInt()),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final slider = Slider(
+            value: value.toDouble(),
+            min: min.toDouble(),
+            max: max.toDouble(),
+            divisions: max - min,
+            label: '$value',
+            onChanged: (next) => onChanged(next.round().clamp(min, max).toInt()),
+          );
+          if (constraints.maxWidth < 360) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('$title: $value'),
+                slider,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              SizedBox(width: 112, child: Text('$title: $value', maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Expanded(child: slider),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1337,21 +1387,34 @@ class _DoubleSliderTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final clamped = value.clamp(min, max).toDouble();
     return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 4, 12, 8),
-      child: Row(
-        children: [
-          SizedBox(width: 128, child: Text('$title: ${clamped.toStringAsFixed(2)}')),
-          Expanded(
-            child: Slider(
-              value: clamped,
-              min: min,
-              max: max,
-              divisions: 20,
-              label: clamped.toStringAsFixed(2),
-              onChanged: (next) => onChanged(next.clamp(min, max).toDouble()),
-            ),
-          ),
-        ],
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final slider = Slider(
+            value: clamped,
+            min: min,
+            max: max,
+            divisions: 20,
+            label: clamped.toStringAsFixed(2),
+            onChanged: (next) => onChanged(next.clamp(min, max).toDouble()),
+          );
+          final label = '$title: ${clamped.toStringAsFixed(2)}';
+          if (constraints.maxWidth < 380) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label),
+                slider,
+              ],
+            );
+          }
+          return Row(
+            children: [
+              SizedBox(width: 144, child: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis)),
+              Expanded(child: slider),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1381,16 +1444,7 @@ class _InfoRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(width: 88, child: Text(label, style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant))),
-          Expanded(child: SelectableText(value.isEmpty ? '-' : value)),
-        ],
-      ),
-    );
+    return LauncherInfoRow(label, value);
   }
 }
 
@@ -1416,19 +1470,7 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 40, color: Theme.of(context).colorScheme.onSurfaceVariant),
-            const SizedBox(height: 8),
-            Text(message, style: Theme.of(context).textTheme.bodyMedium),
-          ],
-        ),
-      ),
-    );
+    return LauncherEmptyState(icon: icon, message: message);
   }
 }
 

@@ -25,6 +25,8 @@ tTVPDrawDevice::tTVPDrawDevice() {
     Window = nullptr;
     PrimaryLayerManagerIndex = 0;
     DestRect.clear();
+    ViewportRect.clear();
+    ViewportValid = false;
     ClipRect.clear();
 }
 //---------------------------------------------------------------------------
@@ -49,20 +51,29 @@ bool tTVPDrawDevice::TransformToPrimaryLayerManager(tjs_int &x, tjs_int &y) {
     iTVPLayerManager *manager = GetLayerManagerAt(PrimaryLayerManagerIndex);
     if(!manager)
         return false;
-    return true;
 
     // プライマリレイヤマネージャのプライマリレイヤのサイズを得る
     tjs_int pl_w = LockedWidth, pl_h = LockedHeight;
-    if(pl_w <= 0 && pl_h <= 0 && !manager->GetPrimaryLayerSize(pl_w, pl_h))
-        return false;
-    // pl_w = WinWidth; pl_h = WinHeight;
+    if(pl_w <= 0 || pl_h <= 0) {
+        if(!manager->GetPrimaryLayerSize(pl_w, pl_h))
+            return false;
+    }
 
-    // x , y は DestRect の 0, 0
-    // を原点とした座標として渡されてきている
-    tjs_int w = DestRect.get_width();
-    tjs_int h = DestRect.get_height();
-    x = w ? ((x - DestRect.left) * pl_w / w) : 0;
-    y = h ? ((y - DestRect.top) * pl_h / h) : 0;
+    const tTVPRect &src =
+        ViewportValid && !ViewportRect.is_empty() ? ViewportRect : DestRect;
+    tjs_int src_left = src.left;
+    tjs_int src_top = src.top;
+    tjs_int src_w = src.get_width();
+    tjs_int src_h = src.get_height();
+    if(src_w <= 0 || src_h <= 0) {
+        src_left = 0;
+        src_top = 0;
+        src_w = WinWidth > 0 ? WinWidth : pl_w;
+        src_h = WinHeight > 0 ? WinHeight : pl_h;
+    }
+
+    x = src_w ? ((x - src_left) * pl_w / src_w) : 0;
+    y = src_h ? ((y - src_top) * pl_h / src_h) : 0;
 
     return true;
 }
@@ -73,20 +84,31 @@ bool tTVPDrawDevice::TransformFromPrimaryLayerManager(tjs_int &x, tjs_int &y) {
     iTVPLayerManager *manager = GetLayerManagerAt(PrimaryLayerManagerIndex);
     if(!manager)
         return false;
-    return true;
 
     // プライマリレイヤマネージャのプライマリレイヤのサイズを得る
     tjs_int pl_w = LockedWidth, pl_h = LockedHeight;
-    if(pl_w <= 0 && pl_h <= 0 && !manager->GetPrimaryLayerSize(pl_w, pl_h))
-        return false;
-    // pl_w = WinWidth; pl_h = WinHeight;
+    if(pl_w <= 0 || pl_h <= 0) {
+        if(!manager->GetPrimaryLayerSize(pl_w, pl_h))
+            return false;
+    }
 
-    // x , y は DestRect の 0, 0
-    // を原点とした座標として渡されてきている
-    x = pl_w ? (x * DestRect.get_width() / pl_w) : 0;
-    y = pl_h ? (y * DestRect.get_height() / pl_h) : 0;
-    x += DestRect.left;
-    y += DestRect.top;
+    const tTVPRect &dst =
+        ViewportValid && !ViewportRect.is_empty() ? ViewportRect : DestRect;
+    tjs_int dst_left = dst.left;
+    tjs_int dst_top = dst.top;
+    tjs_int dst_w = dst.get_width();
+    tjs_int dst_h = dst.get_height();
+    if(dst_w <= 0 || dst_h <= 0) {
+        dst_left = 0;
+        dst_top = 0;
+        dst_w = WinWidth > 0 ? WinWidth : pl_w;
+        dst_h = WinHeight > 0 ? WinHeight : pl_h;
+    }
+
+    x = pl_w ? (x * dst_w / pl_w) : 0;
+    y = pl_h ? (y * dst_h / pl_h) : 0;
+    x += dst_left;
+    y += dst_top;
     return true;
 }
 //---------------------------------------------------------------------------
@@ -98,16 +120,27 @@ bool tTVPDrawDevice::TransformToPrimaryLayerManager(tjs_real &x, tjs_real &y) {
         return false;
 
     // プライマリレイヤマネージャのプライマリレイヤのサイズを得る
-    tjs_int pl_w, pl_h;
-    if(!manager->GetPrimaryLayerSize(pl_w, pl_h))
-        return false;
+    tjs_int pl_w = LockedWidth, pl_h = LockedHeight;
+    if(pl_w <= 0 || pl_h <= 0) {
+        if(!manager->GetPrimaryLayerSize(pl_w, pl_h))
+            return false;
+    }
 
-    // x , y は DestRect の 0, 0
-    // を原点とした座標として渡されてきている
-    tjs_int w = DestRect.get_width();
-    tjs_int h = DestRect.get_height();
-    x = w ? (x * pl_w / w) : 0.0;
-    y = h ? (y * pl_h / h) : 0.0;
+    const tTVPRect &src =
+        ViewportValid && !ViewportRect.is_empty() ? ViewportRect : DestRect;
+    tjs_real src_left = static_cast<tjs_real>(src.left);
+    tjs_real src_top = static_cast<tjs_real>(src.top);
+    tjs_real src_w = static_cast<tjs_real>(src.get_width());
+    tjs_real src_h = static_cast<tjs_real>(src.get_height());
+    if(src_w <= 0.0 || src_h <= 0.0) {
+        src_left = 0.0;
+        src_top = 0.0;
+        src_w = static_cast<tjs_real>(WinWidth > 0 ? WinWidth : pl_w);
+        src_h = static_cast<tjs_real>(WinHeight > 0 ? WinHeight : pl_h);
+    }
+
+    x = src_w > 0.0 ? ((x - src_left) * pl_w / src_w) : 0.0;
+    y = src_h > 0.0 ? ((y - src_top) * pl_h / src_h) : 0.0;
 
     return true;
 }
@@ -143,6 +176,13 @@ void tTVPDrawDevice::RemoveLayerManager(iTVPLayerManager *manager) {
 
 //---------------------------------------------------------------------------
 void tTVPDrawDevice::SetDestRectangle(const tTVPRect &rect) { DestRect = rect; }
+//---------------------------------------------------------------------------
+
+void tTVPDrawDevice::SetViewport(const tTVPRect &rect) {
+    ViewportRect = rect;
+    ViewportValid = !rect.is_empty();
+}
+
 //---------------------------------------------------------------------------
 
 void tTVPDrawDevice::SetLockedSize(tjs_int w, tjs_int h) {
