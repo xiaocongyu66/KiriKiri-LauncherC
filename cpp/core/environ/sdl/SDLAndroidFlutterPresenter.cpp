@@ -1705,12 +1705,17 @@ extern "C" bool TVPSDLAndroidConsumeExternalPresenterPostedFrame() {
                                                   std::memory_order_acq_rel);
 }
 
-extern "C" bool TVPSDLAndroidSwapExternalPresenterIfDirty() {
+bool TVPSDLAndroidFlutterPresenterSwapIfDirty(const char *stage) {
 #if defined(__ANDROID__)
-    return SwapAndroidEGLSurfacePresenterIfDirty("TVPForceSwapBuffer");
+    return SwapAndroidEGLSurfacePresenterIfDirty(stage ? stage : "sdl-drain");
 #else
+    (void)stage;
     return false;
 #endif
+}
+
+extern "C" bool TVPSDLAndroidSwapExternalPresenterIfDirty() {
+    return TVPSDLAndroidFlutterPresenterSwapIfDirty("TVPForceSwapBuffer");
 }
 
 const char *TVPSDLAndroidFlutterPresenterPresentPathLogName(

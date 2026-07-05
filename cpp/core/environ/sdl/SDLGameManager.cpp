@@ -3439,6 +3439,26 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     frameInfo.cpuCopyFree ? 1 : 0);
                 LogSDLFrameSync(message);
             }
+            if(androidResult.deferredSwap) {
+                const bool drained =
+                    TVPSDLAndroidFlutterPresenterSwapIfDirty(stage);
+                if(drained)
+                    TVPSDLRecordExternalPresenterPostedFrame();
+                if(ShouldLogScreenPresenter(presented) || pendingOverwrite ||
+                   (!drained && IsSDLRenderDiagnosticsActive())) {
+                    char message[256];
+                    std::snprintf(
+                        message, sizeof(message),
+                        "drain-deferred sequence=%llu stage=%s path=%s "
+                        "swapped=%d overwrite=%d",
+                        static_cast<unsigned long long>(presented),
+                        stage ? stage : "",
+                        TVPSDLAndroidFlutterPresenterPresentPathLogName(
+                            androidResult.path),
+                        drained ? 1 : 0, pendingOverwrite ? 1 : 0);
+                    LogSDLFrameSync(message);
+                }
+            }
             if(!androidResult.deferredSwap) {
                 tTVPRect consumed;
                 texture->ConsumeDirtyRect(consumed);
