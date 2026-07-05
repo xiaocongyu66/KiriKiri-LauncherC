@@ -65,7 +65,13 @@ struct TVPAndroidEGLSurfacePresenterState {
     uint64_t recreates = 0;
     uint64_t contextResets = 0;
     uint64_t softwareUploads = 0;
+    uint64_t dirtyMarks = 0;
+    uint64_t dirtyOverwrites = 0;
+    uint64_t cleanSwapChecks = 0;
+    uint64_t swapAttempts = 0;
+    uint64_t missingSurfaceDirtyDrops = 0;
     bool frameDirty = false;
+    uint64_t pendingDirtySerial = 0;
     bool pendingNativeGL = false;
     int pendingWidth = 0;
     int pendingHeight = 0;
@@ -1152,14 +1158,29 @@ void CleanupAndroidEGLBlitStateLocked(
     glUseProgram(0);
 }
 
-void MarkAndroidEGLFrameDirtyLocked(TVPAndroidEGLSurfacePresenterState &state,
-                                    iTVPTexture2D *texture, bool nativeGL,
-                                    int width, int height) {
+uint64_t MarkAndroidEGLFrameDirtyLocked(
+    TVPAndroidEGLSurfacePresenterState &state, iTVPTexture2D *texture,
+    bool nativeGL, int width, int height, bool *overwroteDirty,
+    uint64_t *previousDirtySerial, uint64_t *dirtyOverwriteCount) {
+    const bool wasDirty = state.frameDirty;
+    const uint64_t previousSerial = state.pendingDirtySerial;
+    const uint64_t serial = ++state.dirtyMarks;
+    uint64_t overwrites = state.dirtyOverwrites;
+    if(wasDirty)
+        overwrites = ++state.dirtyOverwrites;
     state.frameDirty = true;
+    state.pendingDirtySerial = serial;
     state.pendingNativeGL = nativeGL;
     state.pendingWidth = width;
     state.pendingHeight = height;
     state.pendingDirtyTexture = texture;
+    if(overwroteDirty)
+        *overwroteDirty = wasDirty;
+    if(previousDirtySerial)
+        *previousDirtySerial = previousSerial;
+    if(dirtyOverwriteCount)
+        *dirtyOverwriteCount = overwrites;
+    return serial;
 }
 
 bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
@@ -1232,6 +1253,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     SDL_Rect viewport = FullAndroidSurfaceRect(outputWidth, outputHeight);
     const uint8_t *softwareUploadPixels = nullptr;
     int softwareUploadPitch = 0;
+    uint64_t dirtySerial = 0;
+    bool dirtyOverwritten = false;
+    uint64_t previousDirtySerial = 0;
+    uint64_t dirtyOverwriteCount = 0;
     {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
         auto &state = gSDLAndroidEGLPresenterState;
@@ -1395,9 +1420,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             return false;
         }
 
-        MarkAndroidEGLFrameDirtyLocked(
+        dirtySerial = MarkAndroidEGLFrameDirtyLocked(
             state, texture, nativeTexture != 0,
-            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight);
+            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight,
+            &dirtyOverwritten, &previousDirtySerial, &dirtyOverwriteCount);
         if(!restored)
             LogAndroidEGLFailureLocked(
                 stage, "external present posted but EGL restore failed");
@@ -1407,11 +1433,27 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     if(usedFullFrame)
         *usedFullFrame = fullFramePresent;
 
-    if(presented && IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
-       ShouldLogScreenPresenter(queuedCount)) {
-        char message[512];
+    if(dirtyOverwritten && ShouldLogScreenPresenter(dirtyOverwriteCount)) {
+        char message[320];
+        std::snprintf(message, sizeof(message),
+                      "sync-overwrite-android-egl #%llu stage=%s "
+                      "oldDirty=%llu newDirty=%llu queued=%llu "
+                      "nativeGL=%u surface=%dx%d output=%dx%d",
+                      static_cast<unsigned long long>(dirtyOverwriteCount),
+                      stage ? stage : "",
+                      static_cast<unsigned long long>(previousDirtySerial),
+                      static_cast<unsigned long long>(dirtySerial),
+                      static_cast<unsigned long long>(queuedCount),
+                      nativeTexture, surfaceWidth, surfaceHeight, outputWidth,
+                      outputHeight);
+        LogSDLAndroidEGLPresenter(message);
+    }
+
+    if(presented && ShouldLogScreenPresenter(queuedCount)) {
+        char message[640];
         std::snprintf(message, sizeof(message),
                       "queue-android-egl #%llu stage=%s texture=%dx%d "
+                      "dirtySerial=%llu overwrite=%d oldDirty=%llu "
                       "output=%dx%d viewport=%d,%d,%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
@@ -1419,6 +1461,9 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                       "fullFrame=%d",
                       static_cast<unsigned long long>(queuedCount),
                       stage ? stage : "", surfaceWidth, surfaceHeight,
+                      static_cast<unsigned long long>(dirtySerial),
+                      dirtyOverwritten ? 1 : 0,
+                      static_cast<unsigned long long>(previousDirtySerial),
                       outputWidth, outputHeight, viewport.x, viewport.y,
                       viewport.w, viewport.h, rect.x, rect.y, rect.w, rect.h,
                       softwareUploadRect.x, softwareUploadRect.y,
@@ -1441,22 +1486,62 @@ bool SwapAndroidEGLSurfacePresenterIfDirty(const char *stage) {
     int presentedHeight = 0;
     bool pendingNativeGL = false;
     iTVPTexture2D *dirtyTexture = nullptr;
+    uint64_t dirtySerial = 0;
+    uint64_t dirtyMarks = 0;
+    uint64_t dirtyOverwrites = 0;
+    uint64_t swapAttempt = 0;
+    uint64_t nativePresents = 0;
     {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
         auto &state = gSDLAndroidEGLPresenterState;
-        if(!state.frameDirty)
+        if(!state.frameDirty) {
+            const uint64_t cleanChecks = ++state.cleanSwapChecks;
+            if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
+               ShouldLogScreenPresenter(cleanChecks)) {
+                char message[256];
+                std::snprintf(message, sizeof(message),
+                              "swap-skip-clean #%llu stage=%s presented=%llu "
+                              "dirtyMarks=%llu dirtyOverwrites=%llu "
+                              "surfaceReady=%d",
+                              static_cast<unsigned long long>(cleanChecks),
+                              stage ? stage : "",
+                              static_cast<unsigned long long>(state.presented),
+                              static_cast<unsigned long long>(state.dirtyMarks),
+                              static_cast<unsigned long long>(
+                                  state.dirtyOverwrites),
+                              state.surface != EGL_NO_SURFACE ? 1 : 0);
+                LogSDLAndroidEGLPresenter(message);
+            }
             return false;
+        }
 
         if(state.display == EGL_NO_DISPLAY || state.context == EGL_NO_CONTEXT ||
            state.surface == EGL_NO_SURFACE) {
+            const uint64_t dirtyDrop = ++state.missingSurfaceDirtyDrops;
+            dirtySerial = state.pendingDirtySerial;
             state.frameDirty = false;
+            state.pendingDirtySerial = 0;
             state.pendingNativeGL = false;
             state.pendingWidth = 0;
             state.pendingHeight = 0;
             state.pendingDirtyTexture = nullptr;
             LogAndroidEGLFailureLocked(stage, "dirty frame without EGL surface");
+            if(ShouldLogScreenPresenter(dirtyDrop)) {
+                char message[256];
+                std::snprintf(message, sizeof(message),
+                              "swap-drop-no-surface #%llu stage=%s "
+                              "dirtySerial=%llu",
+                              static_cast<unsigned long long>(dirtyDrop),
+                              stage ? stage : "",
+                              static_cast<unsigned long long>(dirtySerial));
+                LogSDLAndroidEGLPresenter(message);
+            }
             return false;
         }
+        swapAttempt = ++state.swapAttempts;
+        dirtySerial = state.pendingDirtySerial;
+        dirtyMarks = state.dirtyMarks;
+        dirtyOverwrites = state.dirtyOverwrites;
 
         const EGLDisplay previousDisplay = eglGetCurrentDisplay();
         const EGLContext previousContext = eglGetCurrentContext();
@@ -1466,6 +1551,11 @@ bool SwapAndroidEGLSurfacePresenterIfDirty(const char *stage) {
         if(!eglMakeCurrent(state.display, state.surface, state.surface,
                            state.context)) {
             state.frameDirty = false;
+            state.pendingDirtySerial = 0;
+            state.pendingNativeGL = false;
+            state.pendingWidth = 0;
+            state.pendingHeight = 0;
+            state.pendingDirtyTexture = nullptr;
             LogAndroidEGLFailureLocked(
                 stage, AndroidEGLFormatError("eglMakeCurrent(swap)",
                                              eglGetError()));
@@ -1487,6 +1577,7 @@ bool SwapAndroidEGLSurfacePresenterIfDirty(const char *stage) {
 
         state.frameDirty = false;
         if(swapped != EGL_TRUE) {
+            state.pendingDirtySerial = 0;
             state.pendingNativeGL = false;
             state.pendingWidth = 0;
             state.pendingHeight = 0;
@@ -1501,6 +1592,7 @@ bool SwapAndroidEGLSurfacePresenterIfDirty(const char *stage) {
         pendingNativeGL = state.pendingNativeGL;
         dirtyTexture = state.pendingDirtyTexture;
         state.pendingNativeGL = false;
+        state.pendingDirtySerial = 0;
         state.pendingWidth = 0;
         state.pendingHeight = 0;
         state.pendingDirtyTexture = nullptr;
@@ -1508,6 +1600,7 @@ bool SwapAndroidEGLSurfacePresenterIfDirty(const char *stage) {
         state.lastPresentNativeGL = pendingNativeGL;
         if(pendingNativeGL)
             ++state.nativePresents;
+        nativePresents = state.nativePresents;
         state.surfaceHasContent = true;
         if(!restored)
             LogAndroidEGLFailureLocked(
@@ -1521,15 +1614,20 @@ bool SwapAndroidEGLSurfacePresenterIfDirty(const char *stage) {
         dirtyTexture->ConsumeDirtyRect(consumed);
     }
     MarkExternalPresenterPostedFrame();
-    if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS") &&
-       ShouldLogScreenPresenter(presentedCount)) {
-        char message[256];
+    if(ShouldLogScreenPresenter(presentedCount)) {
+        char message[384];
         std::snprintf(message, sizeof(message),
                       "swap-android-egl #%llu stage=%s surface=%dx%d "
-                      "nativeGL=%d",
+                      "dirtySerial=%llu swapAttempt=%llu dirtyMarks=%llu "
+                      "dirtyOverwrites=%llu nativeGL=%d nativePresents=%llu",
                       static_cast<unsigned long long>(presentedCount),
                       stage ? stage : "", presentedWidth, presentedHeight,
-                      pendingNativeGL ? 1 : 0);
+                      static_cast<unsigned long long>(dirtySerial),
+                      static_cast<unsigned long long>(swapAttempt),
+                      static_cast<unsigned long long>(dirtyMarks),
+                      static_cast<unsigned long long>(dirtyOverwrites),
+                      pendingNativeGL ? 1 : 0,
+                      static_cast<unsigned long long>(nativePresents));
         LogSDLAndroidEGLPresenter(message);
     }
     return true;

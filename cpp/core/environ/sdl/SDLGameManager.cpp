@@ -158,7 +158,12 @@ struct TVPSDLScreenPresenterState {
     uint64_t failedPumps = 0;
     uint64_t noSurfacePumps = 0;
     uint64_t deferredPumps = 0;
+    uint64_t noDirtyPresents = 0;
+    uint64_t externalRecordCalls = 0;
+    uint64_t pendingExternalOverwrites = 0;
+    uint64_t externalPostedWithoutFrameInfo = 0;
     bool hasPendingExternalFrameInfo = false;
+    uint64_t pendingExternalPredictedSequence = 0;
     TVPRuntimePresentFrameInfo pendingExternalFrameInfo;
 };
 
@@ -380,6 +385,7 @@ bool ShouldLogScreenPresenter(uint64_t sequence) {
 }
 
 void LogSDLScreenPresenter(const char *message);
+void LogSDLFrameSync(const char *message);
 bool IsSDLGpuShadowUploadEnabled();
 
 uint64_t MiB(uint64_t value) { return value * 1024ull * 1024ull; }
@@ -522,6 +528,10 @@ std::string ClipOverlayString(std::string value, size_t limit) {
 
 void LogSDLScreenPresenter(const char *message) {
     TVPNativeLogInfo("sdl-screen", message ? message : "");
+}
+
+void LogSDLFrameSync(const char *message) {
+    TVPNativeLogInfo("sdl-sync", message ? message : "");
 }
 
 void LogSDLGpuPresenter(const char *message) {
@@ -2938,21 +2948,64 @@ bool TVPSDLHasScreenPresenterPresented() {
 extern "C" void TVPSDLRecordExternalPresenterPostedFrame() {
     TVPRuntimePresentFrameInfo frameInfo;
     bool hasFrameInfo = false;
+    uint64_t recordCall = 0;
+    uint64_t sequence = 0;
+    uint64_t predictedSequence = 0;
+    uint64_t missingFrameInfo = 0;
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
-        const uint64_t sequence = ++gSDLScreenPresenterState.presentedFrames;
+        recordCall = ++gSDLScreenPresenterState.externalRecordCalls;
+        sequence = ++gSDLScreenPresenterState.presentedFrames;
+        predictedSequence =
+            gSDLScreenPresenterState.pendingExternalPredictedSequence;
         if(gSDLScreenPresenterState.hasPendingExternalFrameInfo) {
             frameInfo = gSDLScreenPresenterState.pendingExternalFrameInfo;
             frameInfo.valid = true;
             frameInfo.sequence = sequence;
             gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
+            gSDLScreenPresenterState.pendingExternalPredictedSequence = 0;
             gSDLScreenPresenterState.pendingExternalFrameInfo =
                 TVPRuntimePresentFrameInfo{};
             hasFrameInfo = true;
+        } else {
+            missingFrameInfo =
+                ++gSDLScreenPresenterState.externalPostedWithoutFrameInfo;
         }
     }
-    if(hasFrameInfo)
+    if(hasFrameInfo) {
         TVPRuntimeRecordPresentFrame(frameInfo);
+        if(ShouldLogScreenPresenter(sequence) ||
+           (predictedSequence != 0 && predictedSequence != sequence)) {
+            char message[384];
+            std::snprintf(message, sizeof(message),
+                          "posted record=%llu sequence=%llu predicted=%llu "
+                          "texture=%dx%d layer=%dx%d src=%d,%d,%dx%d "
+                          "dst=%d,%d,%dx%d fullFrame=%d nativeGL=%d "
+                          "cpuCopyFree=%d",
+                          static_cast<unsigned long long>(recordCall),
+                          static_cast<unsigned long long>(sequence),
+                          static_cast<unsigned long long>(predictedSequence),
+                          frameInfo.textureWidth, frameInfo.textureHeight,
+                          frameInfo.layerWidth, frameInfo.layerHeight,
+                          frameInfo.sourceRect.x, frameInfo.sourceRect.y,
+                          frameInfo.sourceRect.w, frameInfo.sourceRect.h,
+                          frameInfo.destRect.x, frameInfo.destRect.y,
+                          frameInfo.destRect.w, frameInfo.destRect.h,
+                          frameInfo.fullFrame ? 1 : 0,
+                          frameInfo.nativeGL ? 1 : 0,
+                          frameInfo.cpuCopyFree ? 1 : 0);
+            LogSDLFrameSync(message);
+        }
+    } else if(ShouldLogScreenPresenter(missingFrameInfo) ||
+              IsSDLRenderDiagnosticsActive()) {
+        char message[192];
+        std::snprintf(message, sizeof(message),
+                      "posted-missing-info #%llu record=%llu sequence=%llu",
+                      static_cast<unsigned long long>(missingFrameInfo),
+                      static_cast<unsigned long long>(recordCall),
+                      static_cast<unsigned long long>(sequence));
+        LogSDLFrameSync(message);
+    }
 }
 
 extern "C" void TVPSDLGetPresentedSurfaceSize(int *width, int *height) {
@@ -2973,6 +3026,7 @@ extern "C" void TVPSDLNotifyAndroidFlutterGameSurfaceChanged(
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
         gSDLScreenPresenterState.presentedFrames = 0;
         gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
+        gSDLScreenPresenterState.pendingExternalPredictedSequence = 0;
         gSDLScreenPresenterState.pendingExternalFrameInfo =
             TVPRuntimePresentFrameInfo{};
     }
@@ -3106,10 +3160,51 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
         nativeProducedFramePresent = hasDirty;
     }
     if(!hasDirty) {
+        if(IsSDLRenderDiagnosticsActive()) {
+            uint64_t noDirty = 0;
+            uint64_t presentedFrames = 0;
+            {
+                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+                noDirty = ++gSDLScreenPresenterState.noDirtyPresents;
+                presentedFrames = gSDLScreenPresenterState.presentedFrames;
+            }
+            if(ShouldLogScreenPresenter(noDirty)) {
+                char message[256];
+                std::snprintf(message, sizeof(message),
+                              "present-skip no-dirty #%llu stage=%s "
+                              "takeover=%d alreadyPresented=%d "
+                              "presented=%llu frameProduced=%d glBacked=%d",
+                              static_cast<unsigned long long>(noDirty),
+                              stage ? stage : "", takeoverActive ? 1 : 0,
+                              presenterAlreadyPresented ? 1 : 0,
+                              static_cast<unsigned long long>(presentedFrames),
+                              request.frameProduced ? 1 : 0,
+                              glBackedTexture ? 1 : 0);
+                LogSDLFrameSync(message);
+            }
+        }
         return takeoverActive && presenterAlreadyPresented;
     }
-    if(updateRect.is_empty())
+    if(updateRect.is_empty()) {
+        if(IsSDLRenderDiagnosticsActive()) {
+            uint64_t noDirty = 0;
+            {
+                std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+                noDirty = ++gSDLScreenPresenterState.noDirtyPresents;
+            }
+            if(ShouldLogScreenPresenter(noDirty)) {
+                char message[192];
+                std::snprintf(message, sizeof(message),
+                              "present-skip empty-dirty #%llu stage=%s "
+                              "takeover=%d alreadyPresented=%d",
+                              static_cast<unsigned long long>(noDirty),
+                              stage ? stage : "", takeoverActive ? 1 : 0,
+                              presenterAlreadyPresented ? 1 : 0);
+                LogSDLFrameSync(message);
+            }
+        }
         return takeoverActive && presenterAlreadyPresented;
+    }
 
     TVPTextureFormat::e copyFormat = texture->GetPixelDataFormat();
     if(copyFormat == TVPTextureFormat::None)
@@ -3265,25 +3360,85 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
             frameInfo.cpuCopyFree = androidResult.cpuCopyFree;
             uint64_t presented = 0;
             bool recordImmediately = false;
+            bool pendingOverwrite = false;
+            uint64_t pendingOverwriteCount = 0;
+            uint64_t previousPredictedSequence = 0;
             {
                 std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+                auto &screenState = gSDLScreenPresenterState;
                 if(androidResult.deferredSwap) {
-                    presented = gSDLScreenPresenterState.presentedFrames + 1;
-                    gSDLScreenPresenterState.pendingExternalFrameInfo =
-                        frameInfo;
-                    gSDLScreenPresenterState.hasPendingExternalFrameInfo = true;
+                    presented = screenState.presentedFrames + 1;
+                    if(screenState.hasPendingExternalFrameInfo) {
+                        pendingOverwrite = true;
+                        pendingOverwriteCount =
+                            ++screenState.pendingExternalOverwrites;
+                        previousPredictedSequence =
+                            screenState.pendingExternalPredictedSequence;
+                    }
+                    screenState.pendingExternalFrameInfo = frameInfo;
+                    screenState.hasPendingExternalFrameInfo = true;
+                    screenState.pendingExternalPredictedSequence = presented;
                 } else {
-                    presented = ++gSDLScreenPresenterState.presentedFrames;
-                    gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
-                    gSDLScreenPresenterState.pendingExternalFrameInfo =
+                    presented = ++screenState.presentedFrames;
+                    screenState.hasPendingExternalFrameInfo = false;
+                    screenState.pendingExternalPredictedSequence = 0;
+                    screenState.pendingExternalFrameInfo =
                         TVPRuntimePresentFrameInfo{};
                     frameInfo.valid = true;
                     frameInfo.sequence = presented;
                     recordImmediately = true;
                 }
             }
-            if(recordImmediately)
+            if(recordImmediately) {
                 TVPRuntimeRecordPresentFrame(frameInfo);
+                if(ShouldLogScreenPresenter(presented)) {
+                    char message[320];
+                    std::snprintf(
+                        message, sizeof(message),
+                        "posted-immediate sequence=%llu stage=%s path=%s "
+                        "texture=%dx%d src=%d,%d,%dx%d dst=%d,%d,%dx%d "
+                        "fullFrame=%d nativeGL=%d cpuCopyFree=%d",
+                        static_cast<unsigned long long>(presented),
+                        stage ? stage : "",
+                        TVPSDLAndroidFlutterPresenterPresentPathLogName(
+                            androidResult.path),
+                        frameInfo.textureWidth, frameInfo.textureHeight,
+                        frameInfo.sourceRect.x, frameInfo.sourceRect.y,
+                        frameInfo.sourceRect.w, frameInfo.sourceRect.h,
+                        frameInfo.destRect.x, frameInfo.destRect.y,
+                        frameInfo.destRect.w, frameInfo.destRect.h,
+                        frameInfo.fullFrame ? 1 : 0,
+                        frameInfo.nativeGL ? 1 : 0,
+                        frameInfo.cpuCopyFree ? 1 : 0);
+                    LogSDLFrameSync(message);
+                }
+            }
+            if(androidResult.deferredSwap &&
+               (ShouldLogScreenPresenter(presented) || pendingOverwrite)) {
+                char message[384];
+                std::snprintf(
+                    message, sizeof(message),
+                    "queued sequence=%llu stage=%s path=%s overwrite=%d "
+                    "overwriteCount=%llu previousPredicted=%llu texture=%dx%d "
+                    "src=%d,%d,%dx%d dst=%d,%d,%dx%d fullFrame=%d "
+                    "nativeGL=%d cpuCopyFree=%d",
+                    static_cast<unsigned long long>(presented),
+                    stage ? stage : "",
+                    TVPSDLAndroidFlutterPresenterPresentPathLogName(
+                        androidResult.path),
+                    pendingOverwrite ? 1 : 0,
+                    static_cast<unsigned long long>(pendingOverwriteCount),
+                    static_cast<unsigned long long>(previousPredictedSequence),
+                    frameInfo.textureWidth, frameInfo.textureHeight,
+                    frameInfo.sourceRect.x, frameInfo.sourceRect.y,
+                    frameInfo.sourceRect.w, frameInfo.sourceRect.h,
+                    frameInfo.destRect.x, frameInfo.destRect.y,
+                    frameInfo.destRect.w, frameInfo.destRect.h,
+                    frameInfo.fullFrame ? 1 : 0,
+                    frameInfo.nativeGL ? 1 : 0,
+                    frameInfo.cpuCopyFree ? 1 : 0);
+                LogSDLFrameSync(message);
+            }
             if(!androidResult.deferredSwap) {
                 tTVPRect consumed;
                 texture->ConsumeDirtyRect(consumed);
