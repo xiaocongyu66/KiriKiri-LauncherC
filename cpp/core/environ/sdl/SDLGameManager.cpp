@@ -3375,6 +3375,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
             bool pendingOverwrite = false;
             uint64_t pendingOverwriteCount = 0;
             uint64_t previousPredictedSequence = 0;
+            bool deferredSwapDrained = false;
             {
                 std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
                 auto &screenState = gSDLScreenPresenterState;
@@ -3425,6 +3426,13 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     LogSDLFrameSync(message);
                 }
             }
+            if(androidResult.deferredSwap) {
+                deferredSwapDrained =
+                    TVPSDLAndroidFlutterPresenterSwapIfDirty(
+                        stage ? stage : "android-egl-present");
+                if(deferredSwapDrained)
+                    TVPSDLRecordExternalPresenterPostedFrame();
+            }
             if(androidResult.deferredSwap &&
                (ShouldLogScreenPresenter(presented) || pendingOverwrite)) {
                 char message[384];
@@ -3454,15 +3462,16 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
             if(androidResult.deferredSwap &&
                (ShouldLogScreenPresenter(presented) || pendingOverwrite ||
                 IsSDLRenderDiagnosticsActive())) {
-                char message[256];
+                char message[288];
                 std::snprintf(
                     message, sizeof(message),
-                    "defer-swap sequence=%llu stage=%s path=%s overwrite=%d",
+                    "defer-swap sequence=%llu stage=%s path=%s overwrite=%d "
+                    "drained=%d",
                     static_cast<unsigned long long>(presented),
                     stage ? stage : "",
                     TVPSDLAndroidFlutterPresenterPresentPathLogName(
                         androidResult.path),
-                    pendingOverwrite ? 1 : 0);
+                    pendingOverwrite ? 1 : 0, deferredSwapDrained ? 1 : 0);
                 LogSDLFrameSync(message);
             }
             if(!androidResult.deferredSwap) {

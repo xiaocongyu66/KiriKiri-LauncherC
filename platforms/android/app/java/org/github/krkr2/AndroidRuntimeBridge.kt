@@ -177,6 +177,32 @@ object AndroidRuntimeBridge {
         }
 
     @JvmStatic
+    fun getLoadingConsoleSnapshot(): Array<String> =
+        if (ensureInitialized()) {
+            runCatching {
+                nativeGetLoadingConsoleSnapshot()
+            }.onFailure {
+                initFailure = it
+                Log.e(TAG, "nativeGetLoadingConsoleSnapshot failed", it)
+            }.getOrDefault(emptyArray())
+        } else {
+            emptyArray()
+        }
+
+    @JvmStatic
+    fun getRenderOverlayStats(): Array<String> =
+        if (ensureInitialized()) {
+            runCatching {
+                nativeGetRenderOverlayStats()
+            }.onFailure {
+                initFailure = it
+                Log.e(TAG, "nativeGetRenderOverlayStats failed", it)
+            }.getOrDefault(emptyArray())
+        } else {
+            emptyArray()
+        }
+
+    @JvmStatic
     fun touchBegin(id: Int, x: Float, y: Float) {
         if (ensureInitialized()) runCatching { nativeFlutterTouchesBegin(id, x, y) }
     }
@@ -226,6 +252,8 @@ object AndroidRuntimeBridge {
     private external fun nativeResizeGameSurface(width: Int, height: Int)
     private external fun nativeDetachGameSurface()
     private external fun nativeGetGameSurfaceMetrics(): IntArray
+    private external fun nativeGetLoadingConsoleSnapshot(): Array<String>
+    private external fun nativeGetRenderOverlayStats(): Array<String>
     private external fun nativeFlutterTouchesBegin(id: Int, x: Float, y: Float)
     private external fun nativeFlutterTouchesEnd(id: Int, x: Float, y: Float)
     private external fun nativeFlutterTouchesMove(ids: IntArray, xs: FloatArray, ys: FloatArray)

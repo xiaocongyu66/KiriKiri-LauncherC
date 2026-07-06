@@ -102,6 +102,10 @@ public:
         if(!TVPRuntimeConfigureGameLaunch(request))
             return false;
         TVPAndroidEnsureSDLRenderContextCurrent("android-sdl3-start-game");
+        TVPRuntimeSetScreenTakeoverEnabled(
+            { true, "android-sdl3-start-game", kTVPSDLFixedGameSurfaceWidth,
+              kTVPSDLFixedGameSurfaceHeight, kTVPSDLFixedGameSurfaceWidth,
+              kTVPSDLFixedGameSurfaceHeight });
         return TVPRuntimeStartApplication(request.gamePath);
     }
 
@@ -1304,9 +1308,7 @@ Java_org_github_krkr2_AndroidRuntimeBridge_nativeGetGameSurfaceMetrics(
     return TVPAndroidGetGameSurfaceMetrics(env);
 }
 
-JNIEXPORT jobjectArray JNICALL
-Java_org_github_krkr2_MainActivity_nativeGetLoadingConsoleSnapshot(
-    JNIEnv *env, jobject) {
+static jobjectArray TVPAndroidGetLoadingConsoleSnapshot(JNIEnv *env) {
     const TVPSDLLoadingConsoleSnapshot snapshot =
         TVPSDLGetLoadingConsoleSnapshot();
     std::vector<std::string> values;
@@ -1328,8 +1330,18 @@ Java_org_github_krkr2_MainActivity_nativeGetLoadingConsoleSnapshot(
 }
 
 JNIEXPORT jobjectArray JNICALL
-Java_org_github_krkr2_MainActivity_nativeGetRenderOverlayStats(JNIEnv *env,
-                                                               jobject) {
+Java_org_github_krkr2_MainActivity_nativeGetLoadingConsoleSnapshot(
+    JNIEnv *env, jobject) {
+    return TVPAndroidGetLoadingConsoleSnapshot(env);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeGetLoadingConsoleSnapshot(
+    JNIEnv *env, jclass) {
+    return TVPAndroidGetLoadingConsoleSnapshot(env);
+}
+
+static jobjectArray TVPAndroidGetRenderOverlayStats(JNIEnv *env) {
     const TVPSDLRenderOverlaySnapshot snapshot =
         TVPSDLGetRenderOverlaySnapshot();
     std::vector<std::string> values;
@@ -1348,6 +1360,18 @@ Java_org_github_krkr2_MainActivity_nativeGetRenderOverlayStats(JNIEnv *env,
     values.emplace_back(std::to_string(snapshot.sequence));
     values.emplace_back(snapshot.rendererName);
     return MakeJavaStringArray(env, values);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_github_krkr2_MainActivity_nativeGetRenderOverlayStats(JNIEnv *env,
+                                                               jobject) {
+    return TVPAndroidGetRenderOverlayStats(env);
+}
+
+JNIEXPORT jobjectArray JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeGetRenderOverlayStats(
+    JNIEnv *env, jclass) {
+    return TVPAndroidGetRenderOverlayStats(env);
 }
 
 JNIEXPORT void JNICALL

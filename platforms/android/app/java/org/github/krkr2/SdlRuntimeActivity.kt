@@ -10,13 +10,24 @@ import android.view.Choreographer
 import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.Surface
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import io.flutter.embedding.android.FlutterTextureView
+import io.flutter.embedding.android.FlutterView
+import io.flutter.embedding.engine.FlutterEngine
+import io.flutter.embedding.engine.dart.DartExecutor
+import io.flutter.plugin.common.MethodCall
+import io.flutter.plugin.common.MethodChannel
+import io.flutter.plugins.GeneratedPluginRegistrant
+import io.flutter.view.TextureRegistry
 import org.tvp.kirikiri2.NativeUiHost
+import org.tvp.kirikiri2.KR2Activity
 import java.io.File
+import java.lang.reflect.Proxy
 import java.util.Locale
 
 class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
@@ -34,8 +45,26 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     private var framePosted = false
     private var running = false
     private var surfaceReady = false
+    private var viewSurfaceReady = false
     private var gameStarted = false
     private var lastFrameNanos = 0L
+    private var overlayEngine: FlutterEngine? = null
+    private var overlayView: FlutterView? = null
+    private var overlayChannel: MethodChannel? = null
+    private val gameSurfaceTargets = mutableMapOf<Long, GameSurfaceTarget>()
+    private var activeGameSurfaceTextureId: Long? = null
+    private var nextGameSurfaceGeneration = 1L
+
+    private class GameSurfaceTarget(
+        val textureId: Long,
+        val generation: Long,
+        val mode: String,
+        val producer: Any? = null,
+        val legacyEntry: TextureRegistry.SurfaceTextureEntry? = null,
+        var surface: Surface? = null,
+        val ownsSurface: Boolean = false,
+        var producerCallback: Any? = null,
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -71,6 +100,11 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             GAME_SURFACE_WIDTH,
             GAME_SURFACE_HEIGHT,
         )
+        val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
+        val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
+        val ffmpegDecodeMode = LauncherPrefs.getFfmpegDecodeMode(this)
+        KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)
+        KR2Activity.setFFmpegDecodeMode(LauncherPrefs.getFfmpegDecodeModeCode(this))
         AndroidRuntimeBridge.setApplicationContext(applicationContext)
         if (!AndroidRuntimeBridge.ensureInitialized() ||
             !AndroidRuntimeBridge.ensureSdlJavaReady(this)
@@ -80,8 +114,13 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
                 "SdlRuntimeActivity runtime init failed\n${AndroidRuntimeBridge.lastFailureMessage()}",
             )
         }
+        installFlutterGameOverlay(root)
         recordLifecycle("onCreate")
-        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.onCreate")
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "SdlRuntimeActivity.onCreate nativeLogFile=$nativeLogFile " +
+                "ffmpegImageDecoder=$useFfmpegImageDecoder ffmpegDecodeMode=$ffmpegDecodeMode",
+        )
     }
 
     override fun onResume() {
@@ -104,6 +143,12 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     override fun onDestroy() {
         running = false
         removeFramePump()
+        disposeGameSurfaceTextures()
+        overlayView?.detachFromFlutterEngine()
+        overlayEngine?.destroy()
+        overlayView = null
+        overlayEngine = null
+        overlayChannel = null
         AndroidRuntimeBridge.detachGameSurface()
         NativeUiHost.detach(this)
         ForceLandscapeHelper.release(this)
@@ -124,13 +169,16 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
-        surfaceReady = true
+        viewSurfaceReady = true
         holder.setFixedSize(GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
-        AndroidRuntimeBridge.setGameSurface(
-            holder.surface,
-            GAME_SURFACE_WIDTH,
-            GAME_SURFACE_HEIGHT,
-        )
+        if (activeGameSurfaceTextureId == null) {
+            surfaceReady = true
+            AndroidRuntimeBridge.setGameSurface(
+                holder.surface,
+                GAME_SURFACE_WIDTH,
+                GAME_SURFACE_HEIGHT,
+            )
+        }
         recordLifecycle("surfaceCreated")
         startGameIfReady()
         postFramePump()
@@ -148,8 +196,11 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
-        surfaceReady = false
-        AndroidRuntimeBridge.detachGameSurface()
+        viewSurfaceReady = false
+        if (activeGameSurfaceTextureId == null) {
+            surfaceReady = false
+            AndroidRuntimeBridge.detachGameSurface()
+        }
         recordLifecycle("surfaceDestroyed")
     }
 
@@ -296,6 +347,450 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         if (!framePosted) return
         Choreographer.getInstance().removeFrameCallback(this)
         framePosted = false
+    }
+
+    private fun installFlutterGameOverlay(root: FrameLayout) {
+        if (overlayView != null) return
+        val engine = FlutterEngine(this)
+        engine.navigationChannel.setInitialRoute("/game-overlay")
+        GeneratedPluginRegistrant.registerWith(engine)
+        val channel = MethodChannel(engine.dartExecutor.binaryMessenger, "org.github.krkr2/game_overlay")
+        channel.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "move",
+                "setExpanded" -> result.success(null)
+                "createGameSurfaceTexture" -> createGameSurfaceTexture(call, result)
+                "resizeGameSurfaceTexture" -> resizeGameSurfaceTexture(call, result)
+                "disposeGameSurfaceTexture" -> disposeGameSurfaceTexture(call, result)
+                "getGameSurfaceMetrics" -> result.success(gameSurfaceMetricsForFlutter())
+                "getLoadingConsoleSnapshot" -> result.success(loadingConsoleSnapshotForFlutter())
+                "getRenderOverlayStats" -> result.success(renderOverlayStatsForFlutter())
+                "gameTouchBegin" -> {
+                    AndroidRuntimeBridge.touchBegin(
+                        call.argument<Int>("id") ?: 0,
+                        (call.argument<Double>("x") ?: 0.0).toFloat(),
+                        (call.argument<Double>("y") ?: 0.0).toFloat(),
+                    )
+                    result.success(null)
+                }
+                "gameTouchEnd" -> {
+                    AndroidRuntimeBridge.touchEnd(
+                        call.argument<Int>("id") ?: 0,
+                        (call.argument<Double>("x") ?: 0.0).toFloat(),
+                        (call.argument<Double>("y") ?: 0.0).toFloat(),
+                    )
+                    result.success(null)
+                }
+                "gameTouchMove" -> {
+                    val ids = call.argument<List<Number>>("ids").orEmpty()
+                    val xs = call.argument<List<Number>>("xs").orEmpty()
+                    val ys = call.argument<List<Number>>("ys").orEmpty()
+                    val count = minOf(ids.size, xs.size, ys.size)
+                    AndroidRuntimeBridge.touchMove(
+                        IntArray(count) { ids[it].toInt() },
+                        FloatArray(count) { xs[it].toFloat() },
+                        FloatArray(count) { ys[it].toFloat() },
+                    )
+                    result.success(null)
+                }
+                "gameTouchCancel" -> {
+                    val ids = call.argument<List<Number>>("ids").orEmpty()
+                    val xs = call.argument<List<Number>>("xs").orEmpty()
+                    val ys = call.argument<List<Number>>("ys").orEmpty()
+                    val count = minOf(ids.size, xs.size, ys.size)
+                    AndroidRuntimeBridge.touchCancel(
+                        IntArray(count) { ids[it].toInt() },
+                        FloatArray(count) { xs[it].toFloat() },
+                        FloatArray(count) { ys[it].toFloat() },
+                    )
+                    result.success(null)
+                }
+                else -> result.notImplemented()
+            }
+        }
+        overlayChannel = channel
+        engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
+
+        val textureView = FlutterTextureView(this)
+        textureView.setOpaque(true)
+        val view = FlutterView(this, textureView)
+        view.setBackgroundColor(Color.BLACK)
+        view.attachToFlutterEngine(engine)
+        overlayEngine = engine
+        overlayView = view
+        root.addView(
+            view,
+            FrameLayout.LayoutParams(
+                FrameLayout.LayoutParams.MATCH_PARENT,
+                FrameLayout.LayoutParams.MATCH_PARENT,
+            ),
+        )
+    }
+
+    private fun gameSurfaceMetricsForFlutter(): Map<String, Any> {
+        val metrics = AndroidRuntimeBridge.getGameSurfaceMetrics()
+        return mapOf(
+            "width" to metrics.getOrElse(4) { 0 },
+            "height" to metrics.getOrElse(5) { 0 },
+            "contentWidth" to metrics.getOrElse(4) { 0 },
+            "contentHeight" to metrics.getOrElse(5) { 0 },
+            "presentedWidth" to metrics.getOrElse(0) { 0 },
+            "presentedHeight" to metrics.getOrElse(1) { 0 },
+            "surfaceWidth" to metrics.getOrElse(2) { 0 },
+            "surfaceHeight" to metrics.getOrElse(3) { 0 },
+            "viewportX" to metrics.getOrElse(6) { 0 },
+            "viewportY" to metrics.getOrElse(7) { 0 },
+            "viewportWidth" to metrics.getOrElse(8) { 0 },
+            "viewportHeight" to metrics.getOrElse(9) { 0 },
+        )
+    }
+
+    private fun loadingConsoleSnapshotForFlutter(): Map<String, Any> {
+        val raw = AndroidRuntimeBridge.getLoadingConsoleSnapshot()
+        val meta = raw.getOrNull(0)?.split('\t', limit = 3).orEmpty()
+        val lines = raw.drop(1).map { entry ->
+            val splitAt = entry.indexOf('\t')
+            val important = splitAt >= 0 && entry.substring(0, splitAt) == "1"
+            val message = if (splitAt >= 0) entry.substring(splitAt + 1) else entry
+            mapOf("important" to important, "message" to message)
+        }
+        return mapOf(
+            "active" to (meta.getOrNull(0) == "1"),
+            "session" to (meta.getOrNull(1)?.toLongOrNull() ?: 0L),
+            "totalLines" to (meta.getOrNull(2)?.toLongOrNull() ?: 0L),
+            "lines" to lines,
+        )
+    }
+
+    private fun renderOverlayStatsForFlutter(): Map<String, Any> {
+        val raw = AndroidRuntimeBridge.getRenderOverlayStats()
+        return mapOf(
+            "showFps" to (raw.getOrNull(0) == "1"),
+            "available" to (raw.getOrNull(1) == "1"),
+            "fps" to (raw.getOrNull(2)?.toDoubleOrNull() ?: 0.0),
+            "drawCount" to (raw.getOrNull(3)?.toLongOrNull() ?: 0L),
+            "videoMemoryBytes" to (raw.getOrNull(4)?.toLongOrNull() ?: 0L),
+            "selfMemoryMb" to (raw.getOrNull(5)?.toIntOrNull() ?: 0),
+            "freeMemoryMb" to (raw.getOrNull(6)?.toIntOrNull() ?: 0),
+            "presentedFrames" to (raw.getOrNull(7)?.toLongOrNull() ?: 0L),
+            "sequence" to (raw.getOrNull(8)?.toLongOrNull() ?: 0L),
+            "rendererName" to raw.getOrNull(9).orEmpty(),
+        )
+    }
+
+    private fun isFlutterSurfaceProducerDisabled(): Boolean {
+        val disabled = System.getenv("KRKR2_DISABLE_FLUTTER_SURFACE_PRODUCER")
+        if (disabled != null) {
+            return disabled != "0" && !disabled.equals("false", ignoreCase = true)
+        }
+        val enabled = System.getenv("KRKR2_ENABLE_FLUTTER_SURFACE_PRODUCER")
+        return !(enabled != null && enabled != "0" && !enabled.equals("false", ignoreCase = true))
+    }
+
+    private fun invokeProducerNoArg(producer: Any, name: String): Any? =
+        producer.javaClass.getMethod(name).invoke(producer)
+
+    private fun invokeProducerSetSize(producer: Any, width: Int, height: Int) {
+        producer.javaClass
+            .getMethod("setSize", java.lang.Integer.TYPE, java.lang.Integer.TYPE)
+            .invoke(producer, width, height)
+    }
+
+    private fun invokeProducerSetCallback(producer: Any, callback: Any?) {
+        val callbackClass = Class.forName("io.flutter.view.TextureRegistry\$SurfaceProducer\$Callback")
+        producer.javaClass.getMethod("setCallback", callbackClass).invoke(producer, callback)
+    }
+
+    private fun createFlutterSurfaceProducer(engine: FlutterEngine): Any? {
+        val renderer = engine.renderer
+        var noArgFailure: Throwable? = null
+        try {
+            return renderer.javaClass.getMethod("createSurfaceProducer").invoke(renderer)
+        } catch (error: Throwable) {
+            noArgFailure = error
+        }
+
+        return try {
+            val lifecycleClass = Class.forName("io.flutter.view.TextureRegistry\$SurfaceLifecycle")
+            val manualLifecycle = lifecycleClass.getField("manual").get(null)
+            renderer.javaClass
+                .getMethod("createSurfaceProducer", lifecycleClass)
+                .invoke(renderer, manualLifecycle)
+        } catch (error: Throwable) {
+            noArgFailure?.addSuppressed(error)
+            throw noArgFailure ?: error
+        }
+    }
+
+    private fun createSurfaceProducerTarget(
+        engine: FlutterEngine,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ): GameSurfaceTarget? {
+        if (isFlutterSurfaceProducerDisabled()) return null
+        var createdProducer: Any? = null
+        return try {
+            val producer = createFlutterSurfaceProducer(engine) ?: return null
+            createdProducer = producer
+            invokeProducerSetSize(producer, width, height)
+            val textureId = (invokeProducerNoArg(producer, "id") as Number).toLong()
+            val surface = invokeProducerNoArg(producer, "getSurface") as? Surface
+                ?: error("SurfaceProducer returned null surface")
+            val callbackClass = Class.forName("io.flutter.view.TextureRegistry\$SurfaceProducer\$Callback")
+            val callback = Proxy.newProxyInstance(
+                callbackClass.classLoader,
+                arrayOf(callbackClass),
+            ) { proxy, method, args ->
+                when (method.name) {
+                    "toString" -> "KrkrGameSurfaceProducerCallback($textureId/$generation)"
+                    "hashCode" -> (31 * textureId.hashCode()) + generation.hashCode()
+                    "equals" -> proxy === args?.getOrNull(0)
+                    "onSurfaceAvailable",
+                    "onSurfaceCreated" -> {
+                        runOnUiThread { onGameSurfaceProducerAvailable(textureId, generation) }
+                        null
+                    }
+                    "onSurfaceCleanup",
+                    "onSurfaceDestroyed" -> {
+                        runOnUiThread { onGameSurfaceProducerCleanup(textureId, generation) }
+                        null
+                    }
+                    else -> null
+                }
+            }
+            invokeProducerSetCallback(producer, callback)
+            GameSurfaceTarget(
+                textureId = textureId,
+                generation = generation,
+                mode = "surface-producer",
+                producer = producer,
+                surface = surface,
+                producerCallback = callback,
+            )
+        } catch (error: Throwable) {
+            createdProducer?.let {
+                try {
+                    invokeProducerNoArg(it, "release")
+                } catch (_: Throwable) {
+                }
+            }
+            LauncherPrefs.writeLauncherLog(
+                this,
+                "SdlRuntimeActivity.createSurfaceProducerTarget unavailable reason=${error.javaClass.simpleName}: ${error.message}",
+            )
+            null
+        }
+    }
+
+    private fun createLegacySurfaceTextureTarget(
+        engine: FlutterEngine,
+        generation: Long,
+        width: Int,
+        height: Int,
+    ): GameSurfaceTarget {
+        val entry = engine.renderer.createSurfaceTexture()
+        val textureId = entry.id()
+        val surfaceTexture = entry.surfaceTexture()
+        surfaceTexture.setDefaultBufferSize(width, height)
+        return GameSurfaceTarget(
+            textureId = textureId,
+            generation = generation,
+            mode = "surface-texture",
+            legacyEntry = entry,
+            surface = Surface(surfaceTexture),
+            ownsSurface = true,
+        )
+    }
+
+    private fun createGameSurfaceTarget(
+        engine: FlutterEngine,
+        width: Int,
+        height: Int,
+    ): GameSurfaceTarget {
+        val generation = nextGameSurfaceGeneration++
+        return createSurfaceProducerTarget(engine, generation, width, height)
+            ?: createLegacySurfaceTextureTarget(engine, generation, width, height)
+    }
+
+    private fun setActiveGameSurface(
+        target: GameSurfaceTarget,
+        width: Int,
+        height: Int,
+        reason: String,
+    ): Boolean {
+        val surface = target.surface ?: return false
+        activeGameSurfaceTextureId = target.textureId
+        surfaceReady = true
+        AndroidRuntimeBridge.setGameSurface(surface, width, height)
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "SdlRuntimeActivity.$reason id=${target.textureId} generation=${target.generation} mode=${target.mode} size=${width}x$height",
+        )
+        startGameIfReady()
+        postFramePump()
+        return true
+    }
+
+    private fun onGameSurfaceProducerAvailable(textureId: Long, generation: Long) {
+        val target = gameSurfaceTargets[textureId] ?: return
+        if (target.generation != generation) return
+        val producer = target.producer ?: return
+        val surface = try {
+            invokeProducerNoArg(producer, "getSurface") as? Surface
+        } catch (error: Throwable) {
+            LauncherPrefs.writeLauncherLog(
+                this,
+                "SdlRuntimeActivity.surfaceProducerAvailable failed id=$textureId reason=${error.javaClass.simpleName}: ${error.message}",
+            )
+            null
+        } ?: return
+        target.surface = surface
+        setActiveGameSurface(target, GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT, "surfaceProducerAvailable")
+    }
+
+    private fun onGameSurfaceProducerCleanup(textureId: Long, generation: Long) {
+        val target = gameSurfaceTargets[textureId] ?: return
+        if (target.generation != generation) return
+        target.surface = null
+        if (activeGameSurfaceTextureId == textureId) {
+            AndroidRuntimeBridge.detachGameSurface()
+            activeGameSurfaceTextureId = null
+            surfaceReady = false
+            LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.surfaceProducerCleanup id=$textureId generation=$generation")
+            if (viewSurfaceReady) {
+                gameSurfaceView.holder.surface?.let { surface ->
+                    surfaceReady = true
+                    AndroidRuntimeBridge.setGameSurface(surface, GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
+                    startGameIfReady()
+                }
+            }
+        }
+    }
+
+    private fun releaseGameSurfaceTarget(target: GameSurfaceTarget) {
+        if (target.producer != null) {
+            try {
+                invokeProducerSetCallback(target.producer, null)
+            } catch (_: Throwable) {
+            }
+            try {
+                invokeProducerNoArg(target.producer, "release")
+            } catch (error: Throwable) {
+                LauncherPrefs.writeLauncherLog(
+                    this,
+                    "SdlRuntimeActivity.releaseSurfaceProducer failed id=${target.textureId} reason=${error.javaClass.simpleName}: ${error.message}",
+                )
+            }
+        } else {
+            if (target.ownsSurface) {
+                target.surface?.release()
+            }
+            target.legacyEntry?.release()
+        }
+        target.surface = null
+        target.producerCallback = null
+    }
+
+    private fun createGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
+        val engine = overlayEngine
+        if (engine == null) {
+            result.error("engine_unavailable", "Flutter overlay engine is not attached", null)
+            return
+        }
+        val requestedWidth = call.argument<Int>("width") ?: GAME_SURFACE_WIDTH
+        val requestedHeight = call.argument<Int>("height") ?: GAME_SURFACE_HEIGHT
+        val width = GAME_SURFACE_WIDTH
+        val height = GAME_SURFACE_HEIGHT
+        val target = try {
+            createGameSurfaceTarget(engine, width, height)
+        } catch (error: RuntimeException) {
+            result.error("texture_unavailable", "Unable to create game surface: ${error.message}", null)
+            return
+        }
+        if (gameSurfaceTargets.isNotEmpty()) {
+            AndroidRuntimeBridge.detachGameSurface()
+            activeGameSurfaceTextureId = null
+            surfaceReady = false
+            gameSurfaceTargets.values.forEach { releaseGameSurfaceTarget(it) }
+            gameSurfaceTargets.clear()
+        }
+        gameSurfaceTargets[target.textureId] = target
+        if (!setActiveGameSurface(target, width, height, "createGameSurfaceTexture")) {
+            gameSurfaceTargets.remove(target.textureId)
+            releaseGameSurfaceTarget(target)
+            result.error("surface_unavailable", "Unable to acquire game surface", null)
+            return
+        }
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "SdlRuntimeActivity.createGameSurfaceTexture id=${target.textureId} generation=${target.generation} mode=${target.mode} size=${width}x$height requested=${requestedWidth}x$requestedHeight",
+        )
+        result.success(mapOf("textureId" to target.textureId, "width" to width, "height" to height, "surfaceMode" to target.mode))
+    }
+
+    private fun resizeGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
+        val textureId = call.argument<Number>("textureId")?.toLong()
+        if (textureId == null) {
+            result.error("invalid_args", "textureId is required", null)
+            return
+        }
+        val target = gameSurfaceTargets[textureId]
+        if (target == null) {
+            result.error("not_found", "Game surface $textureId not found", null)
+            return
+        }
+        val requestedWidth = call.argument<Int>("width") ?: GAME_SURFACE_WIDTH
+        val requestedHeight = call.argument<Int>("height") ?: GAME_SURFACE_HEIGHT
+        val width = GAME_SURFACE_WIDTH
+        val height = GAME_SURFACE_HEIGHT
+        if (target.producer != null) {
+            try {
+                invokeProducerSetSize(target.producer, width, height)
+                target.surface = invokeProducerNoArg(target.producer, "getSurface") as? Surface
+            } catch (error: Throwable) {
+                result.error("resize_failed", "Unable to resize SurfaceProducer: ${error.message}", null)
+                return
+            }
+            if (!setActiveGameSurface(target, width, height, "resizeGameSurfaceTexture")) {
+                result.error("surface_unavailable", "Unable to reacquire game surface", null)
+                return
+            }
+        } else {
+            target.legacyEntry?.surfaceTexture()?.setDefaultBufferSize(width, height)
+            activeGameSurfaceTextureId = textureId
+            surfaceReady = true
+            AndroidRuntimeBridge.resizeGameSurface(width, height)
+        }
+        LauncherPrefs.writeLauncherLog(
+            this,
+            "SdlRuntimeActivity.resizeGameSurfaceTexture id=$textureId generation=${target.generation} mode=${target.mode} size=${width}x$height requested=${requestedWidth}x$requestedHeight",
+        )
+        result.success(mapOf("textureId" to textureId, "width" to width, "height" to height, "surfaceMode" to target.mode))
+    }
+
+    private fun disposeGameSurfaceTexture(call: MethodCall, result: MethodChannel.Result) {
+        val textureId = call.argument<Number>("textureId")?.toLong()
+        if (textureId == null) {
+            result.error("invalid_args", "textureId is required", null)
+            return
+        }
+        if (activeGameSurfaceTextureId == textureId) {
+            AndroidRuntimeBridge.detachGameSurface()
+            activeGameSurfaceTextureId = null
+            surfaceReady = false
+        }
+        gameSurfaceTargets.remove(textureId)?.let { releaseGameSurfaceTarget(it) }
+        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.disposeGameSurfaceTexture id=$textureId")
+        result.success(null)
+    }
+
+    private fun disposeGameSurfaceTextures() {
+        AndroidRuntimeBridge.detachGameSurface()
+        activeGameSurfaceTextureId = null
+        surfaceReady = false
+        gameSurfaceTargets.values.forEach { releaseGameSurfaceTarget(it) }
+        gameSurfaceTargets.clear()
     }
 
     @SuppressLint("ClickableViewAccessibility")
