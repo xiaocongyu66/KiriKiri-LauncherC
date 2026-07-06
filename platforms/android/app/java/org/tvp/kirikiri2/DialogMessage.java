@@ -1,8 +1,5 @@
 package org.tvp.kirikiri2;
 
-import static org.tvp.kirikiri2.KR2Activity.onMessageBoxOK;
-import static org.tvp.kirikiri2.KR2Activity.onMessageBoxText;
-
 import android.content.Context;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -22,17 +19,18 @@ public class DialogMessage {
         this.Title = title;
         this.Text = text;
         this.Buttons = buttons;
+        this.TextEditor = null;
     }
 
     void onButtonClick(int n) {
         if (TextEditor != null) {
-            onMessageBoxText(TextEditor.getText().toString());
+            NativeUiHost.onMessageBoxText(TextEditor.getText().toString());
         }
-        onMessageBoxOK(n);
+        NativeUiHost.onMessageBoxOK(n);
     }
 
     public MaterialAlertDialogBuilder CreateBuilder() {
-        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(KR2Activity.requireActivityContext()).
+        MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(NativeUiHost.requireActivityContext()).
                 setTitle(Title).
                 setMessage(Text).
                 setCancelable(false);
@@ -54,7 +52,7 @@ public class DialogMessage {
 
     public void ShowInputBox(final String text) {
         MaterialAlertDialogBuilder builder = CreateBuilder();
-        TextEditor = new EditText(KR2Activity.requireActivityContext());
+        TextEditor = new EditText(NativeUiHost.requireActivityContext());
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT,
                 LinearLayout.LayoutParams.MATCH_PARENT);
@@ -64,7 +62,7 @@ public class DialogMessage {
         AlertDialog ad = builder.create();
         ad.show();
         TextEditor.requestFocus();
-        InputMethodManager imm = (InputMethodManager) KR2Activity.requireApplicationContext()
+        InputMethodManager imm = (InputMethodManager) NativeUiHost.requireApplicationContext()
                 .getSystemService(Context.INPUT_METHOD_SERVICE);
         imm.showSoftInput(TextEditor, 0);
     }

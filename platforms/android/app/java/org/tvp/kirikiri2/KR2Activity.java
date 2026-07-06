@@ -10,15 +10,13 @@ import android.os.Bundle;
 import android.os.Debug;
 import android.os.Environment;
 import android.os.Handler;
+import android.os.Looper;
 import android.os.Message;
-import android.os.storage.StorageManager;
 import android.util.AttributeSet;
 import android.util.Log;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.Toast;
 
 import androidx.annotation.NonNull;
 import androidx.core.app.ActivityCompat;
@@ -47,8 +45,12 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
      * @noinspection unused
      */
     public static void updateMemoryInfo() {
+        Activity activity = NativeUiHost.getActivityContextOrNull();
+        if (activity == null) {
+            return;
+        }
         if (mActivityManager == null) {
-            mActivityManager = (ActivityManager) sInstance.getSystemService(Activity.ACTIVITY_SERVICE);
+            mActivityManager = (ActivityManager) activity.getSystemService(Activity.ACTIVITY_SERVICE);
         }
         mActivityManager.getMemoryInfo(memoryInfo);
         Debug.getMemoryInfo(mDbgMemoryInfo);
@@ -60,9 +62,16 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
      */
     static public String GetVersion() {
         String verstr = null;
+        Activity activity = NativeUiHost.getActivityContextOrNull();
+        Context context = activity != null
+                ? activity.getApplicationContext()
+                : (sInstance != null ? sInstance.getApplicationContext() : null);
+        if (context == null) {
+            return null;
+        }
         try {
-            verstr = sInstance.getPackageManager()
-                    .getPackageInfo(sInstance.getPackageName(), 0)
+            verstr = context.getPackageManager()
+                    .getPackageInfo(context.getPackageName(), 0)
                     .versionName;
         } catch (PackageManager.NameNotFoundException ignored) {
         }
@@ -107,6 +116,10 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static public Context requireApplicationContext() {
+        Activity activity = NativeUiHost.getActivityContextOrNull();
+        if (activity != null) {
+            return activity.getApplicationContext();
+        }
         return requireActivityContext().getApplicationContext();
     }
 
@@ -158,6 +171,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         super.onCreate(savedInstanceState);
         writeLifecycleLog("onCreate#after-super");
         sInstance = this;
+        NativeUiHost.attach(this, mFrameLayout);
         nativeInitRuntime();
         writeLifecycleLog("onCreate#native-runtime-init");
         initDump(this.getFilesDir().getAbsolutePath() + "/dump");
@@ -182,6 +196,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     @Override
     public void onDestroy() {
         writeLifecycleLog("onDestroy#enter");
+        NativeUiHost.detach(this);
         super.onDestroy();
         writeLifecycleLog("onDestroy#after-super");
         System.exit(0);
@@ -226,23 +241,17 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         return true;
     }
 
-    static Handler msgHandler = new Handler(KR2Activity::handleMessage);
+    static Handler msgHandler = new Handler(Looper.getMainLooper(), KR2Activity::handleMessage);
 
     /**
      * @noinspection unused
      */
     static public void showTextInput(int x, int y, int w, int h) {
-        msgHandler.post(new ShowTextInputTask(x, y, w, h));
+        NativeUiHost.showTextInput(x, y, w, h);
     }
 
     static public void hideTextInput() {
-        msgHandler.post(() -> {
-            if (mTextEdit != null) {
-                mTextEdit.setVisibility(View.GONE);
-                InputMethodManager imm = (InputMethodManager) sInstance.getSystemService(Context.INPUT_METHOD_SERVICE);
-                imm.hideSoftInputFromWindow(mTextEdit.getWindowToken(), 0);
-            }
-        });
+        NativeUiHost.hideTextInput();
     }
 
     private static native void nativeTouchesBegin(final int id, final float x, final float y);
@@ -439,17 +448,18 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     static final int ORIENT_HORIZONTAL = 2;
 
     static public void setOrientation(int orient) {
-        if (sInstance == null) {
+        Activity activity = NativeUiHost.getActivityContextOrNull();
+        if (activity == null) {
             return;
         }
-        if (org.github.krkr2.LauncherPrefs.INSTANCE.getForceLandscape(sInstance)) {
-            org.github.krkr2.ForceLandscapeHelper.INSTANCE.apply(sInstance, true);
+        if (org.github.krkr2.LauncherPrefs.INSTANCE.getForceLandscape(activity)) {
+            org.github.krkr2.ForceLandscapeHelper.INSTANCE.apply(activity, true);
             return;
         }
         if (orient == ORIENT_VERTICAL) {
-            sInstance.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+            activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         } else if (orient == ORIENT_HORIZONTAL) {
-            sInstance.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
+            activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE);
         }
     }
 
@@ -460,37 +470,21 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
      * @noinspection unused
      */
     static public void ShowMessageBox(final String title, final String text, final String[] Buttons) {
-        mDialogMessage.Init(title, text, Buttons);
-        msgHandler.post(() -> mDialogMessage.ShowMessageBox());
+        NativeUiHost.showMessageBox(title, text, Buttons);
     }
 
     /**
      * @noinspection unused
      */
     static public void ShowInputBox(final String title, final String prompt, final String text, final String[] Buttons) {
-        mDialogMessage.Init(title, prompt, Buttons);
-        msgHandler.post(() -> mDialogMessage.ShowInputBox(text));
+        NativeUiHost.showInputBox(title, prompt, text, Buttons);
     }
 
     /**
      * @noinspection unused
      */
     static public void ShowPluginToast(final String title, final String text) {
-        if (sInstance == null) {
-            return;
-        }
-        msgHandler.post(() -> {
-            String message = "";
-            if (title != null && !title.isEmpty()) {
-                message = title;
-            }
-            if (text != null && !text.isEmpty()) {
-                message = message.isEmpty() ? text : message + "\n" + text;
-            }
-            if (!message.isEmpty()) {
-                Toast.makeText(sInstance, message, Toast.LENGTH_LONG).show();
-            }
-        });
+        NativeUiHost.showPluginToast(title, text);
     }
 
 
@@ -510,9 +504,10 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         String resolved = resolveLaunchGamePath();
         android.util.Log.i("KR2-Launch", "getLaunchGamePath -> " + resolved);
         try {
-            if (sInstance != null) {
+            Activity activity = NativeUiHost.getActivityContextOrNull();
+            if (activity != null) {
                 org.github.krkr2.LauncherPrefs.INSTANCE.writeLauncherLog(
-                    sInstance, "native getLaunchGamePath -> " + resolved, null);
+                    activity, "native getLaunchGamePath -> " + resolved, null);
             }
         } catch (Throwable t) {
             android.util.Log.w("KR2-Launch", "writeLauncherLog failed", t);
@@ -521,8 +516,9 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static public String getLaunchGameDir() {
-        if(sInstance == null || sInstance.getIntent() == null) return "";
-        String path = sInstance.getIntent().getStringExtra("extra_game_dir");
+        Activity activity = NativeUiHost.getActivityContextOrNull();
+        if(activity == null || activity.getIntent() == null) return "";
+        String path = activity.getIntent().getStringExtra("extra_game_dir");
         return path == null ? "" : path;
     }
 
@@ -603,8 +599,9 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     }
 
     static private String resolveLaunchGamePath() {
-        if(sInstance == null || sInstance.getIntent() == null) return "";
-        String launchFile = sInstance.getIntent().getStringExtra("extra_launch_file");
+        Activity activity = NativeUiHost.getActivityContextOrNull();
+        if(activity == null || activity.getIntent() == null) return "";
+        String launchFile = activity.getIntent().getStringExtra("extra_launch_file");
         android.util.Log.i("KR2-Launch", "intent extra_launch_file=" + launchFile);
         if(launchFile != null && !launchFile.isEmpty()) {
             File file = new File(launchFile);
@@ -612,7 +609,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
             android.util.Log.w("KR2-Launch", "launchFile not a regular file: exists=" + file.exists() + " isFile=" + file.isFile());
         }
 
-        String path = sInstance.getIntent().getStringExtra("extra_game_dir");
+        String path = activity.getIntent().getStringExtra("extra_game_dir");
         android.util.Log.i("KR2-Launch", "intent extra_game_dir=" + path);
         if(path == null || path.isEmpty()) return "";
         File dir = new File(path);
@@ -777,7 +774,7 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
     static public boolean DeleteFile(String path) {
         File file = new File(path);
         // First try the normal deletion.
-        boolean fileDelete = deleteFilesInFolder(file, sInstance);
+        boolean fileDelete = deleteFilesInFolder(file, NativeUiHost.getActivityContextOrNull());
         if (file.delete() || fileDelete)
             return true;
 
@@ -831,7 +828,6 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
      * @noinspection unused
      */
     static boolean isWritableNormalOrSaf(final String path) {
-        Context c = sInstance;
         File folder = new File(path);
         return folder.exists() && folder.isDirectory();
     }

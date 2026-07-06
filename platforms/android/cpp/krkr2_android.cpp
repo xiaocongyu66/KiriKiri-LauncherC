@@ -631,6 +631,14 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeLifecycleEvent(JNIEnv *env, jclass,
     TVPSDLRecordAndroidLifecycle(eventNameValue.c_str(), detailValue.c_str());
 }
 
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeLifecycleEvent(
+    JNIEnv *env, jclass, jstring eventName, jstring detail) {
+    const std::string eventNameValue = JStringToStdString(env, eventName);
+    const std::string detailValue = JStringToStdString(env, detail);
+    TVPSDLRecordAndroidLifecycle(eventNameValue.c_str(), detailValue.c_str());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_org_tvp_kirikiri2_KR2Activity_nativeLauncherLog(JNIEnv *env, jclass,
                                                      jstring message,
@@ -659,6 +667,19 @@ void Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxText(JNIEnv *env,
         MessageBoxRetText = pszText;
     }
     env->ReleaseStringUTFChars(text, pszText);
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_NativeUiHost_nativeMessageBoxOK(JNIEnv *env, jclass cls,
+                                                       jint nButton) {
+    Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxOK(env, cls, nButton);
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_NativeUiHost_nativeMessageBoxText(JNIEnv *env,
+                                                         jclass cls,
+                                                         jstring text) {
+    Java_org_tvp_kirikiri2_KR2Activity_onMessageBoxText(env, cls, text);
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(
@@ -965,6 +986,34 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
 }
 
 JNIEXPORT jboolean JNICALL
+Java_org_tvp_kirikiri2_NativeUiHost_nativeKeyAction(JNIEnv *env, jclass cls,
+                                                    jint keyCode,
+                                                    jboolean isPress) {
+    return Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(env, cls, keyCode,
+                                                              isPress);
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_NativeUiHost_nativeCharInput(JNIEnv *env, jclass cls,
+                                                    jint keyCode) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeCharInput(env, cls, keyCode);
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_NativeUiHost_nativeCommitText(JNIEnv *env, jclass cls,
+                                                     jstring text,
+                                                     jint newCursorPosition) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
+        env, cls, text, newCursorPosition);
+}
+
+JNIEXPORT void JNICALL
+Java_org_tvp_kirikiri2_NativeUiHost_nativeDeleteBackward(JNIEnv *env,
+                                                         jclass cls) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeDeleteBackward(env, cls);
+}
+
+JNIEXPORT jboolean JNICALL
 Java_org_tvp_kirikiri2_KR2Activity_nativeGetHideSystemButton(JNIEnv *env,
                                                              jclass cls) {
     return GlobalConfigManager::GetInstance()->GetValue<bool>(
@@ -1031,12 +1080,38 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
 #endif
 }
 
+JNIEXPORT jboolean JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeKeyAction(
+    JNIEnv *env, jclass, jint keyCode, jboolean isPress) {
+    return Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(env, nullptr,
+                                                              keyCode, isPress);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeHoverMoved(JNIEnv *env, jclass,
+                                                            jfloat x, jfloat y) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeHoverMoved(env, nullptr, x, y);
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeMouseScrolled(JNIEnv *env,
+                                                               jclass,
+                                                               jfloat scroll) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(env, nullptr, scroll);
+}
+
 JNIEXPORT void JNICALL
 Java_org_tvp_kirikiri2_KR2Activity_nativeOnLowMemory(JNIEnv *env, jclass cls) {
     TVPAppendNativeFatalBreadcrumb("memory", "nativeOnLowMemory");
     Android_PushEvents([]() {
         ::Application->OnLowMemory();
     });
+}
+
+JNIEXPORT void JNICALL
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeOnLowMemory(JNIEnv *env,
+                                                             jclass cls) {
+    Java_org_tvp_kirikiri2_KR2Activity_nativeOnLowMemory(env, cls);
 }
 
 static void TVPAndroidSetGameSurface(JNIEnv *env, jobject surface, jint width,

@@ -1,12 +1,5 @@
 package org.tvp.kirikiri2;
 
-import static org.tvp.kirikiri2.KR2Activity.mTextEdit;
-
-import android.content.Context;
-import android.view.View;
-import android.view.inputmethod.InputMethodManager;
-import android.widget.FrameLayout;
-
 public class ShowTextInputTask implements Runnable {
     /*
      * This is used to regulate the pan&scan method to have some offset from
@@ -25,24 +18,6 @@ public class ShowTextInputTask implements Runnable {
 
     @Override
     public void run() {
-        KR2Activity activity = KR2Activity.requireActivityContext();
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(w, h + HEIGHT_PADDING);
-        params.leftMargin = x;
-        params.topMargin = y;
-
-        if (mTextEdit == null) {
-            mTextEdit = new DummyEdit(activity);
-
-            activity.mFrameLayout.addView(mTextEdit, params);
-        } else {
-            mTextEdit.setLayoutParams(params);
-        }
-
-        mTextEdit.setVisibility(View.VISIBLE);
-        mTextEdit.requestFocus();
-
-        InputMethodManager imm = (InputMethodManager) KR2Activity.requireApplicationContext()
-                .getSystemService(Context.INPUT_METHOD_SERVICE);
-        imm.showSoftInput(mTextEdit, 0);
+        NativeUiHost.showTextInputNow(x, y, w, h);
     }
 }

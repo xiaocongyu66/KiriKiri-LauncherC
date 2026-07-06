@@ -52,6 +52,12 @@ using JniHelper = krkr::JniHelper;
 
 extern unsigned int __page_size = getpagesize();
 
+#if defined(__GNUC__)
+jobject krkr_GetApplicationContext() __attribute__((weak));
+#else
+jobject krkr_GetApplicationContext();
+#endif
+
 static bool TVPAndroidPathExists(const std::string &path) {
     struct stat st {};
     return stat(path.c_str(), &st) == 0;
@@ -239,36 +245,74 @@ static jobject GetKR2ActInstance() {
     return 0;
 }
 
+static jobject GetAndroidContext() {
+    if(jobject activity = GetKR2ActInstance())
+        return activity;
+#if defined(__GNUC__)
+    if(!krkr_GetApplicationContext)
+        return nullptr;
+#endif
+    jobject context = krkr_GetApplicationContext();
+    if(!context)
+        return nullptr;
+    JNIEnv *env = JniHelper::getEnv();
+    return env ? env->NewLocalRef(context) : nullptr;
+}
+
 static std::string GetApkStoragePath() {
     JniMethodInfo methodInfo;
-    jobject sInstance = GetKR2ActInstance();
+    jobject context = GetAndroidContext();
+    if(!context)
+        return "";
     if(!JniHelper::getMethodInfo(methodInfo, "android/content/Context",
                                  "getApplicationInfo",
                                  "()Landroid/content/pm/ApplicationInfo;")) {
-        methodInfo.env->DeleteLocalRef(sInstance);
+        JniHelper::getEnv()->DeleteLocalRef(context);
         return "";
     }
     jobject ApplicationInfo =
-        methodInfo.env->CallObjectMethod(sInstance, methodInfo.methodID);
+        methodInfo.env->CallObjectMethod(context, methodInfo.methodID);
     jclass clsApplicationInfo =
         methodInfo.env->FindClass("android/content/pm/ApplicationInfo");
-    jfieldID id_sourceDir = methodInfo.env->GetFieldID(
-        clsApplicationInfo, "sourceDir", "Ljava/lang/String;");
-    methodInfo.env->DeleteLocalRef(sInstance);
-    return JniHelper::jstring2string(
-        (jstring)methodInfo.env->GetObjectField(ApplicationInfo, id_sourceDir));
+    jfieldID id_sourceDir = clsApplicationInfo
+        ? methodInfo.env->GetFieldID(clsApplicationInfo, "sourceDir",
+                                     "Ljava/lang/String;")
+        : nullptr;
+    std::string ret;
+    if(ApplicationInfo && clsApplicationInfo && id_sourceDir) {
+        auto sourceDir =
+            (jstring)methodInfo.env->GetObjectField(ApplicationInfo, id_sourceDir);
+        ret = sourceDir ? JniHelper::jstring2string(sourceDir) : "";
+        if(sourceDir)
+            methodInfo.env->DeleteLocalRef(sourceDir);
+    }
+    if(ApplicationInfo)
+        methodInfo.env->DeleteLocalRef(ApplicationInfo);
+    if(clsApplicationInfo)
+        methodInfo.env->DeleteLocalRef(clsApplicationInfo);
+    methodInfo.env->DeleteLocalRef(methodInfo.classID);
+    methodInfo.env->DeleteLocalRef(context);
+    return ret;
 }
 
 static std::string GetPackageName() {
     JniMethodInfo methodInfo;
-    jobject sInstance = GetKR2ActInstance();
+    jobject context = GetAndroidContext();
+    if(!context)
+        return "";
     if(!JniHelper::getMethodInfo(methodInfo, "android/content/ContextWrapper",
                                  "getPackageName", "()Ljava/lang/String;")) {
-        methodInfo.env->DeleteLocalRef(sInstance);
+        JniHelper::getEnv()->DeleteLocalRef(context);
         return "";
     }
-    return JniHelper::jstring2string((jstring)methodInfo.env->CallObjectMethod(
-        sInstance, methodInfo.methodID));
+    auto packageName =
+        (jstring)methodInfo.env->CallObjectMethod(context, methodInfo.methodID);
+    std::string ret = packageName ? JniHelper::jstring2string(packageName) : "";
+    if(packageName)
+        methodInfo.env->DeleteLocalRef(packageName);
+    methodInfo.env->DeleteLocalRef(methodInfo.classID);
+    methodInfo.env->DeleteLocalRef(context);
+    return ret;
 }
 
 // from unzip.cpp
@@ -381,30 +425,49 @@ static std::vector<std::string> &split(const std::string &s, char delim,
 static std::string File_getAbsolutePath(jobject FileObj) {
     if(!FileObj)
         return "";
-    JniMethodInfo methodInfo;
-    if(!JniHelper::getMethodInfo(methodInfo, "java/io/File", "exists", "()Z"))
+    JNIEnv *env = JniHelper::getEnv();
+    if(!env)
         return "";
-    if(!methodInfo.env->CallBooleanMethod(FileObj, methodInfo.methodID))
+    jclass fileClass = env->FindClass("java/io/File");
+    if(!fileClass)
         return "";
-    if(!JniHelper::getMethodInfo(methodInfo, "java/io/File", "getAbsolutePath",
-                                 "()Ljava/lang/String;"))
+    jmethodID exists = env->GetMethodID(fileClass, "exists", "()Z");
+    jmethodID getAbsolutePath =
+        env->GetMethodID(fileClass, "getAbsolutePath", "()Ljava/lang/String;");
+    if(!exists || !getAbsolutePath) {
+        env->DeleteLocalRef(fileClass);
         return "";
-    jstring path =
-        (jstring)methodInfo.env->CallObjectMethod(FileObj, methodInfo.methodID);
-    std::string ret = JniHelper::jstring2string(path);
+    }
+    if(!env->CallBooleanMethod(FileObj, exists)) {
+        env->DeleteLocalRef(fileClass);
+        return "";
+    }
+    jstring path = (jstring)env->CallObjectMethod(FileObj, getAbsolutePath);
+    std::string ret = path ? JniHelper::jstring2string(path) : "";
+    if(path)
+        env->DeleteLocalRef(path);
+    env->DeleteLocalRef(fileClass);
     return ret;
 }
 
 static std::string GetInternalStoragePath() {
-    jobject sInstance = GetKR2ActInstance();
+    jobject context = GetAndroidContext();
+    if(!context)
+        return "";
     JniMethodInfo methodInfo;
     if(!JniHelper::getMethodInfo(methodInfo, "android/content/ContextWrapper",
                                  "getFilesDir", "()Ljava/io/File;")) {
+        JniHelper::getEnv()->DeleteLocalRef(context);
         return "";
     }
     jobject FileObj =
-        methodInfo.env->CallObjectMethod(sInstance, methodInfo.methodID);
-    return File_getAbsolutePath(FileObj);
+        methodInfo.env->CallObjectMethod(context, methodInfo.methodID);
+    std::string ret = File_getAbsolutePath(FileObj);
+    if(FileObj)
+        methodInfo.env->DeleteLocalRef(FileObj);
+    methodInfo.env->DeleteLocalRef(methodInfo.classID);
+    methodInfo.env->DeleteLocalRef(context);
+    return ret;
 }
 
 std::string Android_GetDumpStoragePath() {
@@ -419,6 +482,8 @@ static int InsertFilepathInto(JNIEnv *env, std::vector<std::string> &vec,
         std::string path = File_getAbsolutePath(FileObj);
         if(!path.empty())
             vec.emplace_back(path);
+        if(FileObj)
+            env->DeleteLocalRef(FileObj);
     }
     return count;
 }
@@ -426,7 +491,9 @@ static int InsertFilepathInto(JNIEnv *env, std::vector<std::string> &vec,
 static int GetExternalStoragePath(std::vector<std::string> &ret) {
     int count = 0;
     JniMethodInfo methodInfo;
-    jobject sInstance = GetKR2ActInstance();
+    jobject context = GetAndroidContext();
+    if(!context)
+        return count;
     // 	if (JniHelper::getMethodInfo(methodInfo,
     // "android/content/Context", "getExternalMediaDirs",
     // "()[Ljava/io/File;")) { 		jobjectArray FileObjs =
@@ -438,19 +505,25 @@ static int GetExternalStoragePath(std::vector<std::string> &ret) {
                                 "getExternalFilesDirs",
                                 "(Ljava/lang/String;)[Ljava/io/File;")) {
         jobjectArray FileObjs = (jobjectArray)methodInfo.env->CallObjectMethod(
-            sInstance, methodInfo.methodID, nullptr);
+            context, methodInfo.methodID, nullptr);
         if(FileObjs)
             count += InsertFilepathInto(methodInfo.env, ret, FileObjs);
+        if(FileObjs)
+            methodInfo.env->DeleteLocalRef(FileObjs);
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     } else if(JniHelper::getMethodInfo(methodInfo, "android/content/Context",
                                        "getExternalFilesDir",
                                        "(Ljava/lang/String;)Ljava/io/File;")) {
         jobject FileObj = methodInfo.env->CallObjectMethod(
-            sInstance, methodInfo.methodID, nullptr);
+            context, methodInfo.methodID, nullptr);
         if(FileObj) {
             ret.emplace_back(File_getAbsolutePath(FileObj));
+            methodInfo.env->DeleteLocalRef(FileObj);
             ++count;
         }
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
+    JniHelper::getEnv()->DeleteLocalRef(context);
     return count;
 }
 
@@ -465,7 +538,8 @@ std::vector<std::string> TVPGetDriverPath() {
     std::vector<std::string> ret;
     jobject sInstance = GetKR2ActInstance();
     JniMethodInfo methodInfo;
-    if(JniHelper::getMethodInfo(methodInfo, KR2ActJavaPath, "getStoragePath",
+    if(sInstance &&
+       JniHelper::getMethodInfo(methodInfo, KR2ActJavaPath, "getStoragePath",
                                 "()[Ljava/lang/String;")) {
         jobjectArray PathObjs = (jobjectArray)methodInfo.env->CallObjectMethod(
             sInstance, methodInfo.methodID);
@@ -474,11 +548,17 @@ std::vector<std::string> TVPGetDriverPath() {
             for(int i = 0; i < count; ++i) {
                 jstring path =
                     (jstring)methodInfo.env->GetObjectArrayElement(PathObjs, i);
-                if(path)
+                if(path) {
                     ret.emplace_back(JniHelper::jstring2string(path));
+                    methodInfo.env->DeleteLocalRef(path);
+                }
             }
+            methodInfo.env->DeleteLocalRef(PathObjs);
         }
+        methodInfo.env->DeleteLocalRef(methodInfo.classID);
     }
+    if(sInstance)
+        JniHelper::getEnv()->DeleteLocalRef(sInstance);
 
     if(!ret.empty())
         return ret;

@@ -8,13 +8,16 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.Choreographer
 import android.view.Gravity
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
+import org.tvp.kirikiri2.NativeUiHost
 import java.io.File
+import java.util.Locale
 
 class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     Choreographer.FrameCallback {
@@ -44,7 +47,10 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
 
         val root = FrameLayout(this)
         root.setBackgroundColor(Color.BLACK)
+        root.isFocusableInTouchMode = true
         gameSurfaceView = FixedAspectSurfaceView(this)
+        gameSurfaceView.isFocusable = true
+        gameSurfaceView.isFocusableInTouchMode = true
         gameSurfaceView.holder.setFixedSize(GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
         gameSurfaceView.holder.addCallback(this)
         installTouchBridge(gameSurfaceView)
@@ -57,8 +63,24 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             )
         )
         setContentView(root)
+        gameSurfaceView.requestFocus()
+        NativeUiHost.attach(
+            this,
+            root,
+            gameSurfaceView,
+            GAME_SURFACE_WIDTH,
+            GAME_SURFACE_HEIGHT,
+        )
         AndroidRuntimeBridge.setApplicationContext(applicationContext)
-        AndroidRuntimeBridge.ensureInitialized()
+        if (!AndroidRuntimeBridge.ensureInitialized() ||
+            !AndroidRuntimeBridge.ensureSdlJavaReady(this)
+        ) {
+            LauncherPrefs.writeLauncherLog(
+                this,
+                "SdlRuntimeActivity runtime init failed\n${AndroidRuntimeBridge.lastFailureMessage()}",
+            )
+        }
+        recordLifecycle("onCreate")
         LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.onCreate")
     }
 
@@ -66,21 +88,39 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         super.onResume()
         running = true
         lastFrameNanos = 0L
+        AndroidRuntimeBridge.ensureSdlJavaReady(this)
+        recordLifecycle("onResume")
         postFramePump()
     }
 
     override fun onPause() {
+        recordLifecycle("onPause#enter")
         running = false
         removeFramePump()
         super.onPause()
+        recordLifecycle("onPause#after-super")
     }
 
     override fun onDestroy() {
         running = false
         removeFramePump()
         AndroidRuntimeBridge.detachGameSurface()
+        NativeUiHost.detach(this)
         ForceLandscapeHelper.release(this)
+        recordLifecycle("onDestroy")
         super.onDestroy()
+    }
+
+    override fun onLowMemory() {
+        super.onLowMemory()
+        AndroidRuntimeBridge.onLowMemory()
+        recordLifecycle("onLowMemory")
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) ForceLandscapeHelper.apply(this, true)
+        recordLifecycle("onWindowFocusChanged hasFocus=$hasFocus")
     }
 
     override fun surfaceCreated(holder: SurfaceHolder) {
@@ -91,6 +131,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             GAME_SURFACE_WIDTH,
             GAME_SURFACE_HEIGHT,
         )
+        recordLifecycle("surfaceCreated")
         startGameIfReady()
         postFramePump()
     }
@@ -103,11 +144,13 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     ) {
         holder.setFixedSize(GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
         AndroidRuntimeBridge.resizeGameSurface(GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
+        recordLifecycle("surfaceChanged requested=${width}x$height")
     }
 
     override fun surfaceDestroyed(holder: SurfaceHolder) {
         surfaceReady = false
         AndroidRuntimeBridge.detachGameSurface()
+        recordLifecycle("surfaceDestroyed")
     }
 
     override fun doFrame(frameTimeNanos: Long) {
@@ -126,8 +169,32 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         postFramePump()
     }
 
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        if (isRuntimeKey(keyCode)) {
+            AndroidRuntimeBridge.keyAction(keyCode, true)
+            return true
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (isRuntimeKey(keyCode)) {
+            AndroidRuntimeBridge.keyAction(keyCode, false)
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
+    }
+
     private fun startGameIfReady() {
         if (gameStarted || !surfaceReady) return
+        if (!AndroidRuntimeBridge.ensureSdlJavaReady(this)) {
+            LauncherPrefs.writeLauncherLog(
+                this,
+                "SdlRuntimeActivity.start skipped runtime not ready\n" +
+                    AndroidRuntimeBridge.lastFailureMessage(),
+            )
+            return
+        }
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()
         val launchPath = resolveLaunchPath(gameDir)
         if (launchPath.isBlank()) {
@@ -143,11 +210,81 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
 
     private fun resolveLaunchPath(gameDir: String): String {
         val explicit = intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()
-        if (explicit.isNotBlank()) return explicit
+        if (explicit.isNotBlank()) {
+            val file = File(explicit)
+            if (file.isFile && file.canRead()) return file.absolutePath
+        }
         if (gameDir.isBlank()) return ""
+        val root = File(gameDir)
+        if (root.isFile && root.canRead()) return root.absolutePath
+        if (!root.isDirectory) return ""
+        File(root, "startup.tjs").let { if (it.isFile && it.canRead()) return it.absolutePath }
+        File(root, "start.tjs").let { if (it.isFile && it.canRead()) return it.absolutePath }
         val dataXp3 = File(gameDir, "data.xp3")
-        return if (dataXp3.isFile && dataXp3.canRead()) dataXp3.absolutePath else gameDir
+        if (dataXp3.isFile && dataXp3.canRead()) return dataXp3.absolutePath
+        return root.listFiles()
+            ?.asSequence()
+            ?.filter {
+                it.isFile && it.canRead() &&
+                    isLaunchExtension(it.extension.lowercase(Locale.ROOT))
+            }
+            ?.sortedWith(compareBy<File> { launchRank(it) }.thenBy {
+                it.name.lowercase(Locale.ROOT)
+            })
+            ?.firstOrNull()
+            ?.absolutePath
+            .orEmpty()
     }
+
+    private fun isLaunchExtension(extension: String): Boolean =
+        extension == "xp3" || extension == "tjs" || extension == "ks"
+
+    private fun launchRank(file: File): Int {
+        val name = file.name.lowercase(Locale.ROOT)
+        preferredLaunchRank(name).takeIf { it >= 0 }?.let { return it }
+        val base = file.nameWithoutExtension.lowercase(Locale.ROOT)
+        return when (file.extension.lowercase(Locale.ROOT)) {
+            "xp3" -> when {
+                base == "boot" -> 20
+                base == "main" || base == "game" ||
+                    base == "scenario" || base == "script" -> 30
+                base.startsWith("data") -> 40
+                isAssetArchiveBase(base) -> 300
+                else -> 80
+            }
+            "tjs" -> if (base == "main" || base == "boot" || base == "game") 60 else 90
+            "ks" -> if (base == "first" || base == "scenario") 70 else 100
+            else -> 500
+        }
+    }
+
+    private fun preferredLaunchRank(name: String): Int =
+        when (name) {
+            "startup.tjs" -> 0
+            "start.tjs" -> 1
+            "data.xp3" -> 2
+            "startup.xp3" -> 3
+            "start.xp3" -> 4
+            "main.xp3" -> 5
+            "game.xp3" -> 6
+            "first.ks" -> 7
+            "scenario.ks" -> 8
+            else -> -1
+        }
+
+    private fun isAssetArchiveBase(base: String): Boolean =
+        base == "patch" ||
+            base.startsWith("patch") ||
+            base == "bg" ||
+            base.startsWith("bg") ||
+            base.contains("image") ||
+            base.contains("voice") ||
+            base.contains("sound") ||
+            base.contains("audio") ||
+            base.contains("music") ||
+            base.contains("movie") ||
+            base.contains("video") ||
+            base.contains("effect")
 
     private fun postFramePump() {
         if (!running || framePosted) return
@@ -211,6 +348,56 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
                 else -> true
             }
         }
+        view.setOnHoverListener { hoveredView, event ->
+            if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                AndroidRuntimeBridge.hoverMoved(
+                    mapSurfaceX(hoveredView.width, event.x),
+                    mapSurfaceY(hoveredView.height, event.y),
+                )
+                true
+            } else {
+                false
+            }
+        }
+        view.setOnGenericMotionListener { motionView, event ->
+            if (event.actionMasked == MotionEvent.ACTION_SCROLL) {
+                AndroidRuntimeBridge.mouseScrolled(-event.getAxisValue(MotionEvent.AXIS_VSCROLL))
+                true
+            } else if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                AndroidRuntimeBridge.hoverMoved(
+                    mapSurfaceX(motionView.width, event.x),
+                    mapSurfaceY(motionView.height, event.y),
+                )
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    private fun isRuntimeKey(keyCode: Int): Boolean =
+        when (keyCode) {
+            KeyEvent.KEYCODE_BACK,
+            KeyEvent.KEYCODE_MENU,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_DEL -> true
+            else -> false
+        }
+
+    private fun recordLifecycle(event: String) {
+        val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()
+        val launchFile = intent?.getStringExtra(EXTRA_LAUNCH_FILE).orEmpty()
+        AndroidRuntimeBridge.recordLifecycle(
+            "SdlRuntimeActivity.$event",
+            "gameDir=$gameDir launchFile=$launchFile surface=$surfaceReady " +
+                "started=$gameStarted running=$running thread=${Thread.currentThread().name}",
+        )
     }
 
     private fun mapSurfaceX(viewWidth: Int, x: Float): Float =

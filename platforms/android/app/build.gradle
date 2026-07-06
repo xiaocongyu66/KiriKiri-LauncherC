@@ -3,6 +3,8 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def krkr2NoCocosHost = (findProperty('krkr2NoCocosHost') ?: 'false').toString().toBoolean()
+
 android {
     ndkVersion '28.0.13004108'
     compileSdk PROP_COMPILE_SDK_VERSION.toInteger()
@@ -21,7 +23,9 @@ android {
             cmake {
                 targets 'krkr2'
                 cppFlags '-fsigned-char'
-                arguments '-DANDROID_STL=c++_shared', '-DANDROID=ON'
+                arguments '-DANDROID_STL=c++_shared',
+                        '-DANDROID=ON',
+                        "-DKRKR2_ENABLE_COCOS_HOST=${krkr2NoCocosHost ? 'OFF' : 'ON'}"
             }
         }
         versionCode Integer.parseInt(new Date().format('yyyyMMddHH'))

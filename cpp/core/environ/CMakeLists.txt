@@ -96,7 +96,7 @@ set(ENVIRON_HEADERS_DIR
 
 add_library(${PROJECT_NAME} STATIC ${ENVIRON_SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${ENVIRON_HEADERS_DIR})
-target_link_libraries(${PROJECT_NAME} PUBLIC tjs2 PRIVATE core_base_module core_visual_module core_sound_module core_plugin_module core_movie_module core_utils_module)
+target_link_libraries(${PROJECT_NAME} PUBLIC tjs2 PRIVATE core_base_module core_visual_module core_sound_module core_plugin_module core_movie_module core_utils_module core_render_sdlgpu_module)
 target_compile_definitions(${PROJECT_NAME} PUBLIC
     $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:KRKR2_ENABLE_COCOS_HOST=1>
     $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:KRKR2_ENABLE_COCOS_HOST=0>

@@ -301,6 +301,10 @@ jobs:
               id("dev.flutter.flutter-gradle-plugin")
           }
 
+          val krkr2NoCocosHost = providers.gradleProperty("krkr2NoCocosHost")
+              .map(String::toBoolean)
+              .getOrElse(false)
+
           extensions.configure<ApplicationExtension>("android") {
               namespace = "org.github.krkr2"
               compileSdk = 36
@@ -338,6 +342,7 @@ jobs:
                               "-DANDROID=ON",
                               "-DENABLE_TESTS=OFF",
                               "-DBUILD_TOOLS=OFF",
+                              "-DKRKR2_ENABLE_COCOS_HOST=${if (krkr2NoCocosHost) "OFF" else "ON"}",
                           )
                       }
                   }
