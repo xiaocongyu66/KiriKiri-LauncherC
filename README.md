@@ -2,6 +2,8 @@
 
 **语言 / Language**: 中文 | [English](README_EN.md)
 
+这个是5.5写的 拉完了，5.6出来后再改
+
 ## 项目介绍
 
 KiriKiri LauncherC 是面向 KiriKiri2 / KAG / TJS2 游戏的跨平台兼容运行环境和启动器。项目目标不是只提供一个游戏入口，而是把脚本运行时、资源系统、图像与视频解码、音频输出、插件兼容层、渲染后端和平台启动器整理成可维护的 C++/CMake 工程，让更多依赖旧版吉里吉里生态的游戏能在 Android、Windows、Linux 和 macOS 上继续运行。
