@@ -18,10 +18,12 @@
 #endif
 
 #if defined(__ANDROID__)
-extern "C" ANativeWindow *TVPAndroidAcquireFlutterGameSurfaceWindow();
-extern "C" void TVPAndroidReleaseFlutterGameSurfaceWindow(
-    ANativeWindow *window);
-extern "C" void TVPAndroidGetFlutterGameSurfaceSize(int *width, int *height);
+extern "C" __attribute__((weak)) ANativeWindow *
+TVPAndroidAcquireFlutterGameSurfaceWindow();
+extern "C" __attribute__((weak)) void
+TVPAndroidReleaseFlutterGameSurfaceWindow(ANativeWindow *window);
+extern "C" __attribute__((weak)) void
+TVPAndroidGetFlutterGameSurfaceSize(int *width, int *height);
 #endif
 
 namespace {
@@ -49,7 +51,7 @@ struct TVPAndroidEGLSurfacePresenterState {
     GLint positionAttrib = -1;
     GLint texCoordAttrib = -1;
     GLint textureUniform = -1;
-    GLint uvScaleUniform = -1;
+    GLint uvRectUniform = -1;
     GLint flipYUniform = -1;
     GLuint vertexBuffer = 0;
     GLuint uploadTexture = 0;
@@ -390,19 +392,32 @@ struct TVPAndroidGLAttribSnapshot {
 struct TVPAndroidGLStateSnapshot {
     GLint framebuffer = 0;
     GLint viewport[4] = { 0, 0, 0, 0 };
+    GLint scissorBox[4] = { 0, 0, 0, 0 };
     GLint activeTexture = GL_TEXTURE0;
     GLint texture0Binding = 0;
     GLint arrayBuffer = 0;
+    GLint elementArrayBuffer = 0;
     GLint program = 0;
+    GLint blendEquationRGB = GL_FUNC_ADD;
+    GLint blendEquationAlpha = GL_FUNC_ADD;
+    GLint blendSrcRGB = GL_ONE;
+    GLint blendDstRGB = GL_ZERO;
+    GLint blendSrcAlpha = GL_ONE;
+    GLint blendDstAlpha = GL_ZERO;
+    GLint cullFaceMode = GL_BACK;
+    GLint frontFace = GL_CCW;
     GLint unpackAlignment = 4;
 #if defined(GL_UNPACK_ROW_LENGTH)
     GLint unpackRowLength = 0;
 #endif
     GLfloat clearColor[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
     GLboolean colorMask[4] = { GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE };
+    GLboolean depthMask = GL_TRUE;
     GLboolean blend = GL_FALSE;
     GLboolean depthTest = GL_FALSE;
     GLboolean scissorTest = GL_FALSE;
+    GLboolean cullFace = GL_FALSE;
+    GLboolean stencilTest = GL_FALSE;
     TVPAndroidGLAttribSnapshot attribs[2];
 };
 
@@ -461,21 +476,32 @@ bool IsAndroidEGLSoftwareUploadEnabled() {
 
 bool IsAndroidEGLSaveGLStateEnabled() {
     std::call_once(gSDLAndroidEGLSaveGLStateFlagOnce, []() {
+        if(IsTruthyEnv("KRKR2_DISABLE_ANDROID_EGL_SAVE_GL_STATE")) {
+            gSDLAndroidEGLSaveGLState = false;
+            return;
+        }
+        const char *value = SDL_getenv("KRKR2_ANDROID_EGL_SAVE_GL_STATE");
         gSDLAndroidEGLSaveGLState =
-            IsTruthyEnv("KRKR2_ANDROID_EGL_SAVE_GL_STATE");
+            value ? IsTruthyEnv("KRKR2_ANDROID_EGL_SAVE_GL_STATE") : true;
     });
     return gSDLAndroidEGLSaveGLState;
 }
 
 bool IsAndroidEGLSwapIntervalZeroEnabled() {
     std::call_once(gSDLAndroidEGLSwapIntervalZeroFlagOnce, []() {
+        if(IsTruthyEnv("KRKR2_DISABLE_ANDROID_EGL_SWAP_INTERVAL_ZERO")) {
+            gSDLAndroidEGLSwapIntervalZero = false;
+            return;
+        }
         const char *value = SDL_getenv("KRKR2_ANDROID_EGL_SWAP_INTERVAL_ZERO");
         if(value) {
             gSDLAndroidEGLSwapIntervalZero =
                 IsTruthyEnv("KRKR2_ANDROID_EGL_SWAP_INTERVAL_ZERO");
-        } else {
+        } else if(SDL_getenv("KRKR2_ENABLE_ANDROID_EGL_SWAP_INTERVAL_ZERO")) {
             gSDLAndroidEGLSwapIntervalZero =
-                !IsTruthyEnv("KRKR2_DISABLE_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+                IsTruthyEnv("KRKR2_ENABLE_ANDROID_EGL_SWAP_INTERVAL_ZERO");
+        } else {
+            gSDLAndroidEGLSwapIntervalZero = false;
         }
     });
     return gSDLAndroidEGLSwapIntervalZero;
@@ -632,11 +658,22 @@ TVPAndroidGLStateSnapshot SaveAndroidGLState(GLint positionAttrib,
     TVPAndroidGLStateSnapshot snapshot;
     glGetIntegerv(GL_FRAMEBUFFER_BINDING, &snapshot.framebuffer);
     glGetIntegerv(GL_VIEWPORT, snapshot.viewport);
+    glGetIntegerv(GL_SCISSOR_BOX, snapshot.scissorBox);
     glGetIntegerv(GL_ACTIVE_TEXTURE, &snapshot.activeTexture);
     glActiveTexture(GL_TEXTURE0);
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &snapshot.texture0Binding);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &snapshot.arrayBuffer);
+    glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING,
+                  &snapshot.elementArrayBuffer);
     glGetIntegerv(GL_CURRENT_PROGRAM, &snapshot.program);
+    glGetIntegerv(GL_BLEND_EQUATION_RGB, &snapshot.blendEquationRGB);
+    glGetIntegerv(GL_BLEND_EQUATION_ALPHA, &snapshot.blendEquationAlpha);
+    glGetIntegerv(GL_BLEND_SRC_RGB, &snapshot.blendSrcRGB);
+    glGetIntegerv(GL_BLEND_DST_RGB, &snapshot.blendDstRGB);
+    glGetIntegerv(GL_BLEND_SRC_ALPHA, &snapshot.blendSrcAlpha);
+    glGetIntegerv(GL_BLEND_DST_ALPHA, &snapshot.blendDstAlpha);
+    glGetIntegerv(GL_CULL_FACE_MODE, &snapshot.cullFaceMode);
+    glGetIntegerv(GL_FRONT_FACE, &snapshot.frontFace);
     glGetIntegerv(GL_UNPACK_ALIGNMENT, &snapshot.unpackAlignment);
 #if defined(GL_UNPACK_ROW_LENGTH)
     if(IsAndroidGLUnpackRowLengthSupported())
@@ -644,9 +681,12 @@ TVPAndroidGLStateSnapshot SaveAndroidGLState(GLint positionAttrib,
 #endif
     glGetFloatv(GL_COLOR_CLEAR_VALUE, snapshot.clearColor);
     glGetBooleanv(GL_COLOR_WRITEMASK, snapshot.colorMask);
+    glGetBooleanv(GL_DEPTH_WRITEMASK, &snapshot.depthMask);
     snapshot.blend = glIsEnabled(GL_BLEND);
     snapshot.depthTest = glIsEnabled(GL_DEPTH_TEST);
     snapshot.scissorTest = glIsEnabled(GL_SCISSOR_TEST);
+    snapshot.cullFace = glIsEnabled(GL_CULL_FACE);
+    snapshot.stencilTest = glIsEnabled(GL_STENCIL_TEST);
     if(positionAttrib >= 0)
         SaveAndroidGLAttrib(static_cast<GLuint>(positionAttrib),
                             snapshot.attribs[0]);
@@ -660,11 +700,21 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
     RestoreAndroidGLAttrib(snapshot.attribs[0]);
     RestoreAndroidGLAttrib(snapshot.attribs[1]);
     glBindBuffer(GL_ARRAY_BUFFER, static_cast<GLuint>(snapshot.arrayBuffer));
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER,
+                 static_cast<GLuint>(snapshot.elementArrayBuffer));
     glUseProgram(static_cast<GLuint>(snapshot.program));
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D,
                   static_cast<GLuint>(snapshot.texture0Binding));
     glActiveTexture(static_cast<GLenum>(snapshot.activeTexture));
+    glBlendEquationSeparate(static_cast<GLenum>(snapshot.blendEquationRGB),
+                            static_cast<GLenum>(snapshot.blendEquationAlpha));
+    glBlendFuncSeparate(static_cast<GLenum>(snapshot.blendSrcRGB),
+                        static_cast<GLenum>(snapshot.blendDstRGB),
+                        static_cast<GLenum>(snapshot.blendSrcAlpha),
+                        static_cast<GLenum>(snapshot.blendDstAlpha));
+    glCullFace(static_cast<GLenum>(snapshot.cullFaceMode));
+    glFrontFace(static_cast<GLenum>(snapshot.frontFace));
     glPixelStorei(GL_UNPACK_ALIGNMENT, snapshot.unpackAlignment);
 #if defined(GL_UNPACK_ROW_LENGTH)
     if(IsAndroidGLUnpackRowLengthSupported())
@@ -674,6 +724,7 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
                  snapshot.clearColor[2], snapshot.clearColor[3]);
     glColorMask(snapshot.colorMask[0], snapshot.colorMask[1],
                 snapshot.colorMask[2], snapshot.colorMask[3]);
+    glDepthMask(snapshot.depthMask);
     if(snapshot.blend)
         glEnable(GL_BLEND);
     else
@@ -686,10 +737,20 @@ void RestoreAndroidGLState(const TVPAndroidGLStateSnapshot &snapshot) {
         glEnable(GL_SCISSOR_TEST);
     else
         glDisable(GL_SCISSOR_TEST);
+    if(snapshot.cullFace)
+        glEnable(GL_CULL_FACE);
+    else
+        glDisable(GL_CULL_FACE);
+    if(snapshot.stencilTest)
+        glEnable(GL_STENCIL_TEST);
+    else
+        glDisable(GL_STENCIL_TEST);
     glBindFramebuffer(GL_FRAMEBUFFER,
                       static_cast<GLuint>(snapshot.framebuffer));
     glViewport(snapshot.viewport[0], snapshot.viewport[1], snapshot.viewport[2],
                snapshot.viewport[3]);
+    glScissor(snapshot.scissorBox[0], snapshot.scissorBox[1],
+              snapshot.scissorBox[2], snapshot.scissorBox[3]);
 }
 
 bool RestoreAndroidEGLCurrentLocked(
@@ -799,13 +860,14 @@ bool EnsureAndroidEGLProgramLocked(const char *stage) {
     static const char *kVertexShader =
         "attribute vec2 aPosition;\n"
         "attribute vec2 aTexCoord;\n"
-        "uniform vec2 uUvScale;\n"
+        "uniform vec4 uUvRect;\n"
         "uniform float uFlipY;\n"
         "varying vec2 vTexCoord;\n"
         "void main() {\n"
         "  gl_Position = vec4(aPosition, 0.0, 1.0);\n"
         "  float v = uFlipY > 0.5 ? (1.0 - aTexCoord.y) : aTexCoord.y;\n"
-        "  vTexCoord = vec2(aTexCoord.x * uUvScale.x, v * uUvScale.y);\n"
+        "  vTexCoord = vec2(mix(uUvRect.x, uUvRect.z, aTexCoord.x),\n"
+        "                   mix(uUvRect.y, uUvRect.w, v));\n"
         "}\n";
     static const char *kFragmentShader =
         "precision mediump float;\n"
@@ -863,7 +925,7 @@ bool EnsureAndroidEGLProgramLocked(const char *stage) {
     state.positionAttrib = glGetAttribLocation(program, "aPosition");
     state.texCoordAttrib = glGetAttribLocation(program, "aTexCoord");
     state.textureUniform = glGetUniformLocation(program, "uTexture");
-    state.uvScaleUniform = glGetUniformLocation(program, "uUvScale");
+    state.uvRectUniform = glGetUniformLocation(program, "uUvRect");
     state.flipYUniform = glGetUniformLocation(program, "uFlipY");
     if(state.positionAttrib < 0 || state.texCoordAttrib < 0) {
         glDeleteProgram(state.program);
@@ -1001,7 +1063,7 @@ void ResetAndroidEGLContextResourcesLocked(const char *reason) {
     state.positionAttrib = -1;
     state.texCoordAttrib = -1;
     state.textureUniform = -1;
-    state.uvScaleUniform = -1;
+    state.uvRectUniform = -1;
     state.flipYUniform = -1;
     state.vertexBuffer = 0;
     state.uploadTexture = 0;
@@ -1140,9 +1202,6 @@ bool EnsureAndroidEGLSurfacePresenterLocked(ANativeWindow *window, int width,
         LogSDLAndroidEGLPresenter(message);
     }
 
-    if(!EnsureAndroidEGLProgramLocked(stage))
-        return false;
-
     return true;
 }
 
@@ -1224,6 +1283,10 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             return false;
     }
 
+    if(!TVPAndroidAcquireFlutterGameSurfaceWindow ||
+       !TVPAndroidReleaseFlutterGameSurfaceWindow ||
+       !TVPAndroidGetFlutterGameSurfaceSize)
+        return false;
     ANativeWindow *window = TVPAndroidAcquireFlutterGameSurfaceWindow();
     if(!window) {
         std::lock_guard<std::mutex> lock(gSDLAndroidEGLPresenterMutex);
@@ -1317,8 +1380,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             samePresenterContext && IsAndroidEGLSaveGLStateEnabled();
         TVPAndroidGLStateSnapshot glState;
         if(savePresenterGLState)
-            glState =
-                SaveAndroidGLState(state.positionAttrib, state.texCoordAttrib);
+            glState = SaveAndroidGLState(0, 1);
 
         if(!eglMakeCurrent(state.display, state.surface, state.surface,
                            state.context)) {
@@ -1326,6 +1388,13 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                 stage, AndroidEGLFormatError("eglMakeCurrent", eglGetError()));
             if(savePresenterGLState)
                 RestoreAndroidGLState(glState);
+            TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+            return false;
+        }
+        if(!EnsureAndroidEGLProgramLocked(stage)) {
+            RestoreAndroidEGLCurrentLocked(
+                previousDisplay, previousDraw, previousRead, previousContext,
+                savePresenterGLState ? &glState : nullptr, stage);
             TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
         }
@@ -1379,6 +1448,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         glDisable(GL_BLEND);
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_SCISSOR_TEST);
+        glDisable(GL_CULL_FACE);
+        glDisable(GL_STENCIL_TEST);
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
         viewport = ComputeAndroidAspectViewport(surfaceWidth, surfaceHeight,
@@ -1388,7 +1459,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
         glUniform1i(state.textureUniform, 0);
-        glUniform2f(state.uvScaleUniform, uvScaleU, uvScaleV);
+        glUniform4f(state.uvRectUniform, 0.0f, 0.0f, uvScaleU, uvScaleV);
         flipY = IsAndroidEGLSurfaceFlipYEnabled();
         glUniform1f(state.flipYUniform, flipY ? 1.0f : 0.0f);
         glBindBuffer(GL_ARRAY_BUFFER, state.vertexBuffer);
@@ -1415,6 +1486,12 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             savePresenterGLState ? &glState : nullptr, stage);
         TVPAndroidReleaseFlutterGameSurfaceWindow(window);
 
+        if(!restored) {
+            LogAndroidEGLFailureLocked(
+                stage, "external present skipped because EGL restore failed");
+            return false;
+        }
+
         if(glError != GL_NO_ERROR) {
             char reason[160];
             std::snprintf(reason, sizeof(reason), "gl draw failed: 0x%x",
@@ -1427,9 +1504,6 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             state, texture, nativeTexture != 0,
             kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight,
             &dirtyOverwritten, &previousDirtySerial, &dirtyOverwriteCount);
-        if(!restored)
-            LogAndroidEGLFailureLocked(
-                stage, "external present posted but EGL restore failed");
         presented = true;
     }
 
@@ -1933,6 +2007,11 @@ bool TVPSDLAndroidFlutterPresenterTryPresentTexture(iTVPTexture2D *texture,
        format != TVPTextureFormat::RGBA)
         return false;
 
+    if(!TVPAndroidAcquireFlutterGameSurfaceWindow ||
+       !TVPAndroidReleaseFlutterGameSurfaceWindow ||
+       !TVPAndroidGetFlutterGameSurfaceSize)
+        return false;
+
     ANativeWindow *window = TVPAndroidAcquireFlutterGameSurfaceWindow();
     if(!window) {
         const uint64_t unavailable = ++gFlutterSurfaceUnavailable;
@@ -2069,6 +2148,11 @@ bool TVPSDLAndroidFlutterPresenterTryPresentSurface(SDL_Surface *surface,
 #if defined(__ANDROID__)
     if(!surface || !surface->pixels || surfaceWidth <= 0 ||
        surfaceHeight <= 0 || pitch <= 0)
+        return false;
+
+    if(!TVPAndroidAcquireFlutterGameSurfaceWindow ||
+       !TVPAndroidReleaseFlutterGameSurfaceWindow ||
+       !TVPAndroidGetFlutterGameSurfaceSize)
         return false;
 
     ANativeWindow *window = TVPAndroidAcquireFlutterGameSurfaceWindow();

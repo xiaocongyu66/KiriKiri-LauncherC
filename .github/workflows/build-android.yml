@@ -303,7 +303,7 @@ jobs:
 
           val krkr2NoCocosHost = providers.gradleProperty("krkr2NoCocosHost")
               .map(String::toBoolean)
-              .getOrElse(false)
+              .getOrElse(true)
 
           extensions.configure<ApplicationExtension>("android") {
               namespace = "org.github.krkr2"

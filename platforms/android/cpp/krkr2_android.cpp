@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <atomic>
 #include <condition_variable>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <string>
@@ -106,16 +107,47 @@ public:
             { true, "android-sdl3-start-game", kTVPSDLFixedGameSurfaceWidth,
               kTVPSDLFixedGameSurfaceHeight, kTVPSDLFixedGameSurfaceWidth,
               kTVPSDLFixedGameSurfaceHeight });
-        return TVPRuntimeStartApplication(request.gamePath);
+        const bool started = TVPRuntimeStartApplication(request.gamePath);
+        if(started)
+            ResetFrameClock();
+        return started;
     }
 
     void RunFrame(float deltaSeconds) override {
-        TVPAndroidEnsureSDLRenderContextCurrent("android-sdl3-run-frame");
-        TVPRuntimeRunApplicationFrame(deltaSeconds);
-        TVPRuntimeRecycleFrameResources();
-        TVPRuntimePumpScreenPresenter("android-sdl3");
+        RunFrameTransaction(deltaSeconds, "android-sdl3-run-frame");
     }
 
+    void RunFrameTick() {
+        RunFrameTransaction(NextFrameDeltaSeconds(), "android-sdl3-frame-tick");
+    }
+
+    void ResetFrameClock() {
+        std::lock_guard<std::mutex> lock(FrameClockMutex);
+        LastFrameTime = std::chrono::steady_clock::time_point{};
+    }
+
+private:
+    float NextFrameDeltaSeconds() {
+        using clock = std::chrono::steady_clock;
+        const auto now = clock::now();
+        std::lock_guard<std::mutex> lock(FrameClockMutex);
+        if(LastFrameTime == clock::time_point{}) {
+            LastFrameTime = now;
+            return 1.0f / 60.0f;
+        }
+        const std::chrono::duration<float> elapsed = now - LastFrameTime;
+        LastFrameTime = now;
+        return std::clamp(elapsed.count(), 0.0f, 0.25f);
+    }
+
+    void RunFrameTransaction(float deltaSeconds, const char *stage) {
+        TVPAndroidEnsureSDLRenderContextCurrent(stage ? stage : "android-sdl3");
+        TVPRuntimeRunApplicationFrame(deltaSeconds);
+        TVPRuntimeRecycleFrameResources();
+        TVPRuntimePumpScreenPresenter(stage ? stage : "android-sdl3");
+    }
+
+public:
     TVPRuntimeHostFrameMetrics GetFrameMetrics() override {
         TVPRuntimeHostFrameMetrics metrics;
         metrics.frameWidth = kTVPSDLFixedGameSurfaceWidth;
@@ -125,6 +157,10 @@ public:
         metrics.scale = 1.0f;
         return metrics;
     }
+
+private:
+    std::mutex FrameClockMutex;
+    std::chrono::steady_clock::time_point LastFrameTime;
 };
 
 static TVPAndroidSDLRuntimeHost gAndroidSDLRuntimeHost;
@@ -216,7 +252,9 @@ void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
 
 extern "C" JNIEXPORT void JNICALL
 Java_org_cocos2dx_lib_Cocos2dxRenderer_nativeFrameEnd(JNIEnv *, jclass) {
+#if KRKR2_ENABLE_COCOS_HOST
     (void)TVPRuntimePumpScreenPresenter("cocos-frame-end");
+#endif
 }
 
 namespace kr2android {
@@ -556,12 +594,13 @@ Java_org_github_krkr2_AndroidRuntimeBridge_nativeStartGame(
 }
 
 JNIEXPORT void JNICALL
-Java_org_github_krkr2_AndroidRuntimeBridge_nativeRunFrame(JNIEnv *, jclass,
-                                                          jfloat deltaSeconds) {
-    if(iTVPRuntimeHost *host = TVPGetRuntimeHost())
-        host->RunFrame(static_cast<float>(deltaSeconds));
-    else {
-        TVPRuntimeRunApplicationFrame(static_cast<float>(deltaSeconds));
+Java_org_github_krkr2_AndroidRuntimeBridge_nativeRunFrame(JNIEnv *, jclass) {
+    if(TVPGetRuntimeHost() == &gAndroidSDLRuntimeHost) {
+        gAndroidSDLRuntimeHost.RunFrameTick();
+    } else if(iTVPRuntimeHost *host = TVPGetRuntimeHost()) {
+        host->RunFrame(1.0f / 60.0f);
+    } else {
+        TVPRuntimeRunApplicationFrame(1.0f / 60.0f);
         TVPRuntimeRecycleFrameResources();
     }
 }
@@ -632,6 +671,9 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeLifecycleEvent(JNIEnv *env, jclass,
                                                         jstring detail) {
     const std::string eventNameValue = JStringToStdString(env, eventName);
     const std::string detailValue = JStringToStdString(env, detail);
+    if(eventNameValue.find("onResume") != std::string::npos ||
+       eventNameValue.find("surfaceCreated") != std::string::npos)
+        gAndroidSDLRuntimeHost.ResetFrameClock();
     TVPSDLRecordAndroidLifecycle(eventNameValue.c_str(), detailValue.c_str());
 }
 
@@ -640,6 +682,9 @@ Java_org_github_krkr2_AndroidRuntimeBridge_nativeLifecycleEvent(
     JNIEnv *env, jclass, jstring eventName, jstring detail) {
     const std::string eventNameValue = JStringToStdString(env, eventName);
     const std::string detailValue = JStringToStdString(env, detail);
+    if(eventNameValue.find("onResume") != std::string::npos ||
+       eventNameValue.find("surfaceCreated") != std::string::npos)
+        gAndroidSDLRuntimeHost.ResetFrameClock();
     TVPSDLRecordAndroidLifecycle(eventNameValue.c_str(), detailValue.c_str());
 }
 

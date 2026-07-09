@@ -101,12 +101,6 @@ static tTVPRect TVPMakeLayerLocalFullRect(const tTVPRect &rect) {
     return tTVPRect(0, 0, rect.get_width(), rect.get_height());
 }
 
-static tTVPRect TVPMakeFullGPUCompletionRect(const tTVPRect &rect) {
-    return TVPShouldUseFullFrameGPUCompletion()
-        ? TVPMakeLayerLocalFullRect(rect)
-        : rect;
-}
-
 //---------------------------------------------------------------------------
 // temporary bitmap management
 //---------------------------------------------------------------------------
@@ -6720,18 +6714,10 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
             } else {
                 useTemp = true;
                 UpdateBitmapForChild = tTVPTempBitmapHolder::GetTemp(
-                    rect.get_width(), rect.get_height());
+                    Rect.get_width(), Rect.get_height());
             }
-            // copy self image to UpdateBitmapForChild
-            if(MainImage != nullptr) {
-                // 				if (UpdateExcludeRect.top <=
-                // rect.top
-                // && UpdateExcludeRect.bottom >= rect.bottom &&
-                // rect.left >= UpdateExcludeRect.left && rect.right
-                // <= UpdateExcludeRect.right) { 				} else
-                CopySelfForRect(UpdateBitmapForChild, 0, 0,
-                                rect); // transfer self image
-            }
+            tTVPRect rectForChild(0, 0, Rect.get_width(), Rect.get_height());
+            CopySelfForRect(UpdateBitmapForChild, 0, 0, rectForChild);
 
             TVP_LAYER_FOR_EACH_CHILD_BEGIN(child) {
                 // for each child...
@@ -6741,7 +6727,8 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                     continue;
 
                 // intersection check
-                if(!TVPIntersectRect(&UpdateRectForChild, rect, child->Rect))
+                if(!TVPIntersectRect(&UpdateRectForChild, rectForChild,
+                                     child->Rect))
                     continue;
 
                 // setup UpdateOfsX/Y UpdateRectForChildOfsX/Y
@@ -6757,7 +6744,6 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                                 UpdateRectForChild.top, UpdateRectForChild);
             }
             TVP_LAYER_FOR_EACH_CHILD_END
-            rect.set_offsets(0, 0);
             target->DrawCompleted(rctar, UpdateBitmapForChild, rect,
                                   DisplayType, Opacity);
             if(useTemp)
@@ -7494,23 +7480,9 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
         Manager->GetLayerTreeOwner()->StartBitmapCompletion(Manager);
     try {
         if(IsGPU()) {
-            if(Manager) {
-                tTVPComplexRect &updateRegion =
-                    Manager->GetUpdateRegionForCompletion();
-                if(updateRegion.GetCount() > 0) {
-                    const tTVPRect completionRect =
-                        TVPShouldUseFullFrameGPUCompletion()
-                            ? TVPMakeLayerLocalFullRect(Rect)
-                            : updateRegion.GetBound();
-                    InternalComplete2_GPU(completionRect, drawable);
-                } else if(!Manager->GetDrawBuffer())
-                    InternalComplete2_GPU(TVPMakeFullGPUCompletionRect(Rect),
-                                          drawable);
-                updateRegion.Clear();
-            } else {
-                InternalComplete2_GPU(TVPMakeFullGPUCompletionRect(Rect),
-                                      drawable);
-            }
+            InternalComplete2_GPU(TVPMakeLayerLocalFullRect(Rect), drawable);
+            if(Manager)
+                Manager->GetUpdateRegionForCompletion().Clear();
         } else {
             InternalComplete2(Manager->GetUpdateRegionForCompletion(),
                               drawable);

@@ -1,4 +1,22 @@
 pluginManagement {
+    def flutterSdkPath = {
+        def properties = new Properties()
+        def localProperties = file('local.properties')
+        if (localProperties.exists()) {
+            localProperties.withInputStream { properties.load(it) }
+        }
+        def sdk = properties.getProperty('flutter.sdk')
+                ?: System.getenv('FLUTTER_ROOT')
+                ?: System.getenv('FLUTTER_HOME')
+        assert sdk != null: 'Set flutter.sdk in platforms/android/local.properties or FLUTTER_ROOT/FLUTTER_HOME'
+        if (!localProperties.exists()) {
+            localProperties.text = "flutter.sdk=${sdk.replace('\\', '\\\\')}\n"
+        }
+        return sdk
+    }()
+
+    includeBuild("$flutterSdkPath/packages/flutter_tools/gradle")
+
     repositories {
         gradlePluginPortal()
         google()
@@ -7,7 +25,7 @@ pluginManagement {
 }
 
 dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositoriesMode.set(RepositoriesMode.PREFER_SETTINGS)
     repositories {
         google()
         mavenCentral()

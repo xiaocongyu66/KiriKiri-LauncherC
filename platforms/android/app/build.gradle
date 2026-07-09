@@ -1,9 +1,10 @@
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.android'
+    id 'dev.flutter.flutter-gradle-plugin'
 }
 
-def krkr2NoCocosHost = (findProperty('krkr2NoCocosHost') ?: 'false').toString().toBoolean()
+def krkr2NoCocosHost = (findProperty('krkr2NoCocosHost') ?: 'true').toString().toBoolean()
 
 android {
     ndkVersion '28.0.13004108'
@@ -145,4 +146,8 @@ dependencies {
     implementation 'androidx.compose.runtime:runtime-livedata:1.7.6'
     implementation 'io.coil-kt:coil-compose:2.7.0'
     debugImplementation 'androidx.compose.ui:ui-tooling:1.7.6'
+}
+
+flutter {
+    source '../../../flutter_launcher'
 }

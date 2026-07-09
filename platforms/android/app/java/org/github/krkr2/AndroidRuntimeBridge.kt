@@ -98,9 +98,9 @@ object AndroidRuntimeBridge {
     }
 
     @JvmStatic
-    fun runFrame(deltaSeconds: Float) {
+    fun runFrame() {
         if (ensureInitialized()) runCatching {
-            nativeRunFrame(deltaSeconds)
+            nativeRunFrame()
         }.onFailure {
             initFailure = it
             Log.e(TAG, "nativeRunFrame failed", it)
@@ -244,7 +244,7 @@ object AndroidRuntimeBridge {
     private external fun nativeInitRuntime()
     private external fun nativeSetApplicationContext(context: Context?)
     private external fun nativeStartGame(gamePath: String, preferenceRoot: String): Boolean
-    private external fun nativeRunFrame(deltaSeconds: Float)
+    private external fun nativeRunFrame()
     private external fun nativePumpPresenter(): Boolean
     private external fun nativeLifecycleEvent(eventName: String, detail: String)
     private external fun nativeOnLowMemory()

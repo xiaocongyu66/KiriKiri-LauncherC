@@ -2,6 +2,9 @@
 
 constexpr int kTVPSDLFixedGameSurfaceWidth = 1920;
 constexpr int kTVPSDLFixedGameSurfaceHeight = 1080;
+static_assert(kTVPSDLFixedGameSurfaceWidth == 1920 &&
+                  kTVPSDLFixedGameSurfaceHeight == 1080,
+              "LauncherC game surface must stay fixed at 1920x1080");
 
 enum class TVPSDLPresentPath {
     None,

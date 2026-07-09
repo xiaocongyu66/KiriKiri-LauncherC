@@ -100,15 +100,20 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             GAME_SURFACE_WIDTH,
             GAME_SURFACE_HEIGHT,
         )
-        val nativeLogFile = LauncherPrefs.configureNativeLogging(this)
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
         val ffmpegDecodeMode = LauncherPrefs.getFfmpegDecodeMode(this)
-        KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)
-        KR2Activity.setFFmpegDecodeMode(LauncherPrefs.getFfmpegDecodeModeCode(this))
         AndroidRuntimeBridge.setApplicationContext(applicationContext)
-        if (!AndroidRuntimeBridge.ensureInitialized() ||
-            !AndroidRuntimeBridge.ensureSdlJavaReady(this)
-        ) {
+        val runtimeReady = AndroidRuntimeBridge.ensureInitialized()
+        val nativeLogFile = if (runtimeReady) {
+            LauncherPrefs.configureNativeLogging(this)
+        } else {
+            LauncherPrefs.beginUnifiedLogSession(this)
+        }
+        if (runtimeReady) {
+            KR2Activity.setUseFFmpegImageDecoder(useFfmpegImageDecoder)
+            KR2Activity.setFFmpegDecodeMode(LauncherPrefs.getFfmpegDecodeModeCode(this))
+        }
+        if (!runtimeReady || !AndroidRuntimeBridge.ensureSdlJavaReady(this)) {
             LauncherPrefs.writeLauncherLog(
                 this,
                 "SdlRuntimeActivity runtime init failed\n${AndroidRuntimeBridge.lastFailureMessage()}",
@@ -207,15 +212,9 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     override fun doFrame(frameTimeNanos: Long) {
         framePosted = false
         if (!running) return
-        val deltaSeconds = if (lastFrameNanos == 0L) {
-            1.0f / 60.0f
-        } else {
-            ((frameTimeNanos - lastFrameNanos).coerceAtLeast(0L) / 1_000_000_000.0f)
-                .coerceIn(0.0f, 0.25f)
-        }
         lastFrameNanos = frameTimeNanos
         if (gameStarted) {
-            AndroidRuntimeBridge.runFrame(deltaSeconds)
+            AndroidRuntimeBridge.runFrame()
         }
         postFramePump()
     }

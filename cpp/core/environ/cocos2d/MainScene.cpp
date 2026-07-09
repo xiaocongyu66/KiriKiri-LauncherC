@@ -44,6 +44,7 @@
 #include "runtime/RuntimeHost.h"
 #include "runtime/RuntimePresenter.h"
 #include "sdl/SDLGameManager.h"
+#include "StorageImpl.h"
 
 #if defined(__ANDROID__)
 #include <android/log.h>
@@ -89,6 +90,21 @@ static tjs_uint32 _startupBeginTick = 0;
 static bool _startupFirstWindowLayerLogged = false;
 static bool _startupFirstDrawBufferLogged = false;
 static bool _sdlScreenTakeoverLogged = false;
+
+#if defined(__ANDROID__)
+static std::string TVPGetAndroidRuntimeWritablePath() {
+    const std::vector<std::string> paths = TVPGetAppStoragePath();
+    for(const std::string &path : paths) {
+        if(!path.empty()) {
+            std::string writable = path;
+            if(writable.back() != '/')
+                writable.push_back('/');
+            return writable;
+        }
+    }
+    return {};
+}
+#endif
 
 
 #include "CCKeyCodeConv.h"
@@ -3232,13 +3248,27 @@ bool TVPGetScreenSize(tjs_int idx, tjs_int &w, tjs_int &h) {
 }
 
 ttstr TVPGetDataPath() {
+#if defined(__ANDROID__)
+    const std::string androidPath = TVPGetAndroidRuntimeWritablePath();
+    if(!androidPath.empty())
+        return androidPath;
+#endif
     std::string path = cocos2d::FileUtils::getInstance()->getWritablePath();
     return path;
 }
 
-#include "StorageImpl.h"
-
 static std::string _TVPGetInternalPreferencePath() {
+#if defined(__ANDROID__)
+    std::string path = TVPGetAndroidRuntimeWritablePath();
+    if(!path.empty()) {
+        path += ".preference";
+        if(!TVPCheckExistentLocalFolder(path)) {
+            TVPCreateFolders(path);
+        }
+        path += "/";
+        return path;
+    }
+#endif
     std::string path = cocos2d::FileUtils::getInstance()->getWritablePath();
     path += ".preference";
     if(!TVPCheckExistentLocalFolder(path)) {

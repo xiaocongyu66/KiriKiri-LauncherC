@@ -531,7 +531,7 @@ class LauncherBridge {
       'language': 'en',
       'forceLandscape': false,
       'useFfmpegImageDecoder': false,
-      'useSdlRuntimeActivity': false,
+      'useSdlRuntimeActivity': true,
       'ffmpegDecodeMode': 'software',
       'fileLogEnabled': false,
       'fileLogAutoCleanup': false,

@@ -3426,13 +3426,6 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     LogSDLFrameSync(message);
                 }
             }
-            if(androidResult.deferredSwap) {
-                deferredSwapDrained =
-                    TVPSDLAndroidFlutterPresenterSwapIfDirty(
-                        stage ? stage : "android-egl-present");
-                if(deferredSwapDrained)
-                    TVPSDLRecordExternalPresenterPostedFrame();
-            }
             if(androidResult.deferredSwap &&
                (ShouldLogScreenPresenter(presented) || pendingOverwrite)) {
                 char message[384];

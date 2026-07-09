@@ -73,7 +73,7 @@ object LauncherPrefs {
     }
 
     fun getUseSdlRuntimeActivity(context: Context): Boolean =
-        LauncherSettingsDb.getBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, false)
+        LauncherSettingsDb.getBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, true)
 
     fun setUseSdlRuntimeActivity(context: Context, enabled: Boolean) {
         LauncherSettingsDb.setBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, enabled)
