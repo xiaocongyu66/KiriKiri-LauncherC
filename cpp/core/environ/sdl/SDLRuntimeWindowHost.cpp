@@ -1,7 +1,7 @@
 #include "tjsCommHead.h"
 
 #include "NativeLog.h"
-#include "RuntimePresenter.h"
+#include "runtime/RuntimePresenter.h"
 #include "SDLPresentTypes.h"
 #include "WindowImpl.h"
 #include "RenderManager.h"
@@ -172,3 +172,13 @@ void TVPConsoleLog(const ttstr &message) {
 #endif
 }
 
+void TVPConsoleLog(const ttstr &message, bool important) {
+    (void)important;
+    TVPConsoleLog(message);
+}
+
+namespace TJS {
+void TVPConsoleLog(const ttstr &message) {
+    ::TVPConsoleLog(message);
+}
+} // namespace TJS
