@@ -417,9 +417,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
             availableSize.width,
             availableSize.height,
           );
-          if (_gameDisplaySize.width > 0 && _gameDisplaySize.height > 0) {
-            _scheduleGameSurface();
-          }
           _clampOverlayPosition(deferNotify: true);
           final consoleWidth = math.min(
             math.max(300.0, constraints.maxWidth * 0.46),
@@ -430,7 +427,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
             children: [
               Positioned.fill(
                 child: ColoredBox(
-                  color: _gameTextureId == null ? Colors.transparent : Colors.black,
+                  color: Colors.transparent,
                   child: _gameDisplaySize.isEmpty
                       ? const SizedBox.shrink()
                       : Center(

@@ -81,14 +81,5 @@
             android:theme="@style/Theme.KR2"
             android:windowSoftInputMode="adjustPan" />
 
-        <activity
-            android:name=".MainActivity"
-            android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
-            android:exported="false"
-            android:screenOrientation="userLandscape"
-            android:launchMode="singleTask"
-            android:theme="@style/Theme.KR2"
-            android:windowSoftInputMode="adjustPan"
-            tools:ignore="DiscouragedApi" />
     </application>
 </manifest>

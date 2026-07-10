@@ -129,7 +129,8 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             finish()
             return
         }
-        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.flutterOverlay disabled: native SurfaceView path")
+        installFlutterGameOverlay(root)
+        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.flutterOverlay enabled: input/menu only")
         recordLifecycle("onCreate")
         LauncherPrefs.writeLauncherLog(
             this,

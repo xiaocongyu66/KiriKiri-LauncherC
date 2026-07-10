@@ -199,7 +199,6 @@ jobs:
           mkdir -p flutter_launcher/android/app/src/main/java/org/tvp
           cp -R platforms/android/app/java/org/tvp/kirikiri2 flutter_launcher/android/app/src/main/java/org/tvp/
           mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
-          cp platforms/android/app/java/org/github/krkr2/MainActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/AndroidRuntimeBridge.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/SdlRuntimeActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/StoragePermission.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
@@ -253,15 +252,6 @@ jobs:
                           <category android:name="android.intent.category.LAUNCHER" />
                       </intent-filter>
                   </activity>
-
-                  <activity
-                      android:name=".MainActivity"
-                      android:configChanges="keyboardHidden|orientation|screenSize|uiMode"
-                      android:exported="false"
-                      android:screenOrientation="userLandscape"
-                      android:launchMode="singleTask"
-                      android:theme="@style/Theme.KR2"
-                      android:windowSoftInputMode="adjustPan" />
 
                   <activity
                       android:name=".SdlRuntimeActivity"

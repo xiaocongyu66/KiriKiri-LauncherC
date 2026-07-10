@@ -378,3 +378,38 @@ Important invariant kept:
 - Game/native rendering surface remains 1920x1080.
 - No new Cocos path was introduced.
 - Legacy `MainActivity` is still present in source for now because some copied Java/Kotlin bridge code still references Cocos/KR2 static helpers, but launch flow no longer routes to it. Later migration should split static bridge methods out of `KR2Activity` and then stop copying/declaring `MainActivity` in the Flutter shell entirely.
+
+## 2026-07-11 overlay restore without second game surface
+
+User asked to keep the floating in-game menu and mouse-mode controls while continuing to remove Cocos. New log `/root/log/20260711071952477.log` showed the previous change correctly forced the SDL runtime path:
+
+```text
+[launcher] SdlRuntimeActivity.flutterOverlay disabled: native SurfaceView path
+[flutter-surface] AndroidRuntimeBridge set game surface ... size=1920x1080 requested=1920x1080
+[launcher] SdlRuntimeActivity.surfaceCreated surface-view size=1920x1080
+```
+
+There were no new `MainActivity` / Cocos crash lines in this log. The problem is that disabling the overlay also removed the wanted floating menu and mouse button.
+
+Fix applied:
+
+- Re-enabled `installFlutterGameOverlay(root)` in `SdlRuntimeActivity`, but only as an input/menu overlay.
+- Updated `flutter_launcher/lib/src/pages/game_overlay_page.dart` so the overlay no longer schedules or creates a Flutter `Texture`/`SurfaceProducer` game surface.
+- The native Android `SurfaceView` remains the only real game presenter and keeps the fixed 1920x1080 render contract.
+- The Flutter overlay still draws the floating action tray, game menu panel, startup console, and FPS overlay, and forwards touches through the existing `gameTouchBegin/Move/End/Cancel` MethodChannel path.
+- The mouse-mode button still calls the native SDL UI action `mouse-mode` through `LauncherBridge.performOverlayAction`, so it can toggle the runtime's virtual mouse behavior without creating another presenter surface.
+
+Why this matters:
+
+- The earlier overlay implementation could create a second 1920x1080 game surface from Flutter. That was a likely source of the black strip/alignment problems and duplicated presenter ownership.
+- This restored overlay keeps Flutter for controls only, not for the game texture. That is closer to the target architecture: SDL3 owns the game frame loop and present path; Flutter owns launcher/control UI.
+
+Additional Cocos removal step:
+
+- Removed `MainActivity` from the generated Flutter Android manifest in `.github/workflows/build-android.yml`.
+- Stopped copying `platforms/android/app/java/org/github/krkr2/MainActivity.kt` into the generated Flutter shell.
+- Removed `MainActivity` declaration from `platforms/android/app/AndroidManifest.xml`.
+
+Remaining Cocos debt:
+
+- `KR2Activity` and some Cocos Java support are still copied because several static bridge/config/logging methods still live there. Next migration step should move those static methods to a Cocos-free bridge class, then stop copying `KR2Activity` and `libcocos2dx/java` into the Flutter shell.
