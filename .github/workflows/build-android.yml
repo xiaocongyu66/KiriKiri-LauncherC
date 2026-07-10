@@ -202,6 +202,7 @@ jobs:
           cp platforms/android/app/java/org/github/krkr2/MainActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/AndroidRuntimeBridge.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/SdlRuntimeActivity.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
+          cp platforms/android/app/java/org/github/krkr2/StoragePermission.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/KR2Application.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/LauncherPrefs.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/LauncherSettingsDb.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/

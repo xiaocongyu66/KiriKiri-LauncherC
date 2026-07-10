@@ -294,3 +294,25 @@ Fix applied:
 
 - `LocaleConfigManager::Initialize()` still strips a UTF BOM with `tinyxml2::XMLUtil::ReadBOM`, then calls `doc.Parse(p)` instead of `doc.ParseDeep(...)`.
 - This keeps the same behavior without depending on Cocos' old tinyxml2 internals.
+
+## 2026-07-11 CI follow-up: Flutter shell missing StoragePermission helper
+
+Android run `29126970798`, job `86474525204` reached Kotlin compilation and failed with:
+
+```text
+MainActivity.kt:664:16 Unresolved reference 'StoragePermission'
+MainActivity.kt:689:21 Unresolved reference 'StoragePermission'
+SdlRuntimeActivity.kt:104:14 Unresolved reference 'StoragePermission'
+SdlRuntimeActivity.kt:106:27 Unresolved reference 'StoragePermission'
+```
+
+Root cause:
+
+- The Flutter Android CI shell is generated in `flutter_launcher/` during `.github/workflows/build-android.yml`.
+- The workflow copied `MainActivity.kt` and `SdlRuntimeActivity.kt`, both of which now call the shared permission helper.
+- It did not copy `platforms/android/app/java/org/github/krkr2/StoragePermission.kt`, so the generated shell had references but not the helper source.
+
+Fix applied:
+
+- Added `StoragePermission.kt` to the explicit Kotlin copy list in `build-android.yml`.
+- Kept the copy list explicit instead of copying all Kotlin files, because the Flutter shell intentionally does not compile every legacy Compose launcher source yet.
