@@ -41,6 +41,7 @@ set(ENVIRON_SOURCE_FILES
     ${ENVIRON_PATH}/sdl/SDLGameManager.cpp
     ${ENVIRON_PATH}/sdl/SDLAndroidFlutterPresenter.cpp
     ${ENVIRON_PATH}/sdl/SDLRuntimePresenter.cpp
+    $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:${ENVIRON_PATH}/sdl/SDLRuntimeWindowHost.cpp>
     ${ENVIRON_PATH}/sdl/SDLUIManager.cpp
     ${ENVIRON_PATH}/sdl/tvpsdl.cpp
 

@@ -1891,8 +1891,8 @@ public:
             Update(pixel, Format, pitch, tTVPRect(0, 0, w, h));
         } else {
             InternalInit(nullptr, intw, inth, 0);
-            PixelData = new unsigned char[internalW * internalH * 4];
-            int linesize = w * pixsize, dstpitch = internalW * 4;
+            PixelData = new unsigned char[internalW * internalH * pixsize];
+            int linesize = w * pixsize, dstpitch = internalW * pixsize;
             unsigned char *src = (unsigned char *)pixel;
             unsigned char *dst = (unsigned char *)PixelData;
             for(unsigned int y = 0; y < h; ++y) {
@@ -1933,16 +1933,20 @@ public:
         if(PixelData) {
             if(rc.left > 0 || rc.top > 0 || rc.bottom < Height ||
                rc.right < Width) {
-                unsigned char *src = (unsigned char *)pixel,
-                              *dst = (unsigned char *)PixelData;
-                int dpitch = internalW * 4;
-                for(int y = 0; y < Height; ++y) {
-                    memcpy(dst, src, dpitch);
+                const unsigned int pixsize = Format & 0xF;
+                const unsigned char *src = (const unsigned char *)pixel;
+                const int dpitch = internalW * pixsize;
+                const int linesize = rc.get_width() * pixsize;
+                unsigned char *dst = (unsigned char *)PixelData +
+                    rc.top * dpitch + rc.left * pixsize;
+                for(int y = 0; y < rc.get_height(); ++y) {
+                    memcpy(dst, src, linesize);
                     src += pitch;
                     dst += dpitch;
                 }
-                pixel = PixelData;
-                pitch = internalW * 4;
+                pixel = (unsigned char *)PixelData + rc.top * dpitch +
+                    rc.left * pixsize;
+                pitch = dpitch;
                 PixelDataCounter = 5;
             } else {
                 delete[] PixelData;

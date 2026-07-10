@@ -98,6 +98,9 @@ target_link_libraries(${PROJECT_NAME} PRIVATE libbpg)
 find_package(WebP CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} INTERFACE WebP::webp WebP::webpdecoder WebP::webpdemux)
 
+find_package(Freetype REQUIRED)
+target_link_libraries(${PROJECT_NAME} PUBLIC Freetype::Freetype)
+
 if(KRKR2_ENABLE_COCOS_HOST)
     find_package(cocos2dx CONFIG REQUIRED)
     include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")

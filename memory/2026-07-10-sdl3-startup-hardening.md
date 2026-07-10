@@ -125,3 +125,53 @@ Fix:
 
 - Define `CHECK_GL_ERROR_DEBUG()` and `CHECK_GL_ERROR_DEBUG_WITH_FMT(...)` as no-op when not provided by a debug build. This avoids adding hot-path `glGetError()` checks in release.
 - Define `GL_DEPTH24_STENCIL8` to the standard enum value `0x88F0` when the platform headers do not expose it.
+
+## 2026-07-11 manifest version cleanup
+
+`platforms/android/app/AndroidManifest.xml` previously duplicated `versionCode` and `versionName` while Gradle already owned the version fields. The manifest copy was removed so Android packaging now has a single version source of truth in Gradle.
+
+## 2026-07-11 whole-project risk review and no-Cocos host follow-up
+
+Hard constraints that must not be forgotten:
+
+- Keep migrating to Flutter + SDL3. Do not solve new failures by restoring Cocos as the Android runtime host.
+- The game/native render surface is fixed at 1920x1080. Flutter/device/Cocos sizes are presentation concerns only.
+- Prefer proven AetherKiri / krkrsdl2 / krkrsdl3 behavior: full deterministic present when required, swap only after a complete new frame, no hot-path integrity validation.
+- Do not add expensive per-frame defensive checks. Fix ownership, pitch, dirty-rect, and lifecycle contracts instead.
+
+CI run `29117956842` for commit `5166294` failed in the Android native link step, not in Java/Kotlin:
+
+```text
+ld.lld: error: undefined symbol: TVPCreateAndAddWindow(tTJSNI_Window*)
+ld.lld: error: undefined symbol: TVPGetActiveWindow()
+ld.lld: error: undefined symbol: TJS::TVPConsoleLog(TJS::tTJSString const&)
+ld.lld: error: undefined symbol: TVPSetPostUpdateEvent(void (*)())
+ld.lld: error: undefined symbol: FT_Init_FreeType
+```
+
+Root cause: Android now builds native no-Cocos by default. The old Cocos `MainScene.cpp` used to provide the global window-host functions and also pulled in FreeType transitively through the Cocos external target. In no-Cocos mode those symbols must be provided by the SDL/Flutter runtime host and explicit library links.
+
+Fix implemented in this pass:
+
+- Added `cpp/core/environ/sdl/SDLRuntimeWindowHost.cpp` for no-Cocos builds. It provides the minimum SDL3/Flutter runtime window host: `TVPCreateAndAddWindow`, `TVPGetActiveWindow`, `TVPSetPostUpdateEvent`, `TVPConsoleLog`, and a lightweight `iWindowLayer` implementation.
+- The no-Cocos window host does not create Cocos nodes, sprites, or textures. It keeps width/height fixed at the engine surface contract and submits textures to `TVPRuntimePresentHostWindowTexture()`.
+- `cpp/core/environ/CMakeLists.txt` compiles `SDLRuntimeWindowHost.cpp` only when `KRKR2_ENABLE_COCOS_HOST=OFF`.
+- `cpp/core/visual/CMakeLists.txt` now explicitly finds and links `Freetype::Freetype`, because Cocos no longer supplies that dependency.
+- `cpp/core/render/sdlgpu/CMakeLists.txt` now receives the same `KRKR2_ENABLE_COCOS_HOST=0/1` compile definition as visual/environ/movie modules. This avoids different modules seeing incompatible `RenderManager.h` / texture adapter ABI.
+
+Render correctness fix implemented in this pass:
+
+- `cpp/core/visual/ogl/RenderManager_ogl.cpp` had a high-risk `PixelData` partial-update path. When a cached CPU pixel buffer existed and a partial rect update arrived, the code copied `Height` rows and `internalW * 4` bytes per row from the rect source pointer, then uploaded from the wrong source origin. This can copy old or unrelated layer data into the wrong region and matches the previously observed symptoms: stale chunks, incorrect left/top pieces, and partial old-frame blocks.
+- The path now allocates the cache using `internalW * internalH * pixsize`, copies only `rc.get_height()` rows and `rc.get_width() * pixsize` bytes into `rc.left/rc.top`, then uploads from the matching cached rect pointer with a pitch of `internalW * pixsize`.
+
+Important unresolved risks from sub-agent review:
+
+- Android Java/Gradle is still not a true no-Cocos app. `settings.gradle` includes `:cocos2dx`, `app/build.gradle` depends on it, and `MainActivity -> KR2Activity -> Cocos2dxActivity` still exists. Proper next step is to split legacy Cocos activity/sourceSet or move shared static native settings APIs to a Cocos-free bridge.
+- `SdlRuntimeActivity` is still a plain `Activity`, not SDL's `SDLActivity`. krkrsdl3's final shape uses SDL-owned lifecycle callbacks and frame iteration. Current bridge is acceptable as a migration step but not final architecture.
+- Native init still reports success to Java through a `void nativeInitRuntime()`. If `dlopen("libSDL3.so")` or SDL `JNI_OnLoad` fails, Java can mark the bridge initialized anyway. This should become a native boolean result with retryable failure state.
+- There is still no complete native stop/reset entrypoint for SDL runtime host/presenter. `onDestroy()` detaches surfaces and clears Java context, but process-global runtime host, presenter, EGL/pbuffer state, and frame clock are not fully reset.
+- `TVPAndroidSDLRuntimeHost::StartGame()` enables screen takeover before `TVPRuntimeStartApplication()`. If game startup fails after takeover is enabled, presenter state can remain half-active. Move takeover after successful start or add rollback.
+- Android presenter still has risky raw `iTVPTexture2D*` deferred state in `SDLAndroidFlutterPresenter.cpp`. If a texture is queued for deferred EGL swap and then recycled/destroyed before swap, this can become stale-pointer or wrong dirty-clear behavior. Future fix: `AddRef/Release` queued textures or use a stable texture generation token.
+- Android direct-present copy paths can still post after partial copy failure. Future fix: make copy helpers return `bool` and do not `unlockAndPost` a failed or half-written buffer.
+- Dirty rect performance is still limited because Android presenter often expands to full frame. Keep full-frame on first frame/surface changes/recovery, but restore real dirty-rect uploads when the backend can honor them safely.
+- `TVPSDLPumpScreenPresenter()` holds the SDL surface mirror mutex across expensive copy/post work. Snapshot state under lock, release before copy/post, then validate generation.
