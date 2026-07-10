@@ -82,3 +82,46 @@ cpp/core/movie/ffmpeg/VideoPlayer.cpp:15:10: fatal error: 'platform/CCPlatformCo
 Root cause: no-Cocos Flutter/SDL3 build intentionally does not include Cocos headers, but `VideoPlayer.cpp` still had a naked include of Cocos `platform/CCPlatformConfig.h`. That header was not used by the file.
 
 Fix: removed the unused `#include "platform/CCPlatformConfig.h"` from `cpp/core/movie/ffmpeg/VideoPlayer.cpp`. Other movie Cocos includes, notably in `KRMoviePlayer.cpp`, are already protected by `#if KRKR2_ENABLE_COCOS_HOST` and should not compile in no-Cocos mode.
+
+## 2026-07-11 overlay fallback visibility follow-up
+
+Sub-agent review found a startup/display trap: `SdlRuntimeActivity` still creates a bottom `SurfaceView` fallback, but then adds a full-screen Flutter overlay above it. The overlay used an opaque `FlutterTextureView`, black `FlutterView` background, and the Dart game overlay painted a full-screen black `ColoredBox` even when `_gameTextureId == null`.
+
+That meant fallback could be technically attached and rendering, but visually hidden behind Flutter black. This exactly matches a class of confusing symptoms: startup succeeds, native surface is valid, frame loop runs, but user sees black when Flutter SurfaceProducer/Texture is unavailable or disposed.
+
+Fix:
+
+- `SdlRuntimeActivity.installFlutterGameOverlay()` now sets the overlay `FlutterTextureView` non-opaque and `FlutterView` background transparent.
+- `GameOverlayPage` now paints transparent background when `_gameTextureId == null`, and keeps black letterbox only when a Flutter texture is actually active.
+
+This preserves the fixed 1920x1080 native fallback path while the Flutter texture path is being stabilized. Longer term we should choose one primary game surface host, but until SDL3 fully replaces Cocos and the Flutter texture producer path is proven everywhere, fallback must be visible.
+
+## 2026-07-11 Android no-Cocos default follow-up
+
+Sub-agent CI/CMake review found that CMake still defaulted `KRKR2_ENABLE_COCOS_HOST` to `ON` in the top-level project and several core subprojects. Gradle currently passes `-DKRKR2_ENABLE_COCOS_HOST=OFF`, but relying on every build path to remember that flag is fragile during the Flutter + SDL3 migration.
+
+Fix: Android now defaults `KRKR2_ENABLE_COCOS_HOST` to `OFF` in:
+
+- `CMakeLists.txt`
+- `cpp/core/CMakeLists.txt`
+- `cpp/core/environ/CMakeLists.txt`
+- `cpp/core/movie/CMakeLists.txt`
+- `cpp/core/visual/CMakeLists.txt`
+
+Desktop/default non-Android behavior remains `ON`, and explicit `-DKRKR2_ENABLE_COCOS_HOST=...` still overrides the default.
+
+## 2026-07-11 CI follow-up: OGL no-Cocos compile
+
+Build run `29116965046` for commit `5c6899a` progressed past the previous `VideoPlayer.cpp` Cocos include failure. The next fatal errors were in `cpp/core/visual/ogl/RenderManager_ogl.cpp`:
+
+```text
+error: use of undeclared identifier 'CHECK_GL_ERROR_DEBUG'
+error: use of undeclared identifier 'GL_DEPTH24_STENCIL8'
+```
+
+Root cause: `CHECK_GL_ERROR_DEBUG` existed only inside a disabled `#if 0` debug block, but release/no-Cocos builds still referenced it. `GL_DEPTH24_STENCIL8` may not be exposed by the Android GLES2 headers used by this CI toolchain.
+
+Fix:
+
+- Define `CHECK_GL_ERROR_DEBUG()` and `CHECK_GL_ERROR_DEBUG_WITH_FMT(...)` as no-op when not provided by a debug build. This avoids adding hot-path `glGetError()` checks in release.
+- Define `GL_DEPTH24_STENCIL8` to the standard enum value `0x88F0` when the platform headers do not expose it.

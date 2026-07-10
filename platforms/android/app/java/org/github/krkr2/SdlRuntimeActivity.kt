@@ -430,9 +430,9 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         engine.dartExecutor.executeDartEntrypoint(DartExecutor.DartEntrypoint.createDefault())
 
         val textureView = FlutterTextureView(this)
-        textureView.setOpaque(true)
+        textureView.setOpaque(false)
         val view = FlutterView(this, textureView)
-        view.setBackgroundColor(Color.BLACK)
+        view.setBackgroundColor(Color.TRANSPARENT)
         view.attachToFlutterEngine(engine)
         overlayEngine = engine
         overlayView = view

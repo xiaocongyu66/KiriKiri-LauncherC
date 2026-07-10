@@ -1,7 +1,11 @@
 cmake_minimum_required(VERSION 3.19)
 project(core_visual_module LANGUAGES CXX)
 
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ON)
+set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
+if(ANDROID)
+    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
+endif()
+option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
 
 set(VISUAL_PATH ${CMAKE_CURRENT_LIST_DIR})
 set(VISUAL_SOURCE_FILES

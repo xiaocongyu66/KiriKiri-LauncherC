@@ -430,7 +430,7 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
             children: [
               Positioned.fill(
                 child: ColoredBox(
-                  color: Colors.black,
+                  color: _gameTextureId == null ? Colors.transparent : Colors.black,
                   child: _gameDisplaySize.isEmpty
                       ? const SizedBox.shrink()
                       : Center(

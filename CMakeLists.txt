@@ -45,7 +45,11 @@ project(${APP_NAME})
 
 option(ENABLE_TESTS "enable tests execute build(exclude android)" ON)
 option(BUILD_TOOLS "build tools execute build(exclude android ios)" ON)
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ON)
+set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
+if(ANDROID)
+    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
+endif()
+option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)

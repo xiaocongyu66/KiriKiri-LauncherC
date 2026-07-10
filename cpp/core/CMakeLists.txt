@@ -3,7 +3,11 @@ project(krkr2core)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/common)
 
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ON)
+set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
+if(ANDROID)
+    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
+endif()
+option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
 
 add_library(${PROJECT_NAME} INTERFACE)
 

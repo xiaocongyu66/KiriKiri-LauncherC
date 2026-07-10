@@ -40,6 +40,16 @@
 #define GL_COMPRESSED_RGBA_PVRTC_2BPPV2_IMG 0x9137
 #define GL_COMPRESSED_RGBA_PVRTC_4BPPV2_IMG 0x9138
 #endif
+#ifndef GL_DEPTH24_STENCIL8
+#define GL_DEPTH24_STENCIL8 0x88F0
+#endif
+
+#ifndef CHECK_GL_ERROR_DEBUG
+#define CHECK_GL_ERROR_DEBUG() ((void)0)
+#endif
+#ifndef CHECK_GL_ERROR_DEBUG_WITH_FMT
+#define CHECK_GL_ERROR_DEBUG_WITH_FMT(...) ((void)0)
+#endif
 
 namespace TJS {
     void TVPConsoleLog(const ttstr &str);
