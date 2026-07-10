@@ -1,7 +1,7 @@
 #include "LocaleConfigManager.h"
 #include "ConfigFileIO.h"
 #include "GlobalConfigManager.h"
-#include "tinyxml2/tinyxml2.h"
+#include <tinyxml2.h>
 #ifndef KRKR2_ENABLE_COCOS_HOST
 #define KRKR2_ENABLE_COCOS_HOST 0
 #endif

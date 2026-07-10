@@ -229,3 +229,49 @@ Reasoning:
 - This avoids the package database conflict without changing Cocos' legacy build graph yet.
 - It also keeps the migration direction correct: new SDL3/no-Cocos modules should depend on normal vcpkg targets, not Cocos private external targets.
 - If a later duplicate-symbol issue appears, the next step is to patch the Cocos port to use the official `tinyxml2::tinyxml2` target instead of building `ext_tinyxml2`, but that is a larger port change and not needed for this failure.
+
+## 2026-07-11 CI follow-up: no-Cocos SDL host link failures
+
+Manual Android run `29124894698`, job `86468221394` was triggered for commit `5945d72` because the previous push only changed `vcpkg/` and `memory/`, which does not match the `Code Format Check` push path filter and therefore does not automatically chain into `Build Flutter Android`.
+
+The run passed vcpkg configure/install after the Cocos/tinyxml2 package-file conflict was fixed, then failed at the final `libkrkr2.so` link. The first link errors were:
+
+```text
+ld.lld: error: undefined symbol: tinyxml2::XMLNode::ParseDeep(char*, tinyxml2::StrPair*)
+ld.lld: error: undefined symbol: tinyxml2::XMLPrinter::XMLPrinter(__sFILE*, bool)
+ld.lld: error: undefined symbol: tinyxml2::XMLDocument::Print(tinyxml2::XMLPrinter*)
+ld.lld: error: undefined symbol: TVPGetInternalPreferencePath()
+ld.lld: error: undefined symbol: TVPGetOSName()
+ld.lld: error: undefined symbol: TVPGetPlatformName()
+ld.lld: error: undefined symbol: TVPGetJoyPadAsyncState(unsigned int, bool)
+ld.lld: error: undefined symbol: TVPGetKeyMouseAsyncState(unsigned int, bool)
+ld.lld: error: undefined symbol: TVPOpenPatchLibUrl()
+ld.lld: error: undefined symbol: TVPCopyFile(...)
+ld.lld: error: undefined symbol: TVPSetPostDrawHook(void (*)())
+```
+
+Root causes:
+
+- Tinyxml2 headers were still included as `"tinyxml2/tinyxml2.h"`. In the mixed legacy dependency graph this can resolve to Cocos' older bundled tinyxml2 header while linking against vcpkg's newer `libtinyxml2.a`. That causes ABI-signature mismatches such as `XMLPrinter(FILE*, bool)` vs the newer `XMLPrinter(FILE*, bool, int)` symbol.
+- No-Cocos Android builds exclude `cocos2d/MainScene.cpp`, `cocos2d/AppDelegate.cpp`, and `cocos2d/CustomFileUtils.cpp`. Those files used to provide several process-wide platform/window helpers. The new `SDLRuntimeWindowHost.cpp` already replaced the main window creation path, but it did not yet replace every global helper consumed by base/plugin modules.
+
+Fix applied locally after this CI run:
+
+- Updated our tinyxml2 users to include canonical vcpkg header `<tinyxml2.h>`:
+  - `cpp/core/environ/ConfigManager/GlobalConfigManager.cpp`
+  - `cpp/core/environ/ConfigManager/LocaleConfigManager.cpp`
+  - `cpp/core/environ/ui/MainFileSelectorForm.cpp`
+  - `cpp/core/environ/ui/PreferenceForm.cpp`
+  - `cpp/plugins/pluginSurfaceCompat.cpp`
+- Extended `cpp/core/environ/sdl/SDLRuntimeWindowHost.cpp` with no-Cocos replacements for the previously Cocos-owned process helpers:
+  - `TVPGetInternalPreferencePath()` stores preferences under the first Android app storage path plus `/.preference/`, and creates the folder if missing.
+  - `TVPGetPlatformName()` / `TVPGetOSName()` return platform strings without calling Cocos.
+  - `TVPGetKeyMouseAsyncState()` and `TVPGetJoyPadAsyncState()` currently return false. This is intentionally minimal for the link fix; later SDL input migration should wire these to the SDL input state manager instead of Cocos' scancode table.
+  - `TVPOpenPatchLibUrl()` is a no-op for now. Later Flutter/Android bridge can open the URL from Java/Kotlin without bringing Cocos back.
+  - `TVPCopyFile()` and recursive folder copy now use `FILE*` and `TVPListDir`, matching the old Cocos implementation shape but living in the SDL host.
+  - `TVPSetPostDrawHook()` stores the callback and `TVPSDLRuntimeInvokePostDrawHook()` invokes it. Later the SDL frame loop/presenter should call this at the deterministic post-present/post-draw point so Live2D keeps working without Cocos' `TVPPostDrawHookNode`.
+
+Design note:
+
+- These are migration shims, not a new dependency on Cocos. They should remain owned by the SDL/no-Cocos runtime until the functions are split into cleaner platform, filesystem, input, and frame-hook modules.
+- The fixed 1920x1080 game-surface contract remains unchanged.

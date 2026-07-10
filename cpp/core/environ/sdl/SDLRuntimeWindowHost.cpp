@@ -1,21 +1,55 @@
 #include "tjsCommHead.h"
 
 #include "NativeLog.h"
+#include "Platform.h"
 #include "runtime/RuntimePresenter.h"
 #include "SDLPresentTypes.h"
+#include "StorageImpl.h"
 #include "WindowImpl.h"
 #include "RenderManager.h"
 #include "TVPWindow.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <mutex>
 #include <string>
+#include <vector>
+
+#ifndef S_IFDIR
+#define S_IFDIR 0x4000
+#endif
+#ifndef S_IFREG
+#define S_IFREG 0x8000
+#endif
+
+#if defined(__ANDROID__)
+std::vector<std::string> TVPGetAppStoragePath();
+#endif
 
 namespace {
 
 std::mutex gSDLRuntimeWindowMutex;
 tTJSNI_Window *gSDLRuntimeActiveWindow = nullptr;
 void (*gSDLRuntimePostUpdate)() = nullptr;
+void (*gSDLRuntimePostDrawHook)() = nullptr;
+
+bool TVPSDLRuntimeCopyFolder(const std::string &from, const std::string &to) {
+    if(!TVPCheckExistentLocalFolder(to) && !TVPCreateFolders(to))
+        return false;
+
+    bool success = true;
+    TVPListDir(from, [&](const std::string &name, int mask) {
+        if(!success || name == "." || name == "..")
+            return;
+        const std::string src = from + "/" + name;
+        const std::string dst = to + "/" + name;
+        if(mask & S_IFREG)
+            success = TVPCopyFile(src, dst);
+        else if(mask & S_IFDIR)
+            success = TVPSDLRuntimeCopyFolder(src, dst);
+    });
+    return success;
+}
 
 class TVPSDLRuntimeWindowLayer final : public iWindowLayer {
 public:
@@ -140,6 +174,83 @@ private:
 };
 
 } // namespace
+
+bool TVPCopyFile(const std::string &from, const std::string &to) {
+    FILE *src = fopen(from.c_str(), "rb");
+    if(!src)
+        return TVPSDLRuntimeCopyFolder(from, to);
+
+    FILE *dst = fopen(to.c_str(), "wb");
+    if(!dst) {
+        fclose(src);
+        return false;
+    }
+
+    std::vector<char> buffer(1024 * 1024);
+    bool success = true;
+    size_t readBytes = 0;
+    while((readBytes = fread(buffer.data(), 1, buffer.size(), src)) > 0) {
+        if(fwrite(buffer.data(), 1, readBytes, dst) != readBytes) {
+            success = false;
+            break;
+        }
+    }
+    if(ferror(src))
+        success = false;
+    fclose(src);
+    fclose(dst);
+    return success;
+}
+
+const std::string &TVPGetInternalPreferencePath() {
+    static std::string path = [] {
+        std::string ret;
+#if defined(__ANDROID__)
+        const std::vector<std::string> storagePaths = TVPGetAppStoragePath();
+        if(!storagePaths.empty())
+            ret = storagePaths.front();
+#endif
+        if(ret.empty())
+            ret = ".";
+        if(!ret.empty() && ret.back() != '/')
+            ret += "/";
+        ret += ".preference";
+        if(!TVPCheckExistentLocalFolder(ret))
+            TVPCreateFolders(ret);
+        ret += "/";
+        return ret;
+    }();
+    return path;
+}
+
+ttstr TVPGetPlatformName() {
+#if defined(__ANDROID__)
+    return "Android";
+#elif defined(_WIN32)
+    return "Win32";
+#elif defined(__APPLE__)
+    return "MacOS";
+#elif defined(__linux__)
+    return "Linux";
+#else
+    return "Unknown";
+#endif
+}
+
+ttstr TVPGetOSName() { return TVPGetPlatformName(); }
+
+bool TVPGetKeyMouseAsyncState(tjs_uint, bool) { return false; }
+
+bool TVPGetJoyPadAsyncState(tjs_uint, bool) { return false; }
+
+void TVPOpenPatchLibUrl() {}
+
+void TVPSetPostDrawHook(void (*hook)()) { gSDLRuntimePostDrawHook = hook; }
+
+void TVPSDLRuntimeInvokePostDrawHook() {
+    if(gSDLRuntimePostDrawHook)
+        gSDLRuntimePostDrawHook();
+}
 
 iWindowLayer *TVPCreateAndAddWindow(tTJSNI_Window *window) {
     return new TVPSDLRuntimeWindowLayer(window);

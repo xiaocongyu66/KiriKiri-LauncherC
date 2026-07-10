@@ -15,8 +15,8 @@
 #define KRKR2_PLUGIN_HAS_CURL 0
 #endif
 
-#if __has_include("tinyxml2/tinyxml2.h")
-#include "tinyxml2/tinyxml2.h"
+#if __has_include(<tinyxml2.h>)
+#include <tinyxml2.h>
 #define KRKR2_PLUGIN_HAS_TINYXML2 1
 #else
 #define KRKR2_PLUGIN_HAS_TINYXML2 0
