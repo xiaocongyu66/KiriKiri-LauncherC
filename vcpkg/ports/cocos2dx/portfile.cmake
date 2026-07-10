@@ -63,5 +63,11 @@ vcpkg_cmake_config_fixup()
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
+# The project consumes tinyxml2 as a first-class vcpkg package so non-Cocos
+# modules can link tinyxml2::tinyxml2 directly. Cocos2d-x still builds its
+# private ext_tinyxml2 target, but exporting its copy of the public header makes
+# vcpkg's installed file database conflict with the real tinyxml2 port.
+file(REMOVE "${CURRENT_PACKAGES_DIR}/include/tinyxml2.h")
+
 file(GLOB LICENSE_FILES "${SOURCE_PATH}/licenses/*")
 vcpkg_install_copyright(FILE_LIST ${LICENSE_FILES})

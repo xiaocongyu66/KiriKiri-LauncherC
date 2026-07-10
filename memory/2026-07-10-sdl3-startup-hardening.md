@@ -202,3 +202,30 @@ Fix:
 
 - `core_environ_module` now explicitly finds and links `tinyxml2::tinyxml2`, matching the AetherKiri/KrKr2-Next style for config XML parsing.
 - `RenderManager.cpp` no longer depends on an external `XXH32` symbol. It now carries the small local `XXH32()` implementation used by AetherKiri/KrKr2-Next. This avoids adding a new xxhash link dependency and avoids symbol conflicts with graphics backends' bundled xxhash.
+
+## 2026-07-11 CI follow-up: tinyxml2 manifest conflict with cocos2dx
+
+CI run `29124072390`, job `86465597909` failed during Android CMake configure while vcpkg installed manifest dependencies. The first fatal error was not a C++ compile error; it was a vcpkg installed-file conflict:
+
+```text
+error: The following files are already installed .../vcpkg_installed/arm64-android and are in conflict with tinyxml2:arm64-android
+Installed by cocos2dx:arm64-android: include/tinyxml2.h
+```
+
+Root cause:
+
+- We added the real `tinyxml2` vcpkg package so `core_environ_module` and `krkr2plugin` can link `tinyxml2::tinyxml2` directly.
+- The custom `cocos2dx` vcpkg port also builds Cocos' internal `ext_tinyxml2` and exported `include/tinyxml2.h` into the same vcpkg installed tree.
+- vcpkg tracks installed files per package, so once `cocos2dx` claimed `include/tinyxml2.h`, the official `tinyxml2` package could not install its own public header.
+
+Fix applied:
+
+- Keep `tinyxml2` in `vcpkg.json` as the canonical dependency for our own modules.
+- Keep Cocos' private `ext_tinyxml2` build intact for legacy Cocos internals.
+- Patch `vcpkg/ports/cocos2dx/portfile.cmake` to remove only `${CURRENT_PACKAGES_DIR}/include/tinyxml2.h` before vcpkg packages/registers the Cocos port.
+
+Reasoning:
+
+- This avoids the package database conflict without changing Cocos' legacy build graph yet.
+- It also keeps the migration direction correct: new SDL3/no-Cocos modules should depend on normal vcpkg targets, not Cocos private external targets.
+- If a later duplicate-symbol issue appears, the next step is to patch the Cocos port to use the official `tinyxml2::tinyxml2` target instead of building `ext_tinyxml2`, but that is a larger port change and not needed for this failure.
