@@ -100,12 +100,7 @@ class LauncherSettingsActivity : AppCompatActivity() {
                     onOpenRenderSettings = { startActivity(Intent(this, RenderSettingsActivity::class.java)) },
                     onOpenDiagnostics = { startActivity(Intent(this, DiagnosticsActivity::class.java)) },
                     onLaunchOriginal = {
-                        val target = if (LauncherPrefs.getUseSdlRuntimeActivity(this)) {
-                            SdlRuntimeActivity::class.java
-                        } else {
-                            MainActivity::class.java
-                        }
-                        val intent = Intent(this, target)
+                        val intent = Intent(this, SdlRuntimeActivity::class.java)
                         intent.flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                         val root = LauncherPrefs.getGameRoot(this)
                         intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_DIR, root)

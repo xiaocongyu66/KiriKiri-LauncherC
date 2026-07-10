@@ -163,12 +163,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun createGameIntent(): Intent {
-        val target = if (LauncherPrefs.getUseSdlRuntimeActivity(this)) {
-            SdlRuntimeActivity::class.java
-        } else {
-            MainActivity::class.java
-        }
-        return Intent(this, target)
+        return Intent(this, SdlRuntimeActivity::class.java)
     }
 
     private fun requestStoragePermission() {

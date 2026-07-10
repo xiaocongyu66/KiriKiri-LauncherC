@@ -188,7 +188,7 @@ object ForceLandscapeHelper {
     }
 
     private fun isEngineLaunch(activity: Activity): Boolean {
-        return (activity is MainActivity || activity is SdlRuntimeActivity) &&
+        return activity is SdlRuntimeActivity &&
             !activity.intent?.getStringExtra(SdlRuntimeActivity.EXTRA_GAME_DIR).isNullOrEmpty()
     }
 }

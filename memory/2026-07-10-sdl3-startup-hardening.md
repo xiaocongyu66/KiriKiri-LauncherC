@@ -316,3 +316,65 @@ Fix applied:
 
 - Added `StoragePermission.kt` to the explicit Kotlin copy list in `build-android.yml`.
 - Kept the copy list explicit instead of copying all Kotlin files, because the Flutter shell intentionally does not compile every legacy Compose launcher source yet.
+
+## 2026-07-11 runtime logs: force SDL3 path and disable in-game Flutter overlay
+
+User provided logs:
+
+- `/root/log/20260711064457838.log`
+- `/root/log/20260711064528563.log`
+- `/root/log/20260711064535364.log`
+- `/root/log/20260711064541837.log`
+- `/root/log/78.log`
+
+Findings:
+
+1. Three short launcher logs crashed immediately through the legacy Cocos activity path:
+
+```text
+java.lang.UnsatisfiedLinkError: No implementation found for void org.cocos2dx.lib.Cocos2dxHelper.nativeSetAudioDeviceInfo(boolean, int, int)
+    at org.cocos2dx.lib.Cocos2dxHelper.init(Cocos2dxHelper.java:158)
+    at org.cocos2dx.lib.Cocos2dxActivity.onCreate(Cocos2dxActivity.java:143)
+    at org.tvp.kirikiri2.KR2Activity.onCreate(KR2Activity.java:171)
+    at org.github.krkr2.MainActivity.onCreate(MainActivity.kt:101)
+```
+
+This means some launch paths still reached `MainActivity`/`KR2Activity`/`Cocos2dxActivity` while the native build is already moving to the no-Cocos `libkrkr2.so` path. That is exactly the failure mode we want to eliminate during the Flutter + SDL3 migration.
+
+Fixes applied:
+
+- `LauncherPrefs.getUseSdlRuntimeActivity()` now always returns true. The old setting is still accepted by `setUseSdlRuntimeActivity(...)`, but requests to disable SDL are ignored and logged as forced true.
+- `LauncherActivity.createGameIntent()` always targets `SdlRuntimeActivity`.
+- `LauncherSettingsActivity` launch-original path always targets `SdlRuntimeActivity`.
+- `platforms/android/flutter/java/org/github/krkr2/LauncherHostActivity.java` always launches `SdlRuntimeActivity`, even when the game directory string is empty.
+- `SdlRuntimeActivity` no longer falls back to `MainActivity` on runtime init/start failure; it logs and finishes instead. Fallback to Cocos was causing a crash and is contrary to the hard migration goal.
+- `ForceLandscapeHelper` now treats only `SdlRuntimeActivity` as an engine launch.
+- `platforms/android/app/AndroidManifest.xml` marks `MainActivity` non-exported and removes its VIEW/USB intent filters so external intents do not accidentally enter the legacy Cocos activity.
+
+2. The long SDL runtime log successfully used the SDL path and fixed 1920x1080 surface:
+
+```text
+[flutter-surface] AndroidRuntimeBridge set game surface ... size=1920x1080 requested=1920x1080
+[launcher] SdlRuntimeActivity.surfaceCreated surface-view size=1920x1080
+[android-egl-presenter] queue-android-egl ... output=1920x1080 viewport=0,0,1920x1080 rect=0,0,1920x1080
+```
+
+But it also showed a second surface attachment shortly after startup, caused by the in-game Flutter overlay creating a Flutter `Texture`/`SurfaceProducer` for the game surface. User reported the floating menu and mouse path as useless and seemingly tied to game frame rate, and also reported a black strip / alignment issue. This double-surface overlay path is no longer the right default while migrating to SDL3.
+
+Fix applied:
+
+- `SdlRuntimeActivity` no longer installs the in-game Flutter overlay by default. The native `SurfaceView` remains the single active 1920x1080 game presenter.
+- This removes the floating Flutter menu/mouse layer from the hot path and prevents it from replacing the `SurfaceView` with a Flutter texture-backed surface.
+- The overlay code is left in the file for now as dormant code so it can be reworked later as a proper SDL/runtime menu, but it is not attached during game startup.
+
+3. Black area / bottom alignment:
+
+- `SdlRuntimeActivity` now applies immersive sticky fullscreen in `onCreate`, `onResume`, and `onWindowFocusChanged`.
+- This hides Android status/navigation bars for the game activity and reduces bottom black bar artifacts caused by system decor shrinking the available surface area.
+- The game buffer contract remains fixed 1920x1080. The view is still aspect-preserving and centered; it must not stretch to device aspect ratio.
+
+Important invariant kept:
+
+- Game/native rendering surface remains 1920x1080.
+- No new Cocos path was introduced.
+- Legacy `MainActivity` is still present in source for now because some copied Java/Kotlin bridge code still references Cocos/KR2 static helpers, but launch flow no longer routes to it. Later migration should split static bridge methods out of `KR2Activity` and then stop copying/declaring `MainActivity` in the Flutter shell entirely.

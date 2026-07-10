@@ -72,12 +72,11 @@ object LauncherPrefs {
         LauncherSettingsDb.setBoolean(context, KEY_FORCE_LANDSCAPE, enabled)
     }
 
-    fun getUseSdlRuntimeActivity(context: Context): Boolean =
-        LauncherSettingsDb.getBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, true)
+    fun getUseSdlRuntimeActivity(context: Context): Boolean = true
 
     fun setUseSdlRuntimeActivity(context: Context, enabled: Boolean) {
-        LauncherSettingsDb.setBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, enabled)
-        writeLauncherLog(context, "SDL runtime activity enabled=$enabled")
+        LauncherSettingsDb.setBoolean(context, KEY_USE_SDL_RUNTIME_ACTIVITY, true)
+        writeLauncherLog(context, "SDL runtime activity forced=true requested=$enabled")
     }
 
     fun getUseFfmpegImageDecoder(context: Context): Boolean =

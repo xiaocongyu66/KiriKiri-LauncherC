@@ -150,11 +150,7 @@ public class LauncherHostActivity extends FlutterActivity {
         if(!normalizedGameDir.isEmpty()) {
             LauncherPrefs.INSTANCE.applyGameEngineOverrides(this, normalizedGameDir);
         }
-        Class<?> target = !normalizedGameDir.isEmpty() &&
-            LauncherPrefs.INSTANCE.getUseSdlRuntimeActivity(this)
-            ? SdlRuntimeActivity.class
-            : MainActivity.class;
-        Intent intent = new Intent(this, target);
+        Intent intent = new Intent(this, SdlRuntimeActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
         intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_DIR, normalizedGameDir);
         intent.putExtra(SdlRuntimeActivity.EXTRA_GAME_TITLE, title == null ? "" : title);

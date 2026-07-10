@@ -72,6 +72,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         window.statusBarColor = Color.BLACK
         window.navigationBarColor = Color.BLACK
+        applyImmersiveGameMode()
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_USER_LANDSCAPE
         ForceLandscapeHelper.apply(this, true)
 
@@ -125,10 +126,10 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
                 this,
                 "SdlRuntimeActivity runtime init failed\n${AndroidRuntimeBridge.lastFailureMessage()}",
             )
-            startLegacyFallback("runtime-init-failed")
+            finish()
             return
         }
-        installFlutterGameOverlay(root)
+        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.flutterOverlay disabled: native SurfaceView path")
         recordLifecycle("onCreate")
         LauncherPrefs.writeLauncherLog(
             this,
@@ -139,6 +140,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
 
     override fun onResume() {
         super.onResume()
+        applyImmersiveGameMode()
         running = true
         lastFrameNanos = 0L
         AndroidRuntimeBridge.ensureSdlJavaReady(this)
@@ -180,7 +182,10 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) ForceLandscapeHelper.apply(this, true)
+        if (hasFocus) {
+            applyImmersiveGameMode()
+            ForceLandscapeHelper.apply(this, true)
+        }
         recordLifecycle("onWindowFocusChanged hasFocus=$hasFocus")
     }
 
@@ -249,7 +254,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
                 "SdlRuntimeActivity.start skipped runtime not ready\n" +
                     AndroidRuntimeBridge.lastFailureMessage(),
             )
-            startLegacyFallback("start-sdl-java-not-ready")
+            finish()
             return
         }
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()
@@ -264,17 +269,20 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             "SdlRuntimeActivity.startGame result=$gameStarted path=$launchPath",
         )
         if (!gameStarted) {
-            startLegacyFallback("start-game-failed")
+            LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.start failed no legacy Cocos fallback")
+            finish()
         }
     }
 
-    private fun startLegacyFallback(reason: String) {
-        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.legacyFallback reason=$reason")
-        val fallback = Intent(this, MainActivity::class.java)
-        intent?.extras?.let { fallback.putExtras(it) }
-        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        startActivity(fallback)
-        finish()
+    @Suppress("DEPRECATION")
+    private fun applyImmersiveGameMode() {
+        window.decorView.systemUiVisibility =
+            View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
     }
 
     private fun resolveLaunchPath(gameDir: String): String {
