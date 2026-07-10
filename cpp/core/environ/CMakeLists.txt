@@ -109,9 +109,11 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
 
 find_package(7zip CONFIG REQUIRED)
 find_package(SDL3 CONFIG REQUIRED)
+find_package(tinyxml2 CONFIG REQUIRED)
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
         SDL3::SDL3
+        tinyxml2::tinyxml2
 
         7zip::7zip
         minizip

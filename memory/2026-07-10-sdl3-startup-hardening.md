@@ -186,3 +186,19 @@ Additional review after commit `61ea710` found two startup-state risks that were
 Repository hygiene:
 
 - Added `.dart_tool/` to the top-level `.gitignore`, because local Flutter checks create `flutter_launcher/.dart_tool/` and it should never appear in review status.
+
+## 2026-07-11 CI follow-up: tinyxml2 and XXH32 link errors
+
+GitHub Actions job `86459812250` for run `29122257409` failed while linking `libkrkr2.so` from commit `61ea710`:
+
+```text
+ld.lld: error: undefined symbol: XXH32
+ld.lld: error: undefined symbol: tinyxml2::XMLDocument::XMLDocument(...)
+```
+
+Root cause: after removing the native Cocos host from Android, dependencies that used to arrive transitively through Cocos/external targets must be provided by the core modules themselves.
+
+Fix:
+
+- `core_environ_module` now explicitly finds and links `tinyxml2::tinyxml2`, matching the AetherKiri/KrKr2-Next style for config XML parsing.
+- `RenderManager.cpp` no longer depends on an external `XXH32` symbol. It now carries the small local `XXH32()` implementation used by AetherKiri/KrKr2-Next. This avoids adding a new xxhash link dependency and avoids symbol conflicts with graphics backends' bundled xxhash.
