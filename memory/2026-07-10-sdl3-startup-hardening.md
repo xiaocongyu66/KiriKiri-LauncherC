@@ -275,3 +275,22 @@ Design note:
 
 - These are migration shims, not a new dependency on Cocos. They should remain owned by the SDL/no-Cocos runtime until the functions are split into cleaner platform, filesystem, input, and frame-hook modules.
 - The fixed 1920x1080 game-surface contract remains unchanged.
+
+## 2026-07-11 CI follow-up: tinyxml2 v11 ParseDeep API
+
+Android run `29126379191`, job `86472757852` failed earlier in compile after switching to the canonical vcpkg tinyxml2 header:
+
+```text
+LocaleConfigManager.cpp:50:9: error: 'ParseDeep' is a protected member of 'tinyxml2::XMLNode'
+LocaleConfigManager.cpp:50:37: error: too few arguments to function call, expected 3, have 2
+```
+
+Root cause:
+
+- The old Cocos-bundled tinyxml2 header exposed/allowed the `ParseDeep(char*, StrPair*)` style used by `LocaleConfigManager`.
+- vcpkg tinyxml2 v11 makes that a protected internal API and exposes `XMLDocument::Parse(...)` as the public parser entry point.
+
+Fix applied:
+
+- `LocaleConfigManager::Initialize()` still strips a UTF BOM with `tinyxml2::XMLUtil::ReadBOM`, then calls `doc.Parse(p)` instead of `doc.ParseDeep(...)`.
+- This keeps the same behavior without depending on Cocos' old tinyxml2 internals.

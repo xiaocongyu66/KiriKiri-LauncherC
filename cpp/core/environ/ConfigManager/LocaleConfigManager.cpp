@@ -47,7 +47,7 @@ void LocaleConfigManager::Initialize(const std::string &sysLang) {
     bool _writeBOM = false;
     const char *p = xmlData.c_str();
     p = tinyxml2::XMLUtil::ReadBOM(p, &_writeBOM);
-    doc.ParseDeep((char *)p, nullptr);
+    doc.Parse(p);
     tinyxml2::XMLElement *rootElement = doc.RootElement();
     if(rootElement) {
         for(tinyxml2::XMLElement *item = rootElement->FirstChildElement(); item;
