@@ -96,6 +96,7 @@
       "name": "tbb",
       "default-features": false
     },
+    "tinyxml2",
     "uchardet",
     "unrar",
     {

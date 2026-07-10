@@ -127,6 +127,8 @@ add_definitions(-D__STDC_CONSTANT_MACROS -DTJS_TEXT_OUT_CRLF)
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${KRKR2PLUGIN_PATH} ${KRKR2PLUGIN_PATH}/simplebinder)
 target_link_libraries(${PROJECT_NAME} PUBLIC krkr2core minizip)
+find_package(tinyxml2 CONFIG REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE tinyxml2::tinyxml2)
 
 option(KRKR2_ENABLE_LIVE2D "Build the optional Live2D Cubism plugin when its SDK is complete" ON)
 if(KRKR2_ENABLE_LIVE2D)
