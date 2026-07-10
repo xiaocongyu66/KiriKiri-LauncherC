@@ -71,3 +71,14 @@ SDL3 JNI readiness is now represented by `gAndroidSDLJniReady`. `TVPAndroidIniti
 - `git diff --check` passed.
 - `:app:compileDebugKotlin -Pkrkr2NoCocosHost=true` could not configure because local Android SDK/NDK is broken: NDK `28.0.13004108` has no `source.properties`.
 
+## 2026-07-11 CI follow-up
+
+Latest GitHub Actions run for commit `22a94dc` failed in `Build Flutter launcher APK`:
+
+```text
+cpp/core/movie/ffmpeg/VideoPlayer.cpp:15:10: fatal error: 'platform/CCPlatformConfig.h' file not found
+```
+
+Root cause: no-Cocos Flutter/SDL3 build intentionally does not include Cocos headers, but `VideoPlayer.cpp` still had a naked include of Cocos `platform/CCPlatformConfig.h`. That header was not used by the file.
+
+Fix: removed the unused `#include "platform/CCPlatformConfig.h"` from `cpp/core/movie/ffmpeg/VideoPlayer.cpp`. Other movie Cocos includes, notably in `KRMoviePlayer.cpp`, are already protected by `#if KRKR2_ENABLE_COCOS_HOST` and should not compile in no-Cocos mode.
