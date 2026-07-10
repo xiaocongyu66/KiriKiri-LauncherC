@@ -27,7 +27,7 @@ public:
         gSDLRuntimeActiveWindow = window;
     }
 
-    ~TVPSDLRuntimeWindowLayer() override {
+    ~TVPSDLRuntimeWindowLayer() {
         std::lock_guard<std::mutex> lock(gSDLRuntimeWindowMutex);
         if(gSDLRuntimeActiveWindow == Window)
             gSDLRuntimeActiveWindow = nullptr;
@@ -174,7 +174,7 @@ void TVPConsoleLog(const ttstr &message) {
 
 void TVPConsoleLog(const ttstr &message, bool important) {
     (void)important;
-    TVPConsoleLog(message);
+    ::TVPConsoleLog(message);
 }
 
 namespace TJS {
