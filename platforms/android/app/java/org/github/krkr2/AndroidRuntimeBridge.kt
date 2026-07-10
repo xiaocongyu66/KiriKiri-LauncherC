@@ -44,7 +44,9 @@ object AndroidRuntimeBridge {
         return synchronized(initLock) {
             if (initialized.get()) return@synchronized true
             runCatching {
-                nativeInitRuntime()
+                if (!nativeInitRuntime()) {
+                    throw IllegalStateException("native runtime init returned not ready")
+                }
                 initFailure = null
                 initialized.set(true)
                 true
@@ -255,7 +257,7 @@ object AndroidRuntimeBridge {
         if (initialized.get()) runCatching { nativeMouseScrolled(scroll) }
     }
 
-    private external fun nativeInitRuntime()
+    private external fun nativeInitRuntime(): Boolean
     private external fun nativeSetApplicationContext(context: Context?)
     private external fun nativeStartGame(gamePath: String, preferenceRoot: String): Boolean
     private external fun nativeRunFrame()

@@ -108,13 +108,17 @@ public:
                              "start skipped: EGL context not current");
             return false;
         }
-        TVPRuntimeSetScreenTakeoverEnabled(
-            { true, "android-sdl3-start-game", kTVPSDLFixedGameSurfaceWidth,
-              kTVPSDLFixedGameSurfaceHeight, kTVPSDLFixedGameSurfaceWidth,
-              kTVPSDLFixedGameSurfaceHeight });
         const bool started = TVPRuntimeStartApplication(request.gamePath);
-        if(started)
+        if(started) {
+            TVPRuntimeSetScreenTakeoverEnabled(
+                { true, "android-sdl3-start-game", kTVPSDLFixedGameSurfaceWidth,
+                  kTVPSDLFixedGameSurfaceHeight, kTVPSDLFixedGameSurfaceWidth,
+                  kTVPSDLFixedGameSurfaceHeight });
             ResetFrameClock();
+        } else {
+            TVPRuntimeSetScreenTakeoverEnabled(
+                { false, "android-sdl3-start-game-failed", 0, 0, 0, 0 });
+        }
         return started;
     }
 
@@ -638,11 +642,16 @@ Java_org_tvp_kirikiri2_KR2Activity_nativeInitRuntime(JNIEnv *env, jclass) {
     TVPAndroidInitializeLegacyHost(env, "KR2Activity.nativeInitRuntime");
 }
 
-JNIEXPORT void JNICALL
+JNIEXPORT jboolean JNICALL
 Java_org_github_krkr2_AndroidRuntimeBridge_nativeInitRuntime(JNIEnv *env,
                                                              jclass) {
     TVPAndroidInitializeSDLHost(env,
                                 "AndroidRuntimeBridge.nativeInitRuntime");
+    return gAndroidBaseInitDone.load(std::memory_order_acquire) &&
+            gAndroidSDLJniReady.load(std::memory_order_acquire) &&
+            TVPGetRuntimeHost() == &gAndroidSDLRuntimeHost
+        ? JNI_TRUE
+        : JNI_FALSE;
 }
 
 JNIEXPORT jboolean JNICALL

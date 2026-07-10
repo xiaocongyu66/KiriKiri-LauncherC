@@ -175,3 +175,14 @@ Important unresolved risks from sub-agent review:
 - Android direct-present copy paths can still post after partial copy failure. Future fix: make copy helpers return `bool` and do not `unlockAndPost` a failed or half-written buffer.
 - Dirty rect performance is still limited because Android presenter often expands to full frame. Keep full-frame on first frame/surface changes/recovery, but restore real dirty-rect uploads when the backend can honor them safely.
 - `TVPSDLPumpScreenPresenter()` holds the SDL surface mirror mutex across expensive copy/post work. Snapshot state under lock, release before copy/post, then validate generation.
+
+## 2026-07-11 startup review follow-up
+
+Additional review after commit `61ea710` found two startup-state risks that were cheap to fix without changing the render hot path:
+
+- `AndroidRuntimeBridge.nativeInitRuntime()` was still declared as `void`, so Java marked `initialized=true` whenever the JNI call returned, even if native failed to load/bootstrap SDL3. It now returns `Boolean`, and `ensureInitialized()` throws/records a failure unless native reports that base init, SDL JNI, and the Android SDL runtime host are ready.
+- `TVPAndroidSDLRuntimeHost::StartGame()` enabled screen takeover before `TVPRuntimeStartApplication()`. It now enables takeover only after the game start succeeds, and explicitly disables takeover on start failure. This prevents a failed launch from leaving a half-active SDL presenter state.
+
+Repository hygiene:
+
+- Added `.dart_tool/` to the top-level `.gitignore`, because local Flutter checks create `flutter_launcher/.dart_tool/` and it should never appear in review status.
