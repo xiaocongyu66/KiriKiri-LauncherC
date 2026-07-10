@@ -661,12 +661,7 @@ class MainActivity : KR2Activity() {
     }
 
     private fun checkStoragePermission(): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            return Environment.isExternalStorageManager()
-        }
-        return ContextCompat.checkSelfPermission(
-            this, android.Manifest.permission.WRITE_EXTERNAL_STORAGE
-        ) == PackageManager.PERMISSION_GRANTED
+        return StoragePermission.hasAccess(this)
     }
 
     private fun requestStoragePermission(): Boolean {
@@ -691,10 +686,7 @@ class MainActivity : KR2Activity() {
             .setMessage(getString(org.github.krkr2.R.string.request_storage_permission))
             .setPositiveButton(getString(org.github.krkr2.R.string.ok)) { _, _ ->
                 startForResult.launch(
-                    Intent(
-                        Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                        android.net.Uri.fromParts("package", packageName, null)
-                    )
+                    StoragePermission.manageAllFilesIntent(this)
                 )
             }
             .setNegativeButton(getString(org.github.krkr2.R.string.cancel), null)

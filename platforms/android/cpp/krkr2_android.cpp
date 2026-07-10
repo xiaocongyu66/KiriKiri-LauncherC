@@ -102,7 +102,12 @@ public:
     bool StartGame(const TVPRuntimeHostLaunchRequest &request) override {
         if(!TVPRuntimeConfigureGameLaunch(request))
             return false;
-        TVPAndroidEnsureSDLRenderContextCurrent("android-sdl3-start-game");
+        if(!TVPAndroidEnsureSDLRenderContextCurrent(
+               "android-sdl3-start-game")) {
+            TVPNativeLogInfo("runtime-host",
+                             "start skipped: EGL context not current");
+            return false;
+        }
         TVPRuntimeSetScreenTakeoverEnabled(
             { true, "android-sdl3-start-game", kTVPSDLFixedGameSurfaceWidth,
               kTVPSDLFixedGameSurfaceHeight, kTVPSDLFixedGameSurfaceWidth,
@@ -141,10 +146,21 @@ private:
     }
 
     void RunFrameTransaction(float deltaSeconds, const char *stage) {
-        TVPAndroidEnsureSDLRenderContextCurrent(stage ? stage : "android-sdl3");
+        if(FrameInProgress.exchange(true, std::memory_order_acq_rel))
+            return;
+        struct FrameGuard {
+            std::atomic_bool &Flag;
+            ~FrameGuard() { Flag.store(false, std::memory_order_release); }
+        } guard{ FrameInProgress };
+        const char *frameStage = stage ? stage : "android-sdl3";
+        if(!TVPAndroidEnsureSDLRenderContextCurrent(frameStage)) {
+            TVPNativeLogInfo("runtime-host",
+                             "frame skipped: EGL context not current");
+            return;
+        }
         TVPRuntimeRunApplicationFrame(deltaSeconds);
         TVPRuntimeRecycleFrameResources();
-        TVPRuntimePumpScreenPresenter(stage ? stage : "android-sdl3");
+        TVPRuntimePumpScreenPresenter(frameStage);
     }
 
 public:
@@ -161,19 +177,24 @@ public:
 private:
     std::mutex FrameClockMutex;
     std::chrono::steady_clock::time_point LastFrameTime;
+    std::atomic_bool FrameInProgress{ false };
 };
 
 static TVPAndroidSDLRuntimeHost gAndroidSDLRuntimeHost;
+std::once_flag gAndroidSDLHostRegisterOnce;
 
 static void TVPRegisterAndroidSDLRuntimeHost() {
-    TVPSetRuntimeHost(&gAndroidSDLRuntimeHost);
-    TVPRegisterSDLRuntimePresenter();
-    TVPNativeLogInfo("runtime-host", "android-sdl3 runtime host registered");
+    std::call_once(gAndroidSDLHostRegisterOnce, []() {
+        TVPSetRuntimeHost(&gAndroidSDLRuntimeHost);
+        TVPRegisterSDLRuntimePresenter();
+        TVPNativeLogInfo("runtime-host", "android-sdl3 runtime host registered");
+    });
 }
 
 std::once_flag gAndroidBaseInitOnce;
 std::once_flag gAndroidCocosHostInitOnce;
 std::atomic_bool gAndroidBaseInitDone{false};
+std::atomic_bool gAndroidSDLJniReady{false};
 
 void TVPAndroidInitializeBase(JNIEnv *env, const char *source) {
     if(!env)
@@ -203,12 +224,17 @@ void TVPAndroidInitializeBase(JNIEnv *env, const char *source) {
         if(handle) {
             typedef jint (*JNI_OnLoad)(JavaVM *, void *);
             void *sdl3Init = dlsym(handle, "JNI_OnLoad");
+            const jint sdlVersion = sdl3Init
+                ? ((JNI_OnLoad)sdl3Init)(vm, nullptr)
+                : 0;
             if(!sdl3Init ||
-               ((JNI_OnLoad)sdl3Init)(vm, nullptr) != JNI_VERSION_1_4) {
+               (sdlVersion != JNI_VERSION_1_4 &&
+                sdlVersion != JNI_VERSION_1_6)) {
                 spdlog::critical("invoke libSDL3.so JNI_OnLoad method failed");
                 TVPAppendNativeFatalBreadcrumb(
                     "jni", "libSDL3.so JNI_OnLoad failed");
             } else {
+                gAndroidSDLJniReady.store(true, std::memory_order_release);
                 TVPAppendNativeFatalBreadcrumb("jni",
                                                "libSDL3.so JNI_OnLoad ok");
             }
@@ -234,6 +260,11 @@ void TVPAndroidInitializeLegacyHost(JNIEnv *env, const char *source) {
         TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
     });
 #else
+    if(!gAndroidSDLJniReady.load(std::memory_order_acquire)) {
+        TVPNativeLogInfo("runtime-host",
+                         "no-cocos host skipped: SDL JNI not ready");
+        return;
+    }
     TVPRegisterAndroidSDLRuntimeHost();
     TVPAppendNativeFatalBreadcrumb("jni", "no-cocos host init");
 #endif
@@ -241,7 +272,8 @@ void TVPAndroidInitializeLegacyHost(JNIEnv *env, const char *source) {
 
 void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
     TVPAndroidInitializeBase(env, source);
-    if(!gAndroidBaseInitDone.load(std::memory_order_acquire))
+    if(!gAndroidBaseInitDone.load(std::memory_order_acquire) ||
+       !gAndroidSDLJniReady.load(std::memory_order_acquire))
         return;
     TVPRegisterAndroidSDLRuntimeHost();
 }
@@ -361,12 +393,32 @@ bool ChooseAndroidSDLRenderConfig(EGLDisplay display, EGLConfig *config) {
         EGL_TRUE && count > 0 && *config;
 }
 
+void ResetAndroidSDLRenderContextLocked(bool terminateDisplay) {
+    auto &state = gAndroidSDLRenderContext;
+    if(state.display != EGL_NO_DISPLAY) {
+        if(eglGetCurrentDisplay() == state.display &&
+           eglGetCurrentContext() == state.context)
+            eglMakeCurrent(state.display, EGL_NO_SURFACE, EGL_NO_SURFACE,
+                           EGL_NO_CONTEXT);
+        if(state.pbuffer != EGL_NO_SURFACE)
+            eglDestroySurface(state.display, state.pbuffer);
+        if(state.context != EGL_NO_CONTEXT)
+            eglDestroyContext(state.display, state.context);
+        if(terminateDisplay)
+            eglTerminate(state.display);
+    }
+    state.display = EGL_NO_DISPLAY;
+    state.config = nullptr;
+    state.context = EGL_NO_CONTEXT;
+    state.pbuffer = EGL_NO_SURFACE;
+    state.tried = false;
+    state.ready = false;
+}
+
 bool CreateAndroidSDLRenderContextLocked(const char *stage) {
     auto &state = gAndroidSDLRenderContext;
     if(state.ready)
         return true;
-    if(state.tried)
-        return false;
     state.tried = true;
 
     state.display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
@@ -385,15 +437,24 @@ bool CreateAndroidSDLRenderContextLocked(const char *stage) {
         TVPNativeLogInfo("runtime-host",
                          FormatAndroidEGLError("eglInitialize", eglGetError())
                              .c_str());
+        ResetAndroidSDLRenderContextLocked(false);
         return false;
     }
-    eglBindAPI(EGL_OPENGL_ES_API);
+    if(eglBindAPI(EGL_OPENGL_ES_API) != EGL_TRUE) {
+        ++state.failures;
+        TVPNativeLogInfo("runtime-host",
+                         FormatAndroidEGLError("eglBindAPI", eglGetError())
+                             .c_str());
+        ResetAndroidSDLRenderContextLocked(false);
+        return false;
+    }
 
     if(!ChooseAndroidSDLRenderConfig(state.display, &state.config)) {
         ++state.failures;
         TVPNativeLogInfo("runtime-host",
                          FormatAndroidEGLError("eglChooseConfig", eglGetError())
                              .c_str());
+        ResetAndroidSDLRenderContextLocked(false);
         return false;
     }
 
@@ -420,6 +481,7 @@ bool CreateAndroidSDLRenderContextLocked(const char *stage) {
         TVPNativeLogInfo("runtime-host",
                          FormatAndroidEGLError("eglCreateContext", eglGetError())
                              .c_str());
+        ResetAndroidSDLRenderContextLocked(false);
         return false;
     }
 
@@ -436,6 +498,7 @@ bool CreateAndroidSDLRenderContextLocked(const char *stage) {
             "runtime-host",
             FormatAndroidEGLError("eglCreatePbufferSurface", eglGetError())
                 .c_str());
+        ResetAndroidSDLRenderContextLocked(false);
         return false;
     }
 
@@ -467,6 +530,7 @@ bool TVPAndroidEnsureSDLRenderContextCurrent(const char *stage) {
         TVPNativeLogInfo("runtime-host",
                          FormatAndroidEGLError("eglMakeCurrent", eglGetError())
                              .c_str());
+        ResetAndroidSDLRenderContextLocked(false);
         return false;
     }
     const uint64_t calls = ++state.makeCurrentCalls;
@@ -585,6 +649,21 @@ JNIEXPORT jboolean JNICALL
 Java_org_github_krkr2_AndroidRuntimeBridge_nativeStartGame(
     JNIEnv *env, jclass, jstring gamePath, jstring preferenceRoot) {
     TVPAndroidInitializeSDLHost(env, "AndroidRuntimeBridge.nativeStartGame");
+    if(!gAndroidBaseInitDone.load(std::memory_order_acquire) ||
+       !gAndroidSDLJniReady.load(std::memory_order_acquire) ||
+       TVPGetRuntimeHost() != &gAndroidSDLRuntimeHost) {
+        TVPNativeLogInfo("runtime-host",
+                         "start rejected: SDL host not ready");
+        return JNI_FALSE;
+    }
+    int surfaceWidth = 0;
+    int surfaceHeight = 0;
+    TVPAndroidGetFlutterGameSurfaceSize(&surfaceWidth, &surfaceHeight);
+    if(surfaceWidth <= 0 || surfaceHeight <= 0) {
+        TVPNativeLogInfo("runtime-host",
+                         "start rejected: game surface not ready");
+        return JNI_FALSE;
+    }
     TVPRuntimeHostLaunchRequest request;
     request.gamePath = JStringToStdString(env, gamePath);
     request.preferenceRoot = JStringToStdString(env, preferenceRoot);
@@ -600,8 +679,7 @@ Java_org_github_krkr2_AndroidRuntimeBridge_nativeRunFrame(JNIEnv *, jclass) {
     } else if(iTVPRuntimeHost *host = TVPGetRuntimeHost()) {
         host->RunFrame(1.0f / 60.0f);
     } else {
-        TVPRuntimeRunApplicationFrame(1.0f / 60.0f);
-        TVPRuntimeRecycleFrameResources();
+        TVPNativeLogInfo("runtime-host", "frame skipped: no runtime host");
     }
 }
 
@@ -1179,18 +1257,18 @@ static void TVPAndroidSetGameSurface(JNIEnv *env, jobject surface, jint width,
             if(gFlutterGameSurfaceWindow) {
                 gFlutterGameSurfaceWidth = kTVPSDLFixedGameSurfaceWidth;
                 gFlutterGameSurfaceHeight = kTVPSDLFixedGameSurfaceHeight;
-                ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
-                                                 gFlutterGameSurfaceWidth,
-                                                 gFlutterGameSurfaceHeight,
-                                                 WINDOW_FORMAT_RGBA_8888);
+                const int geometryResult = ANativeWindow_setBuffersGeometry(
+                    gFlutterGameSurfaceWindow, gFlutterGameSurfaceWidth,
+                    gFlutterGameSurfaceHeight, WINDOW_FORMAT_RGBA_8888);
                 char message[192];
                 std::snprintf(message, sizeof(message),
                               "%s set game surface window=%p size=%dx%d "
-                              "requested=%dx%d",
+                              "requested=%dx%d geometry=%d",
                               source ? source : "unknown",
                               static_cast<void *>(gFlutterGameSurfaceWindow),
                               gFlutterGameSurfaceWidth,
-                              gFlutterGameSurfaceHeight, width, height);
+                              gFlutterGameSurfaceHeight, width, height,
+                              geometryResult);
                 TVPNativeLogInfo("flutter-surface", message);
             } else {
                 TVPNativeLogInfo("flutter-surface",
@@ -1208,19 +1286,23 @@ static void TVPAndroidResizeGameSurface(jint width, jint height,
                                         const char *source) {
     {
         std::lock_guard<std::mutex> lock(gFlutterGameSurfaceLock);
-        gFlutterGameSurfaceWidth = kTVPSDLFixedGameSurfaceWidth;
-        gFlutterGameSurfaceHeight = kTVPSDLFixedGameSurfaceHeight;
+        int geometryResult = 0;
         if(gFlutterGameSurfaceWindow) {
-            ANativeWindow_setBuffersGeometry(gFlutterGameSurfaceWindow,
-                                             gFlutterGameSurfaceWidth,
-                                             gFlutterGameSurfaceHeight,
-                                             WINDOW_FORMAT_RGBA_8888);
+            gFlutterGameSurfaceWidth = kTVPSDLFixedGameSurfaceWidth;
+            gFlutterGameSurfaceHeight = kTVPSDLFixedGameSurfaceHeight;
+            geometryResult = ANativeWindow_setBuffersGeometry(
+                gFlutterGameSurfaceWindow, gFlutterGameSurfaceWidth,
+                gFlutterGameSurfaceHeight, WINDOW_FORMAT_RGBA_8888);
+        } else {
+            gFlutterGameSurfaceWidth = 0;
+            gFlutterGameSurfaceHeight = 0;
         }
         char message[160];
         std::snprintf(message, sizeof(message),
-                      "%s resize game surface size=%dx%d requested=%dx%d",
+                      "%s resize game surface size=%dx%d requested=%dx%d geometry=%d",
                       source ? source : "unknown", gFlutterGameSurfaceWidth,
-                      gFlutterGameSurfaceHeight, width, height);
+                      gFlutterGameSurfaceHeight, width, height,
+                      geometryResult);
         TVPNativeLogInfo("flutter-surface", message);
     }
     TVPSDLNotifyAndroidFlutterGameSurfaceChanged("resize");

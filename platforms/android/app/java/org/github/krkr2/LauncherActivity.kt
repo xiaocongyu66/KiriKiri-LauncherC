@@ -4,7 +4,6 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.os.Bundle
-import android.provider.Settings
 import androidx.activity.compose.setContent
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.background
@@ -127,6 +126,10 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun startGame(gameDir: String, title: String) {
+        if (!StoragePermission.hasAccess(this)) {
+            requestStoragePermission()
+            return
+        }
         LauncherPrefs.applyGameEngineOverrides(this, gameDir)
         val intent = createGameIntent()
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
@@ -142,6 +145,10 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun startOriginal() {
+        if (!StoragePermission.hasAccess(this)) {
+            requestStoragePermission()
+            return
+        }
         val intent = createGameIntent()
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
         val root = LauncherPrefs.getGameRoot(this)
@@ -165,11 +172,7 @@ class LauncherActivity : AppCompatActivity() {
     }
 
     private fun requestStoragePermission() {
-        val intent = Intent(
-            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-            android.net.Uri.fromParts("package", packageName, null)
-        )
-        startActivity(intent)
+        startActivity(StoragePermission.manageAllFilesIntent(this))
     }
 }
 

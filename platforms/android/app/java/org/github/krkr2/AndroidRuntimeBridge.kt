@@ -12,6 +12,7 @@ object AndroidRuntimeBridge {
     private val libraryLoaded = AtomicBoolean(false)
     private val initialized = AtomicBoolean(false)
     private val sdlJavaReady = AtomicBoolean(false)
+    private val initLock = Any()
     @Volatile private var loadFailure: Throwable? = null
     @Volatile private var initFailure: Throwable? = null
 
@@ -40,15 +41,19 @@ object AndroidRuntimeBridge {
     fun ensureInitialized(): Boolean {
         if (initialized.get()) return true
         if (!libraryLoaded.get()) return false
-        return runCatching {
-            nativeInitRuntime()
-            initFailure = null
-            initialized.set(true)
-            true
-        }.onFailure {
-            initFailure = it
-            Log.e(TAG, "native runtime init failed", it)
-        }.getOrDefault(false)
+        return synchronized(initLock) {
+            if (initialized.get()) return@synchronized true
+            runCatching {
+                nativeInitRuntime()
+                initFailure = null
+                initialized.set(true)
+                true
+            }.onFailure {
+                initFailure = it
+                initialized.set(false)
+                Log.e(TAG, "native runtime init failed", it)
+            }.getOrDefault(false)
+        }
     }
 
     @JvmStatic
@@ -68,6 +73,15 @@ object AndroidRuntimeBridge {
                 sdlJavaReady.set(false)
                 Log.e(TAG, "SDL Java bootstrap failed", it)
             }.getOrDefault(false)
+        }
+    }
+
+    @JvmStatic
+    fun clearSdlContext(activity: Activity) {
+        synchronized(this) {
+            if (SDL.getContext() === activity) {
+                SDL.setContext(null)
+            }
         }
     }
 
@@ -99,7 +113,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun runFrame() {
-        if (ensureInitialized()) runCatching {
+        if (initialized.get()) runCatching {
             nativeRunFrame()
         }.onFailure {
             initFailure = it
@@ -109,7 +123,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun pumpPresenter(): Boolean =
-        ensureInitialized() && runCatching {
+        initialized.get() && runCatching {
             nativePumpPresenter()
         }.onFailure {
             initFailure = it
@@ -118,14 +132,14 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun recordLifecycle(eventName: String, detail: String = "") {
-        if (ensureInitialized()) runCatching {
+        if (initialized.get()) runCatching {
             nativeLifecycleEvent(eventName, detail)
         }
     }
 
     @JvmStatic
     fun onLowMemory() {
-        if (ensureInitialized()) runCatching {
+        if (initialized.get()) runCatching {
             nativeOnLowMemory()
         }.onFailure {
             initFailure = it
@@ -135,7 +149,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun setGameSurface(surface: Surface?, width: Int, height: Int) {
-        if (ensureInitialized()) runCatching {
+        if (initialized.get()) runCatching {
             nativeSetGameSurface(surface, width, height)
         }.onFailure {
             initFailure = it
@@ -145,7 +159,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun resizeGameSurface(width: Int, height: Int) {
-        if (ensureInitialized()) runCatching {
+        if (initialized.get()) runCatching {
             nativeResizeGameSurface(width, height)
         }.onFailure {
             initFailure = it
@@ -155,7 +169,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun detachGameSurface() {
-        if (ensureInitialized()) runCatching {
+        if (initialized.get()) runCatching {
             nativeDetachGameSurface()
         }.onFailure {
             initFailure = it
@@ -165,7 +179,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun getGameSurfaceMetrics(): IntArray =
-        if (ensureInitialized()) {
+        if (initialized.get()) {
             runCatching {
                 nativeGetGameSurfaceMetrics()
             }.onFailure {
@@ -178,7 +192,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun getLoadingConsoleSnapshot(): Array<String> =
-        if (ensureInitialized()) {
+        if (initialized.get()) {
             runCatching {
                 nativeGetLoadingConsoleSnapshot()
             }.onFailure {
@@ -191,7 +205,7 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun getRenderOverlayStats(): Array<String> =
-        if (ensureInitialized()) {
+        if (initialized.get()) {
             runCatching {
                 nativeGetRenderOverlayStats()
             }.onFailure {
@@ -204,27 +218,27 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun touchBegin(id: Int, x: Float, y: Float) {
-        if (ensureInitialized()) runCatching { nativeFlutterTouchesBegin(id, x, y) }
+        if (initialized.get()) runCatching { nativeFlutterTouchesBegin(id, x, y) }
     }
 
     @JvmStatic
     fun touchEnd(id: Int, x: Float, y: Float) {
-        if (ensureInitialized()) runCatching { nativeFlutterTouchesEnd(id, x, y) }
+        if (initialized.get()) runCatching { nativeFlutterTouchesEnd(id, x, y) }
     }
 
     @JvmStatic
     fun touchMove(ids: IntArray, xs: FloatArray, ys: FloatArray) {
-        if (ensureInitialized()) runCatching { nativeFlutterTouchesMove(ids, xs, ys) }
+        if (initialized.get()) runCatching { nativeFlutterTouchesMove(ids, xs, ys) }
     }
 
     @JvmStatic
     fun touchCancel(ids: IntArray, xs: FloatArray, ys: FloatArray) {
-        if (ensureInitialized()) runCatching { nativeFlutterTouchesCancel(ids, xs, ys) }
+        if (initialized.get()) runCatching { nativeFlutterTouchesCancel(ids, xs, ys) }
     }
 
     @JvmStatic
     fun keyAction(keyCode: Int, pressed: Boolean): Boolean =
-        ensureInitialized() && runCatching {
+        initialized.get() && runCatching {
             nativeKeyAction(keyCode, pressed)
         }.onFailure {
             initFailure = it
@@ -233,12 +247,12 @@ object AndroidRuntimeBridge {
 
     @JvmStatic
     fun hoverMoved(x: Float, y: Float) {
-        if (ensureInitialized()) runCatching { nativeHoverMoved(x, y) }
+        if (initialized.get()) runCatching { nativeHoverMoved(x, y) }
     }
 
     @JvmStatic
     fun mouseScrolled(scroll: Float) {
-        if (ensureInitialized()) runCatching { nativeMouseScrolled(scroll) }
+        if (initialized.get()) runCatching { nativeMouseScrolled(scroll) }
     }
 
     private external fun nativeInitRuntime()

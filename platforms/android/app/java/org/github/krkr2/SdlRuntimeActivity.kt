@@ -3,6 +3,7 @@ package org.github.krkr2
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.graphics.Color
 import android.os.Bundle
@@ -100,6 +101,12 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             GAME_SURFACE_WIDTH,
             GAME_SURFACE_HEIGHT,
         )
+        if (!StoragePermission.hasAccess(this)) {
+            LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.onCreate request-storage-permission")
+            startActivity(StoragePermission.manageAllFilesIntent(this))
+            finish()
+            return
+        }
         val useFfmpegImageDecoder = LauncherPrefs.getUseFfmpegImageDecoder(this)
         val ffmpegDecodeMode = LauncherPrefs.getFfmpegDecodeMode(this)
         AndroidRuntimeBridge.setApplicationContext(applicationContext)
@@ -118,6 +125,8 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
                 this,
                 "SdlRuntimeActivity runtime init failed\n${AndroidRuntimeBridge.lastFailureMessage()}",
             )
+            startLegacyFallback("runtime-init-failed")
+            return
         }
         installFlutterGameOverlay(root)
         recordLifecycle("onCreate")
@@ -148,16 +157,18 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
     override fun onDestroy() {
         running = false
         removeFramePump()
+        overlayChannel?.setMethodCallHandler(null)
+        recordLifecycle("onDestroy#enter")
+        AndroidRuntimeBridge.detachGameSurface()
         disposeGameSurfaceTextures()
         overlayView?.detachFromFlutterEngine()
         overlayEngine?.destroy()
         overlayView = null
         overlayEngine = null
         overlayChannel = null
-        AndroidRuntimeBridge.detachGameSurface()
+        AndroidRuntimeBridge.clearSdlContext(this)
         NativeUiHost.detach(this)
         ForceLandscapeHelper.release(this)
-        recordLifecycle("onDestroy")
         super.onDestroy()
     }
 
@@ -177,12 +188,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         viewSurfaceReady = true
         holder.setFixedSize(GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
         if (activeGameSurfaceTextureId == null) {
-            surfaceReady = true
-            AndroidRuntimeBridge.setGameSurface(
-                holder.surface,
-                GAME_SURFACE_WIDTH,
-                GAME_SURFACE_HEIGHT,
-            )
+            surfaceReady = attachSurfaceViewIfValid("surfaceCreated")
         }
         recordLifecycle("surfaceCreated")
         startGameIfReady()
@@ -243,6 +249,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
                 "SdlRuntimeActivity.start skipped runtime not ready\n" +
                     AndroidRuntimeBridge.lastFailureMessage(),
             )
+            startLegacyFallback("start-sdl-java-not-ready")
             return
         }
         val gameDir = intent?.getStringExtra(EXTRA_GAME_DIR).orEmpty()
@@ -256,6 +263,18 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             this,
             "SdlRuntimeActivity.startGame result=$gameStarted path=$launchPath",
         )
+        if (!gameStarted) {
+            startLegacyFallback("start-game-failed")
+        }
+    }
+
+    private fun startLegacyFallback(reason: String) {
+        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.legacyFallback reason=$reason")
+        val fallback = Intent(this, MainActivity::class.java)
+        intent?.extras?.let { fallback.putExtras(it) }
+        fallback.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
+        startActivity(fallback)
+        finish()
     }
 
     private fun resolveLaunchPath(gameDir: String): String {
@@ -631,6 +650,17 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         return true
     }
 
+    private fun attachSurfaceViewIfValid(reason: String): Boolean {
+        val surface = gameSurfaceView.holder.surface
+        if (surface == null || !surface.isValid) {
+            LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.$reason surface-view invalid")
+            return false
+        }
+        AndroidRuntimeBridge.setGameSurface(surface, GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
+        LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.$reason surface-view size=${GAME_SURFACE_WIDTH}x$GAME_SURFACE_HEIGHT")
+        return true
+    }
+
     private fun onGameSurfaceProducerAvailable(textureId: Long, generation: Long) {
         val target = gameSurfaceTargets[textureId] ?: return
         if (target.generation != generation) return
@@ -658,9 +688,8 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             surfaceReady = false
             LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.surfaceProducerCleanup id=$textureId generation=$generation")
             if (viewSurfaceReady) {
-                gameSurfaceView.holder.surface?.let { surface ->
+                if (attachSurfaceViewIfValid("surfaceProducerCleanup")) {
                     surfaceReady = true
-                    AndroidRuntimeBridge.setGameSurface(surface, GAME_SURFACE_WIDTH, GAME_SURFACE_HEIGHT)
                     startGameIfReady()
                 }
             }
@@ -718,6 +747,10 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
         if (!setActiveGameSurface(target, width, height, "createGameSurfaceTexture")) {
             gameSurfaceTargets.remove(target.textureId)
             releaseGameSurfaceTarget(target)
+            if (viewSurfaceReady && attachSurfaceViewIfValid("createGameSurfaceTextureFallback")) {
+                surfaceReady = true
+                startGameIfReady()
+            }
             result.error("surface_unavailable", "Unable to acquire game surface", null)
             return
         }
@@ -780,6 +813,9 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             surfaceReady = false
         }
         gameSurfaceTargets.remove(textureId)?.let { releaseGameSurfaceTarget(it) }
+        if (viewSurfaceReady && activeGameSurfaceTextureId == null) {
+            surfaceReady = attachSurfaceViewIfValid("disposeGameSurfaceTextureFallback")
+        }
         LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.disposeGameSurfaceTexture id=$textureId")
         result.success(null)
     }

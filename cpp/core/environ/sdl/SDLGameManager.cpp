@@ -44,7 +44,8 @@ extern "C" void TVPAndroidGetFlutterGameSurfaceSize(int *width, int *height);
 
 namespace {
 
-std::once_flag gSDLRuntimeInitOnce;
+std::once_flag gSDLRuntimeSetupOnce;
+std::mutex gSDLRuntimeInitMutex;
 bool gSDLRuntimeInitialized = false;
 std::string gSDLRuntimeError;
 std::atomic_uint64_t gSDLLifecycleEventSequence{0};
@@ -842,6 +843,7 @@ bool EnsureSDLScreenPresenterLocked(int surfaceWidth, int surfaceHeight,
             LogSDLScreenPresenter(message);
         } else {
             gSDLScreenPresenterState.videoReady = false;
+            gSDLScreenPresenterState.videoInitTried = false;
             char message[384];
             std::snprintf(message, sizeof(message),
                           "video init failed stage=%s error=%s events=%d "
@@ -1880,7 +1882,7 @@ TVPSDLQueuedInputEvent *CoalescePendingDirectTouchMoves(
 } // namespace
 
 bool TVPSDLInitializeRuntime() {
-    std::call_once(gSDLRuntimeInitOnce, []() {
+    std::call_once(gSDLRuntimeSetupOnce, []() {
         TVPRegisterSDLRuntimePresenter();
         SDL_SetMainReady();
 #if defined(SDL_HINT_TOUCH_MOUSE_EVENTS)
@@ -1889,13 +1891,28 @@ bool TVPSDLInitializeRuntime() {
 #if defined(SDL_HINT_MOUSE_TOUCH_EVENTS)
         SDL_SetHint(SDL_HINT_MOUSE_TOUCH_EVENTS, "0");
 #endif
-        if(SDL_InitSubSystem(SDL_INIT_EVENTS)) {
-            gSDLRuntimeInitialized = true;
-        } else {
-            gSDLRuntimeInitialized = false;
-            gSDLRuntimeError = SafeSDLString(SDL_GetError());
-        }
     });
+
+    if((SDL_WasInit(0) & SDL_INIT_EVENTS) != 0) {
+        gSDLRuntimeInitialized = true;
+        gSDLRuntimeError.clear();
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(gSDLRuntimeInitMutex);
+    if((SDL_WasInit(0) & SDL_INIT_EVENTS) != 0) {
+        gSDLRuntimeInitialized = true;
+        gSDLRuntimeError.clear();
+        return true;
+    }
+
+    if(SDL_InitSubSystem(SDL_INIT_EVENTS)) {
+        gSDLRuntimeInitialized = true;
+        gSDLRuntimeError.clear();
+    } else {
+        gSDLRuntimeInitialized = false;
+        gSDLRuntimeError = SafeSDLString(SDL_GetError());
+    }
     return gSDLRuntimeInitialized;
 }
 
@@ -3024,6 +3041,12 @@ extern "C" void TVPSDLNotifyAndroidFlutterGameSurfaceChanged(
     TVPSDLAndroidFlutterPresenterNotifySurfaceChanged(reason);
     {
         std::lock_guard<std::mutex> lock(gSDLScreenPresenterMutex);
+        gSDLScreenPresenterState.videoInitTried = false;
+        gSDLScreenPresenterState.videoReady =
+            (SDL_WasInit(0) & SDL_INIT_VIDEO) != 0;
+        gSDLScreenPresenterState.windowFailed = false;
+        gSDLScreenPresenterState.rendererFailed = false;
+        gSDLScreenPresenterState.hybridWindowDeferred = false;
         gSDLScreenPresenterState.presentedFrames = 0;
         gSDLScreenPresenterState.hasPendingExternalFrameInfo = false;
         gSDLScreenPresenterState.pendingExternalPredictedSequence = 0;
