@@ -5,7 +5,7 @@
 # directive in build.gradle.
 
 ############################################################
-# KRKR2 / cocos2d-x / SDL3 — native FindClass / JNI bindings
+# KRKR2 / SDL3 — native FindClass / JNI bindings
 #
 # These classes are looked up from native code via
 # JNIEnv::FindClass / GetMethodID / RegisterNatives, so R8 cannot
@@ -20,11 +20,6 @@
 -keepnames class org.libsdl.app.**
 -keep interface org.libsdl.app.** { *; }
 
-# cocos2d-x — referenced from libkrkr2.so (Cocos2dxActivity, Cocos2dxHelper, Cocos2dxRenderer, etc.)
--keep class org.cocos2dx.lib.** { *; }
--keepnames class org.cocos2dx.lib.**
--keep interface org.cocos2dx.lib.** { *; }
-
 # KR2Activity (kirikiri2 native bridge) — native methods + JNI callbacks
 -keep class org.tvp.kirikiri2.** { *; }
 -keepnames class org.tvp.kirikiri2.**
@@ -33,9 +28,8 @@
 -keep class org.github.krkr2.** { *; }
 -keepnames class org.github.krkr2.**
 
-# Flutter game surface reflection — MainActivity prefers the modern
-# SurfaceProducer API when present, but calls it reflectively so older
-# embeddings can still fall back to SurfaceTextureEntry.
+# Flutter game surface reflection — kept for the SDL overlay bridge when older
+# embeddings need to fall back from SurfaceProducer to SurfaceTextureEntry.
 -keep class io.flutter.embedding.engine.renderer.FlutterRenderer { *; }
 -keep interface io.flutter.view.TextureRegistry { *; }
 -keep enum io.flutter.view.TextureRegistry$SurfaceLifecycle { *; }
@@ -61,23 +55,4 @@
 # Compose / Kotlin reflection metadata sanity
 -keepattributes *Annotation*, Signature, InnerClasses, EnclosingMethod
 -dontwarn org.libsdl.app.**
--dontwarn org.cocos2dx.lib.**
 -dontwarn org.tvp.kirikiri2.**
-
-############################################################
-# Vendor SDKs bundled by cocos2d-x (libcocos2dx/java/libs/oppoSDK.jar)
-#
-# OPPO's OifaceGameEngineManager references hidden Android APIs
-# (android.os.ServiceManager / android.util.Slog) that are not in
-# the public SDK. R8 in AGP 8 treats these as missing-class errors
-# and fails minifyReleaseWithR8. The runtime call paths are guarded
-# by SDK checks inside Cocos2dxDataManager, so we only need to tell
-# R8 to ignore the dangling references.
-############################################################
--dontwarn com.oppo.oiface.engine.**
--dontwarn android.os.ServiceManager
--dontwarn android.util.Slog
-# Belt-and-suspenders: keep the OPPO bridge so reflective lookups
-# from Cocos2dxDataManager don't get pruned.
--keep class com.oppo.oiface.engine.** { *; }
--keepnames class com.oppo.oiface.engine.**

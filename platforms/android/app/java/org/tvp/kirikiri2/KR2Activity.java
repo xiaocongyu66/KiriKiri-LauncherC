@@ -6,24 +6,15 @@ import android.app.ActivityManager;
 import android.content.Context;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
-import android.os.Bundle;
 import android.os.Debug;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.Message;
-import android.util.AttributeSet;
 import android.util.Log;
-import android.view.KeyEvent;
-import android.view.MotionEvent;
 import android.view.View;
 
 import androidx.annotation.NonNull;
-import androidx.core.app.ActivityCompat;
-
-import org.cocos2dx.lib.Cocos2dxActivity;
-import org.cocos2dx.lib.Cocos2dxGLSurfaceView;
-import org.libsdl.app.SDL;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -35,427 +26,71 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
 
-public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRequestPermissionsResultCallback {
+public final class KR2Activity {
+    private static ActivityManager mActivityManager = null;
+    private static final ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
+    private static final Debug.MemoryInfo mDbgMemoryInfo = new Debug.MemoryInfo();
+    private static final Handler msgHandler = new Handler(Looper.getMainLooper(), KR2Activity::handleMessage);
+    static String[] _extSdPaths;
 
-    static ActivityManager mActivityManager = null;
-    static ActivityManager.MemoryInfo memoryInfo = new ActivityManager.MemoryInfo();
-    static Debug.MemoryInfo mDbgMemoryInfo = new Debug.MemoryInfo();
+    private KR2Activity() {
+    }
 
-    /**
-     * @noinspection unused
-     */
     public static void updateMemoryInfo() {
         Activity activity = NativeUiHost.getActivityContextOrNull();
-        if (activity == null) {
-            return;
-        }
+        if (activity == null) return;
         if (mActivityManager == null) {
             mActivityManager = (ActivityManager) activity.getSystemService(Activity.ACTIVITY_SERVICE);
         }
-        mActivityManager.getMemoryInfo(memoryInfo);
+        if (mActivityManager != null) mActivityManager.getMemoryInfo(memoryInfo);
         Debug.getMemoryInfo(mDbgMemoryInfo);
     }
 
-
-    /**
-     * @noinspection unused
-     */
-    static public String GetVersion() {
-        String verstr = null;
+    public static String GetVersion() {
         Activity activity = NativeUiHost.getActivityContextOrNull();
-        Context context = activity != null
-                ? activity.getApplicationContext()
-                : (sInstance != null ? sInstance.getApplicationContext() : null);
-        if (context == null) {
+        Context context = activity != null ? activity.getApplicationContext() : null;
+        if (context == null) return null;
+        try {
+            return context.getPackageManager().getPackageInfo(context.getPackageName(), 0).versionName;
+        } catch (PackageManager.NameNotFoundException ignored) {
             return null;
         }
-        try {
-            verstr = context.getPackageManager()
-                    .getPackageInfo(context.getPackageName(), 0)
-                    .versionName;
-        } catch (PackageManager.NameNotFoundException ignored) {
-        }
-        return verstr;
     }
 
-    /**
-     * @noinspection unused
-     */
     public static long getAvailMemory() {
         return memoryInfo.availMem;
     }
 
-    /**
-     * @noinspection unused
-     */
     public static long getUsedMemory() {
-        return mDbgMemoryInfo.getTotalPss(); // in kB
+        return mDbgMemoryInfo.getTotalPss();
     }
 
-    /**
-     * @noinspection unused
-     */
-    public int getDeviceId() {
-        return -1;
+    public static Context requireApplicationContext() {
+        return NativeUiHost.requireApplicationContext();
     }
-
-    @SuppressLint("StaticFieldLeak")
-    static public KR2Activity sInstance;
-    private static volatile boolean sSDLJavaReady = false;
-    private static volatile boolean sNativeLifecycleReady = false;
-
-    static public KR2Activity GetInstance() {
-        return sInstance;
-    }
-
-    static public KR2Activity requireActivityContext() {
-        if (sInstance == null) {
-            throw new IllegalStateException("KR2Activity is not attached");
-        }
-        return sInstance;
-    }
-
-    static public Context requireApplicationContext() {
-        Activity activity = NativeUiHost.getActivityContextOrNull();
-        if (activity != null) {
-            return activity.getApplicationContext();
-        }
-        return requireActivityContext().getApplicationContext();
-    }
-
-    private void writeLifecycleLog(String message) {
-        String detail = "thread=" + Thread.currentThread().getName();
-        try {
-            org.github.krkr2.LauncherPrefs.INSTANCE.writeLauncherLog(
-                this,
-                "KR2Activity." + message + " " + detail,
-                null);
-        } catch (Throwable t) {
-            Log.w("KR2Activity", "writeLifecycleLog failed", t);
-        }
-        writeNativeLifecycleLog("KR2Activity." + message, detail);
-    }
-
-    protected void writeNativeLifecycleLog(String eventName, String detail) {
-        if (!sNativeLifecycleReady) {
-            return;
-        }
-        try {
-            nativeLifecycleEvent(eventName, detail);
-        } catch (UnsatisfiedLinkError ignored) {
-        } catch (Throwable t) {
-            Log.w("KR2Activity", "writeNativeLifecycleLog failed", t);
-        }
-    }
-
-    protected void ensureSDLJavaReady() {
-        synchronized (KR2Activity.class) {
-            try {
-                if (!sSDLJavaReady) {
-                    SDL.setupJNI();
-                    SDL.initialize();
-                    sSDLJavaReady = true;
-                }
-                SDL.setContext(this);
-            } catch (Throwable t) {
-                sSDLJavaReady = false;
-                Log.w("KR2Activity", "ensureSDLJavaReady failed", t);
-            }
-        }
-    }
-
-    @Override
-    public void onCreate(Bundle savedInstanceState) {
-        sNativeLifecycleReady = false;
-        writeLifecycleLog("onCreate#enter saved=" + (savedInstanceState != null));
-        super.onCreate(savedInstanceState);
-        writeLifecycleLog("onCreate#after-super");
-        sInstance = this;
-        NativeUiHost.attach(this, mFrameLayout);
-        nativeInitRuntime();
-        writeLifecycleLog("onCreate#native-runtime-init");
-        initDump(this.getFilesDir().getAbsolutePath() + "/dump");
-        ensureSDLJavaReady();
-        sNativeLifecycleReady = true;
-        writeLifecycleLog("onCreate#initDump path=" + this.getFilesDir().getAbsolutePath() + "/dump");
-    }
-
-    @Override
-    public Cocos2dxGLSurfaceView onCreateView() {
-        writeLifecycleLog("onCreateView#enter");
-        Cocos2dxGLSurfaceView glSurfaceView = new KR2GLSurfaceView(this);
-        hideSystemUI();
-
-        Cocos2dxEGLConfigChooser chooser = new Cocos2dxEGLConfigChooser(this.mGLContextAttrs);
-        glSurfaceView.setEGLConfigChooser(chooser);
-
-        writeLifecycleLog("onCreateView#done view=" + glSurfaceView.getClass().getSimpleName());
-        return glSurfaceView;
-    }
-
-    @Override
-    public void onDestroy() {
-        writeLifecycleLog("onDestroy#enter");
-        NativeUiHost.detach(this);
-        super.onDestroy();
-        writeLifecycleLog("onDestroy#after-super");
-        System.exit(0);
-    }
-
-    @Override
-    public void onLowMemory() {
-        writeLifecycleLog("onLowMemory");
-        nativeOnLowMemory();
-    }
-
-    /**
-     * @noinspection unused
-     */
-    static native void onMessageBoxOK(int nButton);
-
-    /**
-     * @noinspection unused
-     */
-    static native void onMessageBoxText(String text);
-
-    static private native void initDump(String path);
-
-    static private native void nativeInitRuntime();
-
-    static private native void nativeOnLowMemory();
-
-    static private native void nativeLifecycleEvent(String eventName, String detail);
-
-    public static native boolean nativeLauncherLog(String message, String throwableText);
-
-    public static native void setUseFFmpegImageDecoder(boolean enabled);
-
-    public static native void setFFmpegDecodeMode(int mode);
-
-    public static native void configureFileLogging(boolean enabled, String logFilePath);
-
-    @SuppressLint("StaticFieldLeak")
-    public static View mTextEdit = null;
 
     public static boolean handleMessage(Message msg) {
         return true;
     }
 
-    static Handler msgHandler = new Handler(Looper.getMainLooper(), KR2Activity::handleMessage);
-
-    /**
-     * @noinspection unused
-     */
-    static public void showTextInput(int x, int y, int w, int h) {
+    public static void showTextInput(int x, int y, int w, int h) {
         NativeUiHost.showTextInput(x, y, w, h);
     }
 
-    static public void hideTextInput() {
+    public static void hideTextInput() {
         NativeUiHost.hideTextInput();
     }
 
-    private static native void nativeTouchesBegin(final int id, final float x, final float y);
-
-    private static native void nativeTouchesEnd(final int id, final float x, final float y);
-
-    private static native void nativeTouchesMove(final int[] ids, final float[] xs, final float[] ys);
-
-    private static native void nativeTouchesCancel(final int[] ids, final float[] xs, final float[] ys);
-
-    public static native boolean nativeKeyAction(final int keyCode, final boolean isPress);
-
-    public static native void nativeCharInput(final int keyCode);
-
-    public static native void nativeCommitText(String text, int newCursorPosition);
-
-    private static native void nativeInsertText(final String text);
-
-    public static native void nativeDeleteBackward();
-
-    private static native void nativeHoverMoved(final float x, final float y);
-
-    private static native void nativeMouseScrolled(final float scroll);
-
-    static class KR2GLSurfaceView extends Cocos2dxGLSurfaceView {
-
-        public KR2GLSurfaceView(final Context context) {
-            super(context);
-        }
-
-        public KR2GLSurfaceView(final Context context, final AttributeSet attrs) {
-            super(context, attrs);
-        }
-
-        @Override
-        public void insertText(final String pText) {
-            nativeInsertText(pText);
-        }
-
-        @Override
-        public void deleteBackward() {
-            nativeDeleteBackward();
-        }
-
-        @Override
-        public boolean onKeyDown(final int pKeyCode, final KeyEvent pKeyEvent) {
-            return switch (pKeyCode) {
-                case KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_DPAD_LEFT,
-                     KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP,
-                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_ENTER,
-                     KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_DPAD_CENTER -> {
-                    nativeKeyAction(pKeyCode, true);
-                    yield true;
-                }
-                default -> super.onKeyDown(pKeyCode, pKeyEvent);
-            };
-        }
-
-        @Override
-        public boolean onKeyUp(final int pKeyCode, final KeyEvent pKeyEvent) {
-            return switch (pKeyCode) {
-                case KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_MENU, KeyEvent.KEYCODE_DPAD_LEFT,
-                     KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP,
-                     KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_ENTER,
-                     KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE, KeyEvent.KEYCODE_DPAD_CENTER -> {
-                    nativeKeyAction(pKeyCode, false);
-                    yield true;
-                }
-                default -> super.onKeyUp(pKeyCode, pKeyEvent);
-            };
-        }
-
-        @Override
-        public boolean onHoverEvent(final MotionEvent pMotionEvent) {
-            final int pointerNumber = pMotionEvent.getPointerCount();
-            final float[] xs = new float[pointerNumber];
-            final float[] ys = new float[pointerNumber];
-            for (int i = 0; i < pointerNumber; i++) {
-                xs[i] = pMotionEvent.getX(i);
-                ys[i] = pMotionEvent.getY(i);
-            }
-
-            if (pMotionEvent.getActionMasked() == MotionEvent.ACTION_HOVER_MOVE) {
-                nativeHoverMoved(xs[0], ys[0]);
-            }
-            return true;
-        }
-
-        @SuppressLint("ClickableViewAccessibility")
-        @Override
-        public boolean onTouchEvent(final MotionEvent pMotionEvent) {
-
-            // these data are used in ACTION_MOVE and ACTION_CANCEL
-            final int pointerNumber = pMotionEvent.getPointerCount();
-            final int[] ids = new int[pointerNumber];
-            final float[] xs = new float[pointerNumber];
-            final float[] ys = new float[pointerNumber];
-
-            for (int i = 0; i < pointerNumber; i++) {
-                ids[i] = pMotionEvent.getPointerId(i);
-                xs[i] = pMotionEvent.getX(i);
-                ys[i] = pMotionEvent.getY(i);
-            }
-
-            switch (pMotionEvent.getAction() & MotionEvent.ACTION_MASK) {
-                case MotionEvent.ACTION_POINTER_DOWN:
-                    final int indexPointerDown = pMotionEvent.getAction() >> MotionEvent.ACTION_POINTER_INDEX_SHIFT;
-                    final int idPointerDown = pMotionEvent.getPointerId(indexPointerDown);
-                    final float xPointerDown = pMotionEvent.getX(indexPointerDown);
-                    final float yPointerDown = pMotionEvent.getY(indexPointerDown);
-                    nativeTouchesBegin(idPointerDown, xPointerDown, yPointerDown);
-                    break;
-
-                case MotionEvent.ACTION_DOWN:
-                    // there are only one finger on the screen
-                    final int idDown = pMotionEvent.getPointerId(0);
-                    final float xDown = xs[0];
-                    final float yDown = ys[0];
-                    nativeTouchesBegin(idDown, xDown, yDown);
-                    break;
-
-                case MotionEvent.ACTION_MOVE:
-                    nativeTouchesMove(ids, xs, ys);
-                    break;
-
-                case MotionEvent.ACTION_POINTER_UP:
-                    final int indexPointUp = pMotionEvent.getAction() >> MotionEvent.ACTION_POINTER_INDEX_SHIFT;
-                    final int idPointerUp = pMotionEvent.getPointerId(indexPointUp);
-                    final float xPointerUp = pMotionEvent.getX(indexPointUp);
-                    final float yPointerUp = pMotionEvent.getY(indexPointUp);
-                    nativeTouchesEnd(idPointerUp, xPointerUp, yPointerUp);
-                    break;
-
-                case MotionEvent.ACTION_UP:
-                    // there are only one finger on the screen
-                    final int idUp = pMotionEvent.getPointerId(0);
-                    final float xUp = xs[0];
-                    final float yUp = ys[0];
-                    nativeTouchesEnd(idUp, xUp, yUp);
-                    break;
-
-                case MotionEvent.ACTION_CANCEL:
-                    nativeTouchesCancel(ids, xs, ys);
-                    break;
-            }
-
-            return true;
-        }
-
-        @Override
-        public boolean onGenericMotionEvent(MotionEvent event) {
-            if (event.getActionMasked() == MotionEvent.ACTION_SCROLL) {
-                float v = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
-                nativeMouseScrolled(-v);
-                return true;
-            }
-            return super.onGenericMotionEvent(event);
-        }
-    }
-
-    @Override
-    public void onWindowFocusChanged(boolean hasFocus) {
-        super.onWindowFocusChanged(hasFocus);
-
-        //SDLActivity.mHasFocus = hasFocus;
-        if (hasFocus) {
-            hideSystemUI();
-        }
-    }
-
-    void doSetSystemUiVisibility() {
-        int uiOpts = View.SYSTEM_UI_FLAG_LAYOUT_STABLE
-                | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_FULLSCREEN
-                | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
-                | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY;
-        getWindow().getDecorView().setSystemUiVisibility(uiOpts);
-    }
-
-    private static native boolean nativeGetHideSystemButton();
-
-    void hideSystemUI() {
-        if (nativeGetHideSystemButton()) {
-            doSetSystemUiVisibility();
-        }
-    }
-
-    static public void exit() {
+    public static void exit() {
         System.exit(0);
     }
 
     static final int ORIENT_VERTICAL = 1;
     static final int ORIENT_HORIZONTAL = 2;
 
-    static public void setOrientation(int orient) {
+    public static void setOrientation(int orient) {
         Activity activity = NativeUiHost.getActivityContextOrNull();
-        if (activity == null) {
-            return;
-        }
-        if (org.github.krkr2.LauncherPrefs.INSTANCE.getForceLandscape(activity)) {
-            org.github.krkr2.ForceLandscapeHelper.INSTANCE.apply(activity, true);
-            return;
-        }
+        if (activity == null) return;
         if (orient == ORIENT_VERTICAL) {
             activity.setRequestedOrientation(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
         } else if (orient == ORIENT_HORIZONTAL) {
@@ -463,35 +98,19 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         }
     }
 
-    @SuppressLint("StaticFieldLeak")
-    static DialogMessage mDialogMessage = new DialogMessage();
-
-    /**
-     * @noinspection unused
-     */
-    static public void ShowMessageBox(final String title, final String text, final String[] Buttons) {
+    public static void ShowMessageBox(final String title, final String text, final String[] Buttons) {
         NativeUiHost.showMessageBox(title, text, Buttons);
     }
 
-    /**
-     * @noinspection unused
-     */
-    static public void ShowInputBox(final String title, final String prompt, final String text, final String[] Buttons) {
+    public static void ShowInputBox(final String title, final String prompt, final String text, final String[] Buttons) {
         NativeUiHost.showInputBox(title, prompt, text, Buttons);
     }
 
-    /**
-     * @noinspection unused
-     */
-    static public void ShowPluginToast(final String title, final String text) {
+    public static void ShowPluginToast(final String title, final String text) {
         NativeUiHost.showPluginToast(title, text);
     }
 
-
-    /**
-     * @noinspection unused
-     */
-    static public void MessageController(int what, int arg1, int arg2) {
+    public static void MessageController(int what, int arg1, int arg2) {
         Message msg = msgHandler.obtainMessage();
         msg.what = what;
         msg.arg1 = arg1;
@@ -499,49 +118,39 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         msgHandler.sendMessage(msg);
     }
 
-
-    static public String getLaunchGamePath() {
+    public static String getLaunchGamePath() {
         String resolved = resolveLaunchGamePath();
-        android.util.Log.i("KR2-Launch", "getLaunchGamePath -> " + resolved);
-        try {
-            Activity activity = NativeUiHost.getActivityContextOrNull();
-            if (activity != null) {
-                org.github.krkr2.LauncherPrefs.INSTANCE.writeLauncherLog(
-                    activity, "native getLaunchGamePath -> " + resolved, null);
-            }
-        } catch (Throwable t) {
-            android.util.Log.w("KR2-Launch", "writeLauncherLog failed", t);
-        }
+        Log.i("KR2-Launch", "getLaunchGamePath -> " + resolved);
         return resolved;
     }
 
-    static public String getLaunchGameDir() {
+    public static String getLaunchGameDir() {
         Activity activity = NativeUiHost.getActivityContextOrNull();
-        if(activity == null || activity.getIntent() == null) return "";
+        if (activity == null || activity.getIntent() == null) return "";
         String path = activity.getIntent().getStringExtra("extra_game_dir");
         return path == null ? "" : path;
     }
 
-    static private boolean isLaunchExtension(String extension) {
+    private static boolean isLaunchExtension(String extension) {
         return extension.equals("xp3") || extension.equals("tjs") || extension.equals("ks");
     }
 
-    static private String extensionLower(File file) {
+    private static String extensionLower(File file) {
         String name = file.getName();
         int pos = name.lastIndexOf('.');
-        if(pos < 0 || pos + 1 >= name.length()) return "";
+        if (pos < 0 || pos + 1 >= name.length()) return "";
         return name.substring(pos + 1).toLowerCase(Locale.ROOT);
     }
 
-    static private String baseLower(File file) {
+    private static String baseLower(File file) {
         String name = file.getName();
         int pos = name.lastIndexOf('.');
-        if(pos >= 0) name = name.substring(0, pos);
+        if (pos >= 0) name = name.substring(0, pos);
         return name.toLowerCase(Locale.ROOT);
     }
 
-    static private int preferredLaunchIndex(String nameLower) {
-        switch(nameLower) {
+    private static int preferredLaunchIndex(String nameLower) {
+        switch (nameLower) {
             case "startup.tjs": return 0;
             case "start.tjs": return 1;
             case "data.xp3": return 2;
@@ -555,280 +164,182 @@ public class KR2Activity extends Cocos2dxActivity implements ActivityCompat.OnRe
         }
     }
 
-    static private boolean isAssetArchiveBase(String base) {
-        return base.equals("patch") ||
-                base.startsWith("patch") ||
-                base.equals("bg") ||
-                base.startsWith("bg") ||
-                base.contains("image") ||
-                base.contains("voice") ||
-                base.contains("sound") ||
-                base.contains("audio") ||
-                base.contains("music") ||
-                base.contains("movie") ||
-                base.contains("video") ||
-                base.contains("effect");
+    private static boolean isAssetArchiveBase(String base) {
+        return base.equals("patch") || base.startsWith("patch") || base.equals("bg") ||
+                base.startsWith("bg") || base.contains("image") || base.contains("voice") ||
+                base.contains("sound") || base.contains("audio") || base.contains("music") ||
+                base.contains("movie") || base.contains("video") || base.contains("effect");
     }
 
-    static private int launchRank(File file) {
+    private static int launchRank(File file) {
         String name = file.getName().toLowerCase(Locale.ROOT);
         int preferred = preferredLaunchIndex(name);
-        if(preferred >= 0) return preferred;
-
+        if (preferred >= 0) return preferred;
         String extension = extensionLower(file);
         String base = baseLower(file);
-        if(extension.equals("xp3")) {
-            if(base.equals("boot")) return 20;
-            if(base.equals("main") || base.equals("game") ||
-                    base.equals("scenario") || base.equals("script")) {
-                return 30;
-            }
-            if(base.startsWith("data")) return 40;
-            if(isAssetArchiveBase(base)) return 300;
+        if (extension.equals("xp3")) {
+            if (base.equals("boot")) return 20;
+            if (base.equals("main") || base.equals("game") || base.equals("scenario") || base.equals("script")) return 30;
+            if (base.startsWith("data")) return 40;
+            if (isAssetArchiveBase(base)) return 300;
             return 80;
         }
-        if(extension.equals("tjs")) {
-            if(base.equals("main") || base.equals("boot") || base.equals("game")) return 60;
-            return 90;
-        }
-        if(extension.equals("ks")) {
-            if(base.equals("first") || base.equals("scenario")) return 70;
-            return 100;
-        }
+        if (extension.equals("tjs")) return base.equals("main") || base.equals("boot") || base.equals("game") ? 60 : 90;
+        if (extension.equals("ks")) return base.equals("first") || base.equals("scenario") ? 70 : 100;
         return 500;
     }
 
-    static private String resolveLaunchGamePath() {
+    private static String resolveLaunchGamePath() {
         Activity activity = NativeUiHost.getActivityContextOrNull();
-        if(activity == null || activity.getIntent() == null) return "";
+        if (activity == null || activity.getIntent() == null) return "";
         String launchFile = activity.getIntent().getStringExtra("extra_launch_file");
-        android.util.Log.i("KR2-Launch", "intent extra_launch_file=" + launchFile);
-        if(launchFile != null && !launchFile.isEmpty()) {
+        if (launchFile != null && !launchFile.isEmpty()) {
             File file = new File(launchFile);
-            if(file.exists() && file.isFile()) return file.getAbsolutePath();
-            android.util.Log.w("KR2-Launch", "launchFile not a regular file: exists=" + file.exists() + " isFile=" + file.isFile());
+            if (file.exists() && file.isFile()) return file.getAbsolutePath();
         }
-
         String path = activity.getIntent().getStringExtra("extra_game_dir");
-        android.util.Log.i("KR2-Launch", "intent extra_game_dir=" + path);
-        if(path == null || path.isEmpty()) return "";
+        if (path == null || path.isEmpty()) return "";
         File dir = new File(path);
-        if(!dir.exists()) {
-            android.util.Log.w("KR2-Launch", "game_dir does not exist: " + path);
-            return "";
-        }
-        if(dir.isFile()) return dir.getAbsolutePath();
-        if(!dir.isDirectory()) return "";
-
+        if (!dir.exists()) return "";
+        if (dir.isFile()) return dir.getAbsolutePath();
+        if (!dir.isDirectory()) return "";
         File startup = new File(dir, "startup.tjs");
-        if(startup.exists() && startup.isFile()) return startup.getAbsolutePath();
+        if (startup.exists() && startup.isFile()) return startup.getAbsolutePath();
         File start = new File(dir, "start.tjs");
-        if(start.exists() && start.isFile()) return start.getAbsolutePath();
+        if (start.exists() && start.isFile()) return start.getAbsolutePath();
         File data = new File(dir, "data.xp3");
-        if(data.exists() && data.isFile()) return data.getAbsolutePath();
+        if (data.exists() && data.isFile()) return data.getAbsolutePath();
         File[] files = dir.listFiles();
-        if(files != null) {
-            ArrayList<File> candidates = new ArrayList<>();
-            for(File f : files) {
-                if(f.isFile() && isLaunchExtension(extensionLower(f))) {
-                    candidates.add(f);
-                }
-            }
-            candidates.sort((lhs, rhs) -> {
-                int rank = Integer.compare(launchRank(lhs), launchRank(rhs));
-                if(rank != 0) return rank;
-                return lhs.getName().compareToIgnoreCase(rhs.getName());
-            });
-            if(!candidates.isEmpty()) return candidates.get(0).getAbsolutePath();
+        if (files == null) return "";
+        ArrayList<File> candidates = new ArrayList<>();
+        for (File f : files) {
+            if (f.isFile() && isLaunchExtension(extensionLower(f))) candidates.add(f);
         }
-        android.util.Log.w("KR2-Launch", "no bootable entry under: " + path);
-        return "";
+        candidates.sort((lhs, rhs) -> {
+            int rank = Integer.compare(launchRank(lhs), launchRank(rhs));
+            if (rank != 0) return rank;
+            return lhs.getName().compareToIgnoreCase(rhs.getName());
+        });
+        return candidates.isEmpty() ? "" : candidates.get(0).getAbsolutePath();
     }
 
-    /**
-     * @noinspection unused
-     */
-    static public String getLocaleName() {
-        Locale defloc = Locale.getDefault();
-        String lang = defloc.getLanguage();
-        String country = defloc.getCountry();
-        if (!country.isEmpty()) {
-            lang += "_";
-            lang += country.toLowerCase();
-        }
-        return lang;
-    }
-
-//    StorageManager mStorageManager = null;
-
-    public String[] getStoragePath() {
-//        List<String> storagePaths = new ArrayList<>();
-//        if (mStorageManager != null) {
-//            for (StorageVolume volume : mStorageManager.getStorageVolumes()) {
-//                String volumeState = volume.getState();
-//                if (!Environment.MEDIA_MOUNTED.equals(volumeState) && !Environment.MEDIA_MOUNTED_READ_ONLY.equals(volumeState)) {
-//                    break;
-//                }
-//                File volumeFile = null;
-//                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) { // API 30+
-//                    volumeFile = volume.getDirectory();
-//                } else if (volume.isPrimary()) {
-//                    volumeFile = Environment.getExternalStorageDirectory();
-//                }
-//                if (volumeFile != null) {
-//                    storagePaths.add(volumeFile.getAbsolutePath());
-//                }
-//            }
-//        }
-//
-//        return storagePaths.toArray(new String[0]);
+    public static String[] GetDataPath() {
         return new String[]{Environment.getExternalStorageDirectory().getAbsolutePath()};
     }
 
+    public static String[] getStoragePath() {
+        return GetDataPath();
+    }
+
+    public static String getLocaleName() {
+        return Locale.getDefault().getLanguage();
+    }
 
     private static String[] getExtSdCardPaths(Context context) {
         List<String> paths = new ArrayList<>();
-        for (File file : context.getExternalFilesDirs("external")) {
+        File[] files = context != null ? context.getExternalFilesDirs("external") : new File[0];
+        for (File file : files) {
             if (file != null && !file.equals(context.getExternalFilesDir("external"))) {
                 int index = file.getAbsolutePath().lastIndexOf("/Android/data");
-                if (index < 0) {
-                    Log.w("FileUtils", "Unexpected external file dir: " + file.getAbsolutePath());
-                } else {
+                if (index >= 0) {
                     String path = file.getAbsolutePath().substring(0, index);
                     try {
                         path = new File(path).getCanonicalPath();
-                    } catch (IOException e) {
-                        // Keep non-canonical path.
+                    } catch (IOException ignored) {
                     }
                     paths.add(path);
                 }
             }
         }
-        //if(paths.isEmpty())paths.add("/storage/sdcard1");
         return paths.toArray(new String[0]);
     }
 
-    static String[] _extSdPaths;
-
     public static String getExtSdCardFolder(final File file, Context context) {
-        if (_extSdPaths == null)
-            _extSdPaths = getExtSdCardPaths(context);
+        if (_extSdPaths == null) _extSdPaths = getExtSdCardPaths(context);
         try {
             for (String extSdPath : _extSdPaths) {
-                if (file.getCanonicalPath().startsWith(extSdPath)) {
-                    return extSdPath;
-                }
+                if (file.getCanonicalPath().startsWith(extSdPath)) return extSdPath;
             }
-        } catch (IOException e) {
-            return null;
+        } catch (IOException ignored) {
         }
         return null;
     }
 
-    /**
-     * @noinspection unused
-     */
     public static boolean isOnExtSdCard(final File file, Context c) {
         return getExtSdCardFolder(file, c) != null;
     }
 
-    /**
-     * @noinspection unused
-     */
-    static public boolean RenameFile(String from, String to) {
+    public static boolean RenameFile(String from, String to) {
         File file = new File(from);
         File target = new File(to);
-        if (!file.exists())
-            return false;
-        if (target.exists()) {
-            if (!DeleteFile(target.getAbsolutePath())) return false;
-        }
-
+        if (!file.exists()) return false;
+        if (target.exists() && !DeleteFile(target.getAbsolutePath())) return false;
         File parent = target.getParentFile();
-        assert parent != null;
-        if (!parent.exists()) {
-            if (!CreateFolders(parent.getAbsolutePath())) return false;
-        }
-        // Try the normal way
+        if (parent != null && !parent.exists() && !CreateFolders(parent.getAbsolutePath())) return false;
         return file.renameTo(target);
     }
 
-    /**
-     * @noinspection unused
-     */
     public static boolean deleteFilesInFolder(final File folder, Context context) {
         boolean totalSuccess = true;
-        if (folder == null)
-            return false;
+        if (folder == null) return false;
         if (folder.isDirectory()) {
-            for (File child : Objects.requireNonNull(folder.listFiles())) {
-                deleteFilesInFolder(child, context);
+            File[] children = folder.listFiles();
+            if (children != null) {
+                for (File child : children) deleteFilesInFolder(child, context);
             }
-
         }
-        if (!folder.delete())
-            totalSuccess = false;
+        if (!folder.delete()) totalSuccess = false;
         return totalSuccess;
     }
 
-    static public boolean DeleteFile(String path) {
+    public static boolean DeleteFile(String path) {
         File file = new File(path);
-        // First try the normal deletion.
         boolean fileDelete = deleteFilesInFolder(file, NativeUiHost.getActivityContextOrNull());
-        if (file.delete() || fileDelete)
-            return true;
-
-        return !file.exists();
+        return file.delete() || fileDelete || !file.exists();
     }
 
-    /**
-     * @noinspection unused
-     */
     public static OutputStream getOutputStream(@NonNull final File target, Context context, long s) throws Exception {
-        OutputStream outStream = null;
         try {
-            // First try the normal way
-            if (Files.isWritable(target.toPath()))
-                outStream = new FileOutputStream(target);
+            if (Files.isWritable(target.toPath())) return new FileOutputStream(target);
         } catch (Exception e) {
-            Log.e("FileUtils",
-                    "Error when copying file from " + target.getAbsolutePath(), e);
+            Log.e("FileUtils", "Error when copying file from " + target.getAbsolutePath(), e);
         }
-        return outStream;
+        return null;
     }
 
-    /**
-     * @noinspection unused
-     */
-    static public boolean WriteFile(String path, byte[] data) {
+    public static boolean WriteFile(String path, byte[] data) {
         File target = new File(path);
         if (target.exists()) {
-            DeleteFile(target.getAbsolutePath()); // to avoid number suffix name
+            DeleteFile(target.getAbsolutePath());
         } else {
             File parent = target.getParentFile();
-            assert parent != null;
-            if (!parent.exists())
-                CreateFolders(parent.getAbsolutePath());
+            if (parent != null && !parent.exists()) CreateFolders(parent.getAbsolutePath());
         }
-
-        return true;
+        try (FileOutputStream out = new FileOutputStream(target)) {
+            out.write(data);
+            return true;
+        } catch (IOException e) {
+            Log.e("FileUtils", "WriteFile failed: " + path, e);
+            return false;
+        }
     }
 
-    /**
-     * @noinspection unused
-     */
-    static public boolean CreateFolders(String path) {
+    public static boolean CreateFolders(String path) {
         File file = new File(path);
-
-        // Try the normal way
-        return file.mkdirs();
+        return file.exists() || file.mkdirs();
     }
 
-    /**
-     * @noinspection unused
-     */
     static boolean isWritableNormalOrSaf(final String path) {
         File folder = new File(path);
         return folder.exists() && folder.isDirectory();
     }
+
+    @SuppressLint("StaticFieldLeak")
+    public static View mTextEdit = null;
+
+    public static native boolean nativeLauncherLog(String message, String throwableText);
+    public static native void setUseFFmpegImageDecoder(boolean enabled);
+    public static native void setFFmpegDecodeMode(int mode);
+    public static native void configureFileLogging(boolean enabled, String logFilePath);
+    private static native void nativeLifecycleEvent(String eventName, String detail);
 }

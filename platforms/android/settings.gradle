@@ -37,7 +37,5 @@ rootProject.name = 'krkr2'
 
 include ':sdl'
 project(':sdl').projectDir = file('libsdl')
-include ':cocos2dx'
-project(':cocos2dx').projectDir = file('libcocos2dx')
 include ':app'
 project(':app').projectDir = file('app')

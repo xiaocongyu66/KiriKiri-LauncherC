@@ -538,11 +538,17 @@ std::vector<std::string> TVPGetDriverPath() {
     std::vector<std::string> ret;
     jobject sInstance = GetKR2ActInstance();
     JniMethodInfo methodInfo;
-    if(sInstance &&
-       JniHelper::getMethodInfo(methodInfo, KR2ActJavaPath, "getStoragePath",
-                                "()[Ljava/lang/String;")) {
-        jobjectArray PathObjs = (jobjectArray)methodInfo.env->CallObjectMethod(
-            sInstance, methodInfo.methodID);
+    if(sInstance ? JniHelper::getMethodInfo(methodInfo, KR2ActJavaPath,
+                                            "getStoragePath",
+                                            "()[Ljava/lang/String;")
+                 : JniHelper::getStaticMethodInfo(methodInfo, KR2ActJavaPath,
+                                                  "getStoragePath",
+                                                  "()[Ljava/lang/String;")) {
+        jobjectArray PathObjs = sInstance
+            ? (jobjectArray)methodInfo.env->CallObjectMethod(
+                  sInstance, methodInfo.methodID)
+            : (jobjectArray)methodInfo.env->CallStaticObjectMethod(
+                  methodInfo.classID, methodInfo.methodID);
         if(PathObjs) {
             int count = methodInfo.env->GetArrayLength(PathObjs);
             for(int i = 0; i < count; ++i) {

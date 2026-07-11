@@ -123,7 +123,6 @@ android {
 
 dependencies {
     implementation project(':sdl')
-    implementation project(':cocos2dx')
 
     implementation 'com.google.oboe:oboe:1.9.3'
     implementation 'com.google.android.material:material:1.12.0'

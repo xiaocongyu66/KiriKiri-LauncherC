@@ -23,11 +23,11 @@ import java.io.StringReader
  * ```
  *
  * File location: `<filesDir>/.preference/GlobalPreference.xml`. The launcher
- * runs in the same process UID as MainActivity, so plain `File` reads/writes
+ * runs in the same process UID as SdlRuntimeActivity, so plain `File` reads/writes
  * work — no JNI required.
  *
  * Concurrency note: writes are not atomic. The engine and launcher should
- * not run concurrently (launcher activity finishes before MainActivity
+ * not run concurrently (launcher activity finishes before SdlRuntimeActivity
  * starts), so the worst case is "user changes a setting, engine doesn't see
  * it until next launch", which is the same semantics as the engine's own
  * SaveToFile flow.
