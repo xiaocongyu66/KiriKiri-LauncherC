@@ -45,11 +45,14 @@ project(${APP_NAME})
 
 option(ENABLE_TESTS "enable tests execute build(exclude android)" ON)
 option(BUILD_TOOLS "build tools execute build(exclude android ios)" ON)
-set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
 if(ANDROID)
-    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
+    # Android's production runtime is SDL3-owned. Do not allow a Gradle or
+    # stale CMake cache option to resurrect the legacy Cocos host.
+    set(KRKR2_ENABLE_COCOS_HOST OFF CACHE BOOL
+        "Build the legacy Cocos runtime host" FORCE)
+else()
+    option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ON)
 endif()
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
 
 set(CMAKE_C_STANDARD 17)
 set(CMAKE_CXX_STANDARD 17)

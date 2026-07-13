@@ -4,8 +4,6 @@ plugins {
     id 'dev.flutter.flutter-gradle-plugin'
 }
 
-def krkr2NoCocosHost = (findProperty('krkr2NoCocosHost') ?: 'true').toString().toBoolean()
-
 android {
     ndkVersion '28.0.13004108'
     compileSdk PROP_COMPILE_SDK_VERSION.toInteger()
@@ -26,7 +24,7 @@ android {
                 cppFlags '-fsigned-char'
                 arguments '-DANDROID_STL=c++_shared',
                         '-DANDROID=ON',
-                        "-DKRKR2_ENABLE_COCOS_HOST=${krkr2NoCocosHost ? 'OFF' : 'ON'}"
+                        '-DKRKR2_ENABLE_COCOS_HOST=OFF'
             }
         }
         versionCode Integer.parseInt(new Date().format('yyyyMMddHH'))
@@ -81,7 +79,6 @@ android {
             manifest.srcFile 'AndroidManifest.xml'
             java.srcDirs = ['java']
             res.srcDirs = ['res']
-            assets.srcDirs = ['../../../ui/cocos-studio']
         }
     }
 

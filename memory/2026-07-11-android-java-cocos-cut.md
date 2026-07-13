@@ -54,6 +54,8 @@ Preserved methods include:
 
 ## Native Follow-Up Required
 
+- Android CMake now force-sets `KRKR2_ENABLE_COCOS_HOST=OFF`; Gradle also passes `OFF` as a fixed argument. A stale cache or `-Pkrkr2NoCocosHost=false` can no longer re-enable Cocos in Android builds.
+- The Android app no longer packages `ui/cocos-studio` as app assets. Flutter assets and SDL runtime resources remain independent.
 - Move native JNI class lookups away from `org/tvp/kirikiri2/KR2Activity` into true Cocos-free bridge classes.
 - `AndroidUtils.cpp` still has `KR2ActJavaPath` pointing at `KR2Activity`. This is acceptable only as a transition because the Java class is no longer Cocos-backed.
 - `TVPGetDriverPath()` was adjusted to use static `KR2Activity.getStoragePath()` when no Activity instance exists, because `KR2Activity` no longer has an instance.
