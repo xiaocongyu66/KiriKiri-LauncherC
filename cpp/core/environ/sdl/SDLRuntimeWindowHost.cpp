@@ -160,7 +160,6 @@ public:
         return false;
     }
     void TickBeat() override {}
-    cocos2d::Node *GetPrimaryArea() override { return nullptr; }
 
 private:
     tTJSNI_Window *Window = nullptr;

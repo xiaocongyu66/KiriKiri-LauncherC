@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:math' as math;
 
-import 'package:flutter/gestures.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -20,7 +19,8 @@ class GameOverlayPage extends StatefulWidget {
 }
 
 class _GameOverlayPageState extends State<GameOverlayPage> {
-  static const MethodChannel _channel = MethodChannel('org.github.krkr2/game_overlay');
+  static const MethodChannel _channel =
+      MethodChannel('org.github.krkr2/game_overlay');
   static const int _gameBufferWidth = 1920;
   static const int _gameBufferHeight = 1080;
   static const double _gameAspectRatio = _gameBufferWidth / _gameBufferHeight;
@@ -28,16 +28,12 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   bool _expanded = false;
   bool _menuMode = false;
   bool _mouseMode = true;
-  bool _gameSurfaceInFlight = false;
-  bool _gameSurfaceUnavailable = false;
-  int? _gameTextureId;
-  int _gameSurfaceWidth = 0;
-  int _gameSurfaceHeight = 0;
   double _overlayRight = 18;
   double _overlayBottom = 18;
   Size _overlayBounds = Size.zero;
   Size _gameDisplaySize = Size.zero;
-  final ValueNotifier<Offset> _overlayOffset = ValueNotifier<Offset>(const Offset(18, 18));
+  final ValueNotifier<Offset> _overlayOffset =
+      ValueNotifier<Offset>(const Offset(18, 18));
   _LoadingConsoleSnapshot _loadingConsole = const _LoadingConsoleSnapshot();
   _RenderOverlayStats _renderStats = const _RenderOverlayStats();
   Timer? _metricsTimer;
@@ -66,10 +62,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     _metricsTimer?.cancel();
     _metricsTimer = null;
     _channel.setMethodCallHandler(null);
-    final textureId = _gameTextureId;
-    if (textureId != null) {
-      unawaited(_invokeHost('disposeGameSurfaceTexture', {'textureId': textureId}));
-    }
     _overlayOffset.dispose();
     super.dispose();
   }
@@ -87,7 +79,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   void _refreshOverlayState() {
-    unawaited(_refreshGameSurfaceMetrics());
     unawaited(_refreshLoadingConsole());
     unawaited(_refreshRenderOverlayStats());
   }
@@ -106,8 +97,12 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     if (_expanded) {
       return;
     }
-    final nextRight = (_overlayRight - details.delta.dx).clamp(8.0, _maxOverlayRight).toDouble();
-    final nextBottom = (_overlayBottom - details.delta.dy).clamp(8.0, _maxOverlayBottom).toDouble();
+    final nextRight = (_overlayRight - details.delta.dx)
+        .clamp(8.0, _maxOverlayRight)
+        .toDouble();
+    final nextBottom = (_overlayBottom - details.delta.dy)
+        .clamp(8.0, _maxOverlayBottom)
+        .toDouble();
     if (nextRight == _overlayRight && nextBottom == _overlayBottom) {
       return;
     }
@@ -143,11 +138,14 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     });
   }
 
-  double get _maxOverlayRight => (_overlayBounds.width - 56).clamp(8.0, double.infinity).toDouble();
+  double get _maxOverlayRight =>
+      (_overlayBounds.width - 56).clamp(8.0, double.infinity).toDouble();
 
-  double get _maxOverlayBottom => (_overlayBounds.height - 56).clamp(8.0, double.infinity).toDouble();
+  double get _maxOverlayBottom =>
+      (_overlayBounds.height - 56).clamp(8.0, double.infinity).toDouble();
 
-  Future<void> _invokeHost(String method, Map<String, Object?> arguments) async {
+  Future<void> _invokeHost(
+      String method, Map<String, Object?> arguments) async {
     try {
       await _channel.invokeMethod<void>(method, arguments);
     } on MissingPluginException {
@@ -156,36 +154,19 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     }
   }
 
-  Future<Map<Object?, Object?>?> _invokeHostMap(String method, Map<String, Object?> arguments) async {
+  Future<Map<Object?, Object?>?> _invokeHostMap(
+      String method, Map<String, Object?> arguments) async {
     try {
-      return await _channel.invokeMapMethod<Object?, Object?>(method, arguments);
+      return await _channel.invokeMapMethod<Object?, Object?>(
+          method, arguments);
     } on MissingPluginException {
       return null;
     }
   }
 
-  Future<void> _refreshGameSurfaceMetrics() async {
-    final result = await _invokeHostMap('getGameSurfaceMetrics', const <String, Object?>{});
-    if (!mounted || result == null) {
-      return;
-    }
-
-    final surfaceWidth = (result['surfaceWidth'] as num?)?.toInt() ?? 0;
-    final surfaceHeight = (result['surfaceHeight'] as num?)?.toInt() ?? 0;
-    if (surfaceWidth == _gameBufferWidth &&
-        surfaceHeight == _gameBufferHeight &&
-        !_gameSurfaceInFlight &&
-        (_gameSurfaceWidth != _gameBufferWidth ||
-            _gameSurfaceHeight != _gameBufferHeight)) {
-      setState(() {
-        _gameSurfaceWidth = _gameBufferWidth;
-        _gameSurfaceHeight = _gameBufferHeight;
-      });
-    }
-  }
-
   Future<void> _refreshLoadingConsole() async {
-    final result = await _invokeHostMap('getLoadingConsoleSnapshot', const <String, Object?>{});
+    final result = await _invokeHostMap(
+        'getLoadingConsoleSnapshot', const <String, Object?>{});
     if (!mounted || result == null) {
       return;
     }
@@ -198,7 +179,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
   }
 
   Future<void> _refreshRenderOverlayStats() async {
-    final result = await _invokeHostMap('getRenderOverlayStats', const <String, Object?>{});
+    final result = await _invokeHostMap(
+        'getRenderOverlayStats', const <String, Object?>{});
     if (!mounted || result == null) {
       return;
     }
@@ -207,72 +189,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
         next.available != _renderStats.available ||
         next.sequence != _renderStats.sequence) {
       setState(() => _renderStats = next);
-    }
-  }
-
-  void _scheduleGameSurface() {
-    if (_gameSurfaceUnavailable || _gameSurfaceInFlight) {
-      return;
-    }
-    if (_gameTextureId != null &&
-        _gameSurfaceWidth == _gameBufferWidth &&
-        _gameSurfaceHeight == _gameBufferHeight) {
-      return;
-    }
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        unawaited(_ensureGameSurface());
-      }
-    });
-  }
-
-  Future<void> _ensureGameSurface() async {
-    const width = _gameBufferWidth;
-    const height = _gameBufferHeight;
-    if (_gameSurfaceUnavailable || _gameSurfaceInFlight) {
-      return;
-    }
-    if (_gameTextureId != null && _gameSurfaceWidth == width && _gameSurfaceHeight == height) {
-      return;
-    }
-    _gameSurfaceInFlight = true;
-    try {
-      if (_gameTextureId == null) {
-        final result = await _invokeHostMap('createGameSurfaceTexture', {'width': width, 'height': height});
-        final textureId = result?['textureId'];
-        if (textureId is! int) {
-          _gameSurfaceUnavailable = true;
-          return;
-        }
-        if (!mounted) {
-          unawaited(_invokeHost('disposeGameSurfaceTexture', {'textureId': textureId}));
-          return;
-        }
-        setState(() {
-          _gameTextureId = textureId;
-          _gameSurfaceWidth = width;
-          _gameSurfaceHeight = height;
-        });
-        return;
-      }
-
-      final textureId = _gameTextureId!;
-      final result = await _invokeHostMap('resizeGameSurfaceTexture', {
-        'textureId': textureId,
-        'width': width,
-        'height': height,
-      });
-      if (result == null) {
-        return;
-      }
-      if (mounted) {
-        setState(() {
-          _gameSurfaceWidth = width;
-          _gameSurfaceHeight = height;
-        });
-      }
-    } finally {
-      _gameSurfaceInFlight = false;
     }
   }
 
@@ -292,7 +208,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
     );
   }
 
-  Size _containedGameDisplaySize(double availableWidth, double availableHeight) {
+  Size _containedGameDisplaySize(
+      double availableWidth, double availableHeight) {
     if (availableWidth <= 0 || availableHeight <= 0) {
       return Size.zero;
     }
@@ -372,7 +289,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       await _setExpanded(false);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('执行失败：$error')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('执行失败：$error')));
       }
     }
   }
@@ -390,7 +308,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       await _setExpanded(false);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('菜单执行失败：$error')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('菜单执行失败：$error')));
       }
     }
   }
@@ -403,10 +322,14 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
         builder: (context, constraints) {
           _overlayBounds = Size(constraints.maxWidth, constraints.maxHeight);
           final mediaSize = MediaQuery.sizeOf(context);
-          final fallbackLogicalWidth = constraints.hasBoundedWidth && constraints.maxWidth.isFinite && constraints.maxWidth > 0
+          final fallbackLogicalWidth = constraints.hasBoundedWidth &&
+                  constraints.maxWidth.isFinite &&
+                  constraints.maxWidth > 0
               ? constraints.maxWidth
               : mediaSize.width;
-          final fallbackLogicalHeight = constraints.hasBoundedHeight && constraints.maxHeight.isFinite && constraints.maxHeight > 0
+          final fallbackLogicalHeight = constraints.hasBoundedHeight &&
+                  constraints.maxHeight.isFinite &&
+                  constraints.maxHeight > 0
               ? constraints.maxHeight
               : mediaSize.height;
           final availableSize = Size(
@@ -435,7 +358,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
                             width: _gameDisplaySize.width,
                             height: _gameDisplaySize.height,
                             child: _GameSurfaceLayer(
-                              textureId: _gameTextureId,
                               onPointerDown: _handlePointerDown,
                               onPointerMove: _handlePointerMove,
                               onPointerUp: _handlePointerUp,
@@ -457,7 +379,9 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
                     ),
                   ),
                 ),
-              if (!_loadingConsole.active && _renderStats.showFps && _renderStats.available)
+              if (!_loadingConsole.active &&
+                  _renderStats.showFps &&
+                  _renderStats.available)
                 Positioned(
                   left: 10,
                   top: 10,
@@ -473,7 +397,8 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
                   child: _menuMode
                       ? _FloatingMenuPanel(
                           future: _menuFuture,
-                          onBack: () => setState(() => _menuFuture = widget.bridge.getMainMenu()),
+                          onBack: () => setState(
+                              () => _menuFuture = widget.bridge.getMainMenu()),
                           onClose: () => _setExpanded(false),
                           onActivate: _activateMenu,
                         )
@@ -492,7 +417,6 @@ class _GameOverlayPageState extends State<GameOverlayPage> {
       ),
     );
   }
-
 }
 
 class _LoadingConsoleLine {
@@ -525,7 +449,8 @@ class _LoadingConsoleSnapshot {
           if (message.isEmpty) {
             continue;
           }
-          lines.add(_LoadingConsoleLine(message: message, important: rawLine['important'] == true));
+          lines.add(_LoadingConsoleLine(
+              message: message, important: rawLine['important'] == true));
         }
       }
     }
@@ -608,7 +533,8 @@ class _StartupConsoleOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final maxVisibleLines = math.max(1, ((constraints.maxHeight - 16) / 16).floor()).toInt();
+        final maxVisibleLines =
+            math.max(1, ((constraints.maxHeight - 16) / 16).floor()).toInt();
         final start = math.max(0, snapshot.lines.length - maxVisibleLines);
         final lines = snapshot.lines.sublist(start);
         return DecoratedBox(
@@ -624,14 +550,20 @@ class _StartupConsoleOverlay extends StatelessWidget {
               children: [
                 for (final line in lines)
                   Text(
-                    line.message.length > 200 ? line.message.substring(0, 200) : line.message,
+                    line.message.length > 200
+                        ? line.message.substring(0, 200)
+                        : line.message,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                      color: line.important ? const Color(0xffffd75a) : Colors.white.withOpacity(0.76),
+                      color: line.important
+                          ? const Color(0xffffd75a)
+                          : Colors.white.withValues(alpha: 0.76),
                       fontSize: 12.5,
                       height: 1.18,
-                      shadows: const [Shadow(color: Colors.black, blurRadius: 2)],
+                      shadows: const [
+                        Shadow(color: Colors.black, blurRadius: 2)
+                      ],
                     ),
                   ),
               ],
@@ -653,8 +585,7 @@ class _FpsCounterOverlay extends StatelessWidget {
     final videoMemoryMb = stats.videoMemoryBytes / (1024 * 1024);
     final renderer =
         stats.rendererName.isEmpty ? 'renderer' : stats.rendererName;
-    final text =
-        '${stats.fps.toStringAsFixed(1)} fps '
+    final text = '${stats.fps.toStringAsFixed(1)} fps '
         '(${stats.drawCount} TVP ops, ${stats.presentedFrames} presents, $renderer)\n'
         '${stats.selfMemoryMb} MB(${videoMemoryMb.toStringAsFixed(2)} MB) ${stats.freeMemoryMb} MB';
     return Text(
@@ -674,14 +605,12 @@ class _FpsCounterOverlay extends StatelessWidget {
 
 class _GameSurfaceLayer extends StatelessWidget {
   const _GameSurfaceLayer({
-    required this.textureId,
     required this.onPointerDown,
     required this.onPointerMove,
     required this.onPointerUp,
     required this.onPointerCancel,
   });
 
-  final int? textureId;
   final PointerDownEventListener onPointerDown;
   final PointerMoveEventListener onPointerMove;
   final PointerUpEventListener onPointerUp;
@@ -689,20 +618,13 @@ class _GameSurfaceLayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textureId = this.textureId;
     return Listener(
       behavior: HitTestBehavior.opaque,
       onPointerDown: onPointerDown,
       onPointerMove: onPointerMove,
       onPointerUp: onPointerUp,
       onPointerCancel: onPointerCancel,
-      child: textureId == null
-          ? const SizedBox.expand()
-          : Texture(
-              key: ValueKey<int>(textureId),
-              textureId: textureId,
-              filterQuality: FilterQuality.none,
-            ),
+      child: const SizedBox.expand(),
     );
   }
 }
@@ -771,11 +693,16 @@ class _FloatingActionTray extends StatelessWidget {
         curve: Curves.easeOutCubic,
         height: 56,
         decoration: BoxDecoration(
-          color: scheme.surfaceContainerHighest.withOpacity(0.92),
+          color: scheme.surfaceContainerHighest.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(28),
-          border: Border.all(color: scheme.outlineVariant.withOpacity(0.72)),
+          border: Border.all(
+            color: scheme.outlineVariant.withValues(alpha: 0.72),
+          ),
           boxShadow: [
-            BoxShadow(color: Colors.black.withOpacity(0.24), blurRadius: 14, offset: const Offset(0, 6)),
+            BoxShadow(
+                color: Colors.black.withValues(alpha: 0.24),
+                blurRadius: 14,
+                offset: const Offset(0, 6)),
           ],
         ),
         child: ClipRRect(
@@ -785,10 +712,25 @@ class _FloatingActionTray extends StatelessWidget {
             children: [
               if (expanded) ...[
                 const SizedBox(width: 4),
-                _TrayButton(icon: Icons.menu_rounded, label: '菜单', onTap: () => onAction('game-menu')),
-                _TrayButton(icon: Icons.fit_screen_rounded, label: '窗口', onTap: () => onAction('window-manager')),
-                _TrayButton(icon: mouseMode ? Icons.mouse_rounded : Icons.touch_app_rounded, label: mouseMode ? '鼠标' : '触摸', onTap: () => onAction('mouse-mode')),
-                _TrayButton(icon: Icons.power_settings_new_rounded, label: '退出', destructive: true, onTap: () => onAction('exit')),
+                _TrayButton(
+                    icon: Icons.menu_rounded,
+                    label: '菜单',
+                    onTap: () => onAction('game-menu')),
+                _TrayButton(
+                    icon: Icons.fit_screen_rounded,
+                    label: '窗口',
+                    onTap: () => onAction('window-manager')),
+                _TrayButton(
+                    icon: mouseMode
+                        ? Icons.mouse_rounded
+                        : Icons.touch_app_rounded,
+                    label: mouseMode ? '鼠标' : '触摸',
+                    onTap: () => onAction('mouse-mode')),
+                _TrayButton(
+                    icon: Icons.power_settings_new_rounded,
+                    label: '退出',
+                    destructive: true,
+                    onTap: () => onAction('exit')),
                 const SizedBox(width: 2),
                 Container(width: 1, height: 28, color: scheme.outlineVariant),
               ],
@@ -817,7 +759,11 @@ class _FloatingHandle extends StatelessWidget {
 }
 
 class _TrayButton extends StatelessWidget {
-  const _TrayButton({required this.icon, required this.label, required this.onTap, this.destructive = false});
+  const _TrayButton(
+      {required this.icon,
+      required this.label,
+      required this.onTap,
+      this.destructive = false});
 
   final IconData icon;
   final String label;
@@ -844,7 +790,10 @@ class _TrayButton extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.fade,
               softWrap: false,
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(color: foreground, fontSize: 10),
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(color: foreground, fontSize: 10),
             ),
           ],
         ),
@@ -854,7 +803,11 @@ class _TrayButton extends StatelessWidget {
 }
 
 class _FloatingMenuPanel extends StatelessWidget {
-  const _FloatingMenuPanel({required this.future, required this.onBack, required this.onClose, required this.onActivate});
+  const _FloatingMenuPanel(
+      {required this.future,
+      required this.onBack,
+      required this.onClose,
+      required this.onActivate});
 
   final Future<List<GameMenuItem>> future;
   final VoidCallback onBack;
@@ -875,71 +828,91 @@ class _FloatingMenuPanel extends StatelessWidget {
         child: ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: Material(
-            color: scheme.surfaceContainerHigh.withOpacity(0.94),
+            color: scheme.surfaceContainerHigh.withValues(alpha: 0.94),
             clipBehavior: Clip.antiAlias,
             child: DecoratedBox(
-            decoration: BoxDecoration(
-              border: Border.all(color: scheme.outlineVariant.withOpacity(0.72)),
-              boxShadow: [
-                BoxShadow(color: Colors.black.withOpacity(0.24), blurRadius: 18, offset: const Offset(0, 8)),
-              ],
-            ),
-            child: Column(
-              children: [
-                SizedBox(
-                  height: 46,
-                  child: Row(
-                    children: [
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        onPressed: onBack,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                        tooltip: '返回',
-                      ),
-                      const Icon(Icons.menu_rounded, size: 24),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          '游戏菜单',
-                          style: Theme.of(context).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        onPressed: onClose,
-                        icon: const Icon(Icons.close_rounded),
-                        tooltip: '收起',
-                      ),
-                    ],
-                  ),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: scheme.outlineVariant.withValues(alpha: 0.72),
                 ),
-                Divider(height: 1, color: scheme.outlineVariant),
-                Expanded(
-                  child: FutureBuilder<List<GameMenuItem>>(
-                    future: future,
-                    builder: (context, snapshot) {
-                      final items = snapshot.data ?? const <GameMenuItem>[];
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(child: SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2)));
-                      }
-                      if (items.isEmpty) {
-                        return const LauncherEmptyState(icon: Icons.menu_open_rounded, message: '当前游戏没有菜单');
-                      }
-                      return Scrollbar(
-                        child: ListView.separated(
-                          padding: const EdgeInsets.symmetric(vertical: 4),
-                          itemCount: items.length,
-                          separatorBuilder: (_, __) => Divider(height: 1, indent: 56, color: scheme.outlineVariant),
-                          itemBuilder: (context, index) => _FloatingMenuTile(item: items[index], onTap: onActivate),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.24),
+                      blurRadius: 18,
+                      offset: const Offset(0, 8)),
+                ],
+              ),
+              child: Column(
+                children: [
+                  SizedBox(
+                    height: 46,
+                    child: Row(
+                      children: [
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: onBack,
+                          icon: const Icon(Icons.arrow_back_rounded),
+                          tooltip: '返回',
                         ),
-                      );
-                    },
+                        const Icon(Icons.menu_rounded, size: 24),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '游戏菜单',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                        IconButton(
+                          visualDensity: VisualDensity.compact,
+                          onPressed: onClose,
+                          icon: const Icon(Icons.close_rounded),
+                          tooltip: '收起',
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
+                  Divider(height: 1, color: scheme.outlineVariant),
+                  Expanded(
+                    child: FutureBuilder<List<GameMenuItem>>(
+                      future: future,
+                      builder: (context, snapshot) {
+                        final items = snapshot.data ?? const <GameMenuItem>[];
+                        if (snapshot.connectionState ==
+                            ConnectionState.waiting) {
+                          return const Center(
+                              child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2)));
+                        }
+                        if (items.isEmpty) {
+                          return const LauncherEmptyState(
+                              icon: Icons.menu_open_rounded,
+                              message: '当前游戏没有菜单');
+                        }
+                        return Scrollbar(
+                          child: ListView.separated(
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            itemCount: items.length,
+                            separatorBuilder: (_, __) => Divider(
+                                height: 1,
+                                indent: 56,
+                                color: scheme.outlineVariant),
+                            itemBuilder: (context, index) => _FloatingMenuTile(
+                                item: items[index], onTap: onActivate),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
         ),
       ),
     );
@@ -956,11 +929,17 @@ class _FloatingMenuTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final hasChildren = item.children.isNotEmpty;
     final scheme = Theme.of(context).colorScheme;
-    final enabledColor = item.enabled ? scheme.onSurface : scheme.onSurface.withOpacity(0.38);
+    final enabledColor = item.enabled
+        ? scheme.onSurface
+        : scheme.onSurface.withValues(alpha: 0.38);
     return LauncherListItem(
       dense: true,
       leading: Icon(
-        hasChildren ? Icons.folder_open_rounded : item.checked ? Icons.check_rounded : Icons.radio_button_unchecked_rounded,
+        hasChildren
+            ? Icons.folder_open_rounded
+            : item.checked
+                ? Icons.check_rounded
+                : Icons.radio_button_unchecked_rounded,
         color: enabledColor,
         size: 20,
       ),
@@ -968,9 +947,15 @@ class _FloatingMenuTile extends StatelessWidget {
         item.title.isEmpty ? '(未命名)' : item.title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: enabledColor),
+        style: Theme.of(context)
+            .textTheme
+            .bodyMedium
+            ?.copyWith(color: enabledColor),
       ),
-      trailing: hasChildren ? Icon(Icons.chevron_right_rounded, color: scheme.onSurfaceVariant, size: 20) : null,
+      trailing: hasChildren
+          ? Icon(Icons.chevron_right_rounded,
+              color: scheme.onSurfaceVariant, size: 20)
+          : null,
       onTap: item.enabled ? () => onTap(item) : null,
     );
   }

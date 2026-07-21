@@ -1,5 +1,4 @@
 /* Include the SDL main definition header */
-#include <memory>
 #include <jni.h>
 #include <dlfcn.h>
 #include <android/native_window.h>
@@ -7,14 +6,6 @@
 #include <EGL/egl.h>
 #include <GLES2/gl2.h>
 
-#ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 0
-#endif
-
-#if KRKR2_ENABLE_COCOS_HOST
-#include "environ/cocos2d/AppDelegate.h"
-#include "environ/cocos2d/MainScene.h"
-#endif
 #include "environ/ConfigManager/GlobalConfigManager.h"
 #include "environ/Application.h"
 #include "environ/NativeLog.h"
@@ -196,7 +187,6 @@ static void TVPRegisterAndroidSDLRuntimeHost() {
 }
 
 std::once_flag gAndroidBaseInitOnce;
-std::once_flag gAndroidCocosHostInitOnce;
 std::atomic_bool gAndroidBaseInitDone{false};
 std::atomic_bool gAndroidSDLJniReady{false};
 
@@ -252,26 +242,11 @@ void TVPAndroidInitializeBase(JNIEnv *env, const char *source) {
 }
 
 void TVPAndroidInitializeLegacyHost(JNIEnv *env, const char *source) {
-    TVPAndroidInitializeBase(env, source);
-    if(!gAndroidBaseInitDone.load(std::memory_order_acquire))
-        return;
-
-#if KRKR2_ENABLE_COCOS_HOST
-    std::call_once(gAndroidCocosHostInitOnce, []() {
-        static std::unique_ptr<TVPAppDelegate> pAppDelegate =
-            std::make_unique<TVPAppDelegate>();
-        (void)pAppDelegate;
-        TVPAppendNativeFatalBreadcrumb("jni", "TVPAppDelegate created");
-    });
-#else
-    if(!gAndroidSDLJniReady.load(std::memory_order_acquire)) {
-        TVPNativeLogInfo("runtime-host",
-                         "no-cocos host skipped: SDL JNI not ready");
-        return;
-    }
-    TVPRegisterAndroidSDLRuntimeHost();
-    TVPAppendNativeFatalBreadcrumb("jni", "no-cocos host init");
-#endif
+    // Legacy JNI entry kept only for KR2Activity bridge symbols. Android no
+    // longer owns a Cocos host; always hand off to the SDL3 runtime host.
+    TVPAndroidInitializeSDLHost(env, source);
+    if(source && *source)
+        TVPAppendNativeFatalBreadcrumb("jni", "legacy host -> sdl3");
 }
 
 void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
@@ -280,17 +255,6 @@ void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
        !gAndroidSDLJniReady.load(std::memory_order_acquire))
         return;
     TVPRegisterAndroidSDLRuntimeHost();
-}
-
-[[maybe_unused]] void cocos_android_app_init(JNIEnv *env) { // for cocos3.10+
-    TVPAndroidInitializeLegacyHost(env, "cocos_android_app_init");
-}
-
-extern "C" JNIEXPORT void JNICALL
-Java_org_cocos2dx_lib_Cocos2dxRenderer_nativeFrameEnd(JNIEnv *, jclass) {
-#if KRKR2_ENABLE_COCOS_HOST
-    (void)TVPRuntimePumpScreenPresenter("cocos-frame-end");
-#endif
 }
 
 namespace kr2android {
@@ -323,20 +287,11 @@ struct TVPAndroidSDLRenderContextState {
 std::mutex gAndroidSDLRenderContextLock;
 TVPAndroidSDLRenderContextState gAndroidSDLRenderContext;
 
-bool ShouldRouteLegacyInputToCocos() {
-#if KRKR2_ENABLE_COCOS_HOST
-    return !TVPSDLIsScreenTakeoverEnabled() ||
-        !TVPSDLHasScreenPresenterPresented();
-#else
-    return false;
-#endif
-}
-
 bool ShowFlutterGameMainMenu(JNIEnv *env) {
     if(!env)
         return false;
 
-    jclass cls = env->FindClass("org/github/krkr2/MainActivity");
+    jclass cls = env->FindClass("org/github/krkr2/SdlRuntimeActivity");
     if(!cls) {
         env->ExceptionClear();
         return false;
@@ -820,144 +775,76 @@ Java_org_tvp_kirikiri2_NativeUiHost_nativeMessageBoxText(JNIEnv *env,
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesBegin(
     JNIEnv *env, jclass thiz, jint id, jfloat x, jfloat y) {
+    (void)env;
+    (void)thiz;
+    // Legacy KR2Activity touch JNI retained for ABI compatibility. Active
+    // Android input uses AndroidRuntimeBridge + TVPSDLQueueFlutterTouch*.
     TVPSDLRecordAndroidInput("touch-begin", 1, x, y, id, true);
-    if(!ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    intptr_t idlong = id;
-    Android_PushEvents([idlong, x, y]() {
-        cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesBegin(
-            1, (intptr_t *)&idlong, (float *)&x, (float *)&y);
-    });
-#endif
+    TVPSDLQueueFlutterTouchBegin(id, x, y);
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesEnd(
     JNIEnv *env, jclass thiz, jint id, jfloat x, jfloat y) {
+    (void)env;
+    (void)thiz;
     TVPSDLRecordAndroidInput("touch-end", 1, x, y, id, false);
-    if(!ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    intptr_t idlong = id;
-    Android_PushEvents([idlong, x, y]() {
-        cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesEnd(
-            1, (intptr_t *)&idlong, (float *)&x, (float *)&y);
-    });
-#endif
+    TVPSDLQueueFlutterTouchEnd(id, x, y);
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesMove(
     JNIEnv *env, jclass thiz, jintArray ids, jfloatArray xs, jfloatArray ys) {
-    int size = env->GetArrayLength(ids);
-    if(size <= 0) {
+    (void)thiz;
+    if(!ids || !xs || !ys) {
         TVPSDLRecordAndroidInput("touch-move-empty", 0);
+        TVPSDLQueueFlutterTouchMove(0, nullptr, nullptr, nullptr);
         return;
     }
-    if(size == 1) {
-        intptr_t idlong;
-        jint id;
-        jfloat x;
-        jfloat y;
-        env->GetIntArrayRegion(ids, 0, size, &id);
-        env->GetFloatArrayRegion(xs, 0, size, &x);
-        env->GetFloatArrayRegion(ys, 0, size, &y);
-        idlong = id;
-        TVPSDLRecordAndroidInput("touch-move", 1, x, y, id, true);
-        if(!ShouldRouteLegacyInputToCocos())
-            return;
-#if KRKR2_ENABLE_COCOS_HOST
-        Android_PushEvents([idlong, x, y]() {
-            cocos2d::Director::getInstance()
-                ->getOpenGLView()
-                ->handleTouchesMove(1, (intptr_t *)&idlong, (float *)&x,
-                                    (float *)&y);
-        });
-#endif
+    const jsize count =
+        std::min(env->GetArrayLength(ids),
+                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
+    if(count <= 0) {
+        TVPSDLRecordAndroidInput("touch-move-empty", 0);
+        TVPSDLQueueFlutterTouchMove(0, nullptr, nullptr, nullptr);
         return;
     }
-
-    std::vector<jint> id(size);
-    std::vector<jfloat> x;
-    x.resize(size);
-    std::vector<jfloat> y;
-    y.resize(size);
-
-    env->GetIntArrayRegion(ids, 0, size, id.data());
-    env->GetFloatArrayRegion(xs, 0, size, &x[0]);
-    env->GetFloatArrayRegion(ys, 0, size, &y[0]);
-
-    std::vector<intptr_t> idlong;
-    idlong.resize(size);
-    for(int i = 0; i < size; i++)
-        idlong[i] = id[i];
-
-    TVPSDLRecordAndroidInput("touch-move", size, x[0], y[0], id[0], true);
-    if(!ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    Android_PushEvents([idlong, x, y]() mutable {
-        cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesMove(
-            static_cast<int>(idlong.size()), idlong.data(), x.data(),
-            y.data());
-    });
-#endif
+    std::vector<jint> idValues(static_cast<size_t>(count));
+    std::vector<jfloat> xValues(static_cast<size_t>(count));
+    std::vector<jfloat> yValues(static_cast<size_t>(count));
+    env->GetIntArrayRegion(ids, 0, count, idValues.data());
+    env->GetFloatArrayRegion(xs, 0, count, xValues.data());
+    env->GetFloatArrayRegion(ys, 0, count, yValues.data());
+    TVPSDLRecordAndroidInput("touch-move", count, xValues[0], yValues[0],
+                             idValues[0], true);
+    TVPSDLQueueFlutterTouchMove(static_cast<int>(count), idValues.data(),
+                                xValues.data(), yValues.data());
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
     JNIEnv *env, jclass thiz, jintArray ids, jfloatArray xs, jfloatArray ys) {
-    int size = env->GetArrayLength(ids);
-    if(size <= 0) {
+    (void)thiz;
+    if(!ids || !xs || !ys) {
         TVPSDLRecordAndroidInput("touch-cancel-empty", 0);
+        TVPSDLQueueFlutterTouchCancel(0, nullptr, nullptr, nullptr);
         return;
     }
-    if(size == 1) {
-        intptr_t idlong;
-        jint id;
-        jfloat x;
-        jfloat y;
-        env->GetIntArrayRegion(ids, 0, size, &id);
-        env->GetFloatArrayRegion(xs, 0, size, &x);
-        env->GetFloatArrayRegion(ys, 0, size, &y);
-        idlong = id;
-        TVPSDLRecordAndroidInput("touch-cancel", 1, x, y, id, false);
-        if(!ShouldRouteLegacyInputToCocos())
-            return;
-#if KRKR2_ENABLE_COCOS_HOST
-        Android_PushEvents([idlong, x, y]() {
-            cocos2d::Director::getInstance()
-                ->getOpenGLView()
-                ->handleTouchesCancel(1, (intptr_t *)&idlong, (float *)&x,
-                                      (float *)&y);
-        });
-#endif
+    const jsize count =
+        std::min(env->GetArrayLength(ids),
+                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
+    if(count <= 0) {
+        TVPSDLRecordAndroidInput("touch-cancel-empty", 0);
+        TVPSDLQueueFlutterTouchCancel(0, nullptr, nullptr, nullptr);
         return;
     }
-
-    std::vector<jint> id(size);
-    std::vector<jfloat> x;
-    x.resize(size);
-    std::vector<jfloat> y;
-    y.resize(size);
-
-    env->GetIntArrayRegion(ids, 0, size, id.data());
-    env->GetFloatArrayRegion(xs, 0, size, &x[0]);
-    env->GetFloatArrayRegion(ys, 0, size, &y[0]);
-
-    std::vector<intptr_t> idlong;
-    idlong.resize(size);
-    for(int i = 0; i < size; i++)
-        idlong[i] = id[i];
-
-    TVPSDLRecordAndroidInput("touch-cancel", size, x[0], y[0], id[0], false);
-    if(!ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    Android_PushEvents([idlong, x, y]() mutable {
-        cocos2d::Director::getInstance()->getOpenGLView()->handleTouchesCancel(
-            static_cast<int>(idlong.size()), idlong.data(), x.data(),
-            y.data());
-    });
-#endif
+    std::vector<jint> idValues(static_cast<size_t>(count));
+    std::vector<jfloat> xValues(static_cast<size_t>(count));
+    std::vector<jfloat> yValues(static_cast<size_t>(count));
+    env->GetIntArrayRegion(ids, 0, count, idValues.data());
+    env->GetFloatArrayRegion(xs, 0, count, xValues.data());
+    env->GetFloatArrayRegion(ys, 0, count, yValues.data());
+    TVPSDLRecordAndroidInput("touch-cancel", count, xValues[0], yValues[0],
+                             idValues[0], false);
+    TVPSDLQueueFlutterTouchCancel(static_cast<int>(count), idValues.data(),
+                                  xValues.data(), yValues.data());
 }
 
 #define KEYCODE_BACK 0x04
@@ -973,6 +860,7 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeTouchesCancel(
 
 JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
     JNIEnv *env, jclass cls, jint keyCode, jboolean isPress) {
+    (void)cls;
     const bool pressed = isPress == JNI_TRUE;
     if(TVPSDLDispatchAndroidKeyAction(keyCode, pressed)) {
         TVPSDLRecordAndroidInput("key-direct", 0, 0.0f, 0.0f, keyCode,
@@ -986,65 +874,14 @@ JNIEXPORT jboolean JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeKeyAction(
             return JNI_TRUE;
         }
     }
-    if(!ShouldRouteLegacyInputToCocos()) {
-        TVPSDLRecordAndroidInput("key-takeover-drop", 0, 0.0f, 0.0f,
-                                 keyCode, pressed);
-        return JNI_TRUE;
-    }
-
-#if KRKR2_ENABLE_COCOS_HOST
-    cocos2d::EventKeyboard::KeyCode pKeyCode;
-    switch(keyCode) {
-        case KEYCODE_BACK:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_ESCAPE;
-            break;
-        case KEYCODE_MENU:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_MENU;
-            break;
-        case KEYCODE_DPAD_UP:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_UP;
-            break;
-        case KEYCODE_DPAD_DOWN:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_DOWN;
-            break;
-        case KEYCODE_DPAD_LEFT:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_LEFT;
-            break;
-        case KEYCODE_DPAD_RIGHT:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_RIGHT;
-            break;
-        case KEYCODE_ENTER:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_ENTER;
-            break;
-        case KEYCODE_PLAY:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_PLAY;
-            break;
-        case KEYCODE_DPAD_CENTER:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_DPAD_CENTER;
-            break;
-        case KEYCODE_DEL:
-            pKeyCode = cocos2d::EventKeyboard::KeyCode::KEY_BACKSPACE;
-            break;
-        default:
-            TVPSDLRecordAndroidInput("key-unhandled", 0, 0.0f, 0.0f, keyCode,
-                                     pressed);
-            return JNI_FALSE;
-    }
-
-    TVPSDLRecordAndroidInput("key", 0, 0.0f, 0.0f, keyCode, pressed);
-    Android_PushEvents([pKeyCode, pressed]() {
-        cocos2d::EventKeyboard event(pKeyCode, pressed);
-        cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(
-            &event);
-    });
+    TVPSDLRecordAndroidInput("key-takeover-drop", 0, 0.0f, 0.0f, keyCode,
+                             pressed);
     return JNI_TRUE;
-#else
-    return JNI_TRUE;
-#endif
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(
     JNIEnv *env, jclass cls, jstring text) {
+    (void)cls;
     if(!text) {
         TVPSDLRecordAndroidInput("text-insert-null", 0);
         return;
@@ -1054,49 +891,31 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeInsertText(
         std::string str = pszText;
         TVPSDLRecordAndroidInput("text-insert", 0, 0.0f, 0.0f,
                                  static_cast<int>(str.length()), true);
-        if(TVPSDLDispatchTextInput(str.c_str()) ||
-           !ShouldRouteLegacyInputToCocos()) {
-            env->ReleaseStringUTFChars(text, pszText);
-            return;
-        }
-#if KRKR2_ENABLE_COCOS_HOST
-        Android_PushEvents([str]() {
-            cocos2d::IMEDispatcher::sharedDispatcher()->dispatchInsertText(
-                str.c_str(), str.length());
-        });
-#endif
+        (void)TVPSDLDispatchTextInput(str.c_str());
     }
     env->ReleaseStringUTFChars(text, pszText);
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeDeleteBackward(
     JNIEnv *env, jclass cls) {
+    (void)env;
+    (void)cls;
     TVPSDLRecordAndroidInput("text-delete", 0, 0.0f, 0.0f, VK_BACK, false);
-    if(TVPSDLDispatchDeleteBackward() || !ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    Android_PushEvents([capture0 = cocos2d::IMEDispatcher::sharedDispatcher()] {
-        capture0->dispatchDeleteBackward();
-    });
-#endif
+    (void)TVPSDLDispatchDeleteBackward();
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCharInput(
     JNIEnv *env, jclass cls, jint keyCode) {
+    (void)env;
+    (void)cls;
     TVPSDLRecordAndroidInput("char-input", 0, 0.0f, 0.0f, keyCode, true);
-    if(TVPSDLDispatchCharInput(keyCode) || !ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    TVPMainScene *pScene = TVPMainScene::GetInstance();
-    if(!pScene)
-        return;
-    pScene->getScheduler()->performFunctionInCocosThread(
-        [keyCode] { TVPMainScene::onCharInput(keyCode); });
-#endif
+    (void)TVPSDLDispatchCharInput(keyCode);
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
     JNIEnv *env, jclass cls, jstring text, jint newCursorPosition) {
+    (void)cls;
+    (void)newCursorPosition;
     if(!text) {
         TVPSDLRecordAndroidInput("text-commit-null", 0);
         return;
@@ -1110,15 +929,7 @@ JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeCommitText(
     env->ReleaseStringUTFChars(text, utftext);
     TVPSDLRecordAndroidInput("text-commit", 0, 0.0f, 0.0f,
                              static_cast<int>(str.length()), true);
-    if(TVPSDLDispatchTextInput(str.c_str()) || !ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    TVPMainScene *pScene = TVPMainScene::GetInstance();
-    if(!pScene)
-        return;
-    pScene->getScheduler()->performFunctionInCocosThread(
-        [str] { TVPMainScene::onTextInput(str); });
-#endif
+    (void)TVPSDLDispatchTextInput(str.c_str());
 }
 
 JNIEXPORT jboolean JNICALL
@@ -1160,60 +971,20 @@ static float _mouseX, _mouseY;
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeHoverMoved(
     JNIEnv *env, jclass cls, jfloat x, jfloat y) {
+    (void)env;
+    (void)cls;
     _mouseX = x;
     _mouseY = y;
     TVPSDLRecordAndroidInput("hover-move", 1, x, y, 0, true);
-    if(TVPSDLDispatchAndroidHoverMove(x, y) || !ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    Android_PushEvents([x, y]() {
-        cocos2d::GLView *glview =
-            cocos2d::Director::getInstance()->getOpenGLView();
-        float _scaleX = glview->getScaleX(), _scaleY = glview->getScaleY();
-        const cocos2d::Rect _viewPortRect = glview->getViewPortRect();
-
-        float cursorX = (_mouseX - _viewPortRect.origin.x) / _scaleX;
-        float cursorY =
-            (_viewPortRect.origin.y + _viewPortRect.size.height - _mouseY) /
-            _scaleY;
-
-        cocos2d::EventMouse event(
-            cocos2d::EventMouse::MouseEventType::MOUSE_MOVE);
-
-        event.setCursorPosition(cursorX, cursorY);
-        cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(
-            &event);
-    });
-#endif
+    (void)TVPSDLDispatchAndroidHoverMove(x, y);
 }
 
 JNIEXPORT void JNICALL Java_org_tvp_kirikiri2_KR2Activity_nativeMouseScrolled(
     JNIEnv *env, jclass cls, jfloat v) {
+    (void)env;
+    (void)cls;
     TVPSDLRecordAndroidInput("mouse-scroll", 0, _mouseX, v, 0, true);
-    if(TVPSDLDispatchAndroidMouseScroll(_mouseX, _mouseY, v) ||
-       !ShouldRouteLegacyInputToCocos())
-        return;
-#if KRKR2_ENABLE_COCOS_HOST
-    Android_PushEvents([v]() {
-        cocos2d::GLView *glview =
-            cocos2d::Director::getInstance()->getOpenGLView();
-        float _scaleX = glview->getScaleX(), _scaleY = glview->getScaleY();
-        const cocos2d::Rect _viewPortRect = glview->getViewPortRect();
-
-        float cursorX = (_mouseX - _viewPortRect.origin.x) / _scaleX;
-        float cursorY =
-            (_viewPortRect.origin.y + _viewPortRect.size.height - _mouseY) /
-            _scaleY;
-
-        cocos2d::EventMouse event(
-            cocos2d::EventMouse::MouseEventType::MOUSE_SCROLL);
-
-        event.setScrollData(0, v);
-        event.setCursorPosition(cursorX, cursorY);
-        cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(
-            &event);
-    });
-#endif
+    (void)TVPSDLDispatchAndroidMouseScroll(_mouseX, _mouseY, v);
 }
 
 JNIEXPORT jboolean JNICALL
@@ -1335,27 +1106,6 @@ static void TVPAndroidDetachGameSurface(const char *source) {
 }
 
 JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeSetGameSurface(JNIEnv *env,
-                                                        jobject,
-                                                        jobject surface,
-                                                        jint width,
-                                                        jint height) {
-    TVPAndroidSetGameSurface(env, surface, width, height, "MainActivity");
-}
-
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeResizeGameSurface(JNIEnv *, jobject,
-                                                           jint width,
-                                                           jint height) {
-    TVPAndroidResizeGameSurface(width, height, "MainActivity");
-}
-
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeDetachGameSurface(JNIEnv *, jobject) {
-    TVPAndroidDetachGameSurface("MainActivity");
-}
-
-JNIEXPORT void JNICALL
 Java_org_github_krkr2_AndroidRuntimeBridge_nativeSetGameSurface(
     JNIEnv *env, jclass, jobject surface, jint width, jint height) {
     TVPAndroidSetGameSurface(env, surface, width, height,
@@ -1433,12 +1183,6 @@ static jintArray TVPAndroidGetGameSurfaceMetrics(JNIEnv *env) {
 }
 
 JNIEXPORT jintArray JNICALL
-Java_org_github_krkr2_MainActivity_nativeGetGameSurfaceMetrics(JNIEnv *env,
-                                                               jobject) {
-    return TVPAndroidGetGameSurfaceMetrics(env);
-}
-
-JNIEXPORT jintArray JNICALL
 Java_org_github_krkr2_AndroidRuntimeBridge_nativeGetGameSurfaceMetrics(
     JNIEnv *env, jclass) {
     return TVPAndroidGetGameSurfaceMetrics(env);
@@ -1463,12 +1207,6 @@ static jobjectArray TVPAndroidGetLoadingConsoleSnapshot(JNIEnv *env) {
         values.emplace_back(value);
     }
     return MakeJavaStringArray(env, values);
-}
-
-JNIEXPORT jobjectArray JNICALL
-Java_org_github_krkr2_MainActivity_nativeGetLoadingConsoleSnapshot(
-    JNIEnv *env, jobject) {
-    return TVPAndroidGetLoadingConsoleSnapshot(env);
 }
 
 JNIEXPORT jobjectArray JNICALL
@@ -1499,25 +1237,9 @@ static jobjectArray TVPAndroidGetRenderOverlayStats(JNIEnv *env) {
 }
 
 JNIEXPORT jobjectArray JNICALL
-Java_org_github_krkr2_MainActivity_nativeGetRenderOverlayStats(JNIEnv *env,
-                                                               jobject) {
-    return TVPAndroidGetRenderOverlayStats(env);
-}
-
-JNIEXPORT jobjectArray JNICALL
 Java_org_github_krkr2_AndroidRuntimeBridge_nativeGetRenderOverlayStats(
     JNIEnv *env, jclass) {
     return TVPAndroidGetRenderOverlayStats(env);
-}
-
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeFlutterTouchesBegin(JNIEnv *env,
-                                                             jobject,
-                                                             jint id,
-                                                             jfloat x,
-                                                             jfloat y) {
-    (void)env;
-    TVPSDLQueueFlutterTouchBegin(id, x, y);
 }
 
 JNIEXPORT void JNICALL
@@ -1528,45 +1250,10 @@ Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesBegin(
 }
 
 JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeFlutterTouchesEnd(JNIEnv *env,
-                                                           jobject, jint id,
-                                                           jfloat x,
-                                                           jfloat y) {
-    (void)env;
-    TVPSDLQueueFlutterTouchEnd(id, x, y);
-}
-
-JNIEXPORT void JNICALL
 Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesEnd(
     JNIEnv *env, jclass, jint id, jfloat x, jfloat y) {
     (void)env;
     TVPSDLQueueFlutterTouchEnd(id, x, y);
-}
-
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeFlutterTouchesMove(JNIEnv *env,
-                                                            jobject,
-                                                            jintArray ids,
-                                                            jfloatArray xs,
-                                                            jfloatArray ys) {
-    if(!ids || !xs || !ys) {
-        TVPSDLQueueFlutterTouchMove(0, nullptr, nullptr, nullptr);
-        return;
-    }
-    const jsize count =
-        std::min(env->GetArrayLength(ids),
-                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
-    std::vector<jint> idValues(static_cast<size_t>(count));
-    std::vector<jfloat> xValues(static_cast<size_t>(count));
-    std::vector<jfloat> yValues(static_cast<size_t>(count));
-    if(count > 0) {
-        env->GetIntArrayRegion(ids, 0, count, idValues.data());
-        env->GetFloatArrayRegion(xs, 0, count, xValues.data());
-        env->GetFloatArrayRegion(ys, 0, count, yValues.data());
-    }
-    TVPSDLQueueFlutterTouchMove(
-        static_cast<int>(count), idValues.data(), xValues.data(),
-        yValues.data());
 }
 
 JNIEXPORT void JNICALL
@@ -1588,32 +1275,6 @@ Java_org_github_krkr2_AndroidRuntimeBridge_nativeFlutterTouchesMove(
         env->GetFloatArrayRegion(ys, 0, count, yValues.data());
     }
     TVPSDLQueueFlutterTouchMove(
-        static_cast<int>(count), idValues.data(), xValues.data(),
-        yValues.data());
-}
-
-JNIEXPORT void JNICALL
-Java_org_github_krkr2_MainActivity_nativeFlutterTouchesCancel(JNIEnv *env,
-                                                              jobject,
-                                                              jintArray ids,
-                                                              jfloatArray xs,
-                                                              jfloatArray ys) {
-    if(!ids || !xs || !ys) {
-        TVPSDLQueueFlutterTouchCancel(0, nullptr, nullptr, nullptr);
-        return;
-    }
-    const jsize count =
-        std::min(env->GetArrayLength(ids),
-                 std::min(env->GetArrayLength(xs), env->GetArrayLength(ys)));
-    std::vector<jint> idValues(static_cast<size_t>(count));
-    std::vector<jfloat> xValues(static_cast<size_t>(count));
-    std::vector<jfloat> yValues(static_cast<size_t>(count));
-    if(count > 0) {
-        env->GetIntArrayRegion(ids, 0, count, idValues.data());
-        env->GetFloatArrayRegion(xs, 0, count, xValues.data());
-        env->GetFloatArrayRegion(ys, 0, count, yValues.data());
-    }
-    TVPSDLQueueFlutterTouchCancel(
         static_cast<int>(count), idValues.data(), xValues.data(),
         yValues.data());
 }
