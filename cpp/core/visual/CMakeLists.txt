@@ -98,8 +98,20 @@ target_link_libraries(${PROJECT_NAME} PRIVATE libbpg)
 find_package(WebP CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} INTERFACE WebP::webp WebP::webpdecoder WebP::webpdemux)
 
-find_package(Freetype REQUIRED)
-target_link_libraries(${PROJECT_NAME} PUBLIC Freetype::Freetype)
+# Prefer vcpkg config package; fall back to CMake's FindFreetype module.
+# Android no longer pulls FreeType transitively via cocos2dx.
+find_package(Freetype CONFIG QUIET)
+if(NOT Freetype_FOUND AND NOT TARGET Freetype::Freetype)
+    find_package(freetype CONFIG QUIET)
+endif()
+if(TARGET Freetype::Freetype)
+    target_link_libraries(${PROJECT_NAME} PUBLIC Freetype::Freetype)
+elseif(TARGET freetype)
+    target_link_libraries(${PROJECT_NAME} PUBLIC freetype)
+else()
+    find_package(Freetype REQUIRED)
+    target_link_libraries(${PROJECT_NAME} PUBLIC Freetype::Freetype)
+endif()
 
 if(KRKR2_ENABLE_COCOS_HOST)
     find_package(cocos2dx CONFIG REQUIRED)

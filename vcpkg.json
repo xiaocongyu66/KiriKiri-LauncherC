@@ -40,6 +40,7 @@
     },
     "ffmpeg",
     "fmt",
+    "freetype",
     {
       "name": "glfw3",
       "platform": "linux | windows | osx"
