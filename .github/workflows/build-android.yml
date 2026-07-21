@@ -189,13 +189,15 @@ jobs:
 
       - name: Move Android platform resources into Flutter launcher
         run: |
+          # Android production path is SDL3-only. Do not copy libcocos2dx Java,
+          # AIDL, or Cocos jars; that module was removed from the tree.
           mkdir -p flutter_launcher/android/app/src/main/res
           cp -R platforms/android/app/res/. flutter_launcher/android/app/src/main/res/
+          # Bundled locale/fonts still live under ui/cocos-studio for now.
           mkdir -p flutter_launcher/android/app/src/main/assets
           cp -R ui/cocos-studio/. flutter_launcher/android/app/src/main/assets/
           mkdir -p flutter_launcher/android/app/src/main/java/org
           cp -R platforms/android/libsdl/java/src/org/libsdl flutter_launcher/android/app/src/main/java/org/
-          cp -R platforms/android/libcocos2dx/java/src/org/cocos2dx flutter_launcher/android/app/src/main/java/org/
           mkdir -p flutter_launcher/android/app/src/main/java/org/tvp
           cp -R platforms/android/app/java/org/tvp/kirikiri2 flutter_launcher/android/app/src/main/java/org/tvp/
           mkdir -p flutter_launcher/android/app/src/main/java/org/github/krkr2
@@ -212,9 +214,6 @@ jobs:
           cp platforms/android/app/java/org/github/krkr2/GameScanner.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           cp platforms/android/app/java/org/github/krkr2/ForceLandscapeHelper.kt flutter_launcher/android/app/src/main/java/org/github/krkr2/
           mkdir -p flutter_launcher/android/app/libs
-          cp platforms/android/libcocos2dx/java/libs/*.jar flutter_launcher/android/app/libs/
-          mkdir -p flutter_launcher/android/app/src/main/aidl/com/enhance/gameservice
-          cp platforms/android/libcocos2dx/java/src/com/enhance/gameservice/IGameTuningService.aidl flutter_launcher/android/app/src/main/aidl/com/enhance/gameservice/
           cp platforms/android/app/proguard-rules.pro flutter_launcher/android/app/proguard-rules.pro
 
       - name: Create Flutter launcher activity
@@ -292,10 +291,6 @@ jobs:
               id("dev.flutter.flutter-gradle-plugin")
           }
 
-          val krkr2NoCocosHost = providers.gradleProperty("krkr2NoCocosHost")
-              .map(String::toBoolean)
-              .getOrElse(true)
-
           extensions.configure<ApplicationExtension>("android") {
               namespace = "org.github.krkr2"
               compileSdk = 36
@@ -308,7 +303,6 @@ jobs:
 
               buildFeatures {
                   prefab = true
-                  aidl = true
               }
 
               defaultConfig {
@@ -333,7 +327,8 @@ jobs:
                               "-DANDROID=ON",
                               "-DENABLE_TESTS=OFF",
                               "-DBUILD_TOOLS=OFF",
-                              "-DKRKR2_ENABLE_COCOS_HOST=${if (krkr2NoCocosHost) "OFF" else "ON"}",
+                              // Android production runtime is SDL3-only.
+                              "-DKRKR2_ENABLE_COCOS_HOST=OFF",
                           )
                       }
                   }
