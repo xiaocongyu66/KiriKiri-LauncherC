@@ -735,7 +735,12 @@ class _GameDetailPaneState extends State<_GameDetailPane> {
                       onChanged: (value) => _setOverride('fps_limit', value),
                     ),
                     _SwitchTile(title: '显示 FPS', subtitle: '仅当前游戏', value: _overrideBool(values, 'showfps'), onChanged: (value) => _setOverride('showfps', value)),
-                    _SwitchTile(title: 'OpenGL 精确渲染', subtitle: '仅当前游戏', value: _overrideBool(values, 'ogl_accurate_render'), onChanged: (value) => _setOverride('ogl_accurate_render', value)),
+                    _SwitchTile(
+                      title: 'OpenGL 精确渲染',
+                      subtitle: '不推荐：Android 上会关掉 Draw_GPU，易花屏/只剩脸（对齐 KrKr2-Next 请保持关）',
+                      value: _overrideBool(values, 'ogl_accurate_render'),
+                      onChanged: (value) => _setOverride('ogl_accurate_render', value),
+                    ),
                     Align(alignment: Alignment.centerLeft, child: TextButton(onPressed: _clearOverrides, child: const Text('重置当前游戏参数'))),
                   ],
                 ),
@@ -1032,7 +1037,12 @@ class _GlobalRenderSettingsGroupState extends State<_GlobalRenderSettingsGroup> 
             ),
             _SwitchTile(title: '输出日志', subtitle: '对应旧版 outputlog', value: _bool('outputlog', false), onChanged: (value) => _set('outputlog', value)),
             _SwitchTile(title: '显示 FPS', subtitle: '对应旧版 showfps', value: _bool('showfps', false), onChanged: (value) => _set('showfps', value)),
-            _SwitchTile(title: 'OpenGL 精确渲染', subtitle: '对应旧版 ogl_accurate_render', value: _bool('ogl_accurate_render', false), onChanged: (value) => _set('ogl_accurate_render', value)),
+            _SwitchTile(
+              title: 'OpenGL 精确渲染',
+              subtitle: '对应 ogl_accurate_render；Android 请保持关闭以使用 GPU 合成（KrKr2-Next）',
+              value: _bool('ogl_accurate_render', false),
+              onChanged: (value) => _set('ogl_accurate_render', value),
+            ),
             _SelectSetting(
               title: 'OpenGL 最大纹理',
               value: _string('ogl_max_texsize', '0'),

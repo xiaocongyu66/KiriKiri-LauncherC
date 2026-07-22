@@ -560,10 +560,9 @@ void tTVPBasicDrawDevice::Show() {
     static int s_nullBuf = 0;
     static int s_nullTex = 0;
     static int s_okFrames = 0;
+    static int s_skipClean = 0;
     ++s_callCount;
     if(s_callCount == 1) {
-        // First-call beacon — confirms the cocos2d render thread actually
-        // reaches the krkr draw device at least once.
         KR2_RLOG("Show#FIRST_CALL window=%p managers=%zu", (void *)Window,
                  Managers.size());
     }
@@ -574,46 +573,38 @@ void tTVPBasicDrawDevice::Show() {
             if(buf) {
                 iTVPTexture2D *tex = buf->GetTexture();
                 if(tex) {
-                    ++s_okFrames;
-                    // [DIAG 2026-05-26] First time we actually get a real
-                    // texture from the layer manager, log its identity.
-                    // If this never fires, the sprite never gets a real
-                    // texture and the screen stays at its cocos2d clear
-                    // color (black). Sprite::setTexture(nullptr) silently
-                    // falls back to a 2x2 white dummy texture (CCSprite.cpp
-                    // 3.17.2 line 386-401), so even the "white flash" the
-                    // user reports could be the dummy white surface.
-                    if(s_okFrames == 1) {
-                        KR2_RLOG("Show#FIRST_OK_TEX tex=%p buf=%p form=%p",
-                                 (void *)tex, (void *)buf, (void *)form);
-                    }
-                    TVPSDLRecordPresenterFrame(tex, "basic-show",
-                                               DestRect.get_width(),
-                                               DestRect.get_height());
-                    TVPRuntimeTexturePresentRequest presentRequest;
-                    presentRequest.texture = tex;
-                    presentRequest.stage = "BasicDrawDevice::Show";
-                    presentRequest.layerWidth = DestRect.get_width();
-                    presentRequest.layerHeight = DestRect.get_height();
-                    presentRequest.frameProduced = true;
+                    // KrKr2-Next: only present when there is new content
+                    // (TVPForceSwapBuffer + ConsumeFrameDirty). Presenting
+                    // every Show() with a clean texture causes redundant
+                    // eglSwapBuffers and can flicker stale/current buffers.
                     tTVPRect dirty;
+                    bool hasDirty = false;
                     if(tex->PeekDirtyRect(dirty)) {
                         const tTVPRect fullRect(
                             0, 0, static_cast<tjs_int>(tex->GetWidth()),
                             static_cast<tjs_int>(tex->GetHeight()));
                         dirty.clip(fullRect);
-                        if(!dirty.is_empty()) {
-                            presentRequest.hasDirtyRect = true;
-                            presentRequest.dirtyRect = {
-                                dirty.left, dirty.top, dirty.get_width(),
-                                dirty.get_height()
-                            };
-                        }
+                        hasDirty = !dirty.is_empty();
                     }
-                    if(TVPRuntimePresentHostWindowTexture(
-                           static_cast<tTJSNI_BaseWindow *>(Window),
-                           presentRequest))
+                    if(!hasDirty && s_okFrames > 0) {
+                        ++s_skipClean;
+                        if(s_skipClean == 1 || (s_skipClean & 0x3FF) == 0) {
+                            KR2_RLOG("Show#SKIP_CLEAN #%d ok=%d", s_skipClean,
+                                     s_okFrames);
+                        }
                         return;
+                    }
+
+                    ++s_okFrames;
+                    if(s_okFrames == 1) {
+                        KR2_RLOG("Show#FIRST_OK_TEX tex=%p buf=%p form=%p "
+                                 "nativeGL=%u",
+                                 (void *)tex, (void *)buf, (void *)form,
+                                 (unsigned)tex->GetNativeGLTextureId());
+                    }
+                    // Next-style: window layer owns present (blit + swap).
+                    // UpdateDrawBuffer already routes to the Android EGL
+                    // SurfaceTexture presenter and prepares the GL texture.
                     form->UpdateDrawBuffer(tex);
                 } else {
                     ++s_nullTex;
