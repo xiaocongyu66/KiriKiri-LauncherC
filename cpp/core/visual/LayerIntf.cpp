@@ -7068,6 +7068,10 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
     }
 #endif
 
+    // Match KrKr2-Next Draw_GPU: temp size and child clips use the local
+    // update `rect`, not the full layer Rect. Using full-layer temps with
+    // mismatched clip coords produced bad composites and could trip layer
+    // draw paths during first CompleteForWindow (Not drawable layer type).
     if(Opacity < 255 || (InTransition && TransWithChildren)) {
         // rearrange pipe line for transition
         if(InTransition && TransWithChildren) {
@@ -7084,18 +7088,26 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
             } else {
                 useTemp = true;
                 UpdateBitmapForChild = tTVPTempBitmapHolder::GetTemp(
-                    Rect.get_width(), Rect.get_height());
+                    rect.get_width(), rect.get_height());
             }
-            tTVPRect rectForChild(0, 0, Rect.get_width(), Rect.get_height());
-            CopySelfForRect(UpdateBitmapForChild, 0, 0, rectForChild);
+            // copy self image to UpdateBitmapForChild (only when present)
+            if(MainImage != nullptr) {
+                CopySelfForRect(UpdateBitmapForChild, 0, 0, rect);
+            } else {
+                // binder / no image: neutral fill so children composite cleanly
+                UpdateBitmapForChild->Fill(
+                    tTVPRect(0, 0, rect.get_width(), rect.get_height()),
+                    DisplayType == ltOpaque ? NeutralColor : TransparentColor);
+            }
 #if defined(__ANDROID__)
             if(KR2LayerDiagInterestingStorage(GetName()) ||
                (s_drawGpu <= 24)) {
                 KR2RenderProbeWriteF(
-                    "[layer] DrawGPU-tempInit L=%p temp=%p full=%dx%d "
-                    "useTemp=%d after CopySelfForRect",
+                    "[layer] DrawGPU-tempInit L=%p temp=%p upd=%dx%d "
+                    "useTemp=%d hasMain=%d",
                     (void *)this, (void *)UpdateBitmapForChild,
-                    Rect.get_width(), Rect.get_height(), useTemp ? 1 : 0);
+                    rect.get_width(), rect.get_height(), useTemp ? 1 : 0,
+                    MainImage ? 1 : 0);
             }
 #endif
 
@@ -7107,8 +7119,7 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                     continue;
 
                 // intersection check
-                if(!TVPIntersectRect(&UpdateRectForChild, rectForChild,
-                                     child->Rect))
+                if(!TVPIntersectRect(&UpdateRectForChild, rect, child->Rect))
                     continue;
 
                 // setup UpdateOfsX/Y UpdateRectForChildOfsX/Y
@@ -7124,6 +7135,7 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                                 UpdateRectForChild.top, UpdateRectForChild);
             }
             TVP_LAYER_FOR_EACH_CHILD_END
+            rect.set_offsets(0, 0);
             target->DrawCompleted(rctar, UpdateBitmapForChild, rect,
                                   DisplayType, Opacity);
             if(useTemp)
@@ -7135,12 +7147,6 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
         } else {
             DrawnRegion.Clear();
             // send completion message to the target
-
-            // 			if (UpdateExcludeRect.top <= rect.top &&
-            // UpdateExcludeRect.bottom >= rect.bottom &&
-            // rect.left
-            // >= UpdateExcludeRect.left && rect.right <=
-            // UpdateExcludeRect.right) { 			} else
             {
                 tTVPRect rc(rect);
                 DrawSelf(target, rctar, rc);
@@ -7894,7 +7900,23 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
         }
 #endif
         if(gpu) {
-            InternalComplete2_GPU(Rect, drawable);
+            try {
+                InternalComplete2_GPU(Rect, drawable);
+            } catch(...) {
+                // Fall back to CPU complete rather than killing the game
+                // (78.log: first IsGPU=1 frame threw "Not drawable layer type").
+#if defined(__ANDROID__)
+                KR2RenderProbeWriteF(
+                    "[layer] CompleteForWindow GPU failed -> CPU fallback "
+                    "name='%s'",
+                    GetName().AsStdString().c_str());
+#endif
+                TVPAddLog(TJS_W("[renderer] CompleteForWindow GPU path failed; "
+                                "falling back to CPU complete once."));
+                if(Manager)
+                    InternalComplete2(Manager->GetUpdateRegionForCompletion(),
+                                      drawable);
+            }
         } else {
             InternalComplete2(Manager->GetUpdateRegionForCompletion(),
                               drawable);
