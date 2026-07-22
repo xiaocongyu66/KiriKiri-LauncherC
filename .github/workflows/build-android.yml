@@ -193,9 +193,9 @@ jobs:
           # AIDL, or Cocos jars; that module was removed from the tree.
           mkdir -p flutter_launcher/android/app/src/main/res
           cp -R platforms/android/app/res/. flutter_launcher/android/app/src/main/res/
-          # Bundled locale/fonts still live under ui/cocos-studio for now.
+          # Bundled locale/fonts live under ui/runtime-ui (SDL3 assets).
           mkdir -p flutter_launcher/android/app/src/main/assets
-          cp -R ui/cocos-studio/. flutter_launcher/android/app/src/main/assets/
+          cp -R ui/runtime-ui/. flutter_launcher/android/app/src/main/assets/
           mkdir -p flutter_launcher/android/app/src/main/java/org
           cp -R platforms/android/libsdl/java/src/org/libsdl flutter_launcher/android/app/src/main/java/org/
           mkdir -p flutter_launcher/android/app/src/main/java/org/tvp
