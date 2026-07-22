@@ -1481,34 +1481,76 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         if(glError == GL_NO_ERROR)
             glFlush();
 
-        const bool restored = RestoreAndroidEGLCurrentLocked(
-            previousDisplay, previousDraw, previousRead, previousContext,
-            savePresenterGLState ? &glState : nullptr, stage);
-        TVPAndroidReleaseFlutterGameSurfaceWindow(window);
-
-        if(!restored) {
-            LogAndroidEGLFailureLocked(
-                stage, "external present skipped because EGL restore failed");
-            return false;
-        }
-
         if(glError != GL_NO_ERROR) {
             char reason[160];
             std::snprintf(reason, sizeof(reason), "gl draw failed: 0x%x",
                           glError);
             LogAndroidEGLFailureLocked(stage, reason);
+            RestoreAndroidEGLCurrentLocked(
+                previousDisplay, previousDraw, previousRead, previousContext,
+                savePresenterGLState ? &glState : nullptr, stage);
+            TVPAndroidReleaseFlutterGameSurfaceWindow(window);
             return false;
         }
 
-        dirtySerial = MarkAndroidEGLFrameDirtyLocked(
-            state, texture, nativeTexture != 0,
-            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight,
-            &dirtyOverwritten, &previousDirtySerial, &dirtyOverwriteCount);
+        // Swap while the external SurfaceTexture producer is still current.
+        // Restoring the engine surface before eglSwapBuffers is unsafe on many
+        // Android drivers and yields black or half-stale frames.
+        const EGLBoolean swapped =
+            eglSwapBuffers(state.display, state.surface);
+        const EGLint swapError =
+            swapped == EGL_TRUE ? EGL_SUCCESS : eglGetError();
+
+        const bool restored = RestoreAndroidEGLCurrentLocked(
+            previousDisplay, previousDraw, previousRead, previousContext,
+            savePresenterGLState ? &glState : nullptr, stage);
+        TVPAndroidReleaseFlutterGameSurfaceWindow(window);
+
+        if(swapped != EGL_TRUE) {
+            LogAndroidEGLFailureLocked(
+                stage, AndroidEGLFormatError("eglSwapBuffers", swapError));
+            DestroyAndroidEGLWindowSurfaceLocked("immediate-swap-failed");
+            return false;
+        }
+
+        if(!restored) {
+            LogAndroidEGLFailureLocked(
+                stage,
+                "external swap posted but EGL restore failed");
+        }
+
+        // Consume any previously deferred dirty mark so later frame-end drains
+        // do not re-swap an already-posted buffer.
+        if(state.frameDirty) {
+            dirtyOverwritten = true;
+            previousDirtySerial = state.pendingDirtySerial;
+            dirtyOverwriteCount = ++state.dirtyOverwrites;
+        }
+        dirtySerial = ++state.dirtyMarks;
+        state.frameDirty = false;
+        state.pendingDirtySerial = 0;
+        state.pendingNativeGL = false;
+        state.pendingWidth = 0;
+        state.pendingHeight = 0;
+        state.pendingDirtyTexture = nullptr;
+        state.surfaceHasContent = true;
+        state.lastPresentNativeGL = nativeTexture != 0;
+        if(nativeTexture != 0)
+            ++state.nativePresents;
+        ++state.presented;
         presented = true;
     }
 
     if(usedFullFrame)
         *usedFullFrame = fullFramePresent;
+
+    if(presented) {
+        MarkExternalPresenterPostedFrame();
+        TVPSDLAndroidFlutterPresenterRememberPresentedSurfaceSize(
+            kTVPSDLFixedGameSurfaceWidth, kTVPSDLFixedGameSurfaceHeight);
+        tTVPRect consumed;
+        texture->ConsumeDirtyRect(consumed);
+    }
 
     if(dirtyOverwritten && ShouldLogScreenPresenter(dirtyOverwriteCount)) {
         char message[320];
@@ -1529,13 +1571,13 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
     if(presented && ShouldLogScreenPresenter(queuedCount)) {
         char message[640];
         std::snprintf(message, sizeof(message),
-                      "queue-android-egl #%llu stage=%s texture=%dx%d "
+                      "present-android-egl #%llu stage=%s texture=%dx%d "
                       "dirtySerial=%llu overwrite=%d oldDirty=%llu "
                       "output=%dx%d viewport=%d,%d,%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
                       "softwareUploads=%llu uv=%.4f,%.4f flipY=%d "
-                      "fullFrame=%d",
+                      "fullFrame=%d immediateSwap=1",
                       static_cast<unsigned long long>(queuedCount),
                       stage ? stage : "", surfaceWidth, surfaceHeight,
                       static_cast<unsigned long long>(dirtySerial),
@@ -1751,7 +1793,9 @@ bool TryPresentAndroidTexturePlan(iTVPTexture2D *texture,
         result.fullFrame = eglFullFrame;
         result.nativeGL = texture->GetNativeGLTextureId() != 0;
         result.cpuCopyFree = result.nativeGL;
-        result.deferredSwap = true;
+        // Immediate eglSwapBuffers already posted the SurfaceTexture producer
+        // buffer while the external surface was current.
+        result.deferredSwap = false;
         return true;
     }
 

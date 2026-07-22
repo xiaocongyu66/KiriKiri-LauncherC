@@ -3449,6 +3449,14 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     LogSDLFrameSync(message);
                 }
             }
+            // Safety drain for any residual deferred-swap path: post the
+            // producer buffer at the same KiriKiri frame boundary as Show().
+            if(androidResult.deferredSwap) {
+                deferredSwapDrained = TVPSDLAndroidFlutterPresenterSwapIfDirty(
+                    stage ? stage : "android-egl-present");
+                if(deferredSwapDrained)
+                    TVPSDLRecordExternalPresenterPostedFrame();
+            }
             if(androidResult.deferredSwap &&
                (ShouldLogScreenPresenter(presented) || pendingOverwrite)) {
                 char message[384];
@@ -3457,7 +3465,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     "queued sequence=%llu stage=%s path=%s overwrite=%d "
                     "overwriteCount=%llu previousPredicted=%llu texture=%dx%d "
                     "src=%d,%d,%dx%d dst=%d,%d,%dx%d fullFrame=%d "
-                    "nativeGL=%d cpuCopyFree=%d",
+                    "nativeGL=%d cpuCopyFree=%d drained=%d",
                     static_cast<unsigned long long>(presented),
                     stage ? stage : "",
                     TVPSDLAndroidFlutterPresenterPresentPathLogName(
@@ -3472,7 +3480,8 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     frameInfo.destRect.w, frameInfo.destRect.h,
                     frameInfo.fullFrame ? 1 : 0,
                     frameInfo.nativeGL ? 1 : 0,
-                    frameInfo.cpuCopyFree ? 1 : 0);
+                    frameInfo.cpuCopyFree ? 1 : 0,
+                    deferredSwapDrained ? 1 : 0);
                 LogSDLFrameSync(message);
             }
             if(androidResult.deferredSwap &&
@@ -3490,7 +3499,7 @@ bool TVPSDLTryPresentTexture(const TVPRuntimeTexturePresentRequest &request) {
                     pendingOverwrite ? 1 : 0, deferredSwapDrained ? 1 : 0);
                 LogSDLFrameSync(message);
             }
-            if(!androidResult.deferredSwap) {
+            if(!androidResult.deferredSwap || deferredSwapDrained) {
                 tTVPRect consumed;
                 texture->ConsumeDirtyRect(consumed);
             }
