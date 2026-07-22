@@ -7068,10 +7068,11 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
     }
 #endif
 
-    // Match KrKr2-Next Draw_GPU: temp size and child clips use the local
-    // update `rect`, not the full layer Rect. Using full-layer temps with
-    // mismatched clip coords produced bad composites and could trip layer
-    // draw paths during first CompleteForWindow (Not drawable layer type).
+    // KrKr2-Next Draw_GPU: when opacity/transition needs a child composite
+    // target, the temp (or cache) is full layer size so child Rect coords
+    // map 1:1. Sampling only the local update `rect` happens in DrawCompleted.
+    // A prior partial-temp path (update-rect-sized) mis-placed children and
+    // produced face-only / corpse-chunk CG composites on Android.
     if(Opacity < 255 || (InTransition && TransWithChildren)) {
         // rearrange pipe line for transition
         if(InTransition && TransWithChildren) {
@@ -7088,24 +7089,22 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
             } else {
                 useTemp = true;
                 UpdateBitmapForChild = tTVPTempBitmapHolder::GetTemp(
-                    rect.get_width(), rect.get_height());
+                    Rect.get_width(), Rect.get_height());
             }
-            // copy self image to UpdateBitmapForChild (only when present)
-            if(MainImage != nullptr) {
-                CopySelfForRect(UpdateBitmapForChild, 0, 0, rect);
-            } else {
-                // binder / no image: neutral fill so children composite cleanly
-                UpdateBitmapForChild->Fill(
-                    tTVPRect(0, 0, rect.get_width(), rect.get_height()),
-                    DisplayType == ltOpaque ? NeutralColor : TransparentColor);
-            }
+            tTVPRect rectForChild(0, 0, Rect.get_width(), Rect.get_height());
+
+            // Initialize the child composition target with this layer's own
+            // pixels, or transparent/neutral pixels when the layer has no main
+            // image (CopySelfForRect handles null MainImage).
+            CopySelfForRect(UpdateBitmapForChild, 0, 0, rectForChild);
 #if defined(__ANDROID__)
             if(KR2LayerDiagInterestingStorage(GetName()) ||
                (s_drawGpu <= 24)) {
                 KR2RenderProbeWriteF(
-                    "[layer] DrawGPU-tempInit L=%p temp=%p upd=%dx%d "
-                    "useTemp=%d hasMain=%d",
+                    "[layer] DrawGPU-tempInit L=%p temp=%p layer=%dx%d "
+                    "upd=%d,%d,%dx%d useTemp=%d hasMain=%d",
                     (void *)this, (void *)UpdateBitmapForChild,
+                    Rect.get_width(), Rect.get_height(), rect.left, rect.top,
                     rect.get_width(), rect.get_height(), useTemp ? 1 : 0,
                     MainImage ? 1 : 0);
             }
@@ -7118,8 +7117,9 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                 if(!child->Visible)
                     continue;
 
-                // intersection check
-                if(!TVPIntersectRect(&UpdateRectForChild, rect, child->Rect))
+                // intersection check against full layer child space
+                if(!TVPIntersectRect(&UpdateRectForChild, rectForChild,
+                                     child->Rect))
                     continue;
 
                 // setup UpdateOfsX/Y UpdateRectForChildOfsX/Y
@@ -7135,7 +7135,7 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                                 UpdateRectForChild.top, UpdateRectForChild);
             }
             TVP_LAYER_FOR_EACH_CHILD_END
-            rect.set_offsets(0, 0);
+            // `rect` stays in layer-local coords matching the full-size temp.
             target->DrawCompleted(rctar, UpdateBitmapForChild, rect,
                                   DisplayType, Opacity);
             if(useTemp)

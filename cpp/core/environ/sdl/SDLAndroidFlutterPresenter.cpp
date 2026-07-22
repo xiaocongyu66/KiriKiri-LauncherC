@@ -1336,6 +1336,9 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
 
         if(nativeTexture != 0) {
             state.uploadSourceTexture = nullptr;
+            // Next UpdateDrawBuffer Phase 1: unbind engine FBO so the
+            // composited scene texture is not still an FBO attachment
+            // before we sample it on the WindowSurface.
             TVPGetRenderManager()->PrepareTextureForExternalPresenter(texture);
             const tjs_uint internalWidth = texture->GetInternalWidth();
             const tjs_uint internalHeight = texture->GetInternalHeight();
@@ -1442,6 +1445,8 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             softwareUploadCount = state.softwareUploads;
         }
 
+        // Next UpdateDrawBuffer Phase 2: WindowSurface is FBO 0 after
+        // eglMakeCurrent; letterbox clear + aspect viewport + fullscreen blit.
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
         glViewport(0, 0, outputWidth, outputHeight);
         glColorMask(GL_TRUE, GL_TRUE, GL_TRUE, GL_TRUE);
@@ -1458,8 +1463,17 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         glUseProgram(state.program);
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, sourceTexture);
+        // Match Next ApplyHostTextureFilter + clamp for POT padding edges.
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
         glUniform1i(state.textureUniform, 0);
+        // uvRect = (0,0,scaleU,scaleV): sample only the logical content of a
+        // possibly larger internal GL texture (Next uUVScale).
         glUniform4f(state.uvRectUniform, 0.0f, 0.0f, uvScaleU, uvScaleV);
+        // Next: Android SurfaceTexture WindowSurface does not need Y flip;
+        // eglSwapBuffers → SurfaceTexture → host handles orientation.
         flipY = IsAndroidEGLSurfaceFlipYEnabled();
         glUniform1f(state.flipYUniform, flipY ? 1.0f : 0.0f);
         glBindBuffer(GL_ARRAY_BUFFER, state.vertexBuffer);
@@ -1478,6 +1492,7 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         GLenum glError = GL_NO_ERROR;
         if(IsTruthyEnv("KRKR2_ENABLE_SDL_RENDER_DIAGNOSTICS"))
             glError = glGetError();
+        // Next WindowSurface path: glFlush is enough; swap posts the buffer.
         if(glError == GL_NO_ERROR)
             glFlush();
 
@@ -1493,9 +1508,12 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
             return false;
         }
 
-        // Swap while the external SurfaceTexture producer is still current.
-        // Restoring the engine surface before eglSwapBuffers is unsafe on many
-        // Android drivers and yields black or half-stale frames.
+        // Still on the external SurfaceTexture producer: swap immediately.
+        // Full ANGLE/Next keeps WindowSurface current and defers swap to
+        // TVPForceSwapBuffer via MarkFrameDirty; under SDL3 we must restore
+        // the engine surface, and many Android drivers drop an unswapped
+        // WindowSurface backbuffer across makeCurrent — so swap here, then
+        // clear dirty so frame-end SwapIfDirty is a no-op.
         const EGLBoolean swapped =
             eglSwapBuffers(state.display, state.surface);
         const EGLint swapError =
