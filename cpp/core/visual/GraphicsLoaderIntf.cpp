@@ -42,6 +42,9 @@
 #include <list>
 #include <string>
 #include <vector>
+#if defined(__ANDROID__)
+#include "RenderDiagLog.h"
+#endif
 
 #ifdef PixelFormat
 #undef PixelFormat
@@ -2257,6 +2260,48 @@ int TVPLoadGraphic(iTVPBaseBitmap *dest, const ttstr &name, tjs_int32 keyidx,
             if(metainfo)
                 *metainfo = TVPMetaInfoPairsToDictionary(
                     ptr->GetObjectNoAddRef()->MetaInfo);
+#if defined(__ANDROID__)
+            {
+                static int s_cache = 0;
+                ++s_cache;
+                auto *obj = ptr->GetObjectNoAddRef();
+                const int sz = obj ? obj->GetSize() : 0;
+                int w = 0, h = 0, pitch = 0, bpp = 32, opaque = 0;
+                const void *bits = nullptr;
+                unsigned glId = 0;
+                int intW = 0, intH = 0, fmt = 0;
+                if(dest && dest->GetWidth() > 0) {
+                    w = (int)dest->GetWidth();
+                    h = (int)dest->GetHeight();
+                    pitch = dest->GetPitchBytes();
+                    bpp = dest->Is32BPP() ? 32 : 8;
+                    opaque = dest->IsOpaque() ? 1 : 0;
+                    if(bpp >= 32)
+                        bits = dest->GetScanLine(0);
+                    if(iTVPTexture2D *tex = dest->GetTexture()) {
+                        glId = (unsigned)tex->GetNativeGLTextureId();
+                        intW = (int)tex->GetInternalWidth();
+                        intH = (int)tex->GetInternalHeight();
+                        fmt = (int)tex->GetFormat();
+                    }
+                }
+                if(s_cache <= 64 || (s_cache & 0x7F) == 0 || w >= 512) {
+                    kr2diag::LogImageLoad(
+                        "TVPLoadGraphic-cacheHit", name.AsStdString().c_str(),
+                        1, 0, w, h, pitch, bpp, opaque, bits);
+                    KR2RenderProbeWriteF(
+                        "[img-load] cacheHit name='%s' sizeBytes=%d "
+                        "dest=%p glId=%u internal=%dx%d fmt=%s",
+                        name.AsStdString().c_str(), sz, (void *)dest, glId,
+                        intW, intH, kr2diag::TexFormatName(fmt));
+                    if(glId || bits) {
+                        kr2diag::LogTexture(
+                            "img-cacheHit", glId, fmt, w, h, intW, intH, pitch,
+                            opaque, 0, bits);
+                    }
+                }
+            }
+#endif
             return ptr->GetObjectNoAddRef()->GetSize();
         }
     }
@@ -2264,6 +2309,18 @@ int TVPLoadGraphic(iTVPBaseBitmap *dest, const ttstr &name, tjs_int32 keyidx,
     // not found
 #if defined(WIN32) && defined(_DEBUG)
     TVPAddLog(TJS_W("load graphic: ") + nname);
+#endif
+#if defined(__ANDROID__)
+    {
+        static int s_miss = 0;
+        ++s_miss;
+        if(s_miss <= 64 || (s_miss & 0x7F) == 0) {
+            KR2RenderProbeWriteF(
+                "[img-load] cacheMiss name='%s' key=%08x des=%ux%u mode=%d",
+                name.AsStdString().c_str(), (unsigned)keyidx, (unsigned)desw,
+                (unsigned)desh, (int)mode);
+        }
+    }
 #endif
 
     // load into dest
@@ -2287,6 +2344,55 @@ int TVPLoadGraphic(iTVPBaseBitmap *dest, const ttstr &name, tjs_int32 keyidx,
             *provincename = pn;
         if(metainfo)
             *metainfo = TVPMetaInfoPairsToDictionary(mi);
+
+#if defined(__ANDROID__)
+        {
+            static int s_loaded = 0;
+            ++s_loaded;
+            int w = 0, h = 0, pitch = 0, bpp = 32, opaque = 0;
+            const void *bits = nullptr;
+            int fmt = 0;
+            unsigned glId = 0;
+            int intW = 0, intH = 0;
+            if(texture) {
+                w = (int)texture->GetWidth();
+                h = (int)texture->GetHeight();
+                pitch = texture->GetPitch();
+                bpp = 32;
+                bits = texture->GetScanLineForRead(0);
+                opaque = texture->IsOpaque() ? 1 : 0;
+                fmt = (int)texture->GetFormat();
+                glId = (unsigned)texture->GetNativeGLTextureId();
+                intW = (int)texture->GetInternalWidth();
+                intH = (int)texture->GetInternalHeight();
+            } else if(bmp) {
+                w = (int)bmp->GetWidth();
+                h = (int)bmp->GetHeight();
+                pitch = bmp->GetPitch();
+                bpp = (int)bmp->GetBPP();
+                opaque = bmp->IsOpaque ? 1 : 0;
+                bits = bmp->GetBits();
+            }
+            if(s_loaded <= 96 || w >= 512 || (s_loaded & 0x7F) == 0) {
+                kr2diag::LogImageLoad(
+                    texture ? "TVPLoadGraphic-tex" : "TVPLoadGraphic-bmp",
+                    name.AsStdString().c_str(), 0, texture ? 1 : 0, w, h, pitch,
+                    bpp, opaque, bits);
+                KR2RenderProbeWriteF(
+                    "[img-load] loaded name='%s' via=%s glId=%u "
+                    "internal=%dx%d fmt=%s pitch=%d bpp=%d opaque=%d "
+                    "province='%s'",
+                    name.AsStdString().c_str(),
+                    texture ? "texture" : "bitmap", glId, intW, intH,
+                    kr2diag::TexFormatName(fmt), pitch, bpp, opaque,
+                    pn.AsStdString().c_str());
+                kr2diag::LogTexture(
+                    texture ? "img-loaded-tex" : "img-loaded-bmp", glId, fmt, w,
+                    h, intW > 0 ? intW : w, intH > 0 ? intH : h, pitch, opaque,
+                    texture ? (texture->IsStatic() ? 1 : 0) : 0, bits);
+            }
+        }
+#endif
 
         if(TVPGraphicCacheEnabled) {
             data = new tTVPGraphicImageData();

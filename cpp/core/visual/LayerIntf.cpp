@@ -60,6 +60,7 @@ static bool KR2LayerAllocDiagnosticsEnabled() {
 #include "FontImpl.h"
 
 #if defined(__ANDROID__)
+#include "RenderDiagLog.h"
 // Verbose CG/layer diagnostics for OpenGL face-only issues (Senren CG).
 // Must live after LayerIntf.h so tTVPLayerType / tTJSNI_BaseLayer are known.
 // Always on when native file logging enables render probes. Names that look
@@ -138,7 +139,7 @@ static const char *KR2LayerTypeName(tTVPLayerType t) {
     }
 }
 
-// Sample MainImage alpha/RGB occupancy (cheap 8x8 grid).
+// Sample MainImage alpha/RGB occupancy + corner colors + native GL id.
 static void KR2SampleMainImageStats(const char *tag, tTJSNI_BaseLayer *layer,
                                     const char *extra) {
     if(!layer)
@@ -148,27 +149,75 @@ static void KR2SampleMainImageStats(const char *tag, tTJSNI_BaseLayer *layer,
     const int h = img ? (int)img->GetHeight() : 0;
     unsigned opaque = 0, semi = 0, clear = 0, samples = 0;
     unsigned rgbNonZero = 0;
+    unsigned meanR = 0, meanG = 0, meanB = 0, meanA = 0;
+    unsigned nColor = 0;
+    unsigned sumR = 0, sumG = 0, sumB = 0, sumA = 0;
+    char colors[160] = "no-img";
+    unsigned nativeGL = 0;
+    int pitch = 0;
+    int internalW = 0, internalH = 0;
+    int fmt = 0;
     if(img && w > 0 && h > 0 && img->Is32BPP()) {
-        for(int yi = 0; yi < 8; ++yi) {
-            const int y = (h <= 1) ? 0 : (yi * (h - 1)) / 7;
-            const tjs_uint32 *row =
-                (const tjs_uint32 *)img->GetScanLine(y);
-            if(!row)
-                continue;
-            for(int xi = 0; xi < 8; ++xi) {
-                const int x = (w <= 1) ? 0 : (xi * (w - 1)) / 7;
-                const tjs_uint32 p = row[x];
-                const unsigned a = (p >> 24) & 0xff;
-                const unsigned rgb = p & 0x00ffffff;
-                ++samples;
-                if(a == 0)
-                    ++clear;
-                else if(a == 255)
-                    ++opaque;
-                else
-                    ++semi;
-                if(rgb != 0)
-                    ++rgbNonZero;
+        pitch = img->GetPitchBytes();
+        if(iTVPTexture2D *tex = img->GetTexture()) {
+            nativeGL = (unsigned)tex->GetNativeGLTextureId();
+            internalW = (int)tex->GetInternalWidth();
+            internalH = (int)tex->GetInternalHeight();
+            fmt = (int)tex->GetFormat();
+        }
+        const void *bits = img->GetScanLine(0);
+        if(bits && pitch >= w * 4) {
+            kr2diag::ColorSample s[5];
+            kr2diag::Sample5RGBA(bits, w, h, pitch, s);
+            kr2diag::Format5Colors(colors, sizeof(colors), s);
+            auto st = kr2diag::SampleGridStats(bits, w, h, pitch);
+            samples = st.samples;
+            clear = st.clear;
+            semi = st.semi;
+            opaque = st.opaque;
+            rgbNonZero = st.rgbNZ;
+            meanR = st.meanR;
+            meanG = st.meanG;
+            meanB = st.meanB;
+            meanA = st.meanA;
+        } else {
+            for(int yi = 0; yi < 8; ++yi) {
+                const int y = (h <= 1) ? 0 : (yi * (h - 1)) / 7;
+                const tjs_uint32 *row =
+                    (const tjs_uint32 *)img->GetScanLine(y);
+                if(!row)
+                    continue;
+                for(int xi = 0; xi < 8; ++xi) {
+                    const int x = (w <= 1) ? 0 : (xi * (w - 1)) / 7;
+                    const tjs_uint32 p = row[x];
+                    const unsigned a = (p >> 24) & 0xff;
+                    const unsigned r = (p >> 16) & 0xff;
+                    const unsigned g = (p >> 8) & 0xff;
+                    const unsigned b = p & 0xff;
+                    const unsigned rgb = p & 0x00ffffff;
+                    ++samples;
+                    if(a == 0)
+                        ++clear;
+                    else if(a == 255)
+                        ++opaque;
+                    else
+                        ++semi;
+                    if(rgb != 0)
+                        ++rgbNonZero;
+                    if(a > 0) {
+                        sumR += r;
+                        sumG += g;
+                        sumB += b;
+                        sumA += a;
+                        ++nColor;
+                    }
+                }
+            }
+            if(nColor > 0) {
+                meanR = sumR / nColor;
+                meanG = sumG / nColor;
+                meanB = sumB / nColor;
+                meanA = sumA / nColor;
             }
         }
     }
@@ -177,15 +226,18 @@ static void KR2SampleMainImageStats(const char *tag, tTJSNI_BaseLayer *layer,
     KR2RenderProbeWriteF(
         "[layer] %s L=%p name='%s' type=%s disp=%s vis=%d op=%d "
         "pos=%d,%d size=%dx%d imgLeft=%d,%d hasImg=%d main=%p "
-        "children=%d img=%dx%d sample(n=%u clear=%u semi=%u "
-        "opaque=%u rgbNZ=%u) %s",
+        "children=%d img=%dx%d pitch=%d fmt=%s nativeGL=%u internal=%dx%d "
+        "sample(n=%u clear=%u semi=%u opaque=%u rgbNZ=%u meanRGBA=%u,%u,%u,%u) "
+        "colors{%s} %s",
         tag, (void *)layer, name.c_str(), KR2LayerTypeName(layer->GetType()),
         KR2LayerTypeName(layer->GetDisplayType()),
         layer->GetVisible() ? 1 : 0, (int)layer->GetOpacity(), layer->GetLeft(),
         layer->GetTop(), (int)layer->GetWidth(), (int)layer->GetHeight(),
         layer->GetImageLeft(), layer->GetImageTop(),
         layer->GetHasImage() ? 1 : 0, (void *)img, (int)layer->GetCount(), w,
-        h, samples, clear, semi, opaque, rgbNonZero, extra ? extra : "");
+        h, pitch, kr2diag::TexFormatName(fmt), nativeGL, internalW, internalH,
+        samples, clear, semi, opaque, rgbNonZero, meanR, meanG, meanB, meanA,
+        colors, extra ? extra : "");
 }
 
 static bool KR2LayerDiagShouldLog(tTJSNI_BaseLayer *layer, int counter,
@@ -6704,7 +6756,62 @@ void tTJSNI_BaseLayer::BltImage(iTVPBaseBitmap *dest,
             return;
     }
 
+#if defined(__ANDROID__)
+    {
+        static int s_blt = 0;
+        ++s_blt;
+        const bool interesting =
+            KR2LayerDiagInterestingStorage(GetName()) || s_blt <= 48 ||
+            (s_blt & 0x7F) == 0;
+        if(interesting && src && dest) {
+            const void *srcBits = nullptr;
+            const void *dstBits = nullptr;
+            int srcPitch = 0, dstPitch = 0;
+            int srcW = (int)src->GetWidth(), srcH = (int)src->GetHeight();
+            int dstW = (int)dest->GetWidth(), dstH = (int)dest->GetHeight();
+            unsigned srcGL = 0, dstGL = 0;
+            if(src->Is32BPP()) {
+                srcBits = src->GetScanLine(0);
+                srcPitch = src->GetPitchBytes();
+                if(iTVPTexture2D *t = src->GetTexture())
+                    srcGL = (unsigned)t->GetNativeGLTextureId();
+            }
+            if(dest->Is32BPP()) {
+                dstBits = dest->GetScanLine(0);
+                dstPitch = dest->GetPitchBytes();
+                if(iTVPTexture2D *t = dest->GetTexture())
+                    dstGL = (unsigned)t->GetNativeGLTextureId();
+            }
+            kr2diag::LogComposite(
+                "BltImage", GetName().AsStdString().c_str(), destx, desty,
+                srcrect.left, srcrect.top, srcrect.get_width(),
+                srcrect.get_height(), KR2LayerTypeName(drawtype), (int)opacity,
+                hda ? 1 : 0, (int)met, srcBits, srcPitch, srcW, srcH, dstBits,
+                dstPitch, dstW, dstH);
+            KR2RenderProbeWriteF(
+                "[composite] BltImage-tex layer='%s' srcGL=%u dstGL=%u "
+                "srcPitch=%d dstPitch=%d",
+                GetName().AsStdString().c_str(), srcGL, dstGL, srcPitch,
+                dstPitch);
+        }
+    }
+#endif
     dest->Blt(destx, desty, src, srcrect, met, opacity, hda);
+#if defined(__ANDROID__)
+    {
+        // Post-merge color sample of destination (throttled).
+        static int s_bltPost = 0;
+        ++s_bltPost;
+        if((s_bltPost <= 32 || (s_bltPost & 0x7F) == 0 ||
+            KR2LayerDiagInterestingStorage(GetName())) &&
+           dest && dest->Is32BPP()) {
+            kr2diag::LogColorBuffer(
+                "BltImage-post", GetName().AsStdString().c_str(),
+                (int)dest->GetWidth(), (int)dest->GetHeight(),
+                dest->GetPitchBytes(), dest->GetScanLine(0));
+        }
+    }
+#endif
 }
 
 //---------------------------------------------------------------------------
@@ -6908,10 +7015,31 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
             TVP_LAYER_FOR_EACH_CHILD_BEGIN(child) {
                 if(!child->Visible)
                     continue;
+                unsigned childGL = 0;
+                int childIW = 0, childIH = 0, childPitch = 0;
+                char childColors[160] = "no-img";
+                tTVPBaseTexture *cImg = child->GetMainImage();
+                if(cImg && cImg->Is32BPP()) {
+                    childPitch = cImg->GetPitchBytes();
+                    if(iTVPTexture2D *ct = cImg->GetTexture()) {
+                        childGL = (unsigned)ct->GetNativeGLTextureId();
+                        childIW = (int)ct->GetInternalWidth();
+                        childIH = (int)ct->GetInternalHeight();
+                    }
+                    const void *cb = cImg->GetScanLine(0);
+                    if(cb && childPitch >= (int)cImg->GetWidth() * 4) {
+                        kr2diag::ColorSample cs[5];
+                        kr2diag::Sample5RGBA(cb, (int)cImg->GetWidth(),
+                                             (int)cImg->GetHeight(),
+                                             childPitch, cs);
+                        kr2diag::Format5Colors(childColors,
+                                               sizeof(childColors), cs);
+                    }
+                }
                 KR2RenderProbeWriteF(
                     "[layer] DrawGPU-child parent=%p child[%d]=%p name='%s' "
                     "vis=%d op=%d type=%s disp=%s rect=%d,%d,%dx%d hasImg=%d "
-                    "main=%p",
+                    "main=%p gl=%u internal=%dx%d pitch=%d colors{%s}",
                     (void *)this, idx++, (void *)child,
                     child->GetName().AsStdString().c_str(),
                     child->GetVisible() ? 1 : 0, (int)child->GetOpacity(),
@@ -6919,7 +7047,8 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                     KR2LayerTypeName(child->GetDisplayType()),
                     child->GetLeft(), child->GetTop(), (int)child->GetWidth(),
                     (int)child->GetHeight(), child->GetHasImage() ? 1 : 0,
-                    (void *)child->GetMainImage());
+                    (void *)cImg, childGL, childIW, childIH, childPitch,
+                    childColors);
             }
             TVP_LAYER_FOR_EACH_CHILD_END
         }
@@ -7486,21 +7615,46 @@ void tTJSNI_BaseLayer::DrawCompleted(const tTVPRect &destrect,
         ++s_dc;
         if(KR2LayerDiagShouldLog(this, s_dc, 40, 0x1FF) ||
            KR2LayerDiagInterestingStorage(GetName())) {
+            char bmpColors[160] = "no-bmp";
+            unsigned bmpGL = 0;
+            int bmpIntW = 0, bmpIntH = 0, bmpPitch = 0, bmpFmt = 0;
+            if(bmp && bmp->Is32BPP() && bmp->GetWidth() > 0) {
+                bmpPitch = bmp->GetPitchBytes();
+                if(iTVPTexture2D *tex = bmp->GetTexture()) {
+                    bmpGL = (unsigned)tex->GetNativeGLTextureId();
+                    bmpIntW = (int)tex->GetInternalWidth();
+                    bmpIntH = (int)tex->GetInternalHeight();
+                    bmpFmt = (int)tex->GetFormat();
+                }
+                const void *bits = bmp->GetScanLine(0);
+                if(bits && bmpPitch >= (int)bmp->GetWidth() * 4) {
+                    kr2diag::ColorSample s[5];
+                    kr2diag::Sample5RGBA(bits, (int)bmp->GetWidth(),
+                                         (int)bmp->GetHeight(), bmpPitch, s);
+                    kr2diag::Format5Colors(bmpColors, sizeof(bmpColors), s);
+                    kr2diag::LogTexture(
+                        "DrawCompleted-bmp", bmpGL, bmpFmt,
+                        (int)bmp->GetWidth(), (int)bmp->GetHeight(), bmpIntW,
+                        bmpIntH, bmpPitch, bmp->IsOpaque() ? 1 : 0, 0, bits);
+                }
+            }
             KR2RenderProbeWriteF(
                 "[layer] DrawCompleted L=%p name='%s' dest=%d,%d,%dx%d "
                 "clip=%d,%d,%dx%d type=%s opa=%d bmp=%p bmpSz=%dx%d "
+                "bmpPitch=%d bmpGL=%u bmpInternal=%dx%d "
                 "main=%p updateChildBmp=%p sameAsTemp=%d binder=%d "
-                "directParent=%d",
+                "directParent=%d colors{%s}",
                 (void *)this, GetName().AsStdString().c_str(), destrect.left,
                 destrect.top, destrect.get_width(), destrect.get_height(),
                 cliprect.left, cliprect.top, cliprect.get_width(),
                 cliprect.get_height(), KR2LayerTypeName(type), (int)opacity,
                 (void *)bmp, bmp ? (int)bmp->GetWidth() : 0,
-                bmp ? (int)bmp->GetHeight() : 0, (void *)MainImage,
-                (void *)UpdateBitmapForChild,
+                bmp ? (int)bmp->GetHeight() : 0, bmpPitch, bmpGL, bmpIntW,
+                bmpIntH, (void *)MainImage, (void *)UpdateBitmapForChild,
                 (bmp == UpdateBitmapForChild) ? 1 : 0,
                 (DisplayType == ltBinder) ? 1 : 0,
-                (MainImage == nullptr && DirectTransferToParent) ? 1 : 0);
+                (MainImage == nullptr && DirectTransferToParent) ? 1 : 0,
+                bmpColors);
         }
     }
 #endif

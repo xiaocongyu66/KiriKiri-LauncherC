@@ -20,6 +20,10 @@
 #include "etcpak.h"
 #include "pvrtc.h"
 #include "pvr.h"
+#if defined(__ANDROID__)
+#include "RenderDiagLog.h"
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#endif
 
 // #define TEST_SHADER_ENABLED
 #ifndef GL_ETC1_RGB8_OES
@@ -1048,6 +1052,19 @@ protected:
         internalH = inth;
         _totalVMemSize += internalW * internalH * getPixelSize();
         MarkDirtyRect(tTVPRect(0, 0, Width, Height));
+#if defined(__ANDROID__)
+        {
+            static int s_init = 0;
+            ++s_init;
+            if(s_init <= 64 || (s_init & 0xFF) == 0 ||
+               Width >= 512 || Height >= 512) {
+                kr2diag::LogTextureUpload(
+                    "InternalInit", texture, (int)Format, (int)Width,
+                    (int)Height, (int)intw, (int)inth, (int)pitch, 0, 0,
+                    (int)intw, (int)inth, (unsigned)pixfmt, pixel);
+            }
+        }
+#endif
         CHECK_GL_ERROR_DEBUG();
     }
 
@@ -1090,6 +1107,22 @@ protected:
         }
         glTexSubImage2D(GL_TEXTURE_2D, 0, x, y, w, h, pixfmt, GL_UNSIGNED_BYTE,
                         src);
+#if defined(__ANDROID__)
+        {
+            static int s_upd = 0;
+            ++s_upd;
+            const bool large = w >= 256 || h >= 256 || Width >= 1024;
+            if(s_upd <= 96 || large || (s_upd & 0x7F) == 0) {
+                // Log from the packed upload pointer (src) with tight pitch.
+                const int logPitch =
+                    rearranged ? (w * (int)pixsize) : pitch;
+                kr2diag::LogTextureUpload(
+                    "InternalUpdate", texture, (int)Format, (int)Width,
+                    (int)Height, (int)internalW, (int)internalH, logPitch, x, y,
+                    w, h, (unsigned)pixfmt, src);
+            }
+        }
+#endif
         if(GL_CHECK_unpack_subimage)
             glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
         if(rearranged)
@@ -4251,6 +4284,26 @@ public:
     iTVPTexture2D *CreateTexture2D(const void *pixel, int pitch, unsigned int w,
                                    unsigned int h, TVPTextureFormat::e format,
                                    int flags) override {
+#if defined(__ANDROID__)
+        {
+            static int s_create = 0;
+            ++s_create;
+            if(s_create <= 64 || w >= 512 || h >= 512 ||
+               (s_create & 0xFF) == 0) {
+                KR2RenderProbeWriteF(
+                    "[texture] CreateTexture2D pixel=%p pitch=%d size=%ux%u "
+                    "fmt=%s(%d) flags=0x%x hasPixel=%d",
+                    pixel, pitch, w, h, kr2diag::TexFormatName((int)format),
+                    (int)format, flags, pixel ? 1 : 0);
+                if(pixel && format == TVPTextureFormat::RGBA && pitch >= (int)w * 4) {
+                    kr2diag::LogTextureUpload(
+                        "CreateTexture2D-src", 0, (int)format, (int)w, (int)h,
+                        (int)w, (int)h, pitch, 0, 0, (int)w, (int)h, 0x1908,
+                        pixel);
+                }
+            }
+        }
+#endif
         if(format > TVPTextureFormat::Compressed) {
             int block_width = pitch;
             int block_height = ((unsigned int)pitch) >> 16;
@@ -4320,6 +4373,28 @@ public:
 
     iTVPTexture2D *CreateTexture2D(tTVPBitmap *bmp) override {
         tjs_uint w = bmp->GetWidth(), h = bmp->GetHeight();
+#if defined(__ANDROID__)
+        {
+            static int s_createBmp = 0;
+            ++s_createBmp;
+            if(s_createBmp <= 64 || w >= 512 || h >= 512 ||
+               (s_createBmp & 0xFF) == 0) {
+                const int pitch = bmp ? bmp->GetPitch() : 0;
+                const int bpp = bmp ? (int)bmp->GetBPP() : 0;
+                const void *bits = bmp ? bmp->GetBits() : nullptr;
+                KR2RenderProbeWriteF(
+                    "[texture] CreateTexture2D-bmp size=%ux%u pitch=%d "
+                    "bpp=%d opaque=%d bits=%p",
+                    w, h, pitch, bpp, bmp && bmp->IsOpaque ? 1 : 0, bits);
+                if(bits && bpp >= 32 && pitch >= (int)w * 4) {
+                    kr2diag::LogTexture(
+                        "CreateTexture2D-bmp", 0,
+                        bmp->Is32bit() ? 4 : 1, (int)w, (int)h, (int)w,
+                        (int)h, pitch, bmp->IsOpaque ? 1 : 0, 1, bits);
+                }
+            }
+        }
+#endif
         if(w > GetMaxTextureWidth()) {
             if(w > GetMaxTextureWidth() * 2 && GL_CHECK_unpack_subimage) {
                 return new tTVPOGLTexture2D_split(bmp);
@@ -5120,6 +5195,41 @@ public:
     void PrepareTextureForExternalPresenter(iTVPTexture2D *texture) override {
         const GLuint nativeTexture =
             texture ? static_cast<GLuint>(texture->GetNativeGLTextureId()) : 0;
+#if defined(__ANDROID__)
+        {
+            static int s_prep = 0;
+            ++s_prep;
+            if(s_prep <= 48 || (s_prep & 0x3F) == 0 ||
+               (texture && (texture->GetWidth() >= 512 ||
+                            texture->GetHeight() >= 512))) {
+                const int w = texture ? (int)texture->GetWidth() : 0;
+                const int h = texture ? (int)texture->GetHeight() : 0;
+                const int iw =
+                    texture ? (int)texture->GetInternalWidth() : 0;
+                const int ih =
+                    texture ? (int)texture->GetInternalHeight() : 0;
+                // Do not call GetScanLineForRead here — it forces
+                // glReadPixels and rebinds FBO before present.
+                const int pitch = texture ? texture->GetPitch() : 0;
+                const int fmt =
+                    texture ? (int)texture->GetFormat() : 0;
+                kr2diag::LogTexture(
+                    "PrepareForPresent", nativeTexture, fmt, w, h, iw, ih,
+                    pitch, texture && texture->IsOpaque() ? 1 : 0,
+                    texture && texture->IsStatic() ? 1 : 0, nullptr);
+                KR2RenderProbeWriteF(
+                    "[texture] PrepareForPresent glTex=%u fboValid=%d "
+                    "curRT=%u wasRT=%d size=%dx%d internal=%dx%d",
+                    (unsigned)nativeTexture, _CurrentFBOValid ? 1 : 0,
+                    (unsigned)_CurrentRenderTarget,
+                    (nativeTexture != 0 &&
+                     _CurrentRenderTarget == nativeTexture)
+                        ? 1
+                        : 0,
+                    w, h, iw, ih);
+            }
+        }
+#endif
         if(_CurrentFBOValid ||
            (nativeTexture != 0 && _CurrentRenderTarget == nativeTexture))
             TVPSetRenderTarget(0);

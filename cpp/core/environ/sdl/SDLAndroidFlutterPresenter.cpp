@@ -1,6 +1,9 @@
 #include "SDLAndroidFlutterPresenter.h"
 
 #include "NativeLog.h"
+#if defined(__ANDROID__)
+#include "RenderDiagLog.h"
+#endif
 
 #include <atomic>
 #include <cstdint>
@@ -1568,18 +1571,24 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
         LogSDLAndroidEGLPresenter(message);
     }
 
-    if(presented && ShouldLogScreenPresenter(queuedCount)) {
-        char message[640];
+    // Dense early-frame present logs for color/upload diagnosis.
+    if(presented &&
+       (queuedCount <= 32 || (queuedCount & 0x3F) == 0 ||
+        ShouldLogScreenPresenter(queuedCount))) {
+        char message[768];
+        const int intW = texture ? (int)texture->GetInternalWidth() : 0;
+        const int intH = texture ? (int)texture->GetInternalHeight() : 0;
         std::snprintf(message, sizeof(message),
                       "present-android-egl #%llu stage=%s texture=%dx%d "
-                      "dirtySerial=%llu overwrite=%d oldDirty=%llu "
-                      "output=%dx%d viewport=%d,%d,%dx%d "
+                      "internal=%dx%d fmt=%d dirtySerial=%llu overwrite=%d "
+                      "oldDirty=%llu output=%dx%d viewport=%d,%d,%dx%d "
                       "rect=%d,%d,%dx%d upload=%d,%d,%dx%d nativeGL=%u "
                       "softwareUpload=%d "
                       "softwareUploads=%llu uv=%.4f,%.4f flipY=%d "
                       "fullFrame=%d immediateSwap=1",
                       static_cast<unsigned long long>(queuedCount),
-                      stage ? stage : "", surfaceWidth, surfaceHeight,
+                      stage ? stage : "", surfaceWidth, surfaceHeight, intW,
+                      intH, (int)format,
                       static_cast<unsigned long long>(dirtySerial),
                       dirtyOverwritten ? 1 : 0,
                       static_cast<unsigned long long>(previousDirtySerial),
@@ -1592,6 +1601,32 @@ bool TryPresentAndroidEGLSurfaceTexture(iTVPTexture2D *texture,
                       uvScaleU, uvScaleV, flipY ? 1 : 0,
                       fullFramePresent ? 1 : 0);
         LogSDLAndroidEGLPresenter(message);
+
+        // Detailed color sample. Prefer software upload CPU bits.
+        // Native-GL readback is expensive (glReadPixels); only do it for
+        // early frames / every 256th present to catch color-swap bugs.
+        const void *bits = nullptr;
+        int pitch = 0;
+        if(copiedSoftware && softwareUploadPixels) {
+            bits = softwareUploadPixels;
+            pitch = softwareUploadPitch > 0 ? softwareUploadPitch
+                                            : surfaceWidth * 4;
+        } else if(texture &&
+                  (queuedCount <= 16 || (queuedCount & 0xFF) == 0)) {
+            bits = texture->GetScanLineForRead(0);
+            pitch = texture->GetPitch();
+        } else if(texture) {
+            pitch = texture->GetPitch();
+        }
+        kr2diag::LogPresent(stage, nativeTexture, (int)format, surfaceWidth,
+                            surfaceHeight, intW, intH, uvScaleU, uvScaleV,
+                            flipY ? 1 : 0, copiedSoftware ? 1 : 0,
+                            fullFramePresent ? 1 : 0, bits, pitch);
+        kr2diag::LogTexture(
+            "present-src", nativeTexture, (int)format, surfaceWidth,
+            surfaceHeight, intW, intH, pitch,
+            texture && texture->IsOpaque() ? 1 : 0,
+            texture && texture->IsStatic() ? 1 : 0, bits);
     }
     return presented;
 }
