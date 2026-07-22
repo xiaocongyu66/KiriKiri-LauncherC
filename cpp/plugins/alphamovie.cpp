@@ -1,10 +1,16 @@
 /**
  * @file alphamovie.cpp
- * @brief Minimal AlphaMovie stub plugin for KiriKiri2.
+ * @brief AlphaMovie plugin surface for KiriKiri2 (API stub).
  *
- * Provides enough of the AlphaMovie interface so that games which
- * reference AlphaMovie.dll do not crash.  Actual video playback is
- * not implemented — calls are silently ignored.
+ * Upstream reimplementation (full .amv decoder) lives at:
+ *   https://github.com/wamsoft/AlphaMovie  (2026-07-04 initial release)
+ *
+ * This file currently exposes the same TJS surface as wamsoft/manual.tjs
+ * so games that `Plugins.link("AlphaMovie.dll")` do not crash. Real
+ * frame decode/blit (custom DC-predictor JPEG inside .amv) is not ported
+ * yet — showNextImage returns 0 and dimensions stay at placeholders.
+ *
+ * Follow-up: port wamsoft AlphaMovie.cpp decoder + Layer main-image blit.
  */
 
 #include "ncbind.hpp"

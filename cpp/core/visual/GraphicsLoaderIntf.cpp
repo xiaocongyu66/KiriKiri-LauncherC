@@ -217,14 +217,13 @@ static bool TVPDecodeImageWithFFmpeg(tTJSBinaryStream *src,
                                        height, dstData, dstLinesize);
                 sws_freeContext(sws);
                 if(scaled == height) {
-                    const AVPixFmtDescriptor *desc =
-                        av_pix_fmt_desc_get(frameFormat);
+                    // Color path always swscales to RGBA. Mark HasAlpha for
+                    // all color frames so transparent CG body/face layers
+                    // (Yuzusoft pimg WEBP) keep IsOpaque=false.
                     image->Width = width;
                     image->Height = height;
                     image->Grayscale = grayscale;
-                    image->HasAlpha =
-                        !grayscale && desc &&
-                        (desc->flags & AV_PIX_FMT_FLAG_ALPHA) != 0;
+                    image->HasAlpha = !grayscale;
                     decoded = true;
                 }
             }
@@ -240,8 +239,11 @@ static void TVPEmitFFmpegImage(
     const tTVPFFmpegImage &image, void *callbackdata,
     tTVPGraphicSizeCallback sizecallback,
     tTVPGraphicScanLineCallback scanlinecallback) {
+    // Color pixels are always RGBA after swscale; report gpfRGBA whenever
+    // HasAlpha so layer IsOpaque stays false for transparent CG body layers.
     const tTVPGraphicPixelFormat pixelFormat =
-        image.Grayscale ? gpfLuminance : (image.HasAlpha ? gpfRGBA : gpfRGB);
+        image.Grayscale ? gpfLuminance
+                        : (image.HasAlpha ? gpfRGBA : gpfRGB);
     sizecallback(callbackdata, image.Width, image.Height, pixelFormat);
 
     const int stride = image.Width * (image.Grayscale ? 1 : 4);
@@ -337,7 +339,9 @@ static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
         if(!memcmp(header, "BPG", 3)) {
             return CALL_LOAD_FUNC(TVPLoadBPG);
         }
-        if(!memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBPVP8", 7)) {
+        // Match FFmpeg guess: only require "WEBP" fourCC. Chunk may be
+        // VP8 / VP8L / VP8X; requiring "WEBPVP8" is unnecessarily strict.
+        if(!memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBP", 4)) {
             return CALL_LOAD_FUNC(TVPLoadWEBP);
         }
         if(!memcmp(header, "\x49\x49\xbc\x01", 4)) {
@@ -378,7 +382,7 @@ static void TVPLoadHeaderRouter(void *formatdata, tTJSBinaryStream *src,
         if(!memcmp(header, "BPG", 3)) {
             return CALL_LOAD_FUNC(TVPLoadHeaderBPG);
         }
-        if(!memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBPVP8", 7)) {
+        if(!memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBP", 4)) {
             return CALL_LOAD_FUNC(TVPLoadHeaderWEBP);
         }
         if(!memcmp(header, "\x49\x49\xbc\x01", 4)) {

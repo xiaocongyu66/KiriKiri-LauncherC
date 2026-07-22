@@ -58,8 +58,9 @@ namespace {
                data[2] == 'G') {
                 return true;
             }
-            if(data.size() >= 15 && std::memcmp(data.data(), "RIFF", 4) == 0 &&
-               std::memcmp(data.data() + 8, "WEBPVP8", 7) == 0) {
+            // RIFF....WEBP — accept VP8 / VP8L / VP8X (same as GraphicsLoader)
+            if(data.size() >= 12 && std::memcmp(data.data(), "RIFF", 4) == 0 &&
+               std::memcmp(data.data() + 8, "WEBP", 4) == 0) {
                 return true;
             }
             return false;
