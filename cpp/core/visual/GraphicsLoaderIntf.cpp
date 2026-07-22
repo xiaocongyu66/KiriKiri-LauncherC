@@ -304,6 +304,10 @@ static bool TVPTryLoadImageHeaderWithFFmpeg(tTJSBinaryStream *src,
 
 } // namespace
 
+#if defined(__ANDROID__)
+extern "C" void KR2RenderProbeWriteF(const char *fmt, ...);
+#endif
+
 static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
                                  tTVPGraphicSizeCallback sizecallback,
                                  tTVPGraphicScanLineCallback scanlinecallback,
@@ -315,9 +319,40 @@ static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
     if(src->Read(header, sizeof(header)) == sizeof(header)) {
         src->SetPosition(origSrcPos);
         AVCodecID ffmpegCodecId = TVPGuessFFmpegImageCodec(header);
+#if defined(__ANDROID__)
+        {
+            static int s_imgRoute = 0;
+            ++s_imgRoute;
+            // Log WEBP/PNG/JPEG routes early + sparsely (CG body is WEBP).
+            const bool isWebp =
+                !memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBP", 4);
+            const bool isPng = !memcmp(header, "\x89PNG", 4);
+            const bool isTlg = !memcmp(header, "TLG", 3);
+            if(isWebp || isPng ||
+               (s_imgRoute <= 24 || (s_imgRoute & 0x1FF) == 0)) {
+                KR2RenderProbeWriteF(
+                    "[img] route #%d hdr=%02x%02x%02x%02x ffmpegCodec=%d "
+                    "keyidx=%d mode=%d size=%llu webp=%d png=%d tlg=%d",
+                    s_imgRoute, header[0], header[1], header[2], header[3],
+                    (int)ffmpegCodecId, (int)keyidx, (int)mode,
+                    (unsigned long long)(src->GetSize() > origSrcPos
+                                             ? src->GetSize() - origSrcPos
+                                             : 0),
+                    isWebp ? 1 : 0, isPng ? 1 : 0, isTlg ? 1 : 0);
+            }
+        }
+#endif
         if(TVPTryLoadImageWithFFmpeg(callbackdata, sizecallback,
                                      scanlinecallback, src, keyidx, mode,
                                      ffmpegCodecId)) {
+#if defined(__ANDROID__)
+            if(ffmpegCodecId == AV_CODEC_ID_WEBP ||
+               ffmpegCodecId == AV_CODEC_ID_PNG) {
+                KR2RenderProbeWriteF(
+                    "[img] decoded via FFmpeg codec=%d keyidx=%d",
+                    (int)ffmpegCodecId, (int)keyidx);
+            }
+#endif
             return;
         }
 #define CALL_LOAD_FUNC(f)                                                      \
@@ -327,6 +362,10 @@ static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
             return CALL_LOAD_FUNC(TVPLoadBMP);
         }
         if(!memcmp(header, "\x89PNG", 4)) {
+#if defined(__ANDROID__)
+            KR2RenderProbeWriteF("[img] decoded via TVPLoadPNG keyidx=%d",
+                                 (int)keyidx);
+#endif
             return CALL_LOAD_FUNC(TVPLoadPNG);
         }
         if(!memcmp(header, "TLG", 3)) {
@@ -342,6 +381,11 @@ static void TVPLoadGraphicRouter(void *formatdata, void *callbackdata,
         // Match FFmpeg guess: only require "WEBP" fourCC. Chunk may be
         // VP8 / VP8L / VP8X; requiring "WEBPVP8" is unnecessarily strict.
         if(!memcmp(header, "RIFF", 4) && !memcmp(header + 8, "WEBP", 4)) {
+#if defined(__ANDROID__)
+            KR2RenderProbeWriteF(
+                "[img] FFmpeg WEBP miss -> TVPLoadWEBP keyidx=%d",
+                (int)keyidx);
+#endif
             return CALL_LOAD_FUNC(TVPLoadWEBP);
         }
         if(!memcmp(header, "\x49\x49\xbc\x01", 4)) {

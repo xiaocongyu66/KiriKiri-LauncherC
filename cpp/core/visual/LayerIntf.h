@@ -364,6 +364,7 @@ public:
 
 public:
     tTVPLayerType GetType() const { return Type; }
+    tTVPLayerType GetDisplayType() const { return DisplayType; }
     void SetType(tTVPLayerType type);
 
     const tjs_char *GetTypeNameString();

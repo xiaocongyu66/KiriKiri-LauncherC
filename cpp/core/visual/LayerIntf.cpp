@@ -15,8 +15,9 @@
 #include "tjsCommHead.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
-#include <cmath>
+#include <string>
 #include <spdlog/spdlog.h>
 
 #if defined(__ANDROID__)
@@ -28,6 +29,143 @@ static bool KR2LayerAllocDiagnosticsEnabled() {
         return value && *value && *value != '0';
     }();
     return enabled;
+}
+
+// Verbose CG/layer diagnostics for OpenGL face-only issues (Senren CG).
+// Always on when native file logging enables render probes. Names that look
+// like event CG / stand / pimg are always logged; others are sampled.
+static bool KR2LayerDiagInterestingStorage(const ttstr &name) {
+    const std::string s = name.AsStdString();
+    auto has = [&](const char *sub) {
+        return s.find(sub) != std::string::npos;
+    };
+    // Event CG / pimg / stands / known Senren characters
+    if(has("ev301") || has("ev701") || has("ev401") || has("ev") && has(".pimg"))
+        return true;
+    if(has(".pimg") || has("psb://") || has(".stand") || has(".pbd"))
+        return true;
+    if(has("ムラサメ") || has("廉太郎") || has("小春") || has("玄十郎") ||
+       has("芦花") || has("心子"))
+        return true;
+    return false;
+}
+
+static const char *KR2LayerTypeName(tTVPLayerType t) {
+    switch(t) {
+        case ltBinder:
+            return "binder";
+        case ltOpaque: // == ltCoverRect
+            return "opaque";
+        case ltAlpha: // == ltTransparent
+            return "alpha";
+        case ltAdditive:
+            return "add";
+        case ltSubtractive:
+            return "sub";
+        case ltMultiplicative:
+            return "mul";
+        case ltDodge:
+            return "dodge";
+        case ltDarken:
+            return "darken";
+        case ltLighten:
+            return "lighten";
+        case ltScreen:
+            return "screen";
+        case ltAddAlpha:
+            return "addA";
+        case ltPsNormal:
+            return "psN";
+        case ltPsAdditive:
+            return "psAdd";
+        case ltPsSubtractive:
+            return "psSub";
+        case ltPsMultiplicative:
+            return "psMul";
+        case ltPsScreen:
+            return "psScr";
+        case ltPsOverlay:
+            return "psOvl";
+        case ltPsHardLight:
+            return "psHL";
+        case ltPsSoftLight:
+            return "psSL";
+        case ltPsColorDodge:
+            return "psCD";
+        case ltPsColorBurn:
+            return "psCB";
+        case ltPsLighten:
+            return "psL";
+        case ltPsDarken:
+            return "psD";
+        case ltPsDifference:
+            return "psDiff";
+        case ltPsExclusion:
+            return "psEx";
+        default:
+            return "?";
+    }
+}
+
+// Sample MainImage alpha/RGB occupancy (cheap 8x8 grid).
+static void KR2SampleMainImageStats(const char *tag, tTJSNI_BaseLayer *layer,
+                                    const char *extra) {
+    if(!layer)
+        return;
+    tTVPBaseTexture *img = layer->GetMainImage();
+    const int w = img ? (int)img->GetWidth() : 0;
+    const int h = img ? (int)img->GetHeight() : 0;
+    unsigned opaque = 0, semi = 0, clear = 0, samples = 0;
+    unsigned rgbNonZero = 0;
+    if(img && w > 0 && h > 0 && img->Is32BPP()) {
+        for(int yi = 0; yi < 8; ++yi) {
+            const int y = (h <= 1) ? 0 : (yi * (h - 1)) / 7;
+            const tjs_uint32 *row =
+                (const tjs_uint32 *)img->GetScanLine(y);
+            if(!row)
+                continue;
+            for(int xi = 0; xi < 8; ++xi) {
+                const int x = (w <= 1) ? 0 : (xi * (w - 1)) / 7;
+                const tjs_uint32 p = row[x];
+                const unsigned a = (p >> 24) & 0xff;
+                const unsigned rgb = p & 0x00ffffff;
+                ++samples;
+                if(a == 0)
+                    ++clear;
+                else if(a == 255)
+                    ++opaque;
+                else
+                    ++semi;
+                if(rgb != 0)
+                    ++rgbNonZero;
+            }
+        }
+    }
+    const tjs_string name = layer->GetName().AsStdString();
+    KR2RenderProbeWriteF(
+        "[layer] %s L=%p name='%s' type=%s disp=%s vis=%d op=%d "
+        "pos=%d,%d size=%dx%d imgLeft=%d,%d hasImg=%d main=%p "
+        "children=%d vchildren=%d img=%dx%d sample(n=%u clear=%u semi=%u "
+        "opaque=%u rgbNZ=%u) %s",
+        tag, (void *)layer, name.c_str(), KR2LayerTypeName(layer->GetType()),
+        KR2LayerTypeName(layer->GetDisplayType()),
+        layer->GetVisible() ? 1 : 0, (int)layer->GetOpacity(), layer->GetLeft(),
+        layer->GetTop(), (int)layer->GetWidth(), (int)layer->GetHeight(),
+        layer->GetImageLeft(), layer->GetImageTop(),
+        layer->GetHasImage() ? 1 : 0, (void *)img,
+        (int)layer->GetCount(), (int)layer->GetVisibleChildrenCount(), w, h,
+        samples, clear, semi, opaque, rgbNonZero, extra ? extra : "");
+}
+
+static bool KR2LayerDiagShouldLog(tTJSNI_BaseLayer *layer, int counter,
+                                  int earlyLimit, int mask) {
+    if(!layer)
+        return false;
+    if(KR2LayerDiagInterestingStorage(layer->GetName()))
+        return true;
+    if(counter <= earlyLimit)
+        return true;
+    return (counter & mask) == 0;
 }
 #endif
 
@@ -2902,6 +3040,25 @@ iTJSDispatch2 *tTJSNI_BaseLayer::LoadImages(const ttstr &name,
     TVPLoadGraphic(MainImage, name, colorkey, 0, 0, glmNormal, &provincename,
                    &metainfo);
     try {
+#if defined(__ANDROID__)
+        {
+            static int s_loaded = 0;
+            ++s_loaded;
+            char extra[256];
+            std::snprintf(extra, sizeof(extra),
+                          "LoadImages name='%s' key=%08x afterLoad "
+                          "img=%ux%u opaque=%d",
+                          name.AsStdString().c_str(), (unsigned)colorkey,
+                          (unsigned)MainImage->GetWidth(),
+                          (unsigned)MainImage->GetHeight(),
+                          MainImage->IsOpaque() ? 1 : 0);
+            if(KR2LayerDiagInterestingStorage(name) ||
+               KR2LayerDiagInterestingStorage(GetName()) || s_loaded <= 32 ||
+               (s_loaded & 0xFF) == 0) {
+                KR2SampleMainImageStats("LoadImages", this, extra);
+            }
+        }
+#endif
 
         InternalSetImageSize(MainImage->GetWidth(), MainImage->GetHeight());
 
@@ -6549,6 +6706,30 @@ void tTJSNI_BaseLayer::BltImage(iTVPBaseBitmap *dest,
 //---------------------------------------------------------------------------
 void tTJSNI_BaseLayer::DrawSelf(tTVPDrawable *target, tTVPRect &pr,
                                 tTVPRect &cr) {
+#if defined(__ANDROID__)
+    {
+        static int s_drawSelf = 0;
+        ++s_drawSelf;
+        if(KR2LayerDiagShouldLog(this, s_drawSelf, 32, 0x1FF)) {
+            char extra[160];
+            std::snprintf(
+                extra, sizeof(extra),
+                "DrawSelf main=%p pr=%d,%d,%dx%d cr=%d,%d,%dx%d target=%p",
+                (void *)MainImage, pr.left, pr.top, pr.get_width(),
+                pr.get_height(), cr.left, cr.top, cr.get_width(),
+                cr.get_height(), (void *)target);
+            if(!MainImage && DisplayType != ltOpaque) {
+                KR2RenderProbeWriteF(
+                    "[layer] DrawSelf-SKIP L=%p name='%s' noMainImage "
+                    "disp=%s (nothing drawn)",
+                    (void *)this, GetName().AsStdString().c_str(),
+                    KR2LayerTypeName(DisplayType));
+            } else {
+                KR2SampleMainImageStats("DrawSelf", this, extra);
+            }
+        }
+    }
+#endif
     if(!MainImage) {
         if(DisplayType == ltOpaque) {
             // fill destination with specified color
@@ -6698,6 +6879,49 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
 
     // caching is not enabled
 
+#if defined(__ANDROID__)
+    static int s_drawGpu = 0;
+    ++s_drawGpu;
+    const int vchildren = GetVisibleChildrenCount();
+    const bool opaPath = Opacity < 255 || (InTransition && TransWithChildren);
+    if(KR2LayerDiagShouldLog(this, s_drawGpu, 48, 0x1FF) ||
+       (vchildren > 0 && KR2LayerDiagInterestingStorage(GetName()))) {
+        char extra[192];
+        std::snprintf(
+            extra, sizeof(extra),
+            "DrawGPU path=%s x=%d y=%d r=%d,%d,%dx%d local=%d,%d,%dx%d "
+            "tar=%d,%d,%dx%d vchildren=%d cache=%d",
+            opaPath ? "temp-composite" : "direct", x, y, r.left, r.top,
+            r.get_width(), r.get_height(), rect.left, rect.top,
+            rect.get_width(), rect.get_height(), rctar.left, rctar.top,
+            rctar.get_width(), rctar.get_height(), vchildren,
+            GetCacheEnabled() ? 1 : 0);
+        KR2SampleMainImageStats("DrawGPU", this, extra);
+        // List visible children once for interesting CG parents
+        if(vchildren > 0 &&
+           (KR2LayerDiagInterestingStorage(GetName()) || s_drawGpu <= 24)) {
+            int idx = 0;
+            TVP_LAYER_FOR_EACH_CHILD_BEGIN(child) {
+                if(!child->Visible)
+                    continue;
+                KR2RenderProbeWriteF(
+                    "[layer] DrawGPU-child parent=%p child[%d]=%p name='%s' "
+                    "vis=%d op=%d type=%s disp=%s rect=%d,%d,%dx%d hasImg=%d "
+                    "main=%p",
+                    (void *)this, idx++, (void *)child,
+                    child->GetName().AsStdString().c_str(),
+                    child->GetVisible() ? 1 : 0, (int)child->GetOpacity(),
+                    KR2LayerTypeName(child->GetType()),
+                    KR2LayerTypeName(child->GetDisplayType()),
+                    child->GetLeft(), child->GetTop(), (int)child->GetWidth(),
+                    (int)child->GetHeight(), child->GetHasImage() ? 1 : 0,
+                    (void *)child->GetMainImage());
+            }
+            TVP_LAYER_FOR_EACH_CHILD_END
+        }
+    }
+#endif
+
     if(Opacity < 255 || (InTransition && TransWithChildren)) {
         // rearrange pipe line for transition
         if(InTransition && TransWithChildren) {
@@ -6718,6 +6942,16 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
             }
             tTVPRect rectForChild(0, 0, Rect.get_width(), Rect.get_height());
             CopySelfForRect(UpdateBitmapForChild, 0, 0, rectForChild);
+#if defined(__ANDROID__)
+            if(KR2LayerDiagInterestingStorage(GetName()) ||
+               (s_drawGpu <= 24)) {
+                KR2RenderProbeWriteF(
+                    "[layer] DrawGPU-tempInit L=%p temp=%p full=%dx%d "
+                    "useTemp=%d after CopySelfForRect",
+                    (void *)this, (void *)UpdateBitmapForChild,
+                    Rect.get_width(), Rect.get_height(), useTemp ? 1 : 0);
+            }
+#endif
 
             TVP_LAYER_FOR_EACH_CHILD_BEGIN(child) {
                 // for each child...
@@ -7242,6 +7476,30 @@ void tTJSNI_BaseLayer::DrawCompleted(const tTVPRect &destrect,
     // called from children to notify that the image drawing is
     // completed. blend the image to the target unless bmp is the same
     // as UpdateBitmapForChild.
+#if defined(__ANDROID__)
+    {
+        static int s_dc = 0;
+        ++s_dc;
+        if(KR2LayerDiagShouldLog(this, s_dc, 40, 0x1FF) ||
+           KR2LayerDiagInterestingStorage(GetName())) {
+            KR2RenderProbeWriteF(
+                "[layer] DrawCompleted L=%p name='%s' dest=%d,%d,%dx%d "
+                "clip=%d,%d,%dx%d type=%s opa=%d bmp=%p bmpSz=%dx%d "
+                "main=%p updateChildBmp=%p sameAsTemp=%d binder=%d "
+                "directParent=%d",
+                (void *)this, GetName().AsStdString().c_str(), destrect.left,
+                destrect.top, destrect.get_width(), destrect.get_height(),
+                cliprect.left, cliprect.top, cliprect.get_width(),
+                cliprect.get_height(), KR2LayerTypeName(type), (int)opacity,
+                (void *)bmp, bmp ? (int)bmp->GetWidth() : 0,
+                bmp ? (int)bmp->GetHeight() : 0, (void *)MainImage,
+                (void *)UpdateBitmapForChild,
+                (bmp == UpdateBitmapForChild) ? 1 : 0,
+                (DisplayType == ltBinder) ? 1 : 0,
+                (MainImage == nullptr && DirectTransferToParent) ? 1 : 0);
+        }
+    }
+#endif
     if(DisplayType == ltBinder ||
        (MainImage == nullptr && DirectTransferToParent)) {
         tTVPRect _destrect(destrect);
@@ -8258,20 +8516,27 @@ tTJSNC_Layer::tTJSNC_Layer() : tTJSNativeClass(TJS_W("Layer")) {
         tjs_uint32 key = clNone; // TODO Intfなのに固有値が
         if(numparams >= 2 && param[1]->Type() != tvtVoid)
             key = (tjs_uint32)param[1]->AsInteger();
-	#if defined(__ANDROID__)
-	        // Probe Layer.loadImages() early and then sparsely. KAG [bg] /
-	        // [image] / [chara] tags eventually funnel through here.
-	        {
-	            static int s_loadImgCount = 0;
-	            ++s_loadImgCount;
-	            if(s_loadImgCount <= 16 || (s_loadImgCount & 0x3FF) == 0) {
-	                KR2RenderProbeWriteF(
-	                    "[layer] loadImages #%d name='%s' key=%08x layer=%p",
-	                    s_loadImgCount, name.AsStdString().c_str(),
-	                    (unsigned)key, (void*)_this);
-	            }
-	        }
-	#endif
+#if defined(__ANDROID__)
+        // Always log interesting CG/stand storages; sample the rest.
+        {
+            static int s_loadImgCount = 0;
+            ++s_loadImgCount;
+            if(KR2LayerDiagInterestingStorage(name) ||
+               KR2LayerDiagInterestingStorage(_this->GetName()) ||
+               s_loadImgCount <= 32 || (s_loadImgCount & 0xFF) == 0) {
+                KR2RenderProbeWriteF(
+                    "[layer] loadImages-begin #%d name='%s' key=%08x "
+                    "layer=%p layerName='%s' before hasImg=%d main=%p "
+                    "size=%dx%d",
+                    s_loadImgCount, name.AsStdString().c_str(),
+                    (unsigned)key, (void *)_this,
+                    _this->GetName().AsStdString().c_str(),
+                    _this->GetHasImage() ? 1 : 0,
+                    (void *)_this->GetMainImage(), (int)_this->GetWidth(),
+                    (int)_this->GetHeight());
+            }
+        }
+#endif
         iTJSDispatch2 *metainfo = _this->LoadImages(name, key);
         try {
             if(result)
