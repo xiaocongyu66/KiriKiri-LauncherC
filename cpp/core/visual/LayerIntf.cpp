@@ -222,10 +222,40 @@ bool TVPFreeUnusedLayerCache = false;
 //---------------------------------------------------------------------------
 
 static bool IsGPU() {
+    // IsGPU gates Draw_GPU vs CPU InternalComplete. When false on an OpenGL
+    // manager, layers still use GPU textures but complete via software tree
+    // walks — unstable on Android external SurfaceTexture present (face-only
+    // CG, blank body). KrKr2-Next effectively needs the GPU complete path.
+    //
+    // Log 20260722224933239: pipeline=opengl (gpu) yet IsGPU=0 always and
+    // DrawGPU=0 — almost certainly ogl_accurate_render saved true for the game.
+#if defined(__ANDROID__)
+    static bool logged = false;
+    const bool software = TVPIsSoftwareRenderManager();
+    const bool accurate =
+        IndividualConfigManager::GetInstance()->GetValue<bool>(
+            "ogl_accurate_render", false);
+    // On Android always use GPU complete when the render manager is OpenGL.
+    // ogl_accurate_render remains available on desktop; on Android it only
+    // breaks present without a software surface path like krkrsdl2.
+    const bool isGPU = !software;
+    if(!logged) {
+        logged = true;
+        TVPAddLog(ttstr(TJS_W("[renderer] IsGPU=")) +
+                  ttstr(isGPU ? TJS_W("1") : TJS_W("0")) +
+                  TJS_W(" software=") +
+                  ttstr(software ? TJS_W("1") : TJS_W("0")) +
+                  TJS_W(" ogl_accurate_render=") +
+                  ttstr(accurate ? TJS_W("1") : TJS_W("0")) +
+                  TJS_W(" (android forces GPU complete when not software)"));
+    }
+    return isGPU;
+#else
     static bool isGPU = !TVPIsSoftwareRenderManager() &&
         !IndividualConfigManager::GetInstance()->GetValue<bool>(
             "ogl_accurate_render", false);
     return isGPU;
+#endif
 }
 
 // Match KrKr2-Next: no full-frame force on every complete. Full-frame every
