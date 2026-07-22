@@ -230,9 +230,10 @@ static bool IsGPU() {
 
 static bool TVPShouldUseFullFrameGPUCompletion() {
 #if defined(__ANDROID__)
-    // Non-accurate Android OpenGL completion is eventually sampled as a whole
-    // texture by the Flutter/SDL presenter. Do not depend on takeover timing:
-    // early startup and surface rebuild frames must be complete too.
+    // Android presents the draw buffer as a whole external texture
+    // (nativeGL/cpuCopyFree). Partial layer completion + partial dirty marks
+    // leave stale tiles (face-only CG, blank body, "corpse chunks" of prior
+    // NPC/UI). Force full-frame completion for both GPU and CPU complete paths.
     return true;
 #else
     return false;
@@ -242,6 +243,85 @@ static bool TVPShouldUseFullFrameGPUCompletion() {
 static tTVPRect TVPMakeLayerLocalFullRect(const tTVPRect &rect) {
     return tTVPRect(0, 0, rect.get_width(), rect.get_height());
 }
+
+#if defined(__ANDROID__)
+// Sample a single ARGB pixel (safe bounds). Returns 0 if unavailable.
+static tjs_uint32 KR2SamplePixel(iTVPBaseBitmap *bmp, int x, int y) {
+    if(!bmp || !bmp->Is32BPP())
+        return 0;
+    const int w = (int)bmp->GetWidth();
+    const int h = (int)bmp->GetHeight();
+    if(w <= 0 || h <= 0)
+        return 0;
+    if(x < 0)
+        x = 0;
+    if(y < 0)
+        y = 0;
+    if(x >= w)
+        x = w - 1;
+    if(y >= h)
+        y = h - 1;
+    const tjs_uint32 *row = (const tjs_uint32 *)bmp->GetScanLine(y);
+    return row ? row[x] : 0;
+}
+
+static void KR2LogLayerBlit(const char *op, tTJSNI_BaseLayer *dst, tjs_int dx,
+                            tjs_int dy, const tTVPRect &srcRect,
+                            iTVPBaseBitmap *srcBmp, const char *srcName,
+                            int modeOrFace, int opacity, bool modified) {
+    if(!dst)
+        return;
+    static int s_blit = 0;
+    ++s_blit;
+    const bool interesting =
+        KR2LayerDiagInterestingStorage(dst->GetName()) ||
+        (srcName && *srcName &&
+         KR2LayerDiagInterestingStorage(ttstr(srcName)));
+    const int area =
+        srcRect.get_width() * srcRect.get_height();
+    // Always log interesting CG/stand blits; sample large or early others.
+    if(!interesting && s_blit > 48 && (s_blit & 0x3F) != 0 && area < 200 * 200)
+        return;
+
+    iTVPBaseBitmap *dstBmp = dst->GetMainImage();
+    const int dw = dstBmp ? (int)dstBmp->GetWidth() : 0;
+    const int dh = dstBmp ? (int)dstBmp->GetHeight() : 0;
+    const int sw = srcBmp ? (int)srcBmp->GetWidth() : 0;
+    const int sh = srcBmp ? (int)srcBmp->GetHeight() : 0;
+    // Sample dest at blit center and src center after the operation.
+    const int dcx = dx + srcRect.get_width() / 2;
+    const int dcy = dy + srcRect.get_height() / 2;
+    const int scx = srcRect.left + srcRect.get_width() / 2;
+    const int scy = srcRect.top + srcRect.get_height() / 2;
+    const tjs_uint32 dp = KR2SamplePixel(dstBmp, dcx, dcy);
+    const tjs_uint32 sp = KR2SamplePixel(srcBmp, scx, scy);
+    // Corner + center occupancy on dest ROI (up to 5 samples).
+    unsigned dClear = 0, dOpaque = 0, dN = 0;
+    if(dstBmp && srcRect.get_width() > 0 && srcRect.get_height() > 0) {
+        const int xs[5] = { dx, dx + srcRect.get_width() - 1, dcx, dx,
+                            dx + srcRect.get_width() - 1 };
+        const int ys[5] = { dy, dy, dcy, dy + srcRect.get_height() - 1,
+                            dy + srcRect.get_height() - 1 };
+        for(int i = 0; i < 5; ++i) {
+            const tjs_uint32 p = KR2SamplePixel(dstBmp, xs[i], ys[i]);
+            ++dN;
+            const unsigned a = (p >> 24) & 0xff;
+            if(a == 0)
+                ++dClear;
+            else if(a == 255)
+                ++dOpaque;
+        }
+    }
+    KR2RenderProbeWriteF(
+        "[layer] %s #%d dst='%s' dx=%d dy=%d src='%s' sr=%d,%d,%dx%d "
+        "mode=%d opa=%d mod=%d dstSz=%dx%d srcSz=%dx%d "
+        "dstPix=%08x srcPix=%08x dstROI(n=%u clear=%u opq=%u)",
+        op, s_blit, dst->GetName().AsStdString().c_str(), (int)dx, (int)dy,
+        srcName ? srcName : "", srcRect.left, srcRect.top, srcRect.get_width(),
+        srcRect.get_height(), modeOrFace, opacity, modified ? 1 : 0, dw, dh, sw,
+        sh, (unsigned)dp, (unsigned)sp, dN, dClear, dOpaque);
+}
+#endif
 
 //---------------------------------------------------------------------------
 // temporary bitmap management
@@ -305,6 +385,8 @@ private:
         if(TempLevel > Temporaries.size()) {
             // increase buffer size
             tTVPBaseTexture *bmp = new tTVPBaseTexture(w, h);
+            // New temps start undefined on some backends; clear to transparent.
+            bmp->Fill(tTVPRect(0, 0, (tjs_int)w, (tjs_int)h), 0);
             Temporaries.push_back(bmp);
             return bmp;
         } else {
@@ -323,6 +405,9 @@ private:
                 if(bw != w || bh != h)
                     bmp->SetSize(w, h, false);
             }
+            // Reused temps retain prior composite fragments (NPC/UI "corpse
+            // chunks" beside CG). Always clear the requested region.
+            bmp->Fill(tTVPRect(0, 0, (tjs_int)w, (tjs_int)h), 0);
             return bmp;
         }
     }
@@ -2618,6 +2703,17 @@ void tTJSNI_BaseLayer::AssignImages(tTJSNI_BaseLayer *src) {
     if(MainImage)
         ResetClip(); // cliprect is reset
 
+#if defined(__ANDROID__)
+    {
+        tTVPRect full(0, 0, MainImage ? (tjs_int)MainImage->GetWidth() : 0,
+                      MainImage ? (tjs_int)MainImage->GetHeight() : 0);
+        KR2LogLayerBlit("assignImages", this, 0, 0, full,
+                        src && src->MainImage ? src->MainImage : nullptr,
+                        src ? src->GetName().AsStdString().c_str() : "", 0, 255,
+                        main_changed);
+    }
+#endif
+
     if(main_changed)
         Update(false); // update
 }
@@ -4767,6 +4863,11 @@ void tTJSNI_BaseLayer::PiledCopy(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
             MainImage->CopyRect(dx, dy, bmp, rc,
                                 TVP_BB_COPY_MAIN | TVP_BB_COPY_MASK) ||
             ImageModified;
+#if defined(__ANDROID__)
+        KR2LogLayerBlit("piledCopy", this, dx, dy, rc, bmp,
+                        src->GetName().AsStdString().c_str(), (int)DrawFace, 255,
+                        ImageModified);
+#endif
     } catch(...) {
         src->DecCacheEnabledCount();
         throw;
@@ -4853,6 +4954,13 @@ void tTJSNI_BaseLayer::CopyRect(tjs_int dx, tjs_int dy, iTVPBaseBitmap *src,
         case dfAuto:
             break;
     }
+
+#if defined(__ANDROID__)
+    if(DrawFace != dfProvince && DrawFace != dfAuto) {
+        KR2LogLayerBlit("copyRect", this, dx, dy, rect, src, "", (int)DrawFace,
+                        255, ImageModified);
+    }
+#endif
 
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
@@ -5147,6 +5255,13 @@ void tTJSNI_BaseLayer::PileRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
             break;
     }
 
+#if defined(__ANDROID__)
+    KR2LogLayerBlit("pileRect", this, dx, dy, rect,
+                    src ? src->MainImage : nullptr,
+                    src ? src->GetName().AsStdString().c_str() : "",
+                    (int)DrawFace, (int)opacity, ImageModified);
+#endif
+
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
     if(ImageLeft != 0 || ImageTop != 0) {
@@ -5200,6 +5315,13 @@ void tTJSNI_BaseLayer::BlendRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
             break;
     }
 
+#if defined(__ANDROID__)
+    KR2LogLayerBlit("blendRect", this, dx, dy, rect,
+                    src ? src->MainImage : nullptr,
+                    src ? src->GetName().AsStdString().c_str() : "",
+                    (int)DrawFace, (int)opacity, ImageModified);
+#endif
+
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
     if(ImageLeft != 0 || ImageTop != 0) {
@@ -5239,6 +5361,11 @@ void tTJSNI_BaseLayer::OperateRect(tjs_int dx, tjs_int dy, iTVPBaseBitmap *src,
     ImageModified =
         MainImage->Blt(dx, dy, src, rect, met, opacity, HoldAlpha) ||
         ImageModified;
+
+#if defined(__ANDROID__)
+    KR2LogLayerBlit("operateRect", this, dx, dy, rect, src, "", (int)mode,
+                    (int)opacity, ImageModified);
+#endif
 
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
@@ -7721,6 +7848,28 @@ void tTJSNI_BaseLayer::InternalComplete(tTVPComplexRect &updateregion,
             InternalComplete2_GPU(completionRect, drawable);
         }
         updateregion.Clear();
+    } else if(TVPShouldUseFullFrameGPUCompletion() &&
+              updateregion.GetCount() > 0) {
+        // CPU complete path on Android still feeds a whole-frame external
+        // GL texture. Expand to full local rect so expression/CG swaps do
+        // not leave uncleared side tiles.
+        tTVPComplexRect full;
+        full.Or(TVPMakeLayerLocalFullRect(Rect));
+#if defined(__ANDROID__)
+        {
+            static int s_ffCpu = 0;
+            if((++s_ffCpu) <= 8 || (s_ffCpu & 0x7F) == 0) {
+                KR2RenderProbeWriteF(
+                    "[layer] complete-fullframe-cpu #%d L=%p name='%s' "
+                    "local=%dx%d partialRects=%d",
+                    s_ffCpu, (void *)this, GetName().AsStdString().c_str(),
+                    Rect.get_width(), Rect.get_height(),
+                    (int)updateregion.GetCount());
+            }
+        }
+#endif
+        InternalComplete2(full, drawable);
+        updateregion.Clear();
     } else {
         InternalComplete2(updateregion, drawable);
     }
@@ -7743,6 +7892,12 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
     try {
         if(IsGPU()) {
             InternalComplete2_GPU(TVPMakeLayerLocalFullRect(Rect), drawable);
+            if(Manager)
+                Manager->GetUpdateRegionForCompletion().Clear();
+        } else if(TVPShouldUseFullFrameGPUCompletion()) {
+            tTVPComplexRect full;
+            full.Or(TVPMakeLayerLocalFullRect(Rect));
+            InternalComplete2(full, drawable);
             if(Manager)
                 Manager->GetUpdateRegionForCompletion().Clear();
         } else {

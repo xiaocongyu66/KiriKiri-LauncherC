@@ -831,8 +831,16 @@ void tTVPBasicDrawDevice::EndBitmapCompletion(iTVPLayerManager *manager) {
         TVPSDLRecordBitmapCompletionEnd(manager, w, h);
     if(CompletionDirty && manager && !completionPresented) {
         if(iTVPBaseBitmap *buf = manager->GetDrawBuffer()) {
-            if(iTVPTexture2D *texture = buf->GetTexture())
+            if(iTVPTexture2D *texture = buf->GetTexture()) {
+#if defined(__ANDROID__)
+                // External GL present samples the whole buffer. Partial dirty
+                // marks leave stale side tiles after CG face swaps.
+                texture->MarkDirtyRect(
+                    tTVPRect(0, 0, buf->GetWidth(), buf->GetHeight()));
+#else
                 texture->MarkDirtyRect(CompletionDirtyRect);
+#endif
+            }
         }
     }
     CompletionDirty = false;

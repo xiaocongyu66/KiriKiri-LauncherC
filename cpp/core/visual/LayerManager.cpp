@@ -201,6 +201,13 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
                                        static_cast<int>(opacity), w, h);
     if(DrawBuffer->Blt(destrect.left, destrect.top, bmp, cliprect, type,
                        opacity, HoldAlpha)) {
+#if defined(__ANDROID__)
+        // Whole-frame external present: always mark the full draw buffer dirty
+        // so partial CG/face updates cannot leave uncleared tiles.
+        if(iTVPTexture2D *texture = DrawBuffer->GetTexture())
+            texture->MarkDirtyRect(tTVPRect(0, 0, DrawBuffer->GetWidth(),
+                                            DrawBuffer->GetHeight()));
+#else
         tTVPRect dirty(destrect.left, destrect.top,
                        destrect.left + cliprect.get_width(),
                        destrect.top + cliprect.get_height());
@@ -210,6 +217,7 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
             if(iTVPTexture2D *texture = DrawBuffer->GetTexture())
                 texture->MarkDirtyRect(dirty);
         }
+#endif
     }
 #endif
 }
