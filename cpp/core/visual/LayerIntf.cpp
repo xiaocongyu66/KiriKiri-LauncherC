@@ -173,19 +173,19 @@ static void KR2SampleMainImageStats(const char *tag, tTJSNI_BaseLayer *layer,
         }
     }
     const std::string name = layer->GetName().AsStdString();
+    // GetVisibleChildrenCount() is private; only report GetCount() here.
     KR2RenderProbeWriteF(
         "[layer] %s L=%p name='%s' type=%s disp=%s vis=%d op=%d "
         "pos=%d,%d size=%dx%d imgLeft=%d,%d hasImg=%d main=%p "
-        "children=%d vchildren=%d img=%dx%d sample(n=%u clear=%u semi=%u "
+        "children=%d img=%dx%d sample(n=%u clear=%u semi=%u "
         "opaque=%u rgbNZ=%u) %s",
         tag, (void *)layer, name.c_str(), KR2LayerTypeName(layer->GetType()),
         KR2LayerTypeName(layer->GetDisplayType()),
         layer->GetVisible() ? 1 : 0, (int)layer->GetOpacity(), layer->GetLeft(),
         layer->GetTop(), (int)layer->GetWidth(), (int)layer->GetHeight(),
         layer->GetImageLeft(), layer->GetImageTop(),
-        layer->GetHasImage() ? 1 : 0, (void *)img,
-        (int)layer->GetCount(), (int)layer->GetVisibleChildrenCount(), w, h,
-        samples, clear, semi, opaque, rgbNonZero, extra ? extra : "");
+        layer->GetHasImage() ? 1 : 0, (void *)img, (int)layer->GetCount(), w,
+        h, samples, clear, semi, opaque, rgbNonZero, extra ? extra : "");
 }
 
 static bool KR2LayerDiagShouldLog(tTJSNI_BaseLayer *layer, int counter,
