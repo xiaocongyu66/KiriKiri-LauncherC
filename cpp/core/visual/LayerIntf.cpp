@@ -228,21 +228,9 @@ static bool IsGPU() {
     return isGPU;
 }
 
-static bool TVPShouldUseFullFrameGPUCompletion() {
-#if defined(__ANDROID__)
-    // Android presents the draw buffer as a whole external texture
-    // (nativeGL/cpuCopyFree). Partial layer completion + partial dirty marks
-    // leave stale tiles (face-only CG, blank body, "corpse chunks" of prior
-    // NPC/UI). Force full-frame completion for both GPU and CPU complete paths.
-    return true;
-#else
-    return false;
-#endif
-}
-
-static tTVPRect TVPMakeLayerLocalFullRect(const tTVPRect &rect) {
-    return tTVPRect(0, 0, rect.get_width(), rect.get_height());
-}
+// Match KrKr2-Next: no full-frame force on every complete. Full-frame every
+// tick tanks FPS (user-reported lag after d16ccb6) without fixing CG composite.
+// Window completion already redraws the primary layer via CompleteForWindow.
 
 #if defined(__ANDROID__)
 // Sample a single ARGB pixel (safe bounds). Returns 0 if unavailable.
@@ -381,12 +369,12 @@ private:
             w += (w & 1);
 
         // get temporary bitmap (nested)
+        // KrKr2-Next does not zero every reuse; callers overwrite used rects.
+        // Clearing full temps each frame was a major FPS regression.
         TempLevel++;
         if(TempLevel > Temporaries.size()) {
             // increase buffer size
             tTVPBaseTexture *bmp = new tTVPBaseTexture(w, h);
-            // New temps start undefined on some backends; clear to transparent.
-            bmp->Fill(tTVPRect(0, 0, (tjs_int)w, (tjs_int)h), 0);
             Temporaries.push_back(bmp);
             return bmp;
         } else {
@@ -405,9 +393,6 @@ private:
                 if(bw != w || bh != h)
                     bmp->SetSize(w, h, false);
             }
-            // Reused temps retain prior composite fragments (NPC/UI "corpse
-            // chunks" beside CG). Always clear the requested region.
-            bmp->Fill(tTVPRect(0, 0, (tjs_int)w, (tjs_int)h), 0);
             return bmp;
         }
     }
@@ -7839,37 +7824,10 @@ void tTJSNI_BaseLayer::InternalComplete(tTVPComplexRect &updateregion,
     // determined
     InCompletion = true;
 
+    // Same as KrKr2-Next: GPU uses bound of dirty region; CPU uses complex
+    // partial rects. Do not expand to full frame here.
     if(IsGPU()) {
-        if(updateregion.GetCount() > 0) {
-            const tTVPRect completionRect =
-                TVPShouldUseFullFrameGPUCompletion()
-                    ? TVPMakeLayerLocalFullRect(Rect)
-                    : updateregion.GetBound();
-            InternalComplete2_GPU(completionRect, drawable);
-        }
-        updateregion.Clear();
-    } else if(TVPShouldUseFullFrameGPUCompletion() &&
-              updateregion.GetCount() > 0) {
-        // CPU complete path on Android still feeds a whole-frame external
-        // GL texture. Expand to full local rect so expression/CG swaps do
-        // not leave uncleared side tiles.
-        tTVPComplexRect full;
-        full.Or(TVPMakeLayerLocalFullRect(Rect));
-#if defined(__ANDROID__)
-        {
-            static int s_ffCpu = 0;
-            if((++s_ffCpu) <= 8 || (s_ffCpu & 0x7F) == 0) {
-                KR2RenderProbeWriteF(
-                    "[layer] complete-fullframe-cpu #%d L=%p name='%s' "
-                    "local=%dx%d partialRects=%d",
-                    s_ffCpu, (void *)this, GetName().AsStdString().c_str(),
-                    Rect.get_width(), Rect.get_height(),
-                    (int)updateregion.GetCount());
-            }
-        }
-#endif
-        InternalComplete2(full, drawable);
-        updateregion.Clear();
+        InternalComplete2_GPU(updateregion.GetBound(), drawable);
     } else {
         InternalComplete2(updateregion, drawable);
     }
@@ -7890,16 +7848,23 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
     if(Manager)
         Manager->GetLayerTreeOwner()->StartBitmapCompletion(Manager);
     try {
-        if(IsGPU()) {
-            InternalComplete2_GPU(TVPMakeLayerLocalFullRect(Rect), drawable);
-            if(Manager)
-                Manager->GetUpdateRegionForCompletion().Clear();
-        } else if(TVPShouldUseFullFrameGPUCompletion()) {
-            tTVPComplexRect full;
-            full.Or(TVPMakeLayerLocalFullRect(Rect));
-            InternalComplete2(full, drawable);
-            if(Manager)
-                Manager->GetUpdateRegionForCompletion().Clear();
+        // KrKr2-Next: window complete redraws full primary Rect on GPU path.
+        const bool gpu = IsGPU();
+#if defined(__ANDROID__)
+        {
+            static int s_winComplete = 0;
+            if((++s_winComplete) <= 4 || (s_winComplete & 0xFF) == 0) {
+                KR2RenderProbeWriteF(
+                    "[layer] CompleteForWindow #%d IsGPU=%d name='%s' "
+                    "rect=%d,%d,%dx%d",
+                    s_winComplete, gpu ? 1 : 0,
+                    GetName().AsStdString().c_str(), Rect.left, Rect.top,
+                    Rect.get_width(), Rect.get_height());
+            }
+        }
+#endif
+        if(gpu) {
+            InternalComplete2_GPU(Rect, drawable);
         } else {
             InternalComplete2(Manager->GetUpdateRegionForCompletion(),
                               drawable);
