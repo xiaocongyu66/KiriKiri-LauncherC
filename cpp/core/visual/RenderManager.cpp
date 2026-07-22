@@ -5143,11 +5143,9 @@ static ttstr TVPReadPreferredRenderPipeline() {
     if(TVPGetCommandLine(TJS_W("renderer"), &val))
         renderer = val;
     if(renderer.IsEmpty()) {
-        // Match KrKr2-Next: default OpenGL so IsGPU()/Draw_GPU is active.
-        // Falling back to "software" left DrawGPU=0 and unstable CG present.
         renderer =
             IndividualConfigManager::GetInstance()->GetValue<std::string>(
-                "renderer", "opengl");
+                "renderer", "software");
     }
     return renderer;
 }
@@ -5186,13 +5184,10 @@ iTVPRenderManager *TVPGetRenderManager() {
             }
         } else if(str != TJS_W("software") && str != TJS_W("opengl")) {
             TVPAddLog(TJS_W("[renderer] Unsupported renderer preference '") +
-                      str + TJS_W("'; falling back to opengl renderer."));
-            str = TJS_W("opengl");
+                      str + TJS_W("'; falling back to software renderer."));
+            str = TJS_W("software");
         }
         _RenderManager = TVPGetRenderManager(str);
-        TVPAddLog(TJS_W("[renderer] active pipeline=") + str +
-                  (_RenderManager->IsSoftware() ? TJS_W(" (software)")
-                                                : TJS_W(" (gpu)")));
     }
     return _RenderManager;
 }

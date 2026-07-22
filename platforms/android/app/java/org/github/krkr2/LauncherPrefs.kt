@@ -282,35 +282,8 @@ object LauncherPrefs {
                     }
                     "graphics_backend" ->
                         updates[key] = normalizeGraphicsBackendPreference(value)
-                    // KrKr2-Next-style GPU complete needs ogl_accurate_render off.
-                    // Forcing "1" re-enables CPU complete on GL textures and
-                    // recreates the face-only / corpse-chunk CG bugs.
-                    "ogl_accurate_render" -> {
-                        if (value == "1" || value.equals("true", ignoreCase = true)) {
-                            writeLauncherLog(
-                                context,
-                                "Ignoring per-game ogl_accurate_render=1 for $gameDir " +
-                                    "(Android uses GPU complete like KrKr2-Next)",
-                            )
-                            updates[key] = "0"
-                        } else {
-                            updates[key] = value
-                        }
-                    }
                     else -> updates[key] = value
                 }
-            }
-        }
-        // Always pin accurate render off when launching on Android unless
-        // the user has no override — ensure store is "0" for clean GPU path.
-        if (!updates.containsKey("ogl_accurate_render")) {
-            val globalAccurate = KrkrPrefsStore.getBool(context, "ogl_accurate_render", false)
-            if (globalAccurate) {
-                updates["ogl_accurate_render"] = "0"
-                writeLauncherLog(
-                    context,
-                    "Forcing ogl_accurate_render=0 at launch for $gameDir (GPU path)",
-                )
             }
         }
         if (updates.isNotEmpty()) {

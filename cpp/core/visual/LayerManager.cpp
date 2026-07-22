@@ -199,19 +199,8 @@ void tTVPLayerManager::DrawCompleted(const tTVPRect &destrect,
     TVPSDLRecordBitmapCompletionRegion(this, destrect.left, destrect.top, bmp,
                                        cliprect, static_cast<int>(type),
                                        static_cast<int>(opacity), w, h);
-    if(!bmp) {
-#if defined(__ANDROID__)
-        KR2RenderProbeWriteF(
-            "LayerMgr::DrawCompleted SKIP null bmp dest=%d,%d,%dx%d type=%d",
-            destrect.left, destrect.top, destrect.get_width(),
-            destrect.get_height(), (int)type);
-#endif
-        return;
-    }
     if(DrawBuffer->Blt(destrect.left, destrect.top, bmp, cliprect, type,
                        opacity, HoldAlpha)) {
-        // Partial dirty only (KrKr2-Next). Full-buffer MarkDirty every blit
-        // caused severe frame cost on Android present.
         tTVPRect dirty(destrect.left, destrect.top,
                        destrect.left + cliprect.get_width(),
                        destrect.top + cliprect.get_height());

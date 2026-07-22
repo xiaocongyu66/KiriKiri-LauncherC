@@ -938,15 +938,9 @@ bool tTVPNativeBaseBitmap::InternalBlendText(tTVPCharacterData *data,
     opa_id = _opa_id;                                                          \
     clr_id = _clr_id;
 
-    // Match LayerIntf IsGPU: on Android ignore ogl_accurate_render so text
-    // and layer blits stay on the same GPU path as Draw_GPU / present.
-#if defined(__ANDROID__)
-    static bool fastGPURoute = !TVPIsSoftwareRenderManager();
-#else
     static bool fastGPURoute = !TVPIsSoftwareRenderManager() &&
         !IndividualConfigManager::GetInstance()->GetValue<bool>(
             "ogl_accurate_render", false);
-#endif
 
     iTVPTexture2D *pTexSrc;
     if(fastGPURoute && dtdata->bltmode == bmAlphaOnAlpha && dtdata->opa > 0) {

@@ -222,124 +222,26 @@ bool TVPFreeUnusedLayerCache = false;
 //---------------------------------------------------------------------------
 
 static bool IsGPU() {
-    // IsGPU gates Draw_GPU vs CPU InternalComplete. When false on an OpenGL
-    // manager, layers still use GPU textures but complete via software tree
-    // walks — unstable on Android external SurfaceTexture present (face-only
-    // CG, blank body). KrKr2-Next effectively needs the GPU complete path.
-    //
-    // Log 20260722224933239: pipeline=opengl (gpu) yet IsGPU=0 always and
-    // DrawGPU=0 — almost certainly ogl_accurate_render saved true for the game.
-#if defined(__ANDROID__)
-    static bool logged = false;
-    const bool software = TVPIsSoftwareRenderManager();
-    const bool accurate =
-        IndividualConfigManager::GetInstance()->GetValue<bool>(
-            "ogl_accurate_render", false);
-    // On Android always use GPU complete when the render manager is OpenGL.
-    // ogl_accurate_render remains available on desktop; on Android it only
-    // breaks present without a software surface path like krkrsdl2.
-    const bool isGPU = !software;
-    if(!logged) {
-        logged = true;
-        TVPAddLog(ttstr(TJS_W("[renderer] IsGPU=")) +
-                  ttstr(isGPU ? TJS_W("1") : TJS_W("0")) +
-                  TJS_W(" software=") +
-                  ttstr(software ? TJS_W("1") : TJS_W("0")) +
-                  TJS_W(" ogl_accurate_render=") +
-                  ttstr(accurate ? TJS_W("1") : TJS_W("0")) +
-                  TJS_W(" (android forces GPU complete when not software)"));
-    }
-    return isGPU;
-#else
     static bool isGPU = !TVPIsSoftwareRenderManager() &&
         !IndividualConfigManager::GetInstance()->GetValue<bool>(
             "ogl_accurate_render", false);
     return isGPU;
-#endif
 }
 
-// Match KrKr2-Next: no full-frame force on every complete. Full-frame every
-// tick tanks FPS (user-reported lag after d16ccb6) without fixing CG composite.
-// Window completion already redraws the primary layer via CompleteForWindow.
-
+static bool TVPShouldUseFullFrameGPUCompletion() {
 #if defined(__ANDROID__)
-// Sample a single ARGB pixel (safe bounds). Returns 0 if unavailable.
-static tjs_uint32 KR2SamplePixel(iTVPBaseBitmap *bmp, int x, int y) {
-    if(!bmp || !bmp->Is32BPP())
-        return 0;
-    const int w = (int)bmp->GetWidth();
-    const int h = (int)bmp->GetHeight();
-    if(w <= 0 || h <= 0)
-        return 0;
-    if(x < 0)
-        x = 0;
-    if(y < 0)
-        y = 0;
-    if(x >= w)
-        x = w - 1;
-    if(y >= h)
-        y = h - 1;
-    const tjs_uint32 *row = (const tjs_uint32 *)bmp->GetScanLine(y);
-    return row ? row[x] : 0;
-}
-
-static void KR2LogLayerBlit(const char *op, tTJSNI_BaseLayer *dst, tjs_int dx,
-                            tjs_int dy, const tTVPRect &srcRect,
-                            iTVPBaseBitmap *srcBmp, const char *srcName,
-                            int modeOrFace, int opacity, bool modified) {
-    if(!dst)
-        return;
-    static int s_blit = 0;
-    ++s_blit;
-    const bool interesting =
-        KR2LayerDiagInterestingStorage(dst->GetName()) ||
-        (srcName && *srcName &&
-         KR2LayerDiagInterestingStorage(ttstr(srcName)));
-    const int area =
-        srcRect.get_width() * srcRect.get_height();
-    // Always log interesting CG/stand blits; sample large or early others.
-    if(!interesting && s_blit > 48 && (s_blit & 0x3F) != 0 && area < 200 * 200)
-        return;
-
-    iTVPBaseBitmap *dstBmp = dst->GetMainImage();
-    const int dw = dstBmp ? (int)dstBmp->GetWidth() : 0;
-    const int dh = dstBmp ? (int)dstBmp->GetHeight() : 0;
-    const int sw = srcBmp ? (int)srcBmp->GetWidth() : 0;
-    const int sh = srcBmp ? (int)srcBmp->GetHeight() : 0;
-    // Sample dest at blit center and src center after the operation.
-    const int dcx = dx + srcRect.get_width() / 2;
-    const int dcy = dy + srcRect.get_height() / 2;
-    const int scx = srcRect.left + srcRect.get_width() / 2;
-    const int scy = srcRect.top + srcRect.get_height() / 2;
-    const tjs_uint32 dp = KR2SamplePixel(dstBmp, dcx, dcy);
-    const tjs_uint32 sp = KR2SamplePixel(srcBmp, scx, scy);
-    // Corner + center occupancy on dest ROI (up to 5 samples).
-    unsigned dClear = 0, dOpaque = 0, dN = 0;
-    if(dstBmp && srcRect.get_width() > 0 && srcRect.get_height() > 0) {
-        const int xs[5] = { dx, dx + srcRect.get_width() - 1, dcx, dx,
-                            dx + srcRect.get_width() - 1 };
-        const int ys[5] = { dy, dy, dcy, dy + srcRect.get_height() - 1,
-                            dy + srcRect.get_height() - 1 };
-        for(int i = 0; i < 5; ++i) {
-            const tjs_uint32 p = KR2SamplePixel(dstBmp, xs[i], ys[i]);
-            ++dN;
-            const unsigned a = (p >> 24) & 0xff;
-            if(a == 0)
-                ++dClear;
-            else if(a == 255)
-                ++dOpaque;
-        }
-    }
-    KR2RenderProbeWriteF(
-        "[layer] %s #%d dst='%s' dx=%d dy=%d src='%s' sr=%d,%d,%dx%d "
-        "mode=%d opa=%d mod=%d dstSz=%dx%d srcSz=%dx%d "
-        "dstPix=%08x srcPix=%08x dstROI(n=%u clear=%u opq=%u)",
-        op, s_blit, dst->GetName().AsStdString().c_str(), (int)dx, (int)dy,
-        srcName ? srcName : "", srcRect.left, srcRect.top, srcRect.get_width(),
-        srcRect.get_height(), modeOrFace, opacity, modified ? 1 : 0, dw, dh, sw,
-        sh, (unsigned)dp, (unsigned)sp, dN, dClear, dOpaque);
-}
+    // Non-accurate Android OpenGL completion is eventually sampled as a whole
+    // texture by the Flutter/SDL presenter. Do not depend on takeover timing:
+    // early startup and surface rebuild frames must be complete too.
+    return true;
+#else
+    return false;
 #endif
+}
+
+static tTVPRect TVPMakeLayerLocalFullRect(const tTVPRect &rect) {
+    return tTVPRect(0, 0, rect.get_width(), rect.get_height());
+}
 
 //---------------------------------------------------------------------------
 // temporary bitmap management
@@ -399,8 +301,6 @@ private:
             w += (w & 1);
 
         // get temporary bitmap (nested)
-        // KrKr2-Next does not zero every reuse; callers overwrite used rects.
-        // Clearing full temps each frame was a major FPS regression.
         TempLevel++;
         if(TempLevel > Temporaries.size()) {
             // increase buffer size
@@ -2718,17 +2618,6 @@ void tTJSNI_BaseLayer::AssignImages(tTJSNI_BaseLayer *src) {
     if(MainImage)
         ResetClip(); // cliprect is reset
 
-#if defined(__ANDROID__)
-    {
-        tTVPRect full(0, 0, MainImage ? (tjs_int)MainImage->GetWidth() : 0,
-                      MainImage ? (tjs_int)MainImage->GetHeight() : 0);
-        KR2LogLayerBlit("assignImages", this, 0, 0, full,
-                        src && src->MainImage ? src->MainImage : nullptr,
-                        src ? src->GetName().AsStdString().c_str() : "", 0, 255,
-                        main_changed);
-    }
-#endif
-
     if(main_changed)
         Update(false); // update
 }
@@ -4878,11 +4767,6 @@ void tTJSNI_BaseLayer::PiledCopy(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
             MainImage->CopyRect(dx, dy, bmp, rc,
                                 TVP_BB_COPY_MAIN | TVP_BB_COPY_MASK) ||
             ImageModified;
-#if defined(__ANDROID__)
-        KR2LogLayerBlit("piledCopy", this, dx, dy, rc, bmp,
-                        src->GetName().AsStdString().c_str(), (int)DrawFace, 255,
-                        ImageModified);
-#endif
     } catch(...) {
         src->DecCacheEnabledCount();
         throw;
@@ -4969,13 +4853,6 @@ void tTJSNI_BaseLayer::CopyRect(tjs_int dx, tjs_int dy, iTVPBaseBitmap *src,
         case dfAuto:
             break;
     }
-
-#if defined(__ANDROID__)
-    if(DrawFace != dfProvince && DrawFace != dfAuto) {
-        KR2LogLayerBlit("copyRect", this, dx, dy, rect, src, "", (int)DrawFace,
-                        255, ImageModified);
-    }
-#endif
 
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
@@ -5151,7 +5028,7 @@ void tTJSNI_BaseLayer::AffineCopy(const tTVPPointD *points, iTVPBaseBitmap *src,
 // uses these four entry points for facial mesh deformation. The full
 // implementations live in W.Dee's TVPDoBoxBlur-class native renderer
 // (see kirikiroid2-web/cpp/core/visual/LayerIntf.cpp) but Android's
-// OpenGL rendering path does not have a mesh-blit primitive yet.
+// cocos2d-x rendering path does not have a mesh-blit primitive yet.
 //
 // Rather than crash, we land here as no-ops. Each stub records a single
 // warning the first time it is hit (per layer) so the diagnostics panel
@@ -5270,13 +5147,6 @@ void tTJSNI_BaseLayer::PileRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
             break;
     }
 
-#if defined(__ANDROID__)
-    KR2LogLayerBlit("pileRect", this, dx, dy, rect,
-                    src ? src->MainImage : nullptr,
-                    src ? src->GetName().AsStdString().c_str() : "",
-                    (int)DrawFace, (int)opacity, ImageModified);
-#endif
-
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
     if(ImageLeft != 0 || ImageTop != 0) {
@@ -5330,13 +5200,6 @@ void tTJSNI_BaseLayer::BlendRect(tjs_int dx, tjs_int dy, tTJSNI_BaseLayer *src,
             break;
     }
 
-#if defined(__ANDROID__)
-    KR2LogLayerBlit("blendRect", this, dx, dy, rect,
-                    src ? src->MainImage : nullptr,
-                    src ? src->GetName().AsStdString().c_str() : "",
-                    (int)DrawFace, (int)opacity, ImageModified);
-#endif
-
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
     if(ImageLeft != 0 || ImageTop != 0) {
@@ -5376,11 +5239,6 @@ void tTJSNI_BaseLayer::OperateRect(tjs_int dx, tjs_int dy, iTVPBaseBitmap *src,
     ImageModified =
         MainImage->Blt(dx, dy, src, rect, met, opacity, HoldAlpha) ||
         ImageModified;
-
-#if defined(__ANDROID__)
-    KR2LogLayerBlit("operateRect", this, dx, dy, rect, src, "", (int)mode,
-                    (int)opacity, ImageModified);
-#endif
 
     tTVPRect ur = rect;
     ur.set_offsets(dx, dy);
@@ -7068,11 +6926,6 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
     }
 #endif
 
-    // KrKr2-Next Draw_GPU: when opacity/transition needs a child composite
-    // target, the temp (or cache) is full layer size so child Rect coords
-    // map 1:1. Sampling only the local update `rect` happens in DrawCompleted.
-    // A prior partial-temp path (update-rect-sized) mis-placed children and
-    // produced face-only / corpse-chunk CG composites on Android.
     if(Opacity < 255 || (InTransition && TransWithChildren)) {
         // rearrange pipe line for transition
         if(InTransition && TransWithChildren) {
@@ -7092,21 +6945,15 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                     Rect.get_width(), Rect.get_height());
             }
             tTVPRect rectForChild(0, 0, Rect.get_width(), Rect.get_height());
-
-            // Initialize the child composition target with this layer's own
-            // pixels, or transparent/neutral pixels when the layer has no main
-            // image (CopySelfForRect handles null MainImage).
             CopySelfForRect(UpdateBitmapForChild, 0, 0, rectForChild);
 #if defined(__ANDROID__)
             if(KR2LayerDiagInterestingStorage(GetName()) ||
                (s_drawGpu <= 24)) {
                 KR2RenderProbeWriteF(
-                    "[layer] DrawGPU-tempInit L=%p temp=%p layer=%dx%d "
-                    "upd=%d,%d,%dx%d useTemp=%d hasMain=%d",
+                    "[layer] DrawGPU-tempInit L=%p temp=%p full=%dx%d "
+                    "useTemp=%d after CopySelfForRect",
                     (void *)this, (void *)UpdateBitmapForChild,
-                    Rect.get_width(), Rect.get_height(), rect.left, rect.top,
-                    rect.get_width(), rect.get_height(), useTemp ? 1 : 0,
-                    MainImage ? 1 : 0);
+                    Rect.get_width(), Rect.get_height(), useTemp ? 1 : 0);
             }
 #endif
 
@@ -7117,7 +6964,7 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                 if(!child->Visible)
                     continue;
 
-                // intersection check against full layer child space
+                // intersection check
                 if(!TVPIntersectRect(&UpdateRectForChild, rectForChild,
                                      child->Rect))
                     continue;
@@ -7135,7 +6982,6 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
                                 UpdateRectForChild.top, UpdateRectForChild);
             }
             TVP_LAYER_FOR_EACH_CHILD_END
-            // `rect` stays in layer-local coords matching the full-size temp.
             target->DrawCompleted(rctar, UpdateBitmapForChild, rect,
                                   DisplayType, Opacity);
             if(useTemp)
@@ -7147,6 +6993,12 @@ void tTJSNI_BaseLayer::Draw_GPU(tTVPDrawable *target, int x, int y,
         } else {
             DrawnRegion.Clear();
             // send completion message to the target
+
+            // 			if (UpdateExcludeRect.top <= rect.top &&
+            // UpdateExcludeRect.bottom >= rect.bottom &&
+            // rect.left
+            // >= UpdateExcludeRect.left && rect.right <=
+            // UpdateExcludeRect.right) { 			} else
             {
                 tTVPRect rc(rect);
                 DrawSelf(target, rctar, rc);
@@ -7860,10 +7712,15 @@ void tTJSNI_BaseLayer::InternalComplete(tTVPComplexRect &updateregion,
     // determined
     InCompletion = true;
 
-    // Same as KrKr2-Next: GPU uses bound of dirty region; CPU uses complex
-    // partial rects. Do not expand to full frame here.
     if(IsGPU()) {
-        InternalComplete2_GPU(updateregion.GetBound(), drawable);
+        if(updateregion.GetCount() > 0) {
+            const tTVPRect completionRect =
+                TVPShouldUseFullFrameGPUCompletion()
+                    ? TVPMakeLayerLocalFullRect(Rect)
+                    : updateregion.GetBound();
+            InternalComplete2_GPU(completionRect, drawable);
+        }
+        updateregion.Clear();
     } else {
         InternalComplete2(updateregion, drawable);
     }
@@ -7884,39 +7741,10 @@ void tTJSNI_BaseLayer::CompleteForWindow(tTVPDrawable *drawable) {
     if(Manager)
         Manager->GetLayerTreeOwner()->StartBitmapCompletion(Manager);
     try {
-        // KrKr2-Next: window complete redraws full primary Rect on GPU path.
-        const bool gpu = IsGPU();
-#if defined(__ANDROID__)
-        {
-            static int s_winComplete = 0;
-            if((++s_winComplete) <= 4 || (s_winComplete & 0xFF) == 0) {
-                KR2RenderProbeWriteF(
-                    "[layer] CompleteForWindow #%d IsGPU=%d name='%s' "
-                    "rect=%d,%d,%dx%d",
-                    s_winComplete, gpu ? 1 : 0,
-                    GetName().AsStdString().c_str(), Rect.left, Rect.top,
-                    Rect.get_width(), Rect.get_height());
-            }
-        }
-#endif
-        if(gpu) {
-            try {
-                InternalComplete2_GPU(Rect, drawable);
-            } catch(...) {
-                // Fall back to CPU complete rather than killing the game
-                // (78.log: first IsGPU=1 frame threw "Not drawable layer type").
-#if defined(__ANDROID__)
-                KR2RenderProbeWriteF(
-                    "[layer] CompleteForWindow GPU failed -> CPU fallback "
-                    "name='%s'",
-                    GetName().AsStdString().c_str());
-#endif
-                TVPAddLog(TJS_W("[renderer] CompleteForWindow GPU path failed; "
-                                "falling back to CPU complete once."));
-                if(Manager)
-                    InternalComplete2(Manager->GetUpdateRegionForCompletion(),
-                                      drawable);
-            }
+        if(IsGPU()) {
+            InternalComplete2_GPU(TVPMakeLayerLocalFullRect(Rect), drawable);
+            if(Manager)
+                Manager->GetUpdateRegionForCompletion().Clear();
         } else {
             InternalComplete2(Manager->GetUpdateRegionForCompletion(),
                               drawable);
