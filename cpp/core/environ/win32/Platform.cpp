@@ -341,13 +341,13 @@ void TVPExitApplication(int code) {
     // 	if (TVPScriptEngine) TVPScriptEngine->Cleanup();
     // 	TVPReleaseFontLibrary();
     // 	delete ::Application;
-    // 	TVPMainScene::GetInstance()->removeFromParent();
+    // 	(legacy Cocos scene detach removed)
     exit(code);
 }
 
 // const std::string &TVPGetInternalPreferencePath() {
 // 	static std::string
-// ret(cocos2d::FileUtils::getInstance()->getWritablePath()); 	return
+// ret(writable path); return
 // ret;
 // }
 //

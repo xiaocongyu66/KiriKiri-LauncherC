@@ -251,7 +251,7 @@ void TVPAndroidInitializeSDLHost(JNIEnv *env, const char *source) {
 
 void TVPAndroidInitializeLegacyHost(JNIEnv *env, const char *source) {
     // Legacy JNI entry kept only for KR2Activity bridge symbols. Android no
-    // longer owns a Cocos host; always hand off to the SDL3 runtime host.
+    // longer owns a legacy host; always hand off to the SDL3 runtime host.
     TVPAndroidInitializeSDLHost(env, source);
     if(source && *source)
         TVPAppendNativeFatalBreadcrumb("jni", "legacy host -> sdl3");

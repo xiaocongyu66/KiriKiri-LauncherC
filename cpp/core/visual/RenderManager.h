@@ -11,6 +11,7 @@
 #ifndef TVP_TEXTURE_DIRTY_UNITE_LIMIT
 #define TVP_TEXTURE_DIRTY_UNITE_LIMIT 300
 #endif
+// Cocos host removed: always use standalone krkr::Texture2D.
 
 #ifndef GL_ZERO
 #define GL_ZERO 0
@@ -100,19 +101,7 @@ struct TVPTextureFormat {
     };
 };
 
-#if KRKR2_ENABLE_COCOS_HOST
-#ifndef KRKR_TEXTURE2D_ALIAS_DECLARED
-#define KRKR_TEXTURE2D_ALIAS_DECLARED 1
-namespace cocos2d {
-    class Texture2D;
-}
-namespace krkr {
-    using Texture2D = cocos2d::Texture2D;
-}
-#endif
-#else
 #include "ogl/krkr_texture2d.h"
-#endif
 
 class iTVPTexture2D {
 protected:

@@ -17,8 +17,7 @@ target_include_directories(${PROJECT_NAME} PUBLIC
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_17)
 
 target_compile_definitions(${PROJECT_NAME} PUBLIC
-    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:KRKR2_ENABLE_COCOS_HOST=1>
-    $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:KRKR2_ENABLE_COCOS_HOST=0>
+    KRKR2_ENABLE_COCOS_HOST=0
 )
 
 find_package(SDL3 CONFIG REQUIRED)

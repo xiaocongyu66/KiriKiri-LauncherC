@@ -1,11 +1,8 @@
 cmake_minimum_required(VERSION 3.19)
 project(core_movie_module LANGUAGES CXX)
 
-set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
-if(ANDROID)
-    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
-endif()
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
+set(KRKR2_ENABLE_COCOS_HOST OFF CACHE BOOL
+    "Legacy Cocos runtime host (removed; always OFF)" FORCE)
 
 set(MOVIE_PATH ${CMAKE_CURRENT_LIST_DIR})
 set(MOVIE_SOURCE_FILES
@@ -55,8 +52,7 @@ add_library(${PROJECT_NAME} STATIC ${MOVIE_SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${MOVIE_HEADERS_DIR})
 target_link_libraries(${PROJECT_NAME} PUBLIC tjs2 PRIVATE core_base_module core_sound_module core_utils_module core_environ_module core_visual_module)
 target_compile_definitions(${PROJECT_NAME} PUBLIC
-    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:KRKR2_ENABLE_COCOS_HOST=1>
-    $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:KRKR2_ENABLE_COCOS_HOST=0>
+    KRKR2_ENABLE_COCOS_HOST=0
 )
 
 find_package(FFMPEG COMPONENTS
@@ -67,18 +63,9 @@ find_package(FFMPEG COMPONENTS
         swscale
         swresample REQUIRED
 )
-if(KRKR2_ENABLE_COCOS_HOST)
-    find_package(cocos2dx CONFIG REQUIRED)
-    include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
-    fix_cocos2dx_android_cpufeatures_include()
-endif()
 
 target_include_directories(${PROJECT_NAME} PUBLIC ${FFMPEG_INCLUDE_DIRS})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
     ${FFMPEG_LIBRARIES}
 )
-
-if(KRKR2_ENABLE_COCOS_HOST)
-    target_link_libraries(${PROJECT_NAME} PRIVATE cocos2dx::cocos2d)
-endif()

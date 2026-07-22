@@ -1008,19 +1008,6 @@ bool TVPCheckStartupArg() {
     TVPCheckAndSendDumps(Android_GetDumpStoragePath(), GetPackageName(),
                          TVPGetPackageVersionString());
 
-#if KRKR2_ENABLE_COCOS_HOST
-    // register event dispatcher
-    cocos2d::Director *director = cocos2d::Director::getInstance();
-    class HackForScheduler : public cocos2d::Scheduler {
-    public:
-        void regProcessEvents() {
-            schedulePerFrame(_processEvents, &_lastQueuedEvents, -1, false);
-        }
-    };
-    static_cast<HackForScheduler *>(director->getScheduler())
-        ->regProcessEvents();
-#endif
-
     return false;
 }
 

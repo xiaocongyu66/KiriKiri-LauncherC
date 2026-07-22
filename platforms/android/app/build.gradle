@@ -23,8 +23,7 @@ android {
                 targets 'krkr2'
                 cppFlags '-fsigned-char'
                 arguments '-DANDROID_STL=c++_shared',
-                        '-DANDROID=ON',
-                        '-DKRKR2_ENABLE_COCOS_HOST=OFF'
+                        '-DANDROID=ON'
             }
         }
         versionCode Integer.parseInt(new Date().format('yyyyMMddHH'))

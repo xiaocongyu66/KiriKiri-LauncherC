@@ -103,8 +103,8 @@ bool TVPLoadBundledConfigText(const std::string &logicalPath,
 
     static const char *kResourcePrefixes[] = {
         "",
-        "ui/cocos-studio",
-        "flutter_launcher/assets/cocos-studio",
+        "ui/runtime-ui",
+        "flutter_launcher/assets/runtime-ui",
         "Resources",
     };
 

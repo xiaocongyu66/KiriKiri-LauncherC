@@ -5151,7 +5151,7 @@ void tTJSNI_BaseLayer::AffineCopy(const tTVPPointD *points, iTVPBaseBitmap *src,
 // uses these four entry points for facial mesh deformation. The full
 // implementations live in W.Dee's TVPDoBoxBlur-class native renderer
 // (see kirikiroid2-web/cpp/core/visual/LayerIntf.cpp) but Android's
-// cocos2d-x rendering path does not have a mesh-blit primitive yet.
+// OpenGL rendering path does not have a mesh-blit primitive yet.
 //
 // Rather than crash, we land here as no-ops. Each stub records a single
 // warning the first time it is hit (per layer) so the diagnostics panel

@@ -566,7 +566,7 @@ private fun EngineSettings(
         RowSetting(
             Icons.Default.Settings,
             "SDL3 runtime host",
-            "Launch games through the no-Cocos SDL3 frame pump.",
+            "Launch games through the SDL3 frame pump.",
             onClick = { onUseSdlRuntimeActivityChange(!useSdlRuntimeActivity) },
             trailing = {
                 Switch(

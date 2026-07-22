@@ -1,32 +1,14 @@
 #pragma once
 
-// Transitional texture boundary for the renderer migration.
-//
-// The legacy Cocos host still consumes adapter textures directly through
-// cocos2d::Sprite::setTexture().  Keep this header as the only Cocos-facing
-// compatibility point while core renderer interfaces move to krkr::Texture2D.
-// Once the Flutter + SDL3 host owns presentation fully, this type can be
-// replaced by the standalone AetherKiri-style Texture2D implementation.
+// Standalone texture type for the SDL3 / Flutter present path.
+// Cocos2d Texture2D alias was removed with the Cocos host.
 
-#ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 0
-#endif
-
-#if KRKR2_ENABLE_COCOS_HOST
-#include "renderer/CCTexture2D.h"
-#include "renderer/CCGLProgram.h"
-#include "renderer/CCGLProgramCache.h"
-#else
 #include <cstddef>
-#endif
 
 namespace krkr {
 
 #ifndef KRKR_TEXTURE2D_ALIAS_DECLARED
 #define KRKR_TEXTURE2D_ALIAS_DECLARED 1
-#if KRKR2_ENABLE_COCOS_HOST
-using Texture2D = cocos2d::Texture2D;
-#else
 struct Size {
     float width = 0.0f;
     float height = 0.0f;
@@ -68,23 +50,11 @@ protected:
     bool _hasMipmaps = false;
 };
 #endif
-#endif
-#if !KRKR2_ENABLE_COCOS_HOST
+
 using PixelFormat = Texture2D::PixelFormat;
-#else
-using PixelFormat = cocos2d::Texture2D::PixelFormat;
-using Size = cocos2d::Size;
-#endif
 
 inline void SetDefaultTextureProgram(Texture2D *texture) {
-#if KRKR2_ENABLE_COCOS_HOST
-    if(!texture)
-        return;
-    texture->setGLProgram(cocos2d::GLProgramCache::getInstance()->getGLProgram(
-        cocos2d::GLProgram::SHADER_NAME_POSITION_TEXTURE));
-#else
     (void)texture;
-#endif
 }
 
 } // namespace krkr

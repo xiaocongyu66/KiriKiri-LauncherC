@@ -3,11 +3,8 @@ project(krkr2core)
 
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/common)
 
-set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
-if(ANDROID)
-    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
-endif()
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
+set(KRKR2_ENABLE_COCOS_HOST OFF CACHE BOOL
+    "Legacy Cocos runtime host (removed; always OFF)" FORCE)
 
 add_library(${PROJECT_NAME} INTERFACE)
 
@@ -46,8 +43,7 @@ target_compile_definitions(${PROJECT_NAME} INTERFACE
     -DTJS_TEXT_OUT_CRLF
     -D__STDC_CONSTANT_MACROS
     -DUSE_UNICODE_FSTRING
-    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:KRKR2_ENABLE_COCOS_HOST=1>
-    $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:KRKR2_ENABLE_COCOS_HOST=0>
+    KRKR2_ENABLE_COCOS_HOST=0
 )
 
 if(ANDROID)
@@ -60,16 +56,5 @@ if(ANDROID)
         GLESv1_CM
         vulkan
         OpenSLES
-    )
-endif()
-
-if(KRKR2_ENABLE_COCOS_HOST)
-    find_package(cocos2dx CONFIG REQUIRED)
-    include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
-    fix_cocos2dx_android_cpufeatures_include()
-
-    target_link_libraries(${PROJECT_NAME} INTERFACE
-        cocos2dx::cocos2d
-        $<$<BOOL:${ANDROID}>:$<LINK_LIBRARY:WHOLE_ARCHIVE,cocos2dx::cpp_android_spec>>
     )
 endif()

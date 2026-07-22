@@ -12,7 +12,7 @@
 #include "RectItf.h"
 #include "tvpfontstruc.h"
 #include "WindowIntf.h"
-// AetherKiri uses an EGL Pbuffer; on our cocos2d-x path the render
+// AetherKiri uses an EGL Pbuffer; on the OpenGL path the render
 // target is owned by the GL view, so we skip framebuffer-derived
 // HiDPI auto-scale (krkr_egl_context.h is intentionally not included).
 
@@ -396,7 +396,7 @@ void TextRenderBase::applyFont() {
 double TextRenderBase::getEffectiveFontScale() const {
   // AetherKiri originally derived an HiDPI auto-scale by comparing the
   // logical window size to the EGL Pbuffer framebuffer size. On our
-  // cocos2d-x path the render target is the OpenGL view that already
+  // the render target is the OpenGL view that already
   // matches window resolution, so the requested scale is effective.
   return getRequestedFontScale();
 }

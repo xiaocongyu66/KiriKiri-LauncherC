@@ -257,7 +257,7 @@ class SdlRuntimeActivity : Activity(), SurfaceHolder.Callback,
             "SdlRuntimeActivity.startGame result=$gameStarted path=$launchPath",
         )
         if (!gameStarted) {
-            LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.start failed no legacy Cocos fallback")
+            LauncherPrefs.writeLauncherLog(this, "SdlRuntimeActivity.start failed no legacy host fallback")
             finish()
         }
     }

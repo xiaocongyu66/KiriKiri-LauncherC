@@ -5,23 +5,9 @@
 #include "krmovie.h"
 #include "ComplexRect.h"
 
-#ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 0
-#endif
-
 struct SwsContext;
 
 class iTVPSoundBuffer;
-
-#if KRKR2_ENABLE_COCOS_HOST
-class TVPYUVSprite;
-
-namespace cocos2d {
-    class Sprite;
-
-    class Node;
-} // namespace cocos2d
-#endif
 
 NS_KRMOVIE_BEGIN
 #define MAX_BUFFER_COUNT 4
@@ -228,68 +214,6 @@ protected:
     double m_curpts = 0;
 };
 
-#if KRKR2_ENABLE_COCOS_HOST
-class VideoPresentOverlay : public TVPMoviePlayer // cocos2d compatible video
-                                                  // display overlay
-{
-protected:
-    cocos2d::Node *m_pRootNode = nullptr;
-    TVPYUVSprite *m_pSprite = nullptr;
-
-    ~VideoPresentOverlay() override;
-
-    void ClearNode();
-
-public:
-    void PresentPicture(float dt);
-
-    void Stop() override;
-
-    void Play() override;
-
-protected:
-    virtual const tTVPRect &GetBounds() = 0;
-};
-
-class MoviePlayerOverlay : public VideoPresentOverlay {
-    tTJSNI_VideoOverlay *m_pCallbackWin = nullptr;
-    tTJSNI_Window *m_pOwnerWindow = nullptr;
-
-    void OnPlayEvent(KRMovieEvent msg, void *p);
-
-public:
-    ~MoviePlayerOverlay() override;
-
-    void SetWindow(class tTJSNI_Window *window) override;
-
-    void BuildGraph(tTJSNI_VideoOverlay *callbackwin, IStream *stream,
-                    const tjs_char *streamname, const tjs_char *type,
-                    uint64_t size);
-
-    const tTVPRect &GetBounds() override;
-
-    void SetVisible(bool b) override;
-};
-
-class VideoPresentOverlay2 : public VideoPresentOverlay {
-    std::function<const tTVPRect &()> m_funcGetBounds;
-
-public:
-    const tTVPRect &GetBounds() override { return m_funcGetBounds(); }
-
-    void SetFuncGetBounds(const std::function<const tTVPRect &()> &func) {
-        m_funcGetBounds = func;
-    }
-
-    BasePlayer *GetPlayer() { return m_pPlayer; }
-
-    void SetRootNode(cocos2d::Node *node);
-
-    cocos2d::Node *GetRootNode() { return m_pRootNode; }
-
-    static VideoPresentOverlay2 *create();
-};
-#else
 class MoviePlayerOverlay : public TVPMoviePlayer {
     tTJSNI_VideoOverlay *m_pCallbackWin = nullptr;
 
@@ -304,6 +228,6 @@ public:
         return MAX_BUFFER_COUNT;
     }
 };
-#endif
+
 
 NS_KRMOVIE_END

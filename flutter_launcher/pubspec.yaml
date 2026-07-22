@@ -25,4 +25,4 @@ flutter:
   fonts:
     - family: NotoSansCJK
       fonts:
-        - asset: assets/cocos-studio/NotoSansCJK-Regular.ttc
+        - asset: assets/runtime-ui/NotoSansCJK-Regular.ttc

@@ -1,11 +1,8 @@
 cmake_minimum_required(VERSION 3.19)
 project(core_visual_module LANGUAGES CXX)
 
-set(KRKR2_ENABLE_COCOS_HOST_DEFAULT ON)
-if(ANDROID)
-    set(KRKR2_ENABLE_COCOS_HOST_DEFAULT OFF)
-endif()
-option(KRKR2_ENABLE_COCOS_HOST "Build the legacy Cocos runtime host" ${KRKR2_ENABLE_COCOS_HOST_DEFAULT})
+set(KRKR2_ENABLE_COCOS_HOST OFF CACHE BOOL
+    "Legacy Cocos runtime host (removed; always OFF)" FORCE)
 
 set(VISUAL_PATH ${CMAKE_CURRENT_LIST_DIR})
 set(VISUAL_SOURCE_FILES
@@ -89,8 +86,7 @@ add_library(${PROJECT_NAME} STATIC ${VISUAL_SOURCE_FILES})
 target_include_directories(${PROJECT_NAME} PUBLIC ${VISUAL_HEADERS_DIR})
 target_link_libraries(${PROJECT_NAME} PUBLIC tjs2 PRIVATE core_base_module core_environ_module core_plugin_module core_sound_module core_utils_module)
 target_compile_definitions(${PROJECT_NAME} PUBLIC
-    $<$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>:KRKR2_ENABLE_COCOS_HOST=1>
-    $<$<NOT:$<BOOL:${KRKR2_ENABLE_COCOS_HOST}>>:KRKR2_ENABLE_COCOS_HOST=0>
+    KRKR2_ENABLE_COCOS_HOST=0
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE libbpg)
@@ -99,7 +95,6 @@ find_package(WebP CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} INTERFACE WebP::webp WebP::webpdecoder WebP::webpdemux)
 
 # Prefer vcpkg config package; fall back to CMake's FindFreetype module.
-# Android no longer pulls FreeType transitively via cocos2dx.
 find_package(Freetype CONFIG QUIET)
 if(NOT Freetype_FOUND AND NOT TARGET Freetype::Freetype)
     find_package(freetype CONFIG QUIET)
@@ -111,15 +106,6 @@ elseif(TARGET freetype)
 else()
     find_package(Freetype REQUIRED)
     target_link_libraries(${PROJECT_NAME} PUBLIC Freetype::Freetype)
-endif()
-
-if(KRKR2_ENABLE_COCOS_HOST)
-    find_package(cocos2dx CONFIG REQUIRED)
-    include("${CMAKE_SOURCE_DIR}/cmake/FixCocos2dxImportedTargets.cmake")
-    fix_cocos2dx_android_cpufeatures_include()
-    target_link_libraries(${PROJECT_NAME} PRIVATE
-            cocos2dx::cocos2d
-    )
 endif()
 
 find_package(JXR REQUIRED)

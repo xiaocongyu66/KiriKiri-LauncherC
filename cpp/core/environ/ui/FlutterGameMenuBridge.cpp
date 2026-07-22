@@ -7,12 +7,6 @@
 #include "Platform.h"
 #include "sdl/SDLGameManager.h"
 #include "runtime/RuntimeHost.h"
-#ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 0
-#endif
-#if KRKR2_ENABLE_COCOS_HOST
-#include "cocos2d/MainScene.h"
-#endif
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -227,35 +221,11 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
     if(!actionNameUtf8 || !*actionNameUtf8)
         return -1;
 
-#if KRKR2_ENABLE_COCOS_HOST
-    auto *scene = TVPMainScene::GetInstance();
-
-    if(IsOverlayAction(actionNameUtf8, "window-manager")) {
-        if(!scene)
-            return -2;
-        RunOnEngineThread([]() {
-            if(auto *scene = TVPMainScene::GetInstance())
-                scene->showWindowManagerOverlay(true);
-        });
-        return 0;
-    }
-
-    if(IsOverlayAction(actionNameUtf8, "mouse-mode")) {
-        if(!scene)
-            return -2;
-        const bool nextMode = !scene->isVirtualMouseMode();
-        RunOnEngineThread([]() {
-            if(auto *scene = TVPMainScene::GetInstance())
-                scene->toggleVirtualMouseCursor();
-        });
-        return nextMode ? 1 : 0;
-    }
-#else
+    // Cocos scene overlays removed; window-manager / mouse-mode are N/A.
     if(IsOverlayAction(actionNameUtf8, "window-manager") ||
        IsOverlayAction(actionNameUtf8, "mouse-mode")) {
         return -4;
     }
-#endif
 
     if(IsOverlayAction(actionNameUtf8, "keyboard")) {
         RunOnEngineThread([]() {
@@ -268,9 +238,6 @@ extern "C" int KR2LauncherPerformOverlayAction(const char *actionNameUtf8) {
             if(height <= 0)
                 height = 1080;
             TVPShowIME(0, 0, width, height);
-#elif KRKR2_ENABLE_COCOS_HOST
-            if(auto *scene = TVPMainScene::GetInstance())
-                scene->attachWithIME();
 #endif
         });
         return 0;

@@ -334,7 +334,7 @@ void LogGameMenuRenderIntent(const TVPSDLUIState &state,
     char message[1536];
     std::snprintf(
         message, sizeof(message),
-        "game-menu render-intent #%llu event=%s backend=sdlui-cocos-shell "
+        "game-menu render-intent #%llu event=%s backend=sdlui-runtime-shell "
         "visible=%d shrinked=%s hitted=%s mouseIcon=%s scene=%dx%d "
         "scale=%.3f rootScene=%s handlerScene=%s buttons=%zu [%s] "
         "events=%d video=%d audio=%d ticks=%u",
@@ -435,7 +435,7 @@ std::vector<TVPSDLUITemplate> BuildLegacyTemplates(const std::string &root) {
 
 } // namespace
 
-void TVPSDLUIRegisterLegacyCocosStudioAssets(const char *sourceRoot,
+void TVPSDLUIRegisterLegacyRuntimeUIAssets(const char *sourceRoot,
                                              const char *runtimeRoot) {
     TVPSDLInitializeRuntime();
     const std::string source = SafeString(sourceRoot);
@@ -457,7 +457,7 @@ void TVPSDLUIRegisterLegacyCocosStudioAssets(const char *sourceRoot,
     std::snprintf(
         message, sizeof(message),
         "assets source=%s runtime=%s templates=%zu names=%s imageRoot=img "
-        "localeRoot=locale font=%s reuse=legacy-cocos-studio events=%d "
+        "localeRoot=locale font=%s reuse=legacy-runtime-ui events=%d "
         "video=%d audio=%d ticks=%u",
         source.c_str(), runtime.c_str(), templates.size(),
         templateNames.c_str(), "NotoSansCJK-Regular.ttc",
@@ -547,11 +547,11 @@ void TVPSDLUIRecordAndroidTouch(const char *eventName, float frameX,
             const bool sameAction =
                 samePointer && !hitAction.empty() &&
                 hitAction == gSDLUIState.gameMenuTouch.action;
-            const bool stillOwnedByCocosDrag =
+            const bool stillOwnedByLegacyDrag =
                 gSDLUIState.gameMenuTouch.hitId == "handler" ||
                 gSDLUIState.gameMenuTouch.hitId == "root";
-            mirrorOnly = sameAction && stillOwnedByCocosDrag;
-            if(sameAction && !stillOwnedByCocosDrag) {
+            mirrorOnly = sameAction && stillOwnedByLegacyDrag;
+            if(sameAction && !stillOwnedByLegacyDrag) {
                 queued = QueueGameMenuActionLocked(
                     hitAction, "android-touch", sceneX, sceneY, pointerId,
                     nowTicks, queuedSequence, deduped);

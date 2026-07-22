@@ -2,7 +2,7 @@
 
 #include <cstddef>
 
-void TVPSDLUIRegisterLegacyCocosStudioAssets(const char *sourceRoot,
+void TVPSDLUIRegisterLegacyRuntimeUIAssets(const char *sourceRoot,
                                              const char *runtimeRoot);
 void TVPSDLUIRecordViewport(int frameWidth, int frameHeight, int sceneWidth,
                             int sceneHeight, float scale);

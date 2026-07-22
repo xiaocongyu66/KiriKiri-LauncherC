@@ -1,26 +1,18 @@
-#include <memory>
-#include <gtk/gtk.h>
-
+#include <cstdio>
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
 
-#include "environ/cocos2d/AppDelegate.h"
-
-#include "environ/ui/MainFileSelectorForm.h"
-
+// Desktop Cocos host was removed. Production runtime is Flutter + SDL3 on
+// Android (SdlRuntimeActivity). Native desktop entry is intentionally a stub.
 int main(int argc, char **argv) {
-    gtk_init(&argc, &argv);
-    spdlog::set_level(spdlog::level::debug);
-
+    (void)argc;
+    (void)argv;
     static auto core_logger = spdlog::stdout_color_mt("core");
-    static auto tjs2_logger = spdlog::stdout_color_mt("tjs2");
-    static auto plugin_logger = spdlog::stdout_color_mt("plugin");
-    // 将输入的参数也就是输入文件转为wstring
-    if(argc > 1) {
-        TVPMainFileSelectorForm::filePath = argv[1];
-    }
     spdlog::set_default_logger(core_logger);
-
-    static auto pAppDelegate = std::make_unique<TVPAppDelegate>();
-    return pAppDelegate->run();
+    spdlog::error(
+        "krkr2 native desktop Cocos host has been removed. "
+        "Use the Flutter Android SDL3 runtime (SdlRuntimeActivity).");
+    std::fprintf(stderr,
+                 "krkr2: Cocos desktop host removed; use Flutter Android.\n");
+    return 1;
 }

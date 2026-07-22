@@ -822,7 +822,7 @@ public:
     // Mesh / Bezier-patch variants required by kirikiroid2-web
     // motionplayer (PlayerRenderExecute / PlayerRenderTargets) for
     // facial mesh deformation. These are NOT implemented yet on the
-    // Android cocos2d rendering path; the .cpp file emits an empty
+    // Android OpenGL rendering path; the .cpp file emits an empty
     // stub that records a one-shot TVPAddLog warning. The motion
     // engine falls through to the AffineCopy branch for most layer
     // sources, so the visual effect is "mesh deformation disabled"

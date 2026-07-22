@@ -29,10 +29,6 @@
       "default-features": false,
       "platform": "!android & !ios"
     },
-    {
-      "name": "cocos2dx",
-      "platform": "!android"
-    },
     "curl",
     {
       "name": "dirent",

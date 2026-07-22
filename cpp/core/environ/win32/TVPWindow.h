@@ -313,16 +313,6 @@ enum {
     orientLandscape,
 };
 
-#ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 0
-#endif
-
-#if KRKR2_ENABLE_COCOS_HOST
-namespace cocos2d {
-    class Node;
-}
-#endif
-
 class iWindowLayer {
 protected:
     tTVPMouseCursorState MouseCursorState = mcsVisible;
@@ -381,11 +371,6 @@ public:
     virtual void ResetTouchVelocity(tjs_int id) = 0;
     virtual bool GetMouseVelocity(float &x, float &y, float &speed) const = 0;
     virtual void TickBeat() = 0;
-#if KRKR2_ENABLE_COCOS_HOST
-    // Cocos movie overlay attach point. SDL/Flutter hosts do not expose a
-    // scene graph node; video present goes through the runtime presenter.
-    virtual cocos2d::Node *GetPrimaryArea() = 0;
-#endif
 
     void SetZoomNumer(tjs_int n) { SetZoom(n, ZoomDenom); }
     [[nodiscard]] tjs_int GetZoomNumer() const { return ZoomNumer; }

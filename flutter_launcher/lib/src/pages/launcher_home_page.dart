@@ -866,7 +866,7 @@ class _SettingsPageState extends State<_SettingsPage> {
               children: [
                 _ChoiceTile(title: 'FFmpeg 解码', value: decodeMode, choices: const {'software': '软件', 'hardware': '硬件'}, onChanged: (value) => _set('ffmpegDecodeMode', value)),
                 _SwitchTile(title: 'FFmpeg 图片解码', subtitle: '启动游戏前应用', value: _bool('useFfmpegImageDecoder', false), onChanged: (value) => _set('useFfmpegImageDecoder', value)),
-                _SwitchTile(title: 'SDL3 运行时', subtitle: '通过无 Cocos 的 SDL3 帧泵启动', value: _bool('useSdlRuntimeActivity', true), onChanged: (value) => _set('useSdlRuntimeActivity', value)),
+                _SwitchTile(title: 'SDL3 运行时', subtitle: '通过 SDL3 帧泵启动', value: _bool('useSdlRuntimeActivity', true), onChanged: (value) => _set('useSdlRuntimeActivity', value)),
                 _ActionTile(icon: Icons.open_in_new_rounded, title: '打开原始引擎', subtitle: '无游戏参数启动', onTap: () => widget.bridge.launchOriginalEngine()),
               ],
             ),

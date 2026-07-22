@@ -2,13 +2,6 @@
 #include "ConfigFileIO.h"
 #include "GlobalConfigManager.h"
 #include <tinyxml2.h>
-#ifndef KRKR2_ENABLE_COCOS_HOST
-#define KRKR2_ENABLE_COCOS_HOST 0
-#endif
-#if KRKR2_ENABLE_COCOS_HOST
-#include "ui/UIText.h"
-#include "ui/UIButton.h"
-#endif
 
 LocaleConfigManager::LocaleConfigManager() = default;
 
@@ -60,49 +53,3 @@ void LocaleConfigManager::Initialize(const std::string &sysLang) {
         }
     }
 }
-
-#if KRKR2_ENABLE_COCOS_HOST
-bool LocaleConfigManager::initText(cocos2d::ui::Text *ctrl) {
-    if(!ctrl)
-        return false;
-    return initText(ctrl, ctrl->getString());
-}
-
-bool LocaleConfigManager::initText(cocos2d::ui::Button *ctrl) {
-    if(!ctrl)
-        return false;
-    return initText(ctrl, ctrl->getTitleText());
-}
-
-bool LocaleConfigManager::initText(cocos2d::ui::Text *ctrl,
-                                   const std::string &tid) {
-    if(!ctrl)
-        return false;
-
-    std::string txt = GetText(tid);
-    if(txt.empty()) {
-        ctrl->setString(tid);
-        ctrl->setColor(cocos2d::Color3B::RED);
-        return false;
-    }
-
-    ctrl->setString(txt);
-    return true;
-}
-
-bool LocaleConfigManager::initText(cocos2d::ui::Button *ctrl,
-                                   const std::string &tid) {
-    if(!ctrl)
-        return false;
-
-    std::string txt = GetText(tid);
-    if(txt.empty()) {
-        ctrl->setTitleText(tid);
-        ctrl->setTitleColor(cocos2d::Color3B::RED);
-        return false;
-    }
-
-    ctrl->setTitleText(txt);
-    return true;
-}
-#endif
