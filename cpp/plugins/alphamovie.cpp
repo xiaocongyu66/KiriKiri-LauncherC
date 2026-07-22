@@ -33,6 +33,10 @@
 #include "StorageIntf.h"
 #include "MsgIntf.h"
 
+#ifndef TJS_INTF_METHOD
+#define TJS_INTF_METHOD
+#endif
+
 #include <zlib.h>
 
 #include <cmath>
