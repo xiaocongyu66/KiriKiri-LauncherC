@@ -19,12 +19,16 @@
 ## 本轮已做
 
 1. **千恋 WEBP 只剩脸**：`LoadWEBP` 逐行 scanline + FFmpeg `HasAlpha` + pimg WEBP 头检测  
-2. **AlphaMovie**：注释对齐上游 manual；API 表面已含 `showNextImage` / FPS* / screen*  
+2. **AlphaMovie 完整移植**（2026-07-22）  
+   - 源：`wamsoft/AlphaMovie` → `cpp/plugins/alphamovie.cpp`  
+   - 自研非标准 DC 预测 JPEG 解码 + zlib-alpha 路径  
+   - 适配：`tTJSBinaryStream`/`delete`；`Layer.update(l,t,w,h)` 脏区；`ZLIB::ZLIB` 链接  
+   - 参考：`alphamovie_manual.tjs`  
 3. **未整仓合并** krkrz / movie-player（结构分叉大，避免一次大合并）
 
 ## 下一步（按收益）
 
-1. 移植 `wamsoft/AlphaMovie` → `cpp/plugins/alphamovie.cpp`（或独立源文件 + CMake）  
+1. 有 `.amv` 样本时做 `showNextImage` 帧回归  
 2. 对照 `movie-player` Android 互斥，检查我们 storage stream 是否多线程 Seek+Read  
 3. 从 `krkrz` 摘 XP3Archive 死锁修复到 `StorageIntf` / XP3 路径  
 4. `tp_stub` 声音扩展接口若脚本需要再补

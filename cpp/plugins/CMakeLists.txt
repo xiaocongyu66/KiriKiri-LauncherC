@@ -234,6 +234,10 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 #        steam DrawDeviceForSteam
 )
 
+# AlphaMovie (.amv) uses zlib for the zlib-alpha frame path.
+find_package(ZLIB REQUIRED)
+target_link_libraries(${PROJECT_NAME} PRIVATE ZLIB::ZLIB)
+
 find_package(fmt CONFIG REQUIRED)
 target_link_libraries(${PROJECT_NAME} PRIVATE fmt::fmt)
 
