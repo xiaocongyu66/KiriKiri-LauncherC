@@ -30,8 +30,38 @@ static bool KR2LayerAllocDiagnosticsEnabled() {
     }();
     return enabled;
 }
+#endif
 
+#include "tjsArray.h"
+#include "LayerIntf.h"
+#include "MsgIntf.h"
+#include "LayerBitmapIntf.h"
+#include "LayerTreeOwner.h"
+#include "GraphicsLoaderIntf.h"
+#include "StorageIntf.h"
+#include "tvpgl.h"
+#include "EventIntf.h"
+#include "SysInitIntf.h"
+#include "TickCount.h"
+#include "DebugIntf.h"
+#include "LayerManager.h"
+#include "BitmapIntf.h"
+
+#include "TVPColor.h"
+// #include "TVPSysFont.h"
+#include "FontRasterizer.h"
+#include "RectItf.h"
+#include "FontSystem.h"
+#include "tjsDictionary.h"
+#include "ConfigManager/IndividualConfigManager.h"
+#include "vkdefine.h"
+#include "RenderManager.h"
+#include <cstdlib>
+#include "FontImpl.h"
+
+#if defined(__ANDROID__)
 // Verbose CG/layer diagnostics for OpenGL face-only issues (Senren CG).
+// Must live after LayerIntf.h so tTVPLayerType / tTJSNI_BaseLayer are known.
 // Always on when native file logging enables render probes. Names that look
 // like event CG / stand / pimg are always logged; others are sampled.
 static bool KR2LayerDiagInterestingStorage(const ttstr &name) {
@@ -40,7 +70,8 @@ static bool KR2LayerDiagInterestingStorage(const ttstr &name) {
         return s.find(sub) != std::string::npos;
     };
     // Event CG / pimg / stands / known Senren characters
-    if(has("ev301") || has("ev701") || has("ev401") || has("ev") && has(".pimg"))
+    if(has("ev301") || has("ev701") || has("ev401") ||
+       (has("ev") && has(".pimg")))
         return true;
     if(has(".pimg") || has("psb://") || has(".stand") || has(".pbd"))
         return true;
@@ -141,7 +172,7 @@ static void KR2SampleMainImageStats(const char *tag, tTJSNI_BaseLayer *layer,
             }
         }
     }
-    const tjs_string name = layer->GetName().AsStdString();
+    const std::string name = layer->GetName().AsStdString();
     KR2RenderProbeWriteF(
         "[layer] %s L=%p name='%s' type=%s disp=%s vis=%d op=%d "
         "pos=%d,%d size=%dx%d imgLeft=%d,%d hasImg=%d main=%p "
@@ -168,33 +199,6 @@ static bool KR2LayerDiagShouldLog(tTJSNI_BaseLayer *layer, int counter,
     return (counter & mask) == 0;
 }
 #endif
-
-#include "tjsArray.h"
-#include "LayerIntf.h"
-#include "MsgIntf.h"
-#include "LayerBitmapIntf.h"
-#include "LayerTreeOwner.h"
-#include "GraphicsLoaderIntf.h"
-#include "StorageIntf.h"
-#include "tvpgl.h"
-#include "EventIntf.h"
-#include "SysInitIntf.h"
-#include "TickCount.h"
-#include "DebugIntf.h"
-#include "LayerManager.h"
-#include "BitmapIntf.h"
-
-#include "TVPColor.h"
-// #include "TVPSysFont.h"
-#include "FontRasterizer.h"
-#include "RectItf.h"
-#include "FontSystem.h"
-#include "tjsDictionary.h"
-#include "ConfigManager/IndividualConfigManager.h"
-#include "vkdefine.h"
-#include "RenderManager.h"
-#include <cstdlib>
-#include "FontImpl.h"
 
 extern void TVPSetFontRasterizer(tjs_int index);
 
