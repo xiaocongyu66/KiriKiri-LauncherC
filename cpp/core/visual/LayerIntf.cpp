@@ -6758,11 +6758,11 @@ void tTJSNI_BaseLayer::BltImage(iTVPBaseBitmap *dest,
 
 #if defined(__ANDROID__)
     {
+        // BltImage is static — no layer instance name available.
         static int s_blt = 0;
         ++s_blt;
-        const bool interesting =
-            KR2LayerDiagInterestingStorage(GetName()) || s_blt <= 48 ||
-            (s_blt & 0x7F) == 0;
+        const bool interesting = s_blt <= 48 || (s_blt & 0x7F) == 0 ||
+            (src && ((int)src->GetWidth() >= 512 || (int)src->GetHeight() >= 512));
         if(interesting && src && dest) {
             const void *srcBits = nullptr;
             const void *dstBits = nullptr;
@@ -6783,16 +6783,14 @@ void tTJSNI_BaseLayer::BltImage(iTVPBaseBitmap *dest,
                     dstGL = (unsigned)t->GetNativeGLTextureId();
             }
             kr2diag::LogComposite(
-                "BltImage", GetName().AsStdString().c_str(), destx, desty,
-                srcrect.left, srcrect.top, srcrect.get_width(),
-                srcrect.get_height(), KR2LayerTypeName(drawtype), (int)opacity,
-                hda ? 1 : 0, (int)met, srcBits, srcPitch, srcW, srcH, dstBits,
-                dstPitch, dstW, dstH);
+                "BltImage", "static", destx, desty, srcrect.left, srcrect.top,
+                srcrect.get_width(), srcrect.get_height(),
+                KR2LayerTypeName(drawtype), (int)opacity, hda ? 1 : 0, (int)met,
+                srcBits, srcPitch, srcW, srcH, dstBits, dstPitch, dstW, dstH);
             KR2RenderProbeWriteF(
-                "[composite] BltImage-tex layer='%s' srcGL=%u dstGL=%u "
+                "[composite] BltImage-tex layer='static' srcGL=%u dstGL=%u "
                 "srcPitch=%d dstPitch=%d",
-                GetName().AsStdString().c_str(), srcGL, dstGL, srcPitch,
-                dstPitch);
+                srcGL, dstGL, srcPitch, dstPitch);
         }
     }
 #endif
@@ -6803,12 +6801,13 @@ void tTJSNI_BaseLayer::BltImage(iTVPBaseBitmap *dest,
         static int s_bltPost = 0;
         ++s_bltPost;
         if((s_bltPost <= 32 || (s_bltPost & 0x7F) == 0 ||
-            KR2LayerDiagInterestingStorage(GetName())) &&
+            (dest && ((int)dest->GetWidth() >= 512 ||
+                      (int)dest->GetHeight() >= 512))) &&
            dest && dest->Is32BPP()) {
             kr2diag::LogColorBuffer(
-                "BltImage-post", GetName().AsStdString().c_str(),
-                (int)dest->GetWidth(), (int)dest->GetHeight(),
-                dest->GetPitchBytes(), dest->GetScanLine(0));
+                "BltImage-post", "static", (int)dest->GetWidth(),
+                (int)dest->GetHeight(), dest->GetPitchBytes(),
+                dest->GetScanLine(0));
         }
     }
 #endif
